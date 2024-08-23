@@ -1,0 +1,18 @@
+You can interact through github via the `gh` command line generally.
+If it fails to auth, prompt the user to run `gh auth login`
+
+Typically when someone requests you to look at a pull request review, they mean to view
+not just the top level comments and reviews, but also the comments nested within that review.
+
+To do that, you need to first use the API to get reviews:
+```bash
+gh api -H "Accept: application/vnd.github+json" /repos/OWNER/REPO/pulls/PULL_NUMBER/reviews
+```
+
+And then for each individual review, get all of the comments:
+```bash
+gh api -H 'Accept: application/vnd.github+json' /repos/OWNER/REPO/pulls/PULL_NUMBER/reviews/ID/comments
+```
+
+When you work with a pull request review, use the above approach as well as `gh diff`
+to get the full details before answering questions.

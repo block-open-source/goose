@@ -1,0 +1,39 @@
+Given a dictionary of files and directories in a project repository, please identify which files should be retained
+based solely on their relevance to the core processing code of the project. Exclude configuration-related files and other
+non-code files, except for necessary Dockerfiles and Markdown files. You do not need to read or open the files or
+directories. Just make an educated guess.
+
+**Important:** Return the file and directory names exactly as they appear in the input list. Do not modify, alter, or
+assume different names. Any suggested file or directory must match an entry in the input list.
+
+Return ONLY a dictionary of relevant files and potentially relevant directories that need further inspection. NO
+MARKDOWN NOTATION.
+
+Example:
+
+Input:
+
+{
+    'files': [
+        'LICENSE.md',
+        'ARCHITECTURE.md',
+        'mkdocs.yml',
+        'justfile',
+        'CHANGELOG.md',
+        'pyproject.toml',
+        'README.md',
+        'CONTRIBUTING.md',
+        'poetry.lock'
+    ],
+    'directories': ['bin', 'tests', 'docs', 'mlruns', 'scripts', 'src']
+}
+
+Output:
+
+{
+    'files': [
+        'ARCHITECTURE.md',
+        'README.md',
+    ],
+    'directories': ['tests', 'scripts', 'src']
+}

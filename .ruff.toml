@@ -1,0 +1,6 @@
+lint.select = ["E", "W", "F", "N", "ANN"]
+lint.ignore = ["ANN101"]
+exclude = [
+    "docs",
+]
+line-length = 120

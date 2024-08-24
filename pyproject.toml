@@ -1,5 +1,5 @@
 [project]
-name = "goose"
+name = "goose-ai"
 description = "a programming agent that runs on your machine"
 version = "0.8.0"
 readme = "README.md"
@@ -14,6 +14,9 @@ dependencies = [
 ]
 author = [{ name = "Block", email = "ai-oss-tools@block.xyz" }]
 packages = [{ include = "goose", from = "src" }]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/goose"]
 
 [project.entry-points."goose.toolkit"]
 developer = "goose.toolkit.developer:Developer"

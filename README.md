@@ -79,7 +79,7 @@ pipx ensurepath
 Then you can install goose with 
 
 ``` sh
-pipx install goose
+pipx install goose-ai
 ```
 
 ### Config

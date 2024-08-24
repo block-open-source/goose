@@ -8,7 +8,7 @@ to develop a fix, we recommend you open an issue before starting.
 We provide a shortcut to standard commands using [just][just] in our `justfile`.
 
 * *goose* uses [uv][uv] for dependency management, and formats with [ruff][ruff].
-* check out both this repository as well as https://github.com/squareup/goose next to it. 
+* check out both this repository as well as https://github.com/squareup/exchange next to it. 
 
 ## Developing and testing
 

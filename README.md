@@ -50,6 +50,7 @@ Here are some collected tips we have for working efficiently with Goose
 
 - **goose can and will edit files**. Use a git strategy to avoid losing anything - such as staging your
   personal edits and leaving goose edits unstaged until reviewed. Or consider using indivdual commits which can be reverted.
+- **goose can and will run commands**. You can ask it to check with you first. 
 - You can interrupt goose with `CTRL+C` to correct it or give it more info.
 - goose works best when solving concrete problems - experiment with how far you need to break that problem
   down to get goose to solve it. Be specific! E.g. it will likely fail to `"create a banking app"`, 

@@ -5,11 +5,12 @@ to develop a fix, we recommend you open an issue before starting.
 
 ## Prerequisites
 
-*goose* uses [uv][uv] for dependency management, and formats with [ruff][ruff].
-
 We provide a shortcut to standard commands using [just][just] in our `justfile`.
 
-## Developing
+* *goose* uses [uv][uv] for dependency management, and formats with [ruff][ruff].
+* check out both this repository as well as https://github.com/squareup/goose next to it. 
+
+## Developing and testing
 
 Now that you have a local environment, you can make edits and run our tests. 
 
@@ -22,6 +23,14 @@ or, as a shortcut,
 ```
 just test
 ```
+
+## Running goose from source
+
+`uv run goose session start`
+
+will run a fresh goose session (can use the usual goose commands with `uv run` prefixed)
+
+
 
 ## Evaluations
 

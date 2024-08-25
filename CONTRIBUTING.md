@@ -5,23 +5,32 @@ to develop a fix, we recommend you open an issue before starting.
 
 ## Prerequisites
 
-*goose* uses [uv][uv] for dependency management, and formats with [ruff][ruff].
-
 We provide a shortcut to standard commands using [just][just] in our `justfile`.
 
-## Developing
+* *goose* uses [uv][uv] for dependency management, and formats with [ruff][ruff] - install UV first: https://pypi.org/project/uv/ 
+* clone both this repository as well as https://github.com/square/exchange next to it. 
+
+## Developing and testing
 
 Now that you have a local environment, you can make edits and run our tests. 
 
-```
+```sh
 uv run pytest tests -m "not integration"
 ```
 
 or, as a shortcut, 
 
-```
+```sh
 just test
 ```
+
+## Running goose from source
+
+`uv run goose session start`
+
+will run a fresh goose session (can use the usual goose commands with `uv run` prefixed)
+
+
 
 ## Evaluations
 

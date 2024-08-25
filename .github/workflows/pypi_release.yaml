@@ -2,12 +2,8 @@ name: PYPI Release
 
 on:
   push:
-    branches:
-      - main
     tags:
       - 'v*'
-    paths:
-      - 'pyproject.toml'
 
 jobs:
   pypi_release:

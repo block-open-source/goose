@@ -80,7 +80,7 @@ pipx ensurepath
 Then you can install goose with 
 
 ``` sh
-pipx install goose
+pipx install goose-ai
 ```
 
 ### Config
@@ -163,6 +163,8 @@ This requires `DATABRICKS_HOST` and `DATABRICKS_TOKEN` to be set accordingly
 
 Yes, goose is open source and always will be. goose is released under the ASL2.0 license meaning you can use it however you like. 
 See LICENSE.md for more details.
+
+To run goose from source, please see `CONTRIBUTING.md` for instructions on how to set up your environment and you can then run `uv run goose session start`.
 
 
 [pipx]: https://github.com/pypa/pipx?tab=readme-ov-file#install-pipx

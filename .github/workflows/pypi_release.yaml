@@ -14,18 +14,34 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check if `pyproject.toml` has changed
+        id: check_file_changes
+        run: |
+          if git diff --name-only HEAD^ HEAD | grep -q 'pyproject.toml'; then
+            echo "changed=true" >> $GITHUB_ENV
+          else
+            echo "changed=false" >> $GITHUB_ENV
+
       - name: Install UV
+        if: env.changed == 'true'
         run: curl -LsSf https://astral.sh/uv/install.sh | sh
 
       - name: Source Cargo Environment
+        if: env.changed == 'true'
         run: source $HOME/.cargo/env
 
       - name: Build with UV
+        if: env.changed == 'true'
         run: uvx --from build pyproject-build --installer uv
 
       - name: Publish
+        if: env.changed == 'true'
         uses: pypa/gh-action-pypi-publish@v1.4.2
         with:
           user: __token__
           password: ${{ secrets.PYPI_TOKEN_TEMP }}
           packages_dir: ./dist/
+
+      - name: No Deploy Needed
+        if: env.changed == 'false'
+        run: echo "No deploy needed"

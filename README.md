@@ -37,7 +37,7 @@ G❯ type your instructions here exactly as you would tell a developer.
 
 > [!NOTE]
 > From here you can talk directly with goose - send along your instructions. If you are looking to exit, use `CTRL+D`,
-> although goose should help you figure that out if you forget. More examples:
+> although goose should help you figure that out if you forget. See below for some examples.
 
 
 When you exit a session, it will save the history and you can resume it later on:

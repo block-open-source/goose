@@ -1,19 +1,21 @@
-name: Check PR title
+name: "Lint PR"
 
 on:
   pull_request_target:
     types:
       - opened
-      - reopened
       - edited
       - synchronize
+      - reopened
+
+permissions:
+  pull-requests: read
 
 jobs:
-  lint:
+  main:
+    name: Validate PR title
     runs-on: ubuntu-latest
-    permissions:
-      statuses: write
     steps:
-      - uses: aslafy-z/conventional-pr-title-action@v3
+      - uses: amannn/action-semantic-pull-request@v5
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

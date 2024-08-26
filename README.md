@@ -35,8 +35,10 @@ You will see a prompt `G❯`:
 G❯ type your instructions here exactly as you would tell a developer.
 ```
 
-From here you can talk directly with goose - send along your instructions. If you are looking to exit, use `CTRL+D`,
-although goose should help you figure that out if you forget.
+> [!NOTE]
+> From here you can talk directly with goose - send along your instructions. If you are looking to exit, use `CTRL+D`,
+> although goose should help you figure that out if you forget. See below for some examples.
+
 
 When you exit a session, it will save the history and you can resume it later on:
 
@@ -108,7 +110,36 @@ To configure for example the screen toolkit, edit `~/.config/goose/profiles.yaml
   - name: screen
     requires: {}
 ```
-    
+
+### Examples
+
+Here are some examples that have been used: 
+
+```
+G❯ Looking at the in progress changes in this repo, help me finish off the feature. CONTRIBUTING.md shows how to run the tests.
+```
+
+```
+G❯ In this golang project, I want you to add open telemetry to help me get started with it. Look in the moneymovements module, run the `just test` command to check things work. 
+```
+
+```
+G❯ This project uses an old version of jooq. Upgrade to the latest version, and ensure there are no incompatibilities by running all tests. Dependency versions are in gradle/libs.versions.toml and to run gradle, use the binary located in bin/gradle
+```
+
+```
+G❯ This is a fresh checkout of a golang project. I do not have my golang environment set up. Set it up and run tests for this project, and ensure they pass. Use the zookeeper jar included in this repository rather than installing zookeeper via brew.
+```
+
+```
+G❯ In this repo, I want you to look at how to add a new provider for azure. 
+Some hints are in this github issue: https://github.com/square/exchange/issues
+/4 (you can use gh cli to access it).
+```
+
+```
+G❯ I want you to help me increase the test coverage in src/java... use mvn test to run the unit tests to check it works.
+```
 
 
 #### Advanced LLM config

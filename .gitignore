@@ -138,3 +138,6 @@ docs/docs/reference
 
 ## goose session files
 .goose
+
+# ignore lockfile
+uv.lock

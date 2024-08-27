@@ -206,7 +206,7 @@ G❯ I want you to help me increase the test coverage in src/java... use mvn tes
 
 **Q:** Why did I get error message of "The model `gpt-4o` does not exist or you do not have access to it.` when I talked goose?
 
-**A:** You can find out the LLM provider and models in the configuration file `~/.config/goose/sessions` here to check whether your LLM provider account has access to the models.  For example, after you have made a successful payment of $5 or more (usage tier 1), you'll be able to access the GPT-4, GPT-4 Turbo, GPT-4o models via the OpenAI API. [How can I access GPT-4, GPT-4 Turbo, GPT-4o, and GPT-4o mini?](https://help.openai.com/en/articles/7102672-how-can-i-access-gpt-4-gpt-4-turbo-gpt-4o-and-gpt-4o-mini).
+**A:** You can find out the LLM provider and models in the configuration file `~/.config/goose/profiles.yaml` here to check whether your LLM provider account has access to the models.  For example, after you have made a successful payment of $5 or more (usage tier 1), you'll be able to access the GPT-4, GPT-4 Turbo, GPT-4o models via the OpenAI API. [How can I access GPT-4, GPT-4 Turbo, GPT-4o, and GPT-4o mini?](https://help.openai.com/en/articles/7102672-how-can-i-access-gpt-4-gpt-4-turbo-gpt-4o-and-gpt-4o-mini).
 
 ## Open Source
 

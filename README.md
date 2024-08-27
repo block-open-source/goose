@@ -12,6 +12,7 @@ goose
 <a href="#usage">Usage</a> • 
 <a href="#configuration">Configuration</a> •
 <a href="#tips">Tips</a> •
+<a href="#faq">FAQ</a> •
 <a href="#open-source">Open Source</a>
 </p>
 
@@ -41,8 +42,7 @@ Then you can install `goose` with
 pipx install goose-ai
 ```
 ### LLM provider access setup
-`goose` works on top of LLMs (you need to bring your own LLM). By default, `goose` uses `openai` as LLM provider. You need to set OPENAI_API_KEY as an environment variable if you would like to use `openai`.
-
+`goose` works on top of LLMs (you need to bring your own LLM). By default, `goose` uses `openai` as LLM provider. You need to set OPENAI_API_KEY as an environment variable if you would like to use `openai`. 
 ```sh
 export OPENAI_API_KEY=your_open_api_key
 ```
@@ -69,7 +69,7 @@ If you are looking to exit, use `CTRL+D`, although `goose` should help you figur
 
 
 ### Resume `goose` session
-When you exit a session, it will save the history in ``~/.config/goose/sessions` directory and you can resume it later on:
+When you exit a session, it will save the history in `~/.config/goose/sessions` directory and you can resume it later on:
 
 ``` sh
 goose session resume
@@ -202,6 +202,11 @@ Some hints are in this github issue: https://github.com/square/exchange/issues
 G❯ I want you to help me increase the test coverage in src/java... use mvn test to run the unit tests to check it works.
 ```
 
+## FAQ
+
+**Q:** Why did I get error message of "The model `gpt-4o` does not exist or you do not have access to it.` when I talked goose?
+
+**A:** You can find out the LLM provider and models in the configuration file `~/.config/goose/sessions` here to check whether your LLM provider account has access to the models.  For example, after you have made a successful payment of $5 or more (usage tier 1), you'll be able to access the GPT-4, GPT-4 Turbo, GPT-4o models via the OpenAI API. [How can I access GPT-4, GPT-4 Turbo, GPT-4o, and GPT-4o mini?](https://help.openai.com/en/articles/7102672-how-can-i-access-gpt-4-gpt-4-turbo-gpt-4o-and-gpt-4o-mini).
 
 ## Open Source
 

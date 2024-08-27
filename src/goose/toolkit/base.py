@@ -3,7 +3,7 @@ from abc import ABC
 from typing import Callable, Mapping, Optional, Tuple, TypeVar
 
 from attrs import define, field
-from exchange import Tool
+from ai_exchange import Tool
 
 from goose.notifier import Notifier
 

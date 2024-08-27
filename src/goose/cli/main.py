@@ -23,7 +23,7 @@ def version() -> None:
     """Lists the version of goose and any plugins"""
     from importlib.metadata import entry_points, version
 
-    print(f"[green]Goose[/green]: [bold][cyan]{version('goose')}[/cyan][/bold]")
+    print(f"[green]Goose[/green]: [bold][cyan]{version('goose-ai')}[/cyan][/bold]")
     print("[green]Plugins[/green]:")
     filtered_groups = {}
     modules = set()

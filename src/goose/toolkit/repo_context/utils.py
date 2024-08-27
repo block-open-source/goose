@@ -4,7 +4,7 @@ import os
 from collections import deque
 from typing import Dict, List, Tuple
 
-from exchange import Exchange
+from ai_exchange import Exchange
 
 from goose.utils.ask import ask_an_ai
 

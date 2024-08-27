@@ -1,4 +1,4 @@
-from exchange import Message
+from ai_exchange import Message
 
 from goose.toolkit.base import Toolkit
 

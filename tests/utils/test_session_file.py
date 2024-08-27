@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import pytest
-from exchange import Message
+from ai_exchange import Message
 from goose.utils.session_file import list_sorted_session_files, read_from_file, session_file_exists, write_to_file
 
 

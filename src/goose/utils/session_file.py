@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 from typing import Dict, Iterator, List
 
-from exchange import Message
+from ai_exchange import Message
 
 from goose.cli.config import SESSION_FILE_SUFFIX
 

@@ -1,8 +1,8 @@
 from itertools import chain
 
-from exchange import Exchange, Message
-from exchange.moderators import get_moderator
-from exchange.providers import get_provider
+from ai_exchange import Exchange, Message
+from ai_exchange.moderators import get_moderator
+from ai_exchange.providers import get_provider
 
 from goose.notifier import Notifier
 from goose.profile import Profile

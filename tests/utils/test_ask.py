@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-from exchange import Exchange
+from ai_exchange import Exchange
 from goose.utils.ask import ask_an_ai, clear_exchange, replace_prompt
 
 

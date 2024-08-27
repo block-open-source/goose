@@ -4,7 +4,7 @@ from time import time
 from unittest.mock import Mock, patch
 
 import pytest
-from exchange import Exchange
+from ai_exchange import Exchange
 from goose.profile import Profile
 
 

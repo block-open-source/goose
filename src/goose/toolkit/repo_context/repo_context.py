@@ -3,7 +3,7 @@ from functools import cache
 from subprocess import CompletedProcess, run
 from typing import Dict, Tuple
 
-from exchange import Message
+from ai_exchange import Message
 
 from goose.notifier import Notifier
 from goose.toolkit import Toolkit

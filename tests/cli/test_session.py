@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-from exchange import Message
+from ai_exchange import Message
 from goose.cli.prompt.goose_prompt_session import GoosePromptSession
 from goose.cli.prompt.user_input import PromptAction, UserInput
 from goose.cli.session import Session

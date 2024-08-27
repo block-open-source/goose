@@ -4,8 +4,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from exchange import Exchange
-from exchange.providers.utils import InitialMessageTooLargeError
+from ai_exchange import Exchange
+from ai_exchange.providers.utils import InitialMessageTooLargeError
 
 from goose.utils.ask import ask_an_ai
 from goose.utils.file_utils import create_file_list

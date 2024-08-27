@@ -1,5 +1,5 @@
 from attrs import define
-from exchange import Exchange
+from ai_exchange import Exchange
 
 
 @define

@@ -2,7 +2,7 @@ import traceback
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from exchange import Message, ToolResult, ToolUse
+from ai_exchange import Message, ToolResult, ToolUse
 from prompt_toolkit.shortcuts import confirm
 from rich import print
 from rich.console import RenderableType

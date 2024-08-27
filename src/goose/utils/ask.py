@@ -1,4 +1,4 @@
-from exchange import Exchange, Message
+from ai_exchange import Exchange, Message
 
 
 def ask_an_ai(input: str, exchange: Exchange, prompt: str = "", no_history: bool = True) -> Message:

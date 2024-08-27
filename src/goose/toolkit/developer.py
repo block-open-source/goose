@@ -2,7 +2,7 @@ from pathlib import Path
 from subprocess import CompletedProcess, run
 from typing import List
 
-from exchange import Message
+from ai_exchange import Message
 from rich import box
 from rich.markdown import Markdown
 from rich.panel import Panel

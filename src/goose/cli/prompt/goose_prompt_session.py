@@ -21,6 +21,7 @@ class GoosePromptSession:
         try:
             text = FormattedText([("#00AEAE", "G❯ ")])  # Define the prompt style and text.
             message = self.prompt_session.prompt(text, validator=PromptValidator(), validate_while_typing=False)
+            # TODO: process any commands that are present in the message, modify the message accordingly
             if message.strip() in ("exit", ":q"):
                 return UserInput(PromptAction.EXIT)
             return UserInput(PromptAction.CONTINUE, message)

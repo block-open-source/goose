@@ -5,6 +5,11 @@ from prompt_toolkit.document import Document
 from prompt_toolkit.lexers import Lexer
 
 
+# These are lexers for the commands in the prompt. This is how we
+# are extracting the different parts of a command (here, used for styling),
+# but likely will be used to parse the command as well in the future.
+
+
 def completion_for_command(target_string: str) -> re.Pattern[str]:
     escaped_string = re.escape(target_string)
     vals = [f"(?:{escaped_string[:i]}(?=$))" for i in range(len(escaped_string), 0, -1)]

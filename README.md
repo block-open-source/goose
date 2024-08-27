@@ -19,6 +19,9 @@ goose
 
 To solve problems, `goose` breaks down instructions into sequences of tasks and carries them out using tools. Its ability to connect its changes with real outcomes (e.g. errors) and course correct is its most powerful and exciting feature. `goose` is free open source software and is built to be extensible and customizable.
 
+![goose_demo](https://github.com/user-attachments/assets/dcfe44b7-37b2-407c-8281-4db4d9c16a49)
+
+
 ## Usage
 ### Installation 
 

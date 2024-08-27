@@ -1,3 +1,4 @@
+import json
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -12,6 +13,15 @@ from goose.cli.session import Session
 from goose.utils import load_plugins
 from goose.utils.session_file import list_sorted_session_files
 
+def add_group_option(group, option):
+    """
+    Adds a given option to the group.
+    
+    :param group: The Click group to which the option will be added.
+    :param option: The Click option to add.
+    """
+    group = option(group)
+    return group
 
 @click.group()
 def goose_cli() -> None:
@@ -114,12 +124,57 @@ def get_session_files() -> Dict[str, Path]:
     return list_sorted_session_files(SESSIONS_PATH)
 
 
-# merging goose cli with additional cli plugins.
-def cli() -> None:
-    clis = load_plugins("goose.cli")
-    cli_list = list(clis.values()) or []
-    click.CommandCollection(sources=cli_list)()
+def describe_command(cmd: click.Command) -> dict:
+    ret = {
+        "name": cmd.name,
+        "summary": cmd.get_short_help_str().rstrip("."),
+    }
+
+    if isinstance(cmd, click.Group):
+        ret["commands"] = [
+            describe_command(subcmd) for name, subcmd in cmd.commands.items()
+        ]
+
+    return ret
+
+
+def describe_callback(ctx, param, value):
+    if not value or ctx.resilient_parsing:
+        return
+
+    desc = describe_command(ctx.command)
+    desc["name"] = ctx.info_name  # Set the correct name
+    desc["summary"] = ctx.command.get_short_help_str().rstrip(".")  # Set the summary
+    click.echo(json.dumps(desc, sort_keys=True, indent=2))
+    ctx.exit()
+
+
+describe_option = click.option(
+    "--describe-commands",
+    is_flag=True,
+    type=bool,
+    help="List command descriptions for sq integration and exit.",
+    hidden=True,
+    default=False,
+    is_eager=True,
+    callback=describe_callback,
+)
+
+
+@click.group(invoke_without_command=True, name="tea",
+    help="CLI tool to retrieve Temporary Elevated Access (TEA) credentials",)
+# @describe_option
+@click.pass_context
+def cli(ctx, describe_commands):
+    pass
+
+cli = add_group_option(cli, describe_option)
+all_clis = load_plugins("goose.cli")
+for group in all_clis.values():
+    for command in group.commands.values():
+        cli.add_command(command)
 
 
 if __name__ == "__main__":
+    # merge_commands()
     cli()

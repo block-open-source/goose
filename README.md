@@ -11,7 +11,8 @@ goose
 <p align="center">
 <a href="#usage">Usage</a> • 
 <a href="#configuration">Configuration</a> •
-<a href="#tips">Tips</a>
+<a href="#tips">Tips</a> •
+<a href="#open-source">Open Source</a>
 </p>
 
 `goose` assists in solving a wide range of programming and operational tasks. It is a live virtual developer you can interact with, guide, and learn from.
@@ -35,7 +36,7 @@ Then you can install `goose` with
 ```sh
 pipx install goose-ai
 ```
-### Basic setup
+### LLM provider access setup
 `goose` works on top of LLMs (you need to bring your own LLM). By default, `goose` uses `openai` as LLM provider. You need to set OPENAI_API_KEY as an environment variable if you would like to use `openai`.
 
 ```sh
@@ -44,7 +45,7 @@ export OPENAI_API_KEY=your_open_api_key
 
 Otherwise, please refer <a href="#configuration">Configuration</a> to customise `goose`
 
-### Start `goose`
+### Start `goose` session
 From your terminal, navigate to the directory you'd like to start from and run:
 ```sh
 goose session start
@@ -59,11 +60,11 @@ Now you are interact with `goose` in conversational sessions - something like a 
 The default toolkit lets it take actions through shell commands and file edits.
 You can interrupt `goose` at any time to help redirect its efforts.
 
-> [!NOTE]
-> From here you can talk directly with `goose` - send along your instructions. If you are looking to exit, use `CTRL+D`,
-> although `goose` should help you figure that out if you forget. See below for some examples.
+### Exit `goose` session
+If you are looking to exit, use `CTRL+D`, although `goose` should help you figure that out if you forget. See below for some examples.
 
 
+### Resume `goose` session
 When you exit a session, it will save the history in ``~/.config/goose/sessions` directory and you can resume it later on:
 
 ``` sh
@@ -95,11 +96,11 @@ You can edit this configuration file to use different LLMs and toolkits in `goos
 #### provider
 Provider of LLM. LLM providers that currently are supported by `goose`:
 
-| Provider        | Required environment variable(s) |
-| :-----          | :------------------------------  |
-| openai          | `OPENAI_API_KEY`             |
-| anthropic       | `ANTHROPIC_API_KEY`          |
-| databricks      | `DATABRICKS_HOST` and `DATABRICKS_TOKEN` |
+| Provider        | Required environment variable(s) to access provider |
+| :-----          | :------------------------------                     |
+| openai          | `OPENAI_API_KEY`                                    |
+| anthropic       | `ANTHROPIC_API_KEY`                                 |
+| databricks      | `DATABRICKS_HOST` and `DATABRICKS_TOKEN`            |
 
 
 #### processor

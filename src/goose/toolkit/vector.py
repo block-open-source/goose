@@ -1,16 +1,13 @@
 import os
 import tempfile
 import torch
-import uuid
 import hashlib
 from goose.toolkit.base import Toolkit, tool
 from sentence_transformers import SentenceTransformer, util
 from goose.cli.session import SessionNotifier
 
 class VectorToolkit(Toolkit):
-    def __init__(self, notifier):
-        super().__init__(notifier)
-        self.model = SentenceTransformer('all-MiniLM-L6-v2')
+        
 
     def get_db_path(self, repo_path):
         # Create a hash of the repo path
@@ -44,8 +41,8 @@ class VectorToolkit(Toolkit):
         Locate files in a repository that are potentially semantically related to the query and may hint where to look.
 
         Args:
-            query (str): Query string to search for semantically related files or paths.
-
+            repo_path (str): The repository that we will be searching in
+            query (str): Query string to search for semantically related files or paths.            
         Returns:
             str: List of semantically relevant files to look in, also consider the paths the files are in.
         """
@@ -100,5 +97,6 @@ class VectorToolkit(Toolkit):
         return similar_files
 
     def system(self) -> str:
+        self.model = SentenceTransformer('all-MiniLM-L6-v2')
         return """**When looking at a large repository for relevant files or paths to examine related semantically to the question, use the query_vector_db tool**"""
 

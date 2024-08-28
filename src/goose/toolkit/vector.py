@@ -9,7 +9,7 @@ from goose.cli.session import SessionNotifier
 class VectorToolkit(Toolkit):
         
 
-    model = SentenceTransformer('all-MiniLM-L6-v2')
+    model = SentenceTransformer('all-MiniLM-L6-v2', tokenizer_kwargs={"clean_up_tokenization_spaces": True} )
 
     def get_db_path(self, repo_path):
         # Create a hash of the repo path

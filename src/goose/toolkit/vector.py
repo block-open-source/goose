@@ -28,7 +28,6 @@ class VectorToolkit(Toolkit):
         self.notifier.status("Scanning repository...")
         file_paths, file_contents = self.scan_repository(repo_path)
         self.notifier.status("Building vector database...")
-        print("Scanned File Paths:", file_paths)
         embeddings = self.build_vector_database(file_contents)
         self.notifier.status("Saving vector database...")
         self.save_vector_database(file_paths, embeddings, temp_db_path)
@@ -52,15 +51,12 @@ class VectorToolkit(Toolkit):
             self.create_vector_db(repo_path)
         self.notifier.status("Loading vector database...")
         file_paths, embeddings = self.load_vector_database(temp_db_path)
-        print("File Paths:", file_paths)
-        print("Embeddings Size:", embeddings.size())
         self.notifier.status("Performing query...")
         similar_files = self.find_similar_files(query, file_paths, embeddings)
         self.notifier.status("Query completed")
         return '\n'.join(similar_files)
 
     def scan_repository(self, repo_path):
-        print(f'Scanning repository at: {repo_path}')
         file_contents = []
         file_paths = []
         for root, dirs, files in os.walk(repo_path):

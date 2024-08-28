@@ -63,7 +63,7 @@ class VectorToolkit(Toolkit):
         file_paths = []
         for root, dirs, files in os.walk(repo_path):
             for file in files:
-                if file.endswith(('.py', '.java', '.js', '.cpp', '.c', '.h', '.rb', '.go', '.rs', '.php', '.css', '.md', '.dart')):
+                if file.endswith(('.py', '.java', '.js', '.cpp', '.c', '.h', '.rb', '.go', '.rs', '.php', '.css', '.md', '.dart', '.kt', '.ts', '.yaml', '.yml')):
                     file_path = os.path.join(root, file)
                     file_paths.append(file_path)
                     try:

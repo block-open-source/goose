@@ -9,6 +9,8 @@ from goose.cli.session import SessionNotifier
 class VectorToolkit(Toolkit):
         
 
+    model = SentenceTransformer('all-MiniLM-L6-v2')
+
     def get_db_path(self, repo_path):
         # Create a hash of the repo path
         repo_hash = hashlib.md5(repo_path.encode()).hexdigest()
@@ -93,6 +95,6 @@ class VectorToolkit(Toolkit):
         return similar_files
 
     def system(self) -> str:
-        self.model = SentenceTransformer('all-MiniLM-L6-v2')
+        
         return """**When looking at a large repository for relevant files or paths to examine related semantically to the question, use the query_vector_db tool**"""
 

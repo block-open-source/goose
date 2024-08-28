@@ -114,11 +114,11 @@ def get_session_files() -> Dict[str, Path]:
     return list_sorted_session_files(SESSIONS_PATH)
 
 @click.group(
-        invoke_without_command=False,
+        invoke_without_command=True,
         name="goose",
         help="AI-powered tool to assist in solving a wide range of programming and operational tasks",)
 @click.pass_context
-def cli(_: click.Context) -> None:
+def cli(_: click.Context, **kwargs: Dict) -> None:
     pass
 
 all_cli_group_options = load_plugins("goose.cli.group_option")

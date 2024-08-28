@@ -5,16 +5,21 @@ import hashlib
 from goose.toolkit.base import Toolkit, tool
 from sentence_transformers import SentenceTransformer, util
 from goose.cli.session import SessionNotifier
+from pathlib import Path
+
+
+GOOSE_GLOBAL_PATH = Path("~/.config/goose").expanduser()
+VECTOR_PATH = GOOSE_GLOBAL_PATH.joinpath("vectors")
+
 
 class VectorToolkit(Toolkit):
         
-
-    model = SentenceTransformer('all-MiniLM-L6-v2', tokenizer_kwargs={"clean_up_tokenization_spaces": True} )
+    model = SentenceTransformer('all-MiniLM-L6-v2', tokenizer_kwargs={"clean_up_tokenization_spaces": True})
 
     def get_db_path(self, repo_path):
         # Create a hash of the repo path
         repo_hash = hashlib.md5(repo_path.encode()).hexdigest()
-        return os.path.join(tempfile.gettempdir(), f'code_vectors_{repo_hash}.pt')
+        return VECTOR_PATH.joinpath(f'code_vectors_{repo_hash}.pt')
 
     def create_vector_db(self, repo_path: str) -> str:
         """
@@ -27,6 +32,7 @@ class VectorToolkit(Toolkit):
             str: Path to the created vector database file.
         """
         temp_db_path = self.get_db_path(repo_path)
+        VECTOR_PATH.mkdir(parents=True, exist_ok=True)
         self.notifier.status("Scanning repository...")
         file_paths, file_contents = self.scan_repository(repo_path)
         self.notifier.status("Building vector database...")
@@ -82,7 +88,7 @@ class VectorToolkit(Toolkit):
         torch.save({'file_paths': file_paths, 'embeddings': embeddings}, db_path)
 
     def load_vector_database(self, db_path):
-        data = torch.load(db_path)
+        data = torch.load(db_path, weights_only=True)
         return data['file_paths'], data['embeddings']
 
     def find_similar_files(self, query, file_paths, embeddings):
@@ -96,5 +102,6 @@ class VectorToolkit(Toolkit):
 
     def system(self) -> str:
         
-        return """**When looking at a large repository for relevant files or paths to examine related semantically to the question, use the query_vector_db tool**"""
+        return "**When looking at a large repository for relevant files or paths to examine related semantically to the question, use the query_vector_db tool**"
+
 

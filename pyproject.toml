@@ -1,7 +1,7 @@
 [project]
 name = "goose-ai"
 description = "a programming agent that runs on your machine"
-version = "0.8.0"
+version = "0.8.1"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -30,8 +30,10 @@ default = "goose.profile:default_profile"
 [project.entry-points."goose.command"]
 file = "goose.command.file:FileCommand"
 
-[project.entry-points."goose.cli"]
+[project.entry-points."goose.cli.group"]
 goose = "goose.cli.main:goose_cli"
+
+[project.entry-points."goose.cli.group_option"]
 
 [project.scripts]
 goose = "goose.cli.main:cli"

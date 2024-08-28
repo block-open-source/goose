@@ -15,28 +15,24 @@ def temp_dir():
 def vector_toolkit():
     return VectorToolkit(notifier=MagicMock())
 
-def test_create_vector_db(temp_dir, vector_toolkit):
-    # Create some test files
-    (temp_dir / 'test1.py').write_text('print("Hello World")')
-    (temp_dir / 'test2.py').write_text('def foo():\n    return "bar"')
-
-    print(f"Created test files in: {temp_dir}")
-    for path in temp_dir.glob('*'):
-        print(f"- {path.name}")
-    
+def test_query_vector_db_creates_db(temp_dir, vector_toolkit):
+    # Create and load a vector database lazily
+    query = 'print("Hello World")'
+    result = vector_toolkit.query_vector_db(temp_dir.as_posix(), query)
+    print("Query Result:", result)
+    assert isinstance(result, str)
     temp_db_path = vector_toolkit.get_db_path(temp_dir.as_posix())
-
-    result = vector_toolkit.create_vector_db(temp_dir.as_posix())
-    assert 'Vector database created at' in result
     assert os.path.exists(temp_db_path)
     assert os.path.getsize(temp_db_path) > 0
 
 def test_query_vector_db(temp_dir, vector_toolkit):
-    # Create and load a vector database
+    # Create initial db
     vector_toolkit.create_vector_db(temp_dir.as_posix())
     query = 'print("Hello World")'
     result = vector_toolkit.query_vector_db(temp_dir.as_posix(), query)
     print("Query Result:", result)
     assert isinstance(result, str)
-    # Ensure no exception and the result is handled gracefully
+    temp_db_path = vector_toolkit.get_db_path(temp_dir.as_posix())
+    assert os.path.exists(temp_db_path)
+    assert os.path.getsize(temp_db_path) > 0
     assert 'No embeddings available to query against' in result or '\n' in result

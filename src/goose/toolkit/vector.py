@@ -17,7 +17,6 @@ class VectorToolkit(Toolkit):
         repo_hash = hashlib.md5(repo_path.encode()).hexdigest()
         return os.path.join(tempfile.gettempdir(), f'code_vectors_{repo_hash}.pt')
 
-    @tool
     def create_vector_db(self, repo_path: str) -> str:
         """
         Create a vector database of the code in the specified directory and store it in a temp file.
@@ -37,20 +36,23 @@ class VectorToolkit(Toolkit):
         self.notifier.status("Saving vector database...")
         self.save_vector_database(file_paths, embeddings, temp_db_path)
         self.notifier.status("Completed vector database creation")
-        return f'Vector database created at {temp_db_path}'
+        return temp_db_path
 
     @tool
     def query_vector_db(self, repo_path: str, query: str) -> str:
         """
-        Query the vector database with the provided string and return similar files.
+        Locate files in a repository that are potentially semantically related to the query and may hint where to look.
 
         Args:
-            query (str): Query string to search in the database.
+            query (str): Query string to search for semantically related files or paths.
 
         Returns:
-            str: List of similar files found in the vector database.
+            str: List of semantically relevant files to look in, also consider the paths the files are in.
         """
         temp_db_path = self.get_db_path(repo_path)
+        if not os.path.exists(temp_db_path):
+            self.notifier.status("Vector database not found. Creating vector database...")
+            self.create_vector_db(repo_path)
         self.notifier.status("Loading vector database...")
         file_paths, embeddings = self.load_vector_database(temp_db_path)
         print("File Paths:", file_paths)
@@ -66,7 +68,7 @@ class VectorToolkit(Toolkit):
         file_paths = []
         for root, dirs, files in os.walk(repo_path):
             for file in files:
-                if file.endswith(('.py', '.java', '.js', '.cpp', '.c', '.h', '.rb', '.go', '.rs', '.php', '.html', '.css', '.md', '.dart')):
+                if file.endswith(('.py', '.java', '.js', '.cpp', '.c', '.h', '.rb', '.go', '.rs', '.php', '.css', '.md', '.dart')):
                     file_path = os.path.join(root, file)
                     file_paths.append(file_path)
                     try:
@@ -98,5 +100,5 @@ class VectorToolkit(Toolkit):
         return similar_files
 
     def system(self) -> str:
-        return """**When the user wants to create a vector database or query an existing one, use the create_vector_db and query_vector_db tools respectively.**"""
+        return """**When looking at a large repository for relevant files or paths to examine related semantically to the question, use the query_vector_db tool**"""
 

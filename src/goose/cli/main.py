@@ -79,7 +79,7 @@ def session_start(profile: str, plan: Optional[str] = None) -> None:
 @session.command(name="resume")
 @click.argument("name", required=False)
 @click.option("--profile")
-def session_resume(name: str|None, profile: str) -> None:
+def session_resume(name: Optional[str], profile: str) -> None:
     """Resume an existing goose session"""
     if name is None:
         session_files = get_session_files()

@@ -25,6 +25,7 @@ developer = "goose.toolkit.developer:Developer"
 github = "goose.toolkit.github:Github"
 screen = "goose.toolkit.screen:Screen"
 repo_context = "goose.toolkit.repo_context.repo_context:RepoContext"
+vector = "goose.toolkit.vector:VectorToolkit"
 
 [project.entry-points."goose.profile"]
 default = "goose.profile:default_profile"
@@ -47,4 +48,3 @@ dev-dependencies = [
     "pytest>=8.3.2",
     "codecov>=2.1.13",
 ]
-

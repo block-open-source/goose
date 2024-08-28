@@ -50,5 +50,4 @@ dev-dependencies = [
 
 [tool.uv.sources]
 goose-plugins-block = { path = "/Users/ldelalande/Development/goose-plugins-block", editable = true }
-ai-exchange = { path = "/Users/ldelalande/Development/exchange-public", editable = true }
 

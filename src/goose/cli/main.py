@@ -116,7 +116,7 @@ def get_session_files() -> Dict[str, Path]:
 @click.group(
         invoke_without_command=True,
         name="goose",
-        help="AI-powered tool to assist in solving a wide range of programming and operational tasks",)
+        help="AI-powered tool to assist in solving programming and operational tasks",)
 @click.pass_context
 def cli(_: click.Context, **kwargs: Dict) -> None:
     pass

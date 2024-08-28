@@ -12,11 +12,9 @@ from goose.cli.session import Session
 from goose.utils import load_plugins
 from goose.utils.session_file import list_sorted_session_files
 
-
 @click.group()
 def goose_cli() -> None:
     pass
-
 
 @goose_cli.command()
 def version() -> None:
@@ -81,7 +79,7 @@ def session_start(profile: str, plan: Optional[str] = None) -> None:
 @session.command(name="resume")
 @click.argument("name", required=False)
 @click.option("--profile")
-def session_resume(name: str, profile: str) -> None:
+def session_resume(name: Optional[str], profile: str) -> None:
     """Resume an existing goose session"""
     if name is None:
         session_files = get_session_files()
@@ -97,6 +95,7 @@ def session_resume(name: str, profile: str) -> None:
 
 @session.command(name="list")
 def session_list() -> None:
+    """List goose sessions"""
     session_files = get_session_files().items()
     for session_name, session_file in session_files:
         print(f"{datetime.fromtimestamp(session_file.stat().st_mtime).strftime('%Y-%m-%d %H:%M:%S')}    {session_name}")
@@ -105,6 +104,7 @@ def session_list() -> None:
 @session.command(name="clear")
 @click.option("--keep", default=3, help="Keep this many entries, default 3")
 def session_clear(keep: int) -> None:
+    """Delete old goose sessions, keeping the most recent sessions up to the specified number"""
     for i, (_, session_file) in enumerate(get_session_files().items()):
         if i >= keep:
             session_file.unlink()
@@ -113,13 +113,22 @@ def session_clear(keep: int) -> None:
 def get_session_files() -> Dict[str, Path]:
     return list_sorted_session_files(SESSIONS_PATH)
 
+@click.group(
+        invoke_without_command=True,
+        name="goose",
+        help="AI-powered tool to assist in solving programming and operational tasks",)
+@click.pass_context
+def cli(_: click.Context, **kwargs: Dict) -> None:
+    pass
 
-# merging goose cli with additional cli plugins.
-def cli() -> None:
-    clis = load_plugins("goose.cli")
-    cli_list = list(clis.values()) or []
-    click.CommandCollection(sources=cli_list)()
+all_cli_group_options = load_plugins("goose.cli.group_option")
+for option in all_cli_group_options.values():
+    cli = option()(cli)
 
+all_cli_groups = load_plugins("goose.cli.group")
+for group in all_cli_groups.values():
+    for command in group.commands.values():
+        cli.add_command(command)
 
 if __name__ == "__main__":
     cli()

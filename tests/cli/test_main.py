@@ -1,11 +1,13 @@
 from datetime import datetime
+import importlib
 from time import time
 from unittest.mock import MagicMock, patch
 
+import click
 import pytest
 from click.testing import CliRunner
 from exchange import Message
-from goose.cli.main import goose_cli
+from goose.cli.main import cli, goose_cli
 
 
 @pytest.fixture
@@ -78,3 +80,41 @@ def test_session_clear_command(mock_session_files_path, create_session_file):
     session_files = list(mock_session_files_path.glob("*.jsonl"))
     assert len(session_files) == 1
     assert session_files[0].stem == "second"
+
+
+def test_combined_group_option():
+    with patch("goose.utils.load_plugins") as mock_load_plugin:
+        group_option_name = "--describe-commands"
+        def option_callback(ctx, *_):
+            click.echo("Option callback")
+            ctx.exit()
+        mock_group_options = {
+            'option1': lambda: click.option(
+                group_option_name,
+                is_flag=True,
+                callback=option_callback,
+            ),
+        }
+        def side_effect_func(param):
+            if param == "goose.cli.group_option":
+                return mock_group_options
+            elif param == "goose.cli.group":
+                return {  }
+        mock_load_plugin.side_effect = side_effect_func
+
+        # reload cli after mocking
+        importlib.reload(importlib.import_module('goose.cli.main'))
+        import goose.cli.main
+        cli = goose.cli.main.cli
+
+        runner = CliRunner()
+        result = runner.invoke(cli, [group_option_name])
+        assert result.exit_code == 0
+
+def test_combined_group_commands(mock_session):
+    mock_session_class, mock_session_instance = mock_session
+    runner = CliRunner()
+    runner.invoke(cli, ["session", "resume", "session1", "--profile", "default"])
+    mock_session_class.assert_called_once_with(name="session1", profile="default")
+    mock_session_instance.run.assert_called_once()
+

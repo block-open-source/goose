@@ -38,7 +38,7 @@ def version() -> None:
         for eps in filtered_groups.values():
             for ep in eps:
                 if ep.value == '':
-                    module_name = 'ai-exchange'
+                    module_name = ep.name
                     modules.add(module_name)
                 else:
                     module_name = ep.module.split(".")[0]

@@ -72,7 +72,7 @@ class VectorToolkit(Toolkit):
             dirs[:] = [d for d in dirs if not d.startswith('.')]
             for file in files:
                 file_extension = os.path.splitext(file)[1]
-                if file_extension in ['.py', '.java', '.js', '.jsx', '.ts', '.tsx', '.cpp', '.c', '.h', '.hpp', '.rb', '.go', '.rs', '.php', '.css', '.scss', '.less', '.md', '.dart', '.kt', '.swift', '.scala', '.sql', '.sh', '.bash', '.yaml', '.yml', '.json', '.xml', '.html', '.vue', '.lua', '.pl', '.r', '.m', '.mm', '.f', '.f90', '.jl', '.cs', '.vb', '.pas', '.groovy', '.hs', '.elm', '.erl', '.ex', '.clj', '.lisp', '.ml', '.nim']:
+                if file_extension in ['.py', '.java', '.js', '.jsx', '.ts', '.tsx', '.cpp', '.c', '.h', '.hpp', '.rb', '.go', '.rs', '.php', '.css', '.scss', '.less', '.md', '.dart', '.kt', '.swift', '.scala', '.html', '.vue', '.lua', '.pl', '.r', '.m', '.mm', '.f', '.jl', '.cs', '.vb', '.pas', '.groovy', '.hs', '.elm', '.erl', '.clj', '.lisp']:
                     file_path = os.path.join(root, file)
                     file_paths.append(file_path)
                     try:

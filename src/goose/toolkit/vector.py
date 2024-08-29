@@ -33,9 +33,9 @@ class VectorToolkit(Toolkit):
         """
         temp_db_path = self.get_db_path(repo_path)
         VECTOR_PATH.mkdir(parents=True, exist_ok=True)
-        self.notifier.status("Scanning repository...")
+        self.notifier.status("Preparing vector database :: Scanning repository (first time may take a while, please wait...)")
         file_paths, file_contents = self.scan_repository(repo_path)
-        self.notifier.status("Building vector database...")
+        self.notifier.status("Preparing vector database :: Building vectors (first time may take a while, please wait...)")
         embeddings = self.build_vector_database(file_contents)
         self.notifier.status("Saving vector database...")
         self.save_vector_database(file_paths, embeddings, temp_db_path)
@@ -55,21 +55,24 @@ class VectorToolkit(Toolkit):
         """
         temp_db_path = self.get_db_path(repo_path)
         if not os.path.exists(temp_db_path):
-            self.notifier.status("Vector database not found. Creating vector database...")
             self.create_vector_db(repo_path)
         self.notifier.status("Loading vector database...")
         file_paths, embeddings = self.load_vector_database(temp_db_path)
         self.notifier.status("Performing query...")
-        similar_files = self.find_similar_files(query, file_paths, embeddings)
-        self.notifier.status("Query completed")
+        similar_files = self.find_similar_files(query, file_paths, embeddings)        
         return '\n'.join(similar_files)
 
     def scan_repository(self, repo_path):
+        repo_path = Path(repo_path).expanduser()
         file_contents = []
         file_paths = []
+        skipped_file_types = {}
         for root, dirs, files in os.walk(repo_path):
+            # Exclude dotfile directories
+            dirs[:] = [d for d in dirs if not d.startswith('.')]
             for file in files:
-                if file.endswith(('.py', '.java', '.js', '.cpp', '.c', '.h', '.rb', '.go', '.rs', '.php', '.css', '.md', '.dart', '.kt', '.ts', '.yaml', '.yml')):
+                file_extension = os.path.splitext(file)[1]
+                if file_extension in ['.py', '.java', '.js', '.jsx', '.ts', '.tsx', '.cpp', '.c', '.h', '.hpp', '.rb', '.go', '.rs', '.php', '.css', '.scss', '.less', '.md', '.dart', '.kt', '.swift', '.scala', '.sql', '.sh', '.bash', '.yaml', '.yml', '.json', '.xml', '.html', '.vue', '.lua', '.pl', '.r', '.m', '.mm', '.f', '.f90', '.jl', '.cs', '.vb', '.pas', '.groovy', '.hs', '.elm', '.erl', '.ex', '.clj', '.lisp', '.ml', '.nim']:
                     file_path = os.path.join(root, file)
                     file_paths.append(file_path)
                     try:
@@ -78,8 +81,10 @@ class VectorToolkit(Toolkit):
                             file_contents.append(content)
                     except Exception as e:
                         print(f'Error reading {file_path}: {e}')
+                else:
+                    skipped_file_types[file_extension] = True
         return file_paths, file_contents
-
+    
     def build_vector_database(self, file_contents):
         embeddings = self.model.encode(file_contents, convert_to_tensor=True)
         return embeddings

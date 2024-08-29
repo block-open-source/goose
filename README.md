@@ -41,6 +41,9 @@ Then you can install `goose` with
 ```sh
 pipx install goose-ai
 ```
+#### IDEs
+There is an early version of a VS Code extension with goose support you can try here: https://github.com/square/goose-vscode - more to come soon.
+
 ### LLM provider access setup
 `goose` works on top of LLMs (you need to bring your own LLM). By default, `goose` uses `openai` as LLM provider. You need to set OPENAI_API_KEY as an environment variable if you would like to use `openai`. 
 ```sh

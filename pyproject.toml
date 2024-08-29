@@ -11,7 +11,6 @@ dependencies = [
     "ai-exchange>=0.8.0",
     "click>=8.1.7",
     "prompt-toolkit>=3.0.47",
-    "goose-plugins-block",
     "setuptools>=73.0.1",
 ]
 author = [{ name = "Block", email = "ai-oss-tools@block.xyz" }]
@@ -49,6 +48,5 @@ dev-dependencies = [
 ]
 
 [tool.uv.sources]
-goose-plugins-block = { path = "/Users/ldelalande/Development/goose-plugins-block", editable = true }
 ai-exchange = { path = "/Users/ldelalande/Development/exchange-public", editable = true }
 

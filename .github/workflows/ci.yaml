@@ -25,34 +25,3 @@ jobs:
       run: |
         uv run pytest tests -m 'not integration'
 
-  create_tag:
-    runs-on: ubuntu-latest
-    needs: build
-    if: ${{ github.ref == 'refs/heads/main' }}
-
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Install UV
-      run: curl -LsSf https://astral.sh/uv/install.sh | sh
-
-    - name: Source Cargo Environment
-      run: source $HOME/.cargo/env
-
-    - name: Build with UV
-      run: uvx --from build pyproject-build --installer uv
-
-    - name: Check tag exists
-      run: |
-        dist_file_name=$(cd dist && ls goose-ai*.tar.gz)
-        ./scripts/check_tag_exists.sh $dist_file_name
-      env:
-        GITHUB_ENV: $GITHUB_ENV
-
-    - name: Create tag if it doesn't exist
-      if: env.tag_version != ''
-      run: |
-        git tag "v$tag_version"
-        git push origin "v$tag_version"
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

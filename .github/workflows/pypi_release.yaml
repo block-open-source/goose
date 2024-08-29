@@ -1,18 +1,19 @@
 name: PYPI Release
 
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_run:
+    workflows: ["CI"]
+    types:
+      - completed
 
 jobs:
   pypi_release:
     runs-on: ubuntu-latest
-
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Install UV
         run: curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -23,7 +24,23 @@ jobs:
       - name: Build with UV
         run: uvx --from build pyproject-build --installer uv
 
+      - name: Check tag exists
+        run: |
+          dist_file_name=$(cd dist && ls goose-ai*.tar.gz)
+          ./scripts/check_tag_exists.sh $dist_file_name
+        env:
+          GITHUB_ENV: $GITHUB_ENV
+
+      - name: Create tag if it doesn't exist
+        if: env.tag_version != ''
+        run: |
+          git tag "v$tag_version"
+          git push origin "v$tag_version"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Publish
+        if: ${{ success() }}
         uses: pypa/gh-action-pypi-publish@v1.4.2
         with:
           user: __token__

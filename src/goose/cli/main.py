@@ -21,28 +21,15 @@ def version() -> None:
     """Lists the version of goose and any plugins"""
     from importlib.metadata import entry_points, version
 
-    print(f"[green]Goose[/green]: [bold][cyan]{version('goose')}[/cyan][/bold]")
+    print(f"[green]Goose-ai[/green]: [bold][cyan]{version('goose-ai')}[/cyan][/bold]")
     print("[green]Plugins[/green]:")
-    filtered_groups = {}
+    entry_points = entry_points(group="metadata.plugins")
     modules = set()
-    if sys.version_info.minor >= 12:
-        for ep in entry_points():
-            group = getattr(ep, "group", None)
-            if group and (group.startswith("exchange.") or group.startswith("goose.")):
-                filtered_groups.setdefault(group, []).append(ep)
-        for eps in filtered_groups.values():
-            for ep in eps:
-                module_name = ep.module.split(".")[0]
-                modules.add(module_name)
-    else:
-        eps = entry_points()
-        for group, entries in eps.items():
-            if group.startswith("exchange.") or group.startswith("goose."):
-                for entry in entries:
-                    module_name = entry.value.split(".")[0]
-                    modules.add(module_name)
 
-    modules.remove("goose")
+    for ep in entry_points:
+        module_name = ep.name
+        modules.add(module_name)
+    modules.remove("goose-ai")
     for module in sorted(list(modules)):
         # TODO: figure out how to get this to work for goose plugins block
         # as the module name is set to block.goose.cli

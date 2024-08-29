@@ -11,6 +11,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
 
       - name: Install UV
         run: curl -LsSf https://astral.sh/uv/install.sh | sh

@@ -14,7 +14,7 @@ VECTOR_PATH = GOOSE_GLOBAL_PATH.joinpath("vectors")
 
 class VectorToolkit(Toolkit):
         
-    model = SentenceTransformer('paraphrase-albert-small-v2', tokenizer_kwargs={"clean_up_tokenization_spaces": True})
+    model = SentenceTransformer('multi-qa-MiniLM-L6-cos-v1', tokenizer_kwargs={"clean_up_tokenization_spaces": True})
 
     def get_db_path(self, repo_path):
         # Create a hash of the repo path

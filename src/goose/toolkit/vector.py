@@ -53,14 +53,32 @@ class VectorToolkit(Toolkit):
         Returns:
             str: List of semantically relevant files to look in, also consider the paths the files are in.
         """
-        temp_db_path = self.get_db_path(repo_path)
-        if not os.path.exists(temp_db_path):
-            self.create_vector_db(repo_path)
+        temp_db_path = self.lookup_db_path(repo_path)
+        if temp_db_path is None:
+            temp_db_path = self.create_vector_db(repo_path)
         self.notifier.status("Loading vector database...")
         file_paths, embeddings = self.load_vector_database(temp_db_path)
         self.notifier.status("Performing query...")
         similar_files = self.find_similar_files(query, file_paths, embeddings)        
         return '\n'.join(similar_files)
+
+    def lookup_db_path(self, repo_path: str) -> str:
+        """
+        Check if a vector database exists for the given repository path or its parent directories.
+
+        Args:
+            repo_path (str): Path to the source code repository.
+
+        Returns:
+            str: Path to the existing vector database file, or None if none found.
+        """
+        current_path = Path(repo_path).expanduser()
+        while current_path != current_path.parent:
+            temp_db_path = self.get_db_path(str(current_path))
+            if os.path.exists(temp_db_path):
+                return temp_db_path
+            current_path = current_path.parent
+        return None
 
     def scan_repository(self, repo_path):
         repo_path = Path(repo_path).expanduser()
@@ -72,7 +90,7 @@ class VectorToolkit(Toolkit):
             dirs[:] = [d for d in dirs if not d.startswith('.')]
             for file in files:
                 file_extension = os.path.splitext(file)[1]
-                if file_extension in ['.py', '.java', '.js', '.jsx', '.ts', '.tsx', '.cpp', '.c', '.h', '.hpp', '.rb', '.go', '.rs', '.php', '.css', '.scss', '.less', '.md', '.dart', '.kt', '.swift', '.scala', '.html', '.vue', '.lua', '.pl', '.r', '.m', '.mm', '.f', '.jl', '.cs', '.vb', '.pas', '.groovy', '.hs', '.elm', '.erl', '.clj', '.lisp']:
+                if file_extension in ['.py', '.java', '.js', '.jsx', '.ts', '.tsx', '.cpp', '.c', '.h', '.hpp', '.rb', '.go', '.rs', '.php', '.md', '.dart', '.kt', '.swift', '.scala', '.lua', '.pl', '.r', '.m', '.mm', '.f', '.jl', '.cs', '.vb', '.pas', '.groovy', '.hs', '.elm', '.erl', '.clj', '.lisp']:
                     file_path = os.path.join(root, file)
                     file_paths.append(file_path)
                     try:
@@ -93,7 +111,10 @@ class VectorToolkit(Toolkit):
         torch.save({'file_paths': file_paths, 'embeddings': embeddings}, db_path)
 
     def load_vector_database(self, db_path):
-        data = torch.load(db_path, weights_only=True)
+        if db_path is not None and os.path.exists(db_path):
+            data = torch.load(db_path)
+        else:
+            raise ValueError(f"Database path {db_path} does not exist.")
         return data['file_paths'], data['embeddings']
 
     def find_similar_files(self, query, file_paths, embeddings):
@@ -106,7 +127,4 @@ class VectorToolkit(Toolkit):
         return similar_files
 
     def system(self) -> str:
-        
         return "**When looking at a large repository for relevant files or paths to examine related semantically to the question, use the query_vector_db tool**"
-
-

@@ -25,6 +25,7 @@ def test_query_vector_db_creates_db(temp_dir, vector_toolkit):
     assert os.path.exists(temp_db_path)
     assert os.path.getsize(temp_db_path) > 0
 
+
 def test_query_vector_db(temp_dir, vector_toolkit):
     # Create initial db
     vector_toolkit.create_vector_db(temp_dir.as_posix())
@@ -36,3 +37,25 @@ def test_query_vector_db(temp_dir, vector_toolkit):
     assert os.path.exists(temp_db_path)
     assert os.path.getsize(temp_db_path) > 0
     assert 'No embeddings available to query against' in result or '\n' in result
+
+
+def test_no_new_db_if_exists_higher(temp_dir, vector_toolkit):
+    # Create a vector DB at a higher level
+    higher_dir = temp_dir / "higher"
+    higher_dir.mkdir()
+    db_path_higher = vector_toolkit.create_vector_db(higher_dir.as_posix())
+
+    # Now create a lower directory
+    lower_dir = higher_dir / "lower"
+    lower_dir.mkdir()
+
+    # Perform query on the lower directory
+    query = 'print("Hello World")'
+    result = vector_toolkit.query_vector_db(lower_dir.as_posix(), query)
+    print("Query Result from Lower Directory:", result)
+
+    # Ensure a DB at the lower level is not created
+    temp_db_path_lower = vector_toolkit.get_db_path(lower_dir.as_posix())
+    assert not os.path.exists(temp_db_path_lower)
+    assert os.path.exists(db_path_higher)
+    assert os.path.getsize(db_path_higher) > 0

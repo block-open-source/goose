@@ -12,9 +12,11 @@ from goose.cli.session import Session
 from goose.utils import load_plugins
 from goose.utils.session_file import list_sorted_session_files
 
+
 @click.group()
 def goose_cli() -> None:
     pass
+
 
 @goose_cli.command()
 def version() -> None:
@@ -100,22 +102,28 @@ def session_clear(keep: int) -> None:
 def get_session_files() -> Dict[str, Path]:
     return list_sorted_session_files(SESSIONS_PATH)
 
+
+all_cli_groups = load_plugins("goose.cli.group")
+all_cli_group_options = load_plugins("goose.cli.group_option")
+
+
 @click.group(
-        invoke_without_command=True,
-        name="goose",
-        help="AI-powered tool to assist in solving programming and operational tasks",)
+    # we only want to override --help if there are top-level command options
+    invoke_without_command=len(all_cli_group_options.items()) > 0,
+    name="goose",
+    help="AI-powered tool to assist in solving programming and operational tasks",
+)
 @click.pass_context
 def cli(_: click.Context, **kwargs: Dict) -> None:
     pass
 
-all_cli_group_options = load_plugins("goose.cli.group_option")
-for option in all_cli_group_options.values():
-    cli = option()(cli)
 
-all_cli_groups = load_plugins("goose.cli.group")
 for group in all_cli_groups.values():
     for command in group.commands.values():
         cli.add_command(command)
+
+for option in all_cli_group_options.values():
+    cli = option()(cli)
 
 if __name__ == "__main__":
     cli()

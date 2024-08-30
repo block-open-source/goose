@@ -1,7 +1,7 @@
 [project]
 name = "goose-ai"
 description = "a programming agent that runs on your machine"
-version = "0.8.3"
+version = "0.8.4"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -46,7 +46,4 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.uv]
-dev-dependencies = [
-    "pytest>=8.3.2",
-    "codecov>=2.1.13",
-]
+dev-dependencies = ["pytest>=8.3.2", "codecov>=2.1.13"]

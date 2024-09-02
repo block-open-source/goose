@@ -1,4 +1,18 @@
 from pathlib import Path
+
+def test_system_without_hints(temp_dir, developer_toolkit):
+    (temp_dir / 'prompts').mkdir(parents=True, exist_ok=True)
+    developer_toolkit.workspace = temp_dir
+    assert developer_toolkit.system()
+
+def test_system_with_hints(temp_dir, developer_toolkit):
+    hints_content = "Use Python 3.8"
+    (temp_dir / 'prompts').mkdir(parents=True, exist_ok=True)
+    with (temp_dir / '.goosehints').open('w') as f:
+        f.write(hints_content)
+    developer_toolkit.workspace = temp_dir
+    assert developer_toolkit.system()
+
 from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, Mock
 

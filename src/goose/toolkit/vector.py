@@ -112,7 +112,7 @@ class VectorToolkit(Toolkit):
 
     def load_vector_database(self, db_path):
         if db_path is not None and os.path.exists(db_path):
-            data = torch.load(db_path)
+            data = torch.load(db_path, weights_only=True)
         else:
             raise ValueError(f"Database path {db_path} does not exist.")
         return data['file_paths'], data['embeddings']

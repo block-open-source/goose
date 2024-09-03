@@ -24,6 +24,8 @@ from goose.profile import Profile
 from goose.utils import droid, load_plugins
 from goose.utils.session_file import read_from_file, write_to_file
 
+RESUME_MESSAGE = "I see we were interrupted. How can I help you?"
+
 
 def load_provider() -> str:
     # We try to infer a provider, by going in order of what will auth
@@ -91,7 +93,6 @@ class Session:
 
         if name is not None and self.session_file_path.exists():
             messages = self.load_session()
-            resume_message = Message.assistant("I see we were interrupted. How can I help you?")
 
             if messages and messages[-1].role == "user":
                 if type(messages[-1].content[-1]) is Text:
@@ -101,13 +102,13 @@ class Session:
                     # if we remove this message, we would need to remove
                     # the previous assistant message as well. instead of doing
                     # that, we just add a new assistant message to prompt the user
-                    messages.append(resume_message)
+                    messages.append(Message.assistant(RESUME_MESSAGE))
             if messages and type(messages[-1].content[-1]) is ToolUse:
                 # remove the last request for a tool to be used
                 messages.pop()
 
                 # add a new assistant text message to prompt the user
-                messages.append()
+                messages.append(Message.assistant(RESUME_MESSAGE))
             self.exchange.messages.extend(messages)
 
         if len(self.exchange.messages) == 0 and plan:

@@ -9,7 +9,7 @@ from rich.prompt import Confirm
 from rich.text import Text
 from ruamel.yaml import YAML
 
-from .config import SESSIONS_PATH, SESSION_FILE_SUFFIX, PROFILES_CONFIG_PATH
+from ..config import SESSIONS_PATH, SESSION_FILE_SUFFIX, PROFILES_CONFIG_PATH
 from goose.profile import Profile
 from goose.utils import load_plugins
 from goose.utils.diff import pretty_diff

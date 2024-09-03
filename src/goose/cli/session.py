@@ -2,7 +2,7 @@ import traceback
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from exchange import Message, ToolResult, ToolUse
+from exchange import Message, ToolResult, ToolUse, Text
 from prompt_toolkit.shortcuts import confirm
 from rich import print
 from rich.console import RenderableType
@@ -23,6 +23,8 @@ from goose.notifier import Notifier
 from goose.profile import Profile
 from goose.utils import droid, load_plugins
 from goose.utils.session_file import read_from_file, write_to_file
+
+RESUME_MESSAGE = "I see we were interrupted. How can I help you?"
 
 
 def load_provider() -> str:
@@ -91,8 +93,22 @@ class Session:
 
         if name is not None and self.session_file_path.exists():
             messages = self.load_session()
+
             if messages and messages[-1].role == "user":
+                if type(messages[-1].content[-1]) is Text:
+                    # remove the last user message
+                    messages.pop()
+                elif type(messages[-1].content[-1]) is ToolResult:
+                    # if we remove this message, we would need to remove
+                    # the previous assistant message as well. instead of doing
+                    # that, we just add a new assistant message to prompt the user
+                    messages.append(Message.assistant(RESUME_MESSAGE))
+            if messages and type(messages[-1].content[-1]) is ToolUse:
+                # remove the last request for a tool to be used
                 messages.pop()
+
+                # add a new assistant text message to prompt the user
+                messages.append(Message.assistant(RESUME_MESSAGE))
             self.exchange.messages.extend(messages)
 
         if len(self.exchange.messages) == 0 and plan:

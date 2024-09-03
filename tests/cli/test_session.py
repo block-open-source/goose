@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-from exchange import Message
+from exchange import Message, ToolUse, ToolResult
 from goose.cli.prompt.goose_prompt_session import GoosePromptSession
 from goose.cli.prompt.user_input import PromptAction, UserInput
 from goose.cli.session import Session
@@ -32,7 +32,7 @@ def create_session_with_mock_configs(mock_sessions_path, exchange_factory, profi
         yield create_session
 
 
-def test_session_does_not_extend_last_user_message_on_init(
+def test_session_does_not_extend_last_user_text_message_on_init(
     create_session_with_mock_configs, mock_sessions_path, create_session_file
 ):
     messages = [Message.user("Hello"), Message.assistant("Hi"), Message.user("Last should be removed")]
@@ -42,6 +42,41 @@ def test_session_does_not_extend_last_user_message_on_init(
     print("Messages after session init:", session.exchange.messages)  # Debugging line
     assert len(session.exchange.messages) == 2
     assert [message.text for message in session.exchange.messages] == ["Hello", "Hi"]
+
+
+def test_session_adds_resume_message_if_last_message_is_tool_result(
+    create_session_with_mock_configs, mock_sessions_path, create_session_file
+):
+    messages = [
+        Message.user("Hello"),
+        Message(role="assistant", content=[ToolUse(id="1", name="first_tool", parameters={})]),
+        Message(role="user", content=[ToolResult(tool_use_id="1", output="output")]),
+    ]
+    create_session_file(messages, mock_sessions_path / f"{SESSION_NAME}.jsonl")
+
+    session = create_session_with_mock_configs({"name": SESSION_NAME})
+    print("Messages after session init:", session.exchange.messages)  # Debugging line
+    assert len(session.exchange.messages) == 4
+    assert session.exchange.messages[-1].role == "assistant"
+    assert session.exchange.messages[-1].text == "I see we were interrupted. How can I help you?"
+
+
+def test_session_removes_tool_use_and_adds_resume_message_if_last_message_is_tool_use(
+    create_session_with_mock_configs, mock_sessions_path, create_session_file
+):
+    messages = [
+        Message.user("Hello"),
+        Message(role="assistant", content=[ToolUse(id="1", name="first_tool", parameters={})]),
+    ]
+    create_session_file(messages, mock_sessions_path / f"{SESSION_NAME}.jsonl")
+
+    session = create_session_with_mock_configs({"name": SESSION_NAME})
+    print("Messages after session init:", session.exchange.messages)  # Debugging line
+    assert len(session.exchange.messages) == 2
+    assert [message.text for message in session.exchange.messages] == [
+        "Hello",
+        "I see we were interrupted. How can I help you?",
+    ]
 
 
 def test_save_session_create_session(mock_sessions_path, create_session_with_mock_configs, mock_specified_session_name):

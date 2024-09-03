@@ -1,4 +1,3 @@
-import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional
@@ -12,9 +11,11 @@ from goose.cli.session import Session
 from goose.utils import load_plugins
 from goose.utils.session_file import list_sorted_session_files
 
+
 @click.group()
 def goose_cli() -> None:
     pass
+
 
 @goose_cli.command()
 def version() -> None:
@@ -45,6 +46,19 @@ def version() -> None:
 def session() -> None:
     """Start or manage sessions"""
     pass
+
+
+@goose_cli.group()
+def toolkit() -> None:
+    """Manage toolkits"""
+    pass
+
+
+@toolkit.command(name="list")
+def list_toolkits() -> None:
+    print("[green]Available toolkits:[/green]")
+    for toolkit_name, toolkit in load_plugins("goose.toolkit").items():
+        print(f" - [bold]{toolkit_name}[/bold]: {toolkit.__doc__.split('\n')[0]}")
 
 
 @session.command(name="start")
@@ -100,13 +114,16 @@ def session_clear(keep: int) -> None:
 def get_session_files() -> Dict[str, Path]:
     return list_sorted_session_files(SESSIONS_PATH)
 
+
 @click.group(
-        invoke_without_command=True,
-        name="goose",
-        help="AI-powered tool to assist in solving programming and operational tasks",)
+    invoke_without_command=True,
+    name="goose",
+    help="AI-powered tool to assist in solving programming and operational tasks",
+)
 @click.pass_context
 def cli(_: click.Context, **kwargs: Dict) -> None:
     pass
+
 
 all_cli_group_options = load_plugins("goose.cli.group_option")
 for option in all_cli_group_options.values():

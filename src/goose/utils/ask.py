@@ -1,4 +1,4 @@
-from exchange import Exchange, Message
+from exchange import Exchange, Message, CheckpointData
 
 
 def ask_an_ai(input: str, exchange: Exchange, prompt: str = "", no_history: bool = True) -> Message:
@@ -61,9 +61,9 @@ def clear_exchange(exchange: Exchange, clear_tools: bool = False) -> Exchange:
 
     """
     if clear_tools:
-        new_exchange = exchange.replace(messages=[], checkpoints=[], tools=())
+        new_exchange = exchange.replace(messages=[], checkpoint_data=CheckpointData(), tools=())
     else:
-        new_exchange = exchange.replace(messages=[], checkpoints=[])
+        new_exchange = exchange.replace(messages=[], checkpoint_data=CheckpointData())
     return new_exchange
 
 

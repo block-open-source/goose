@@ -1,11 +1,13 @@
 import os
-import tempfile
 import torch
 import hashlib
 from goose.toolkit.base import Toolkit, tool
 from sentence_transformers import SentenceTransformer, util
 from goose.cli.session import SessionNotifier
 from pathlib import Path
+from exchange import Message
+import os
+
 
 
 GOOSE_GLOBAL_PATH = Path("~/.config/goose").expanduser()
@@ -14,7 +16,15 @@ VECTOR_PATH = GOOSE_GLOBAL_PATH.joinpath("vectors")
 
 class VectorToolkit(Toolkit):
         
-    model = SentenceTransformer('multi-qa-MiniLM-L6-cos-v1', tokenizer_kwargs={"clean_up_tokenization_spaces": True})
+    _model = None
+    
+    @property
+    def model(self):
+        if self._model is None:
+            os.environ["TOKENIZERS_PARALLELISM"] = "false"
+            self.notifier.status("Preparing local model...")
+            self._model = SentenceTransformer('multi-qa-MiniLM-L6-cos-v1', tokenizer_kwargs={"clean_up_tokenization_spaces": True})
+        return self._model
 
     def get_db_path(self, repo_path):
         # Create a hash of the repo path
@@ -33,30 +43,30 @@ class VectorToolkit(Toolkit):
         """
         temp_db_path = self.get_db_path(repo_path)
         VECTOR_PATH.mkdir(parents=True, exist_ok=True)
-        self.notifier.status("Preparing vector database :: Scanning repository (first time may take a while, please wait...)")
+        self.notifier.status("Scanning repository (first time may take a while, please wait...)")
         file_paths, file_contents = self.scan_repository(repo_path)
-        self.notifier.status("Preparing vector database :: Building vectors (first time may take a while, please wait...)")
+        self.notifier.status("Building local emebddings of code (first time may take a while, please wait...)")
         embeddings = self.build_vector_database(file_contents)
-        self.notifier.status("Saving vector database...")
         self.save_vector_database(file_paths, embeddings, temp_db_path)
-        self.notifier.status("Completed vector database creation")
         return temp_db_path
 
     @tool
-    def query_vector_db(self, repo_path: str, query: str) -> str:
+    def find_simmilar_files_locations(self, repo_path: str, query: str) -> str:
         """
-        Locate files in a repository that are potentially semantically related to the query and may hint where to look.
+        Locate files and locations in a repository that are potentially semantically related to the query and may hint where to look.
+        This will not be the only location, but can serve as a starting point. 
+        Note that they will probably not be exact matches, so other tools for text searching can be used if needed.
 
         Args:
             repo_path (str): The repository that we will be searching in
             query (str): Query string to search for semantically related files or paths.            
         Returns:
-            str: List of semantically relevant files to look in, also consider the paths the files are in.
+            str: List of semantically relevant files and paths to consider.
         """
         temp_db_path = self.lookup_db_path(repo_path)
         if temp_db_path is None:
             temp_db_path = self.create_vector_db(repo_path)
-        self.notifier.status("Loading vector database...")
+        self.notifier.status("Loading embeddings database...")
         file_paths, embeddings = self.load_vector_database(temp_db_path)
         self.notifier.status("Performing query...")
         similar_files = self.find_similar_files(query, file_paths, embeddings)        
@@ -122,9 +132,19 @@ class VectorToolkit(Toolkit):
         if embeddings.size(0) == 0:
             return 'No embeddings available to query against'
         scores = util.pytorch_cos_sim(query_embedding, embeddings)[0]
-        top_results = torch.topk(scores, k=10)
+        top_results = torch.topk(scores, k=min(10, scores.size(0)))
         similar_files = [file_paths[idx] for idx in top_results[1]]
-        return similar_files
+        expanded_similar_files = set()
+        for file in similar_files:
+            expanded_similar_files.add(file)
+            parent = Path(file).parent
+            depth = 0
+            while parent != parent.parent and depth < 3:
+                expanded_similar_files.add(str(parent))
+                parent = parent.parent
+                depth += 1
+        return list(expanded_similar_files)
 
     def system(self) -> str:
-        return "**When looking at a large repository for relevant files or paths to examine related semantically to the question, use the query_vector_db tool**"
+        """Retrieve guidelines for semantic search"""
+        return Message.load("prompts/vector.jinja").text

@@ -18,7 +18,7 @@ def vector_toolkit():
 def test_query_vector_db_creates_db(temp_dir, vector_toolkit):
     # Create and load a vector database lazily
     query = 'print("Hello World")'
-    result = vector_toolkit.query_vector_db(temp_dir.as_posix(), query)
+    result = vector_toolkit.find_simmilar_files_locations(temp_dir.as_posix(), query)
     print("Query Result:", result)
     assert isinstance(result, str)
     temp_db_path = vector_toolkit.get_db_path(temp_dir.as_posix())
@@ -30,7 +30,7 @@ def test_query_vector_db(temp_dir, vector_toolkit):
     # Create initial db
     vector_toolkit.create_vector_db(temp_dir.as_posix())
     query = 'print("Hello World")'
-    result = vector_toolkit.query_vector_db(temp_dir.as_posix(), query)
+    result = vector_toolkit.find_simmilar_files_locations(temp_dir.as_posix(), query)
     print("Query Result:", result)
     assert isinstance(result, str)
     temp_db_path = vector_toolkit.get_db_path(temp_dir.as_posix())
@@ -51,7 +51,7 @@ def test_no_new_db_if_exists_higher(temp_dir, vector_toolkit):
 
     # Perform query on the lower directory
     query = 'print("Hello World")'
-    result = vector_toolkit.query_vector_db(lower_dir.as_posix(), query)
+    result = vector_toolkit.find_simmilar_files_locations(lower_dir.as_posix(), query)
     print("Query Result from Lower Directory:", result)
 
     # Ensure a DB at the lower level is not created
@@ -59,3 +59,35 @@ def test_no_new_db_if_exists_higher(temp_dir, vector_toolkit):
     assert not os.path.exists(temp_db_path_lower)
     assert os.path.exists(db_path_higher)
     assert os.path.getsize(db_path_higher) > 0
+
+
+def test_find_similar_files_in_repo(temp_dir, vector_toolkit):
+    # Setting up a temporary repository structure
+    file_structure = {
+        'file1.py': 'def function_one(): pass\n',
+        'file2.py': 'def function_two(): pass\n',
+        'subdir': {
+            'file3.py': 'class MyClass: pass\n'
+        }
+    }
+
+    def create_files(base_path, structure):
+        for name, content in structure.items():
+            path = base_path / name
+            if isinstance(content, str):
+                with open(path, 'w') as f:
+                    f.write(content)
+            else:
+                path.mkdir()
+                create_files(path, content)
+
+    create_files(temp_dir, file_structure)
+
+    # Create initial db
+    vector_toolkit.create_vector_db(temp_dir.as_posix())
+
+    # Test query
+    query = 'def function_one'
+    result = vector_toolkit.find_simmilar_files_locations(temp_dir.as_posix(), query)
+    print("Similar Files Result:", result)
+    assert 'file1.py' in result or 'subdir' in result

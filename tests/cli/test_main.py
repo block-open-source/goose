@@ -85,31 +85,37 @@ def test_session_clear_command(mock_session_files_path, create_session_file):
 def test_combined_group_option():
     with patch("goose.utils.load_plugins") as mock_load_plugin:
         group_option_name = "--describe-commands"
+
         def option_callback(ctx, *_):
             click.echo("Option callback")
             ctx.exit()
+
         mock_group_options = {
-            'option1': lambda: click.option(
+            "option1": lambda: click.option(
                 group_option_name,
                 is_flag=True,
                 callback=option_callback,
             ),
         }
+
         def side_effect_func(param):
             if param == "goose.cli.group_option":
                 return mock_group_options
             elif param == "goose.cli.group":
-                return {  }
+                return {}
+
         mock_load_plugin.side_effect = side_effect_func
 
         # reload cli after mocking
-        importlib.reload(importlib.import_module('goose.cli.main'))
+        importlib.reload(importlib.import_module("goose.cli.main"))
         import goose.cli.main
+
         cli = goose.cli.main.cli
 
         runner = CliRunner()
         result = runner.invoke(cli, [group_option_name])
         assert result.exit_code == 0
+
 
 def test_combined_group_commands(mock_session):
     mock_session_class, mock_session_instance = mock_session
@@ -117,4 +123,3 @@ def test_combined_group_commands(mock_session):
     runner.invoke(cli, ["session", "resume", "session1", "--profile", "default"])
     mock_session_class.assert_called_once_with(name="session1", profile="default")
     mock_session_instance.run.assert_called_once()
-

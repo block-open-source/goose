@@ -58,7 +58,8 @@ def toolkit() -> None:
 def list_toolkits() -> None:
     print("[green]Available toolkits:[/green]")
     for toolkit_name, toolkit in load_plugins("goose.toolkit").items():
-        print(f" - [bold]{toolkit_name}[/bold]: {toolkit.__doc__.split('\n')[0]}")
+        first_line_of_doc = toolkit.__doc__.split("\n")[0]
+        print(f" - [bold]{toolkit_name}[/bold]: {first_line_of_doc}")
 
 
 @session.command(name="start")

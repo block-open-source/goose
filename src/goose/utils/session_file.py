@@ -6,7 +6,6 @@ from exchange import Message
 
 from goose.cli.config import SESSION_FILE_SUFFIX
 
-
 def write_to_file(file_path: Path, messages: List[Message]) -> None:
     with open(file_path, "w") as f:
         for m in messages:

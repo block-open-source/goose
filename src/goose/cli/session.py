@@ -34,13 +34,13 @@ TIPS = [
     "Goose likes to know what programming language you are working in to get started.",
     "You can ask goose to confirm commands with you if you like.",
     "Try this: 'In this golang project, I want you to add open telemetry to help me get "
-        + "started with it. run the `just test` command to check things work.'",
+    + "started with it. run the `just test` command to check things work.'",
     "If you are working in a git repo, you can stage and commit changes "
-        + "(or ask goose to) as you go to not loose any work.",
+    + "(or ask goose to) as you go to not loose any work.",
     "You can ask goose to try almost any task, "
-        + "it likes to write and execute scripts as well as help you sort out your environment.",
+    + "it likes to write and execute scripts as well as help you sort out your environment.",
     "Tell goose what directories you want to work in (this can be your main directory, "
-        + "but you can tell it to look elsewhere it needs to)",
+    + "but you can tell it to look elsewhere it needs to)",
     "With the screen toolkit, goose can look at your screen and help you make visual changes.",
     "You can run more than one goose at a time (in different terminals or IDEs).",
     "Ask goose to write a unit test for some code and check it works.",
@@ -48,9 +48,8 @@ TIPS = [
     "You can use goose to analyse data as well, it can write scripts and evaluate them against your data.",
     "Ask goose to recommend a tool to use, and it can offer to install it as well.",
     "Start by asking goose to run your tests for you and it will report back.",
-    "If you have broken tests, ask goose to help you either fix the tests or the broken code."
+    "If you have broken tests, ask goose to help you either fix the tests or the broken code.",
 ]
-
 
 
 def load_provider() -> str:
@@ -140,14 +139,13 @@ class Session:
         if len(self.exchange.messages) == 0:
             # Show tips of the day for new sessions
             random_tips = random.sample(TIPS, k=2)
-            formatted_tips = '\n    '.join(random_tips)
+            formatted_tips = "\n    ".join(random_tips)
             print(f"Tips of the day:\n    [yellow]{formatted_tips}[/yellow]")
 
             if plan:
                 self.setup_plan(plan=plan)
 
         self.prompt_session = GoosePromptSession.create_prompt_session()
-
 
     def setup_plan(self, plan: dict) -> None:
         if len(self.exchange.messages):

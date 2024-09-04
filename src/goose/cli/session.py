@@ -31,7 +31,8 @@ RESUME_MESSAGE = "I see we were interrupted. How can I help you?"
 TIPS = [
     "Tell goose how to run tests so it can verify any changes. eg 'please run make test to verify any changes'",
     "Tell goose if you have any developer docs like CONTRIBUTING.md so it can learn how to build and help you.",
-    "Goose likes to know what programming language you are working in to get started.",
+    "goose likes to know what programming language you are working in to get started.",
+    "goose can and will edit files. Use a git strategy to avoid losing anything.",
     "You can ask goose to confirm commands with you if you like.",
     "Try this: 'In this golang project, I want you to add open telemetry to help me get "
     + "started with it. run the `just test` command to check things work.'",

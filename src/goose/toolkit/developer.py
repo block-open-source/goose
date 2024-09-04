@@ -12,7 +12,7 @@ from rich.table import Table
 from rich.text import Text
 
 from goose.toolkit.base import Toolkit, tool
-from goose.toolkit.utils import get_language
+from goose.toolkit.utils import get_language, render_template
 
 
 def keep_unsafe_command_prompt(command: str) -> PromptType:
@@ -37,7 +37,7 @@ class Developer(Toolkit):
         hints_path = Path(".goosehints")
         system_prompt = Message.load("prompts/developer.jinja").text
         if hints_path.is_file():
-            goosehints = hints_path.read_text()
+            goosehints = render_template(hints_path)
             system_prompt = f"{system_prompt}\n\nHints:\n{goosehints}"
         return system_prompt
 

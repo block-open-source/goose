@@ -1,12 +1,23 @@
 from pathlib import Path
-
-
 from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, Mock
 
 import pytest
 from goose.toolkit.base import Requirements
 from goose.toolkit.developer import Developer
+from contextlib import contextmanager
+import os
+
+
+@contextmanager
+def change_dir(new_dir):
+    """Context manager to temporarily change the current working directory."""
+    original_dir = os.getcwd()
+    os.chdir(new_dir)
+    try:
+        yield
+    finally:
+        os.chdir(original_dir)
 
 
 @pytest.fixture
@@ -28,6 +39,20 @@ def developer_toolkit():
     toolkit.exchange_view.processor.replace.return_value.messages = [Mock()]
 
     return toolkit
+
+
+def test_system_prompt_with_goosehints(temp_dir, developer_toolkit):
+    readme_file = temp_dir / "README.md"
+    readme_file.write_text("This is from the README.md file.")
+
+    hints_file = temp_dir / ".goosehints"
+    jinja_template_content = "Hints:\n\n{% include 'README.md' %}\nEnd."
+    hints_file.write_text(jinja_template_content)
+
+    with change_dir(temp_dir):
+        system_prompt = developer_toolkit.system()
+        expected_end = "Hints:\n\nThis is from the README.md file.\nEnd."
+        assert system_prompt.endswith(expected_end)
 
 
 def test_update_plan(developer_toolkit):

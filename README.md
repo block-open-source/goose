@@ -9,7 +9,7 @@ goose
 </p>
 
 <p align="center">
-<a href="#usage">Usage</a> • 
+<a href="#usage">Usage</a> •
 <a href="#configuration">Configuration</a> •
 <a href="#tips">Tips</a> •
 <a href="#faq">FAQ</a> •
@@ -25,7 +25,7 @@ To solve problems, `goose` breaks down instructions into sequences of tasks and 
 
 
 ## Usage
-### Installation 
+### Installation
 
 To install `goose`, we recommend `pipx`
 
@@ -36,7 +36,7 @@ brew install pipx
 pipx ensurepath
 ```
 
-Then you can install `goose` with 
+Then you can install `goose` with
 
 ```sh
 pipx install goose-ai
@@ -45,7 +45,7 @@ pipx install goose-ai
 There is an early version of a VS Code extension with goose support you can try here: https://github.com/square/goose-vscode - more to come soon.
 
 ### LLM provider access setup
-`goose` works on top of LLMs (you need to bring your own LLM). By default, `goose` uses `openai` as LLM provider. You need to set OPENAI_API_KEY as an environment variable if you would like to use `openai`. 
+`goose` works on top of LLMs (you need to bring your own LLM). By default, `goose` uses `openai` as LLM provider. You need to set OPENAI_API_KEY as an environment variable if you would like to use `openai`.
 ```sh
 export OPENAI_API_KEY=your_open_api_key
 ```
@@ -80,10 +80,10 @@ goose session resume
 
 ## Configuration
 
-`goose` can detect what LLM and toolkits it can work with from the configuration file `~/.config/goose/profiles.yaml` automatically.  
+`goose` can detect what LLM and toolkits it can work with from the configuration file `~/.config/goose/profiles.yaml` automatically.
 
 ### Configuration options
-Example: 
+Example:
 
 ```yaml
 default:
@@ -124,11 +124,29 @@ Rules designed to control or manage the output of the model. Moderators that cur
 
 #### toolkits
 
-`goose` can be extended with toolkits, and out of the box there are some available: 
+`goose` can be extended with toolkits, and out of the box there are some available:
 
+* `developer`: for general-purpose development capabilities, including plan management, shell execution, and file operations, with default shell strategies like using ripgrep.
 * `screen`: for letting goose take a look at your screen to help debug or work on designs (gives goose eyes)
 * `github`: for awareness and suggestions on how to use github
 * `repo_context`: for summarizing and understanding a repository you are working in.
+
+#### Configuring goose per repo
+
+If you are using the `developer` toolkit, `goose` adds the content from `.goosehints`
+ file in working directory to the system prompt of the `developer` toolkit. The hints
+file is meant to provide additional context about your project. The context can be
+user-specific or at the project level in which case, you
+can commit it to git. `.goosehints` file is Jinja templated so you could have something
+like this:
+```
+Here is an overview of how to contribute:
+{% include 'CONTRIBUTING.md' %}
+
+The following justfile shows our common commands:
+```just
+{% include 'justfile' %}
+```
 
 ### Examples
 #### provider as `anthropic`
@@ -158,10 +176,10 @@ Here are some collected tips we have for working efficiently with `goose`
 
 - **`goose` can and will edit files**. Use a git strategy to avoid losing anything - such as staging your
   personal edits and leaving `goose` edits unstaged until reviewed. Or consider using individual commits which can be reverted.
-- **`goose` can and will run commands**. You can ask it to check with you first if you are concerned. It will check commands for safety as well.  
+- **`goose` can and will run commands**. You can ask it to check with you first if you are concerned. It will check commands for safety as well.
 - You can interrupt `goose` with `CTRL+C` to correct it or give it more info.
 - `goose` works best when solving concrete problems - experiment with how far you need to break that problem
-  down to get `goose` to solve it. Be specific! E.g. it will likely fail to `"create a banking app"`, 
+  down to get `goose` to solve it. Be specific! E.g. it will likely fail to `"create a banking app"`,
   but probably does a good job if prompted with `"create a Fastapi app with an endpoint for deposit and withdrawal
   and with account balances stored in mysql keyed by id"`
 - If `goose` doesn't have enough context to start with, it might go down the wrong direction. Tell it
@@ -169,7 +187,7 @@ Here are some collected tips we have for working efficiently with `goose`
   them for you, which will help it set up its own next steps.
 - Refer to any objects in files with something that is easy to search for, such as `"the MyExample class"
 - `goose` *loves* to know how to run tests to get a feedback loop going, just like you do. If you tell it how you test things locally and quickly, it can make use of that when working on your project
-- You can use `goose` for tasks that would require scripting at times, even looking at your screen and correcting designs/helping you fix bugs, try asking it to help you in a way you would ask a person. 
+- You can use `goose` for tasks that would require scripting at times, even looking at your screen and correcting designs/helping you fix bugs, try asking it to help you in a way you would ask a person.
 - `goose` will make mistakes, and go in the wrong direction from times, feel free to correct it, or start again.
 - You can tell `goose` to run things for you continuously (and it will iterate, try, retry) but you can also tell it to check with you before doing things (and then later on tell it to go off on its own and do its best to solve).
 - `goose` can run anywhere, doesn't have to be in a repo, just ask it!
@@ -177,14 +195,14 @@ Here are some collected tips we have for working efficiently with `goose`
 
 ### Examples
 
-Here are some examples that have been used: 
+Here are some examples that have been used:
 
 ```
 G❯ Looking at the in progress changes in this repo, help me finish off the feature. CONTRIBUTING.md shows how to run the tests.
 ```
 
 ```
-G❯ In this golang project, I want you to add open telemetry to help me get started with it. Look in the moneymovements module, run the `just test` command to check things work. 
+G❯ In this golang project, I want you to add open telemetry to help me get started with it. Look in the moneymovements module, run the `just test` command to check things work.
 ```
 
 ```
@@ -196,7 +214,7 @@ G❯ This is a fresh checkout of a golang project. I do not have my golang envir
 ```
 
 ```
-G❯ In this repo, I want you to look at how to add a new provider for azure. 
+G❯ In this repo, I want you to look at how to add a new provider for azure.
 Some hints are in this github issue: https://github.com/square/exchange/issues
 /4 (you can use gh cli to access it).
 ```
@@ -213,7 +231,7 @@ G❯ I want you to help me increase the test coverage in src/java... use mvn tes
 
 ## Open Source
 
-Yes, `goose` is open source and always will be. `goose` is released under the ASL2.0 license meaning you can use it however you like. 
+Yes, `goose` is open source and always will be. `goose` is released under the ASL2.0 license meaning you can use it however you like.
 See LICENSE.md for more details.
 
 To run `goose` from source, please see `CONTRIBUTING.md` for instructions on how to set up your environment and you can then run `uv run `goose` session start`.

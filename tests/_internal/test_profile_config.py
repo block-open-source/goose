@@ -50,7 +50,8 @@ def test_ensure_config_add_default_profile(mock_profile_config_path, profile_fac
     }
 
 
-@patch("goose.cli.config.Confirm.ask", return_value=True)
+@patch("goose._internal.profile_config.Confirm.ask", return_value=True)
+@patch("goose._internal.profile_config.print")
 def test_ensure_config_overwrite_default_profile(
     mock_confirm, mock_profile_config_path, profile_factory, mock_default_model_configuration
 ):
@@ -63,7 +64,8 @@ def test_ensure_config_overwrite_default_profile(
     assert _read_config() == {"default": expected_default_profile}
 
 
-@patch("goose.cli.config.Confirm.ask", return_value=False)
+@patch("goose._internal.profile_config.Confirm.ask", return_value=False)
+@patch("goose._internal.profile_config.print")
 def test_ensure_config_keep_original_default_profile(
     mock_confirm, mock_profile_config_path, profile_factory, mock_default_model_configuration
 ):

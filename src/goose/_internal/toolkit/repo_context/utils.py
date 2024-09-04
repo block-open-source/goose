@@ -8,7 +8,6 @@ from exchange import Exchange
 
 from goose.utils.ask import ask_an_ai
 
-
 def get_directory_size(directory: str) -> int:
     total_size = 0
     for dirpath, _, filenames in os.walk(directory):

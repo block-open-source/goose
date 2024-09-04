@@ -3,8 +3,8 @@ from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, Mock
 
 import pytest
-from goose.toolkit.base import Requirements
-from goose.toolkit.developer import Developer
+from goose.toolkit import Requirements
+from goose._internal.toolkit.developer import Developer
 
 
 @pytest.fixture

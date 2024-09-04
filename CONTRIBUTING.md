@@ -55,7 +55,7 @@ in the goose package thanks to [plugin metadata][plugin]!), create a class that 
 import os
 import platform
 
-from goose.toolkit.base import Toolkit, tool
+from goose.toolkit import Toolkit, tool
 
 
 class Demo(Toolkit):

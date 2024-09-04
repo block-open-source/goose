@@ -10,8 +10,8 @@ from rich.prompt import Confirm, PromptType
 from rich.table import Table
 from rich.text import Text
 
-from goose.toolkit.base import Toolkit, tool
-from goose.toolkit.utils import get_language
+from goose.toolkit import Toolkit, tool
+from .utils import get_language
 
 
 def keep_unsafe_command_prompt(command: str) -> PromptType:

@@ -1,6 +1,6 @@
 from functools import cache
 
-from goose.toolkit.base import Toolkit
+from goose.toolkit import Toolkit
 from goose.utils import load_plugins
 
 

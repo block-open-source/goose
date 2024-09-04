@@ -6,8 +6,8 @@ from exchange.providers import get_provider
 
 from goose.notifier import Notifier
 from goose.profile import Profile
-from goose.toolkit import get_toolkit
-from goose.toolkit.base import Requirements
+from ._internal.toolkit import get_toolkit
+from goose.toolkit import Requirements
 from goose.view import ExchangeView
 
 

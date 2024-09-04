@@ -1,6 +1,6 @@
 from exchange import Message
 
-from goose.toolkit.base import Toolkit
+from goose.toolkit import Toolkit
 
 
 class Github(Toolkit):

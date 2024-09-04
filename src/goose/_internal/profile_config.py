@@ -13,7 +13,7 @@ from ..profile import Profile, ToolkitSpec
 from ..utils import load_plugins
 from ..utils.diff import pretty_diff
 
-# @cache
+@cache
 def _all_recommended_profiles() -> Mapping[str, Callable]:
     return load_plugins(group="goose.profile")
 

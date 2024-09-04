@@ -9,7 +9,6 @@ from click.testing import CliRunner
 from exchange import Message
 from goose.cli.main import cli, goose_cli
 
-
 @pytest.fixture
 def mock_print():
     with patch("goose.cli.main.print") as mock_print:

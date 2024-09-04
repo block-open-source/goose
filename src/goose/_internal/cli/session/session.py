@@ -40,7 +40,7 @@ class Session:
         self.exchange = build_exchange(profile=load_profile(profile), notifier=notifier)
 
         if name is not None and self.session_file_path.exists():
-            messages = self.load_session()
+            messages = self._load_session()
 
             if messages and messages[-1].role == "user":
                 if type(messages[-1].content[-1]) is Text:
@@ -60,11 +60,11 @@ class Session:
             self.exchange.messages.extend(messages)
 
         if len(self.exchange.messages) == 0 and plan:
-            self.setup_plan(plan=plan)
+            self._setup_plan(plan=plan)
 
         self.prompt_session = GoosePromptSession.create_prompt_session()
 
-    def setup_plan(self, plan: dict) -> None:
+    def _setup_plan(self, plan: dict) -> None:
         if len(self.exchange.messages):
             raise ValueError("The plan can only be set on an empty session.")
         self.exchange.messages.append(Message.user(plan["kickoff_message"]))
@@ -75,7 +75,7 @@ class Session:
         plan_tool_use = ToolUse(id="initialplan", name="update_plan", parameters=dict(tasks=tasks))
         self.exchange.add_tool_use(plan_tool_use)
 
-    def process_first_message(self) -> Optional[Message]:
+    def _process_first_message(self) -> Optional[Message]:
         # Get a first input unless it has been specified, such as by a plan
         if len(self.exchange.messages) == 0 or self.exchange.messages[-1].role == "assistant":
             user_input = self.prompt_session.get_user_input()
@@ -89,14 +89,14 @@ class Session:
         Runs the main loop to handle user inputs and responses.
         Continues until an empty string is returned from the prompt.
         """
-        message = self.process_first_message()
+        message = self._process_first_message()
         while message:  # Loop until no input (empty string).
             with Live(self.status_indicator, refresh_per_second=8, transient=True):
                 try:
                     self.exchange.add(message)
-                    self.reply()  # Process the user message.
+                    self._reply()  # Process the user message.
                 except KeyboardInterrupt:
-                    self.interrupt_reply()
+                    self._interrupt_reply()
                 except Exception:
                     print(traceback.format_exc())
                     if self.exchange.messages:
@@ -112,9 +112,9 @@ class Session:
             user_input = self.prompt_session.get_user_input()
             message = Message.user(text=user_input.text) if user_input.to_continue() else None
 
-        self.save_session()
+        self._save_session()
 
-    def reply(self) -> None:
+    def _reply(self) -> None:
         """Reply to the last user message, calling tools as needed
 
         Args:
@@ -138,7 +138,7 @@ class Session:
             if response.text:
                 print(Markdown(response.text))
 
-    def interrupt_reply(self) -> None:
+    def _interrupt_reply(self) -> None:
         """Recover from an interruption at an arbitrary state"""
         # Default recovery message if no user message is pending.
         recovery = "We interrupted before the next processing started."
@@ -172,26 +172,26 @@ class Session:
     def session_file_path(self) -> Path:
         return session_path(self.name)
 
-    def save_session(self) -> None:
+    def _save_session(self) -> None:
         """Save the current session to a file in JSON format."""
         if self.name is None:
-            self.generate_session_name()
+            self._generate_session_name()
 
         try:
             if self.session_file_path.exists():
                 if not confirm(f"Session {self.name} exists in {self.session_file_path}, overwrite?"):
-                    self.generate_session_name()
+                    self._generate_session_name()
             write_to_file(self.session_file_path, self.exchange.messages)
         except PermissionError as e:
             raise RuntimeError(f"Failed to save session due to permissions: {e}")
         except (IOError, OSError) as e:
             raise RuntimeError(f"Failed to save session due to I/O error: {e}")
 
-    def load_session(self) -> List[Message]:
+    def _load_session(self) -> List[Message]:
         """Load a session from a JSON file."""
         return read_from_file(self.session_file_path)
 
-    def generate_session_name(self) -> None:
+    def _generate_session_name(self) -> None:
         user_entered_session_name = self.prompt_session.get_save_session_name()
         self.name = user_entered_session_name if user_entered_session_name else droid()
         print(f"Saving to [bold cyan]{self.session_file_path}[/bold cyan]")

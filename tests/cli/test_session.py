@@ -86,11 +86,11 @@ def test_save_session_create_session(mock_sessions_path, create_session_with_moc
     session = create_session_with_mock_configs()
     session.exchange.messages.append(Message.assistant("Hello"))
 
-    session.save_session()
+    session._save_session()
     session_file = mock_sessions_path / f"{SPECIFIED_SESSION_NAME}.jsonl"
     assert session_file.exists()
 
-    saved_messages = session.load_session()
+    saved_messages = session._load_session()
     assert len(saved_messages) == 1
     assert saved_messages[0].text == "Hello"
 
@@ -109,12 +109,12 @@ def test_save_session_resume_session_new_file(
         session = create_session_with_mock_configs({"name": SESSION_NAME})
         session.exchange.messages.append(Message.assistant("new_message"))
 
-        session.save_session()
+        session._save_session()
 
         assert new_session_file.exists()
         assert existing_session_file.exists()
 
-        saved_messages = session.load_session()
+        saved_messages = session._load_session()
         assert [message.text for message in saved_messages] == ["existing_message", "new_message"]
 
 
@@ -129,9 +129,9 @@ def test_save_session_resume_session_existing_session_file(
         session = create_session_with_mock_configs({"name": SESSION_NAME})
         session.exchange.messages.append(Message.assistant("new_message"))
 
-        session.save_session()
+        session._save_session()
 
-        saved_messages = session.load_session()
+        saved_messages = session._load_session()
         assert [message.text for message in saved_messages] == ["existing_message", "new_message"]
 
 
@@ -140,7 +140,7 @@ def test_process_first_message_return_message(create_session_with_mock_configs):
     with patch.object(
         GoosePromptSession, "get_user_input", return_value=UserInput(action=PromptAction.CONTINUE, text="Hello")
     ):
-        message = session.process_first_message()
+        message = session._process_first_message()
 
         assert message.text == "Hello"
         assert len(session.exchange.messages) == 0
@@ -149,7 +149,7 @@ def test_process_first_message_return_message(create_session_with_mock_configs):
 def test_process_first_message_to_exit(create_session_with_mock_configs):
     session = create_session_with_mock_configs()
     with patch.object(GoosePromptSession, "get_user_input", return_value=UserInput(action=PromptAction.EXIT)):
-        message = session.process_first_message()
+        message = session._process_first_message()
 
         assert message is None
 
@@ -158,7 +158,7 @@ def test_process_first_message_return_last_exchange_message(create_session_with_
     session = create_session_with_mock_configs()
     session.exchange.messages.append(Message.user("Hi"))
 
-    message = session.process_first_message()
+    message = session._process_first_message()
 
     assert message.text == "Hi"
     assert len(session.exchange.messages) == 0
@@ -167,6 +167,6 @@ def test_process_first_message_return_last_exchange_message(create_session_with_
 def test_generate_session_name(create_session_with_mock_configs):
     session = create_session_with_mock_configs()
     with patch.object(GoosePromptSession, "get_save_session_name", return_value=SPECIFIED_SESSION_NAME):
-        session.generate_session_name()
+        session._generate_session_name()
 
         assert session.name == SPECIFIED_SESSION_NAME

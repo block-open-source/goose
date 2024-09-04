@@ -1,4 +1,3 @@
-from os import read
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, Mock

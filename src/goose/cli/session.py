@@ -133,15 +133,17 @@ class Session:
                 messages.append(Message.assistant(RESUME_MESSAGE))
             self.exchange.messages.extend(messages)
 
-        if len(self.exchange.messages) == 0 and plan:
-            self.setup_plan(plan=plan)
+        if len(self.exchange.messages) == 0:
+            # Show tips of the day for new sessions
+            random_tips = random.sample(TIPS, k=2)
+            formatted_tips = '\n    '.join(random_tips)
+            print(f"Tips of the day:\n    [yellow]{formatted_tips}[/yellow]")
+
+            if plan:
+                self.setup_plan(plan=plan)
 
         self.prompt_session = GoosePromptSession.create_prompt_session()
 
-        # Show tip of the day
-        random_tips = random.sample(TIPS, k=2)
-        formatted_tips = '\n    '.join(random_tips)
-        print(f"Tips of the day:\n    [yellow]{formatted_tips}[/yellow]")
 
     def setup_plan(self, plan: dict) -> None:
         if len(self.exchange.messages):

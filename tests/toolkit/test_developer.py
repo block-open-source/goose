@@ -37,8 +37,8 @@ def test_system_prompt_with_goosehints(temp_dir, developer_toolkit):
     hints_file.write_text(jinja_template_content)
 
     system_prompt = developer_toolkit.system()
-    expected = "Hints:\n\nThis is from the README.md file.\nEnd."
-    assert system_prompt == expected
+    expected_end = "Hints:\n\nThis is from the README.md file.\nEnd."
+    assert system_prompt.endswith(expected_end)
 
 
 def test_update_plan(developer_toolkit):

@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-from goose.cli.prompt.prompt_validator import PromptValidator
+from goose._internal.cli.prompt.prompt_validator import PromptValidator
 from prompt_toolkit.validation import ValidationError
 
 

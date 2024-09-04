@@ -1,7 +1,7 @@
 from unittest.mock import Mock
 
 import pytest
-from goose.cli.prompt.completer import GoosePromptCompleter
+from goose._internal.cli.prompt.completer import GoosePromptCompleter
 from goose.command.base import Command
 from prompt_toolkit.completion import Completion
 from prompt_toolkit.document import Document

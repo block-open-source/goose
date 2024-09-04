@@ -1,4 +1,4 @@
-from goose.cli.prompt.lexer import (
+from goose._internal.cli.prompt.lexer import (
     PromptLexer,
     command_itself,
     completion_for_command,

@@ -14,7 +14,7 @@ from rich.status import Status
 from .._internal.profile.config import load_profile
 from goose._internal.exchange.build import build_exchange
 from ..utils.session_file import session_path
-from goose.cli.prompt.goose_prompt_session import GoosePromptSession
+from goose._internal.cli.prompt.goose_prompt_session import GoosePromptSession
 from goose.notifier import Notifier
 from goose.utils import droid, load_plugins
 from goose.utils.session_file import read_from_file, write_to_file

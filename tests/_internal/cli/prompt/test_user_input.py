@@ -1,4 +1,4 @@
-from goose.cli.prompt.user_input import PromptAction, UserInput
+from goose._internal.cli.prompt.user_input import PromptAction, UserInput
 
 
 def test_user_input_with_action_continue():

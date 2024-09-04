@@ -2,8 +2,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from exchange import Message, ToolUse, ToolResult
-from goose.cli.prompt.goose_prompt_session import GoosePromptSession
-from goose.cli.prompt.user_input import PromptAction, UserInput
+from goose._internal.cli.prompt.goose_prompt_session import GoosePromptSession
+from goose._internal.cli.prompt.user_input import PromptAction, UserInput
 from goose.cli.session import Session
 from prompt_toolkit import PromptSession
 

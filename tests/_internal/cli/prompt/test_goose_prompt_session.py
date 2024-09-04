@@ -1,8 +1,8 @@
 from unittest.mock import patch
 
 import pytest
-from goose.cli.prompt.goose_prompt_session import GoosePromptSession
-from goose.cli.prompt.user_input import PromptAction, UserInput
+from goose._internal.cli.prompt.goose_prompt_session import GoosePromptSession
+from goose._internal.cli.prompt.user_input import PromptAction, UserInput
 
 
 @pytest.fixture

@@ -4,8 +4,8 @@ from prompt_toolkit.key_binding import KeyBindings, KeyPressEvent
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.styles import Style
 
-from goose.cli.prompt.completer import GoosePromptCompleter
-from goose.cli.prompt.lexer import PromptLexer
+from .completer import GoosePromptCompleter
+from .lexer import PromptLexer
 from goose.command import get_commands
 
 

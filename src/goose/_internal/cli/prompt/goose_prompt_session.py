@@ -4,9 +4,9 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.validation import DummyValidator
 
-from goose.cli.prompt.create import create_prompt
-from goose.cli.prompt.prompt_validator import PromptValidator
-from goose.cli.prompt.user_input import PromptAction, UserInput
+from .create import create_prompt
+from .prompt_validator import PromptValidator
+from .user_input import PromptAction, UserInput
 
 
 class GoosePromptSession:

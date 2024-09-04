@@ -41,7 +41,7 @@ def test_ensure_config_create_profiles_file_with_default_profile(
 
 
 @patch("goose._internal.profile.config.print")
-def test_ensure_config_add_default_profile(mock_profile_config_path, profile_factory, mock_default_model_configuration):
+def test_ensure_config_add_default_profile(mock_print, mock_profile_config_path, profile_factory, mock_default_model_configuration):
     existing_profile = profile_factory({"provider": "providerA"})
     _write_config({"profile1": existing_profile})
 
@@ -56,7 +56,7 @@ def test_ensure_config_add_default_profile(mock_profile_config_path, profile_fac
 @patch("goose._internal.profile.config.Confirm.ask", return_value=True)
 @patch("goose._internal.profile.config.print")
 def test_ensure_config_overwrite_default_profile(
-    mock_confirm, mock_profile_config_path, profile_factory, mock_default_model_configuration
+    mock_confirm, mock_print, mock_profile_config_path, profile_factory, mock_default_model_configuration
 ):
     existing_profile = profile_factory({"provider": "providerA"})
     profile_name = "default"
@@ -70,7 +70,7 @@ def test_ensure_config_overwrite_default_profile(
 @patch("goose._internal.profile.config.Confirm.ask", return_value=False)
 @patch("goose._internal.profile.config.print")
 def test_ensure_config_keep_original_default_profile(
-    mock_confirm, mock_profile_config_path, profile_factory, mock_default_model_configuration
+    mock_confirm, mock_print, mock_profile_config_path, profile_factory, mock_default_model_configuration
 ):
     existing_profile = profile_factory({"provider": "providerA"})
     profile_name = "default"

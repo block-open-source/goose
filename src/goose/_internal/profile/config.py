@@ -8,9 +8,9 @@ from rich.prompt import Confirm
 from rich.text import Text
 from ruamel.yaml import YAML
 
-from ...config import PROFILES_CONFIG_PATH
-from ...profile import Profile
-from ...utils import load_plugins
+from goose.config import PROFILES_CONFIG_PATH
+from goose.profile import Profile
+from goose.utils import load_plugins
 from .diff import pretty_diff
 
 

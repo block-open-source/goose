@@ -4,7 +4,7 @@ from typing import List
 from prompt_toolkit.completion import CompleteEvent, Completer, Completion
 from prompt_toolkit.document import Document
 
-from goose.command.base import Command
+from goose.pluginbase.command import Command
 
 
 class GoosePromptCompleter(Completer):

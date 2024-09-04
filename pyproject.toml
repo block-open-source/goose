@@ -31,7 +31,7 @@ repo_context = "goose._internal.toolkit:RepoContext"
 default = "goose._internal.profile:default_profile"
 
 [project.entry-points."goose.command"]
-file = "goose.command.file:FileCommand"
+file = "goose._internal.cli.command.file:FileCommand"
 
 [project.entry-points."goose.cli.group"]
 goose = "goose._internal.cli.main:goose_cli"

@@ -3,7 +3,7 @@ from typing import List
 
 from prompt_toolkit.completion import Completion
 
-from goose.command.base import Command
+from goose.pluginbase.command import Command
 
 
 class FileCommand(Command):

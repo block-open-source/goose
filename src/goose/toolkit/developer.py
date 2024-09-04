@@ -1,6 +1,7 @@
 from pathlib import Path
 from subprocess import CompletedProcess, run
 from typing import List
+from goose.utils.check_shell_command import is_dangerous_command
 
 from exchange import Message
 from rich import box
@@ -25,7 +26,7 @@ def keep_unsafe_command_prompt(command: str) -> PromptType:
 
 
 class Developer(Toolkit):
-    """The developer toolkit provides a set of general purpose development capabilities
+    """Provides a set of general purpose development capabilities
 
     The tools include plan management, a general purpose shell execution tool, and file operations.
     We also include some default shell strategies in the prompt, such as using ripgrep
@@ -33,7 +34,12 @@ class Developer(Toolkit):
 
     def system(self) -> str:
         """Retrieve system configuration details for developer"""
-        return Message.load("prompts/developer.jinja").text
+        hints_path = Path('.goosehints')
+        system_prompt = Message.load("prompts/developer.jinja").text
+        if hints_path.is_file():
+            goosehints = hints_path.read_text()
+            system_prompt = f"{system_prompt}\n\nHints:\n{goosehints}"
+        return system_prompt
 
     @tool
     def update_plan(self, tasks: List[dict]) -> List[dict]:
@@ -135,7 +141,7 @@ class Developer(Toolkit):
             command (str): The shell command to run. It can support multiline statements
                 if you need to run more than one at a time
         """
-        self.notifier.status("running shell command")
+        self.notifier.status("planning to run shell command")
         # Log the command being executed in a visually structured format (Markdown).
         # The `.log` method is used here to log the command execution in the application's UX
         # this method is dynamically attached to functions in the Goose framework to handle user-visible
@@ -156,13 +162,13 @@ class Developer(Toolkit):
             rating = int(rating)
         except ValueError:
             rating = 5  # if we can't interpret we default to unsafe
-        if int(rating) > 3:
+        if is_dangerous_command(command) or int(rating) > 3:
             if not keep_unsafe_command_prompt(command):
                 raise RuntimeError(
                     f"The command {command} was rejected as dangerous by the user."
                     + " Do not proceed further, instead ask for instructions."
                 )
-
+        self.notifier.status("running shell command")
         result: CompletedProcess = run(command, shell=True, text=True, capture_output=True, check=False)
         if result.returncode == 0:
             output = "Command succeeded"

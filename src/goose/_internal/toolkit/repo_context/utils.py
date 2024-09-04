@@ -6,7 +6,7 @@ from typing import Dict, List, Tuple
 
 from exchange import Exchange
 
-from goose.utils.ask import ask_an_ai
+from goose.pluginbase.utils.ask import ask_an_ai
 
 
 def get_directory_size(directory: str) -> int:

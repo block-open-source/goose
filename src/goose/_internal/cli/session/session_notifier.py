@@ -1,4 +1,4 @@
-from goose.notifier import Notifier
+from goose.pluginbase.notifier import Notifier
 from rich.status import Status
 from rich.console import RenderableType
 from rich import print

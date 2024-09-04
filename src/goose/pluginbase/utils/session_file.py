@@ -4,7 +4,7 @@ from typing import Dict, Iterator, List
 
 from exchange import Message
 
-from ..config import SESSIONS_PATH, SESSION_FILE_SUFFIX
+from goose.config import SESSIONS_PATH, SESSION_FILE_SUFFIX
 
 
 def write_to_file(file_path: Path, messages: List[Message]) -> None:

@@ -1,6 +1,6 @@
 from typing import Optional
 
-from goose.toolkit import Toolkit, tool
+from goose.pluginbase.toolkit import Toolkit, tool
 from .utils import summarize_file
 
 

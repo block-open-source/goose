@@ -1,7 +1,7 @@
 import string
 
 import pytest
-from goose.utils import droid, ensure, ensure_list, load_plugins
+from  goose.pluginbase.utils import droid, ensure, ensure_list, load_plugins
 
 
 class MockClass:

@@ -1,7 +1,7 @@
 import subprocess
 import uuid
 
-from goose.toolkit import Toolkit, tool
+from goose.pluginbase.toolkit import Toolkit, tool
 
 
 class Screen(Toolkit):

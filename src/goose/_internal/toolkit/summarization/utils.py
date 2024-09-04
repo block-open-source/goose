@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, Tuple
 from exchange import Exchange
 from exchange.providers.utils import InitialMessageTooLargeError
 
-from goose.utils.ask import ask_an_ai
+from goose.pluginbase.utils.ask import ask_an_ai
 from .file_utils import create_file_list
 
 SUMMARIES_FOLDER = ".goose/summaries"

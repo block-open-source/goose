@@ -5,7 +5,7 @@ from typing import Callable, Mapping, Optional, Tuple, TypeVar
 from attrs import define, field
 from exchange import Tool
 
-from goose.notifier import Notifier
+from .notifier import Notifier
 
 # Create a type variable that can represent any function signature
 F = TypeVar("F", bound=Callable)

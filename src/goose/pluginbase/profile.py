@@ -2,7 +2,7 @@ from typing import Any, Dict, List, Mapping, Type
 
 from attrs import asdict, define, field
 
-from goose.utils import ensure_list
+from .utils import ensure_list
 
 
 @define

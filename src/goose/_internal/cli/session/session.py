@@ -14,8 +14,8 @@ from .session_notifier import SessionNotifier
 from ...profile.config import load_profile
 from ...exchange.build import build_exchange
 from ..prompt.goose_prompt_session import GoosePromptSession
-from goose.utils import droid
-from goose.utils.session_file import read_from_file, write_to_file, session_path
+from goose.pluginbase.utils import droid
+from goose.pluginbase.utils.session_file import read_from_file, write_to_file, session_path
 
 RESUME_MESSAGE = "I see we were interrupted. How can I help you?"
 

@@ -5,7 +5,7 @@ from unittest.mock import Mock
 
 import pytest
 from exchange import Exchange
-from goose.profile import Profile
+from goose.pluginbase.profile import Profile
 
 
 @pytest.fixture

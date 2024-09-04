@@ -11,8 +11,8 @@ from rich.prompt import Confirm, PromptType
 from rich.table import Table
 from rich.text import Text
 
-from goose.toolkit import Toolkit, tool
-from goose.utils.file_language import get_language
+from goose.pluginbase.toolkit import Toolkit, tool
+from goose.pluginbase.utils.file_language import get_language
 
 
 def keep_unsafe_command_prompt(command: str) -> PromptType:

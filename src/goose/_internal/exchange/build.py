@@ -4,9 +4,9 @@ from exchange import Exchange, Message
 from exchange.moderators import get_moderator
 from exchange.providers import get_provider
 
-from goose.notifier import Notifier
-from goose.profile import Profile
-from goose.toolkit import Requirements
+from goose.pluginbase.notifier import Notifier
+from goose.pluginbase.profile import Profile
+from goose.pluginbase.toolkit import Requirements
 from ..toolkit import get_toolkit
 from .view import ExchangeView
 

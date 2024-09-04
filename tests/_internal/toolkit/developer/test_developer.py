@@ -5,7 +5,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, Mock
 
 import pytest
-from goose.toolkit import Requirements
+from goose.pluginbase.toolkit import Requirements
 from goose._internal.toolkit.developer.developer import Developer
 
 

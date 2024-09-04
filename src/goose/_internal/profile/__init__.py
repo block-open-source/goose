@@ -1,5 +1,5 @@
 from typing import Any, Dict
-from goose.profile import Profile, ToolkitSpec
+from goose.pluginbase.profile import Profile, ToolkitSpec
 
 
 def default_profile(provider: str, processor: str, accelerator: str, **kwargs: Dict[str, Any]) -> Profile:

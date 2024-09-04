@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from exchange import Exchange, CheckpointData
-from goose.utils.ask import ask_an_ai, clear_exchange, replace_prompt
+from goose.pluginbase.utils.ask import ask_an_ai, clear_exchange, replace_prompt
 
 
 # tests for `ask_an_ai`
@@ -16,7 +16,7 @@ def test_ask_an_ai_empty_input():
 def test_ask_an_ai_no_history():
     """Test the no_history functionality."""
     exchange = MagicMock(spec=Exchange)
-    with patch("goose.utils.ask.clear_exchange") as mock_clear:
+    with patch("goose.pluginbase.utils.ask.clear_exchange") as mock_clear:
         ask_an_ai("Test input", exchange, no_history=True)
         mock_clear.assert_called_once_with(exchange)
 
@@ -26,7 +26,7 @@ def test_ask_an_ai_prompt_replacement():
     exchange = MagicMock(spec=Exchange)
     prompt = "New prompt"
 
-    with patch("goose.utils.ask.replace_prompt") as mock_replace_prompt:
+    with patch("goose.pluginbase.utils.ask.replace_prompt") as mock_replace_prompt:
         # Configure the mock to return a new mock object with the same spec
         modified_exchange = MagicMock(spec=Exchange)
         mock_replace_prompt.return_value = modified_exchange
@@ -46,7 +46,7 @@ def test_ask_an_ai_exchange_usage():
     input_text = "Test input"
     message_mock = MagicMock(return_value="Mocked Message")
 
-    with patch("goose.utils.ask.Message.user", new=message_mock):
+    with patch("goose.pluginbase.utils.ask.Message.user", new=message_mock):
         ask_an_ai(input_text, exchange, no_history=False)
 
         # Assert that Message.user was called with the correct input

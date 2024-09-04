@@ -34,7 +34,12 @@ class Developer(Toolkit):
 
     def system(self) -> str:
         """Retrieve system configuration details for developer"""
-        return Message.load("prompts/developer.jinja").text
+        hints_path = Path('.goosehints')
+        system_prompt = Message.load("prompts/developer.jinja").text
+        if hints_path.is_file():
+            goosehints = hints_path.read_text()
+            system_prompt = f"{system_prompt}\n\nHints:\n{goosehints}"
+        return system_prompt
 
     @tool
     def update_plan(self, tasks: List[dict]) -> List[dict]:

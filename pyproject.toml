@@ -34,12 +34,12 @@ default = "goose._internal.profile:default_profile"
 file = "goose.command.file:FileCommand"
 
 [project.entry-points."goose.cli.group"]
-goose = "goose.cli.main:goose_cli"
+goose = "goose._internal.cli.main:goose_cli"
 
 [project.entry-points."goose.cli.group_option"]
 
 [project.scripts]
-goose = "goose.cli.main:cli"
+goose = "goose._internal.cli.main:cli"
 
 [build-system]
 requires = ["hatchling"]

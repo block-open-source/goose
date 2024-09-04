@@ -7,23 +7,23 @@ import click
 import pytest
 from click.testing import CliRunner
 from exchange import Message
-from goose.cli.main import cli, goose_cli
+from goose._internal.cli.main import cli, goose_cli
 
 @pytest.fixture
 def mock_print():
-    with patch("goose.cli.main.print") as mock_print:
+    with patch("goose._internal.cli.main.print") as mock_print:
         yield mock_print
 
 
 @pytest.fixture
 def mock_session_files_path(tmp_path):
-    with patch("goose.cli.main.SESSIONS_PATH", tmp_path) as session_files_path:
+    with patch("goose._internal.cli.main.SESSIONS_PATH", tmp_path) as session_files_path:
         yield session_files_path
 
 
 @pytest.fixture
 def mock_session():
-    with patch("goose.cli.main.Session") as mock_session_class:
+    with patch("goose._internal.cli.main.Session") as mock_session_class:
         mock_session_instance = MagicMock()
         mock_session_class.return_value = mock_session_instance
         yield mock_session_class, mock_session_instance
@@ -106,10 +106,10 @@ def test_combined_group_option():
         mock_load_plugin.side_effect = side_effect_func
 
         # reload cli after mocking
-        importlib.reload(importlib.import_module("goose.cli.main"))
-        import goose.cli.main
+        importlib.reload(importlib.import_module("goose._internal.cli.main"))
+        import goose._internal.cli.main
 
-        cli = goose.cli.main.cli
+        cli = goose._internal.cli.main.cli
 
         runner = CliRunner()
         result = runner.invoke(cli, [group_option_name])

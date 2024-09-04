@@ -5,19 +5,18 @@ from typing import Any, Dict, List, Optional
 from exchange import Message, ToolResult, ToolUse, Text
 from prompt_toolkit.shortcuts import confirm
 from rich import print
-from rich.console import RenderableType
 from rich.live import Live
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.status import Status
 
-from .._internal.profile.config import load_profile
-from goose._internal.exchange.build import build_exchange
-from ..utils.session_file import session_path
-from goose._internal.cli.prompt.goose_prompt_session import GoosePromptSession
-from goose.notifier import Notifier
+from .session_notifier import SessionNotifier
+
+from ...profile.config import load_profile
+from ...exchange.build import build_exchange
+from ..prompt.goose_prompt_session import GoosePromptSession
 from goose.utils import droid, load_plugins
-from goose.utils.session_file import read_from_file, write_to_file
+from goose.utils.session_file import read_from_file, write_to_file, session_path
 
 RESUME_MESSAGE = "I see we were interrupted. How can I help you?"
 
@@ -41,18 +40,6 @@ def load_provider() -> str:
             )
         )
         return "openai"
-
-
-class SessionNotifier(Notifier):
-    def __init__(self, status_indicator: Status) -> None:
-        self.status_indicator = status_indicator
-
-    def log(self, content: RenderableType) -> None:
-        print(content)
-
-    def status(self, status: str) -> None:
-        self.status_indicator.update(status)
-
 
 class Session:
     """A session handler for managing interactions between a user and the Goose exchange

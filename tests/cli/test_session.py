@@ -4,7 +4,7 @@ import pytest
 from exchange import Message, ToolUse, ToolResult
 from goose._internal.cli.prompt.goose_prompt_session import GoosePromptSession
 from goose._internal.cli.prompt.user_input import PromptAction, UserInput
-from goose.cli.session import Session
+from goose._internal.cli.session.session import Session
 from prompt_toolkit import PromptSession
 
 SPECIFIED_SESSION_NAME = "mySession"
@@ -23,10 +23,10 @@ def mock_sessions_path(tmp_path):
 
 @pytest.fixture
 def create_session_with_mock_configs(exchange_factory, profile_factory, tmp_path):
-    with patch("goose.cli.session.build_exchange", return_value=exchange_factory()), patch(
-        "goose.cli.session.load_profile", return_value=profile_factory()
-    ), patch("goose.cli.session.SessionNotifier") as mock_session_notifier, patch(
-        "goose.cli.session.load_provider", return_value="provider"
+    with patch("goose._internal.cli.session.session.build_exchange", return_value=exchange_factory()), patch(
+        "goose._internal.cli.session.session.load_profile", return_value=profile_factory()
+    ), patch("goose._internal.cli.session.session.SessionNotifier") as mock_session_notifier, patch(
+        "goose._internal.cli.session.session.load_provider", return_value="provider"
     ), patch("goose.utils.session_file.SESSIONS_PATH", tmp_path):
         mock_session_notifier.return_value = MagicMock()
 
@@ -99,7 +99,7 @@ def test_save_session_create_session(mock_sessions_path, create_session_with_moc
 def test_save_session_resume_session_new_file(
     mock_sessions_path, create_session_with_mock_configs, mock_specified_session_name, create_session_file
 ):
-    with patch("goose.cli.session.confirm", return_value=False):
+    with patch("goose._internal.cli.session.session.confirm", return_value=False):
         existing_messages = [Message.assistant("existing_message")]
         existing_session_file = mock_sessions_path / f"{SESSION_NAME}.jsonl"
         create_session_file(existing_messages, existing_session_file)
@@ -122,7 +122,7 @@ def test_save_session_resume_session_new_file(
 def test_save_session_resume_session_existing_session_file(
     mock_sessions_path, create_session_with_mock_configs, create_session_file
 ):
-    with patch("goose.cli.session.confirm", return_value=True):
+    with patch("goose._internal.cli.session.session.confirm", return_value=True):
         existing_messages = [Message.assistant("existing_message")]
         existing_session_file = mock_sessions_path / f"{SESSION_NAME}.jsonl"
         create_session_file(existing_messages, existing_session_file)

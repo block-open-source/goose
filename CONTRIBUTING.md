@@ -124,7 +124,11 @@ And now you can run goose with this new profile to use the new toolkit!
 goose session start --profile demo
 ```
 
-[developer]: src/goose/toolkit/developer.py 
+## Conventional Commits
+
+This project follows the [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) specification for PR titles. Conventional Commits make it easier to understand the history of a project and facilitate automation around versioning and changelog generation.
+
+[developer]: src/goose/toolkit/developer.py
 [uv]: https://docs.astral.sh/uv/
 [ruff]: https://docs.astral.sh/ruff/
 [just]: https://github.com/casey/just

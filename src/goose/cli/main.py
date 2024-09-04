@@ -7,7 +7,7 @@ import click
 from rich import print
 from ruamel.yaml import YAML
 
-from goose.cli.config import SESSIONS_PATH
+from ..config import SESSIONS_PATH
 from goose.cli.session import Session
 from goose.utils import load_plugins
 from goose.utils.session_file import list_sorted_session_files

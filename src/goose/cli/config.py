@@ -1,6 +1,5 @@
 from functools import cache
 from io import StringIO
-from pathlib import Path
 from typing import Callable, Dict, Mapping, Tuple
 
 from rich import print
@@ -9,7 +8,7 @@ from rich.prompt import Confirm
 from rich.text import Text
 from ruamel.yaml import YAML
 
-from ..config import SESSIONS_PATH, SESSION_FILE_SUFFIX, PROFILES_CONFIG_PATH
+from ..config import PROFILES_CONFIG_PATH
 from goose.profile import Profile
 from goose.utils import load_plugins
 from goose.utils.diff import pretty_diff
@@ -18,12 +17,6 @@ from goose.utils.diff import pretty_diff
 @cache
 def default_profiles() -> Mapping[str, Callable]:
     return load_plugins(group="goose.profile")
-
-
-def session_path(name: str) -> Path:
-    SESSIONS_PATH.mkdir(parents=True, exist_ok=True)
-    return SESSIONS_PATH.joinpath(f"{name}{SESSION_FILE_SUFFIX}")
-
 
 def write_config(profiles: Dict[str, Profile]) -> None:
     """Overwrite the config with the passed profiles"""

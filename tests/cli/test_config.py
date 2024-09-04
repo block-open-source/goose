@@ -1,7 +1,7 @@
 from unittest.mock import patch
 
 import pytest
-from goose.cli.config import ensure_config, read_config, session_path, write_config
+from goose.cli.config import ensure_config, read_config, write_config
 from goose.profile import default_profile
 
 
@@ -76,6 +76,3 @@ def test_ensure_config_keep_original_default_profile(
 
     assert read_config() == {"default": existing_profile}
 
-
-def test_session_path(mock_sessions_path):
-    assert session_path("session1") == mock_sessions_path / "session1.jsonl"

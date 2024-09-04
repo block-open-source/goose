@@ -16,8 +16,8 @@ from goose.cli.config import (
     default_profiles,
     ensure_config,
     read_config,
-    session_path,
 )
+from ..utils.session_file import session_path
 from goose.cli.prompt.goose_prompt_session import GoosePromptSession
 from goose.notifier import Notifier
 from goose.profile import Profile

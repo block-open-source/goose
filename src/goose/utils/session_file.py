@@ -4,7 +4,7 @@ from typing import Dict, Iterator, List
 
 from exchange import Message
 
-from goose.cli.config import SESSION_FILE_SUFFIX
+from ..config import SESSIONS_PATH, SESSION_FILE_SUFFIX
 
 def write_to_file(file_path: Path, messages: List[Message]) -> None:
     with open(file_path, "w") as f:
@@ -36,3 +36,7 @@ def session_file_exists(session_files_directory: Path) -> bool:
     if not session_files_directory.exists():
         return False
     return any(list_session_files(session_files_directory))
+
+def session_path(name: str) -> Path:
+    SESSIONS_PATH.mkdir(parents=True, exist_ok=True)
+    return SESSIONS_PATH.joinpath(f"{name}{SESSION_FILE_SUFFIX}")

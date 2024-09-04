@@ -1,8 +1,9 @@
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from exchange import Message
-from goose.utils.session_file import list_sorted_session_files, read_from_file, session_file_exists, write_to_file
+from goose.utils.session_file import list_sorted_session_files, read_from_file, session_file_exists, session_path, write_to_file
 
 
 @pytest.fixture
@@ -75,3 +76,7 @@ def create_session_file(file_path, file_name) -> Path:
     file = file_path / f"{file_name}.jsonl"
     file.touch()
     return file
+
+def test_session_path(tmp_path):
+    with patch("goose.utils.session_file.SESSIONS_PATH", tmp_path) as mock_session_path:
+        assert session_path("session1") == mock_session_path / "session1.jsonl"

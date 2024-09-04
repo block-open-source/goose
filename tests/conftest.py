@@ -41,12 +41,6 @@ def exchange_factory():
 
 
 @pytest.fixture
-def mock_sessions_path(tmp_path):
-    with patch("goose.cli.config.SESSIONS_PATH", tmp_path) as mock_path:
-        yield mock_path
-
-
-@pytest.fixture
 def create_session_file():
     def _create_session_file(messages, session_file_path, mtime=time()):
         with open(session_file_path, "w") as session_file:

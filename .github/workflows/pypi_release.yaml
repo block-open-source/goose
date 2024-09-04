@@ -21,8 +21,26 @@ jobs:
       - name: Build with UV
         run: uvx --from build pyproject-build --installer uv
 
+      - name: Check version
+        id: check_version
+        run: |
+          PACKAGE_NAME=$(grep '^name =' pyproject.toml | sed -E 's/name = "(.*)"/\1/')
+          TAG_VERSION=$(echo "$GITHUB_REF" | sed -E 's/refs\/tags\/v(.+)/\1/')
+          CURRENT_VERSION=$(curl -s https://pypi.org/pypi/$PACKAGE_NAME/json | jq -r .info.version)
+          PROJECT_VERSION=$(grep '^version =' pyproject.toml | sed -E 's/version = "(.*)"/\1/')
+          if [ "$TAG_VERSION" != "$PROJECT_VERSION" ]; then
+            echo "Tag version does not match version in pyproject.toml"
+            exit 1
+          fi
+          if python -c "from packaging.version import parse as parse_version; exit(0 if parse_version('$TAG_VERSION') > parse_version('$CURRENT_VERSION') else 1)"; then
+            echo "new_version=true" >> $GITHUB_OUTPUT
+          else
+            exit 1
+          fi
+
       - name: Publish
         uses: pypa/gh-action-pypi-publish@v1.4.2
+        if: steps.check_version.outputs.new_version == 'true'
         with:
           user: __token__
           password: ${{ secrets.PYPI_TOKEN_TEMP }}

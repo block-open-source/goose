@@ -26,7 +26,7 @@ def keep_unsafe_command_prompt(command: str) -> PromptType:
 
 
 class Developer(Toolkit):
-    """The developer toolkit provides a set of general purpose development capabilities
+    """Provides a set of general purpose development capabilities
 
     The tools include plan management, a general purpose shell execution tool, and file operations.
     We also include some default shell strategies in the prompt, such as using ripgrep

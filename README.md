@@ -140,8 +140,8 @@ user-specific or at the project level in which case, you
 can commit it to git. `.goosehints` file is Jinja templated so you could have something
 like this:
 ```
-Here is an overview of the project:
-{% include 'README.md' %}
+Here is an overview of how to contribute:
+{% include 'CONTRIBUTING.md' %}
 
 The following justfile shows our common commands:
 ```just

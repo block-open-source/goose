@@ -29,11 +29,19 @@ RESUME_MESSAGE = "I see we were interrupted. How can I help you?"
 
 
 TIPS = [
-    "Remember to write tests for your code!",
-    "Consistency is the key to success.",
-    "Keep your code clean and well-documented.",
-    "Collaborate and communicate effectively.",
-    "Regularly update your dependencies.",
+    "Tell goose how to run tests so it can verify any changes. eg 'please run make test to verify any changes'",
+    "Tell goose if you have any developer docs like CONTRIBUTING.md so it can learn how to build and help you.",
+    "Goose likes to know what programming language you are working in to get started.",
+    "You can ask goose to confirm commands with you if you like.",
+    "Try something like this: 'In this golang project, I want you to add open telemetry to help me get started with it. Look in the moneymovements module, run the `just test` command to check things work.'",
+    "If you are working in a git repo, you can stage and commit changes (or ask goose to) as you go to not loose any work.",
+    "You can ask goose to try almost any task, it likes to write and execute scripts as well as help you sort out your environment.",
+    "Tell goose what directories you want to work in (this can be your main directory, but you can tell it to look elsewhere it needs to)",
+    "With the screen toolkit, goose can look at your screen and help you make visual changes.",
+    "You can run more than one goose at a time (in different terminals or IDEs).",
+    "Ask goose to write a unit test for some code and check it works.",
+    "Ask goose to add some new feature or function by telling it to look at similar existing functionality.",
+    "You can use goose to analyse data as well, it can write scripts and evaluate them against your data."
 ]
 
 
@@ -129,7 +137,7 @@ class Session:
 
         # Show tip of the day
         tip_of_the_day = random.choice(TIPS)
-        print(f"Tip of the Day: [yellow]{tip_of_the_day}[/yellow]")
+        print(f"Tip: [yellow]{tip_of_the_day}[/yellow]")
 
     def setup_plan(self, plan: dict) -> None:
         if len(self.exchange.messages):

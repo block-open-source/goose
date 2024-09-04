@@ -28,7 +28,7 @@ screen = "goose.toolkit.screen:Screen"
 repo_context = "goose.toolkit.repo_context.repo_context:RepoContext"
 
 [project.entry-points."goose.profile"]
-default = "goose.profile:default_profile"
+default = "goose._internal.profile_config:default_profile"
 
 [project.entry-points."goose.command"]
 file = "goose.command.file:FileCommand"

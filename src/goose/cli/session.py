@@ -11,16 +11,11 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.status import Status
 
+from .._internal.profile_config import load_profile
 from goose.build import build_exchange
-from goose.cli.config import (
-    default_profiles,
-    ensure_config,
-    read_config,
-)
 from ..utils.session_file import session_path
 from goose.cli.prompt.goose_prompt_session import GoosePromptSession
 from goose.notifier import Notifier
-from goose.profile import Profile
 from goose.utils import droid, load_plugins
 from goose.utils.session_file import read_from_file, write_to_file
 
@@ -46,18 +41,6 @@ def load_provider() -> str:
             )
         )
         return "openai"
-
-
-def load_profile(name: Optional[str]) -> Profile:
-    if name is None:
-        name = "default"
-
-    # If the name is one of the default values, we ensure a valid configuration
-    if name in default_profiles():
-        return ensure_config(name)
-
-    # Otherwise this is a custom config and we return it from the config file
-    return read_config()[name]
 
 
 class SessionNotifier(Notifier):

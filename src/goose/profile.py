@@ -24,7 +24,7 @@ class Profile:
     toolkits: List[ToolkitSpec] = field(factory=list, converter=ensure_list(ToolkitSpec))
 
     @toolkits.validator
-    def check_toolkit_requirements(self, _: Type["ToolkitSpec"], toolkits: List[ToolkitSpec]) -> None:
+    def _check_toolkit_requirements(self, _: Type["ToolkitSpec"], toolkits: List[ToolkitSpec]) -> None:
         # checks that the list of toolkits in the profile have their requirements
         installed_toolkits = set([toolkit.name for toolkit in toolkits])
 
@@ -38,17 +38,3 @@ class Profile:
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
-
-
-def default_profile(provider: str, processor: str, accelerator: str, **kwargs: Dict[str, Any]) -> Profile:
-    """Get the default profile"""
-
-    # TODO consider if the providers should have recommended models
-
-    return Profile(
-        provider=provider,
-        processor=processor,
-        accelerator=accelerator,
-        moderator="truncate",
-        toolkits=[ToolkitSpec("developer")],
-    )

@@ -33,18 +33,22 @@ TIPS = [
     "Tell goose if you have any developer docs like CONTRIBUTING.md so it can learn how to build and help you.",
     "Goose likes to know what programming language you are working in to get started.",
     "You can ask goose to confirm commands with you if you like.",
-    "Try this: 'In this golang project, I want you to add open telemetry to help me get started with it. run the `just test` command to check things work.'",
-    "If you are working in a git repo, you can stage and commit changes (or ask goose to) as you go to not loose any work.",
-    "You can ask goose to try almost any task, it likes to write and execute scripts as well as help you sort out your environment.",
-    "Tell goose what directories you want to work in (this can be your main directory, but you can tell it to look elsewhere it needs to)",
+    "Try this: 'In this golang project, I want you to add open telemetry to help me get "
+        + "started with it. run the `just test` command to check things work.'",
+    "If you are working in a git repo, you can stage and commit changes "
+        + "(or ask goose to) as you go to not loose any work.",
+    "You can ask goose to try almost any task, "
+        + "it likes to write and execute scripts as well as help you sort out your environment.",
+    "Tell goose what directories you want to work in (this can be your main directory, "
+        + "but you can tell it to look elsewhere it needs to)",
     "With the screen toolkit, goose can look at your screen and help you make visual changes.",
     "You can run more than one goose at a time (in different terminals or IDEs).",
     "Ask goose to write a unit test for some code and check it works.",
     "Ask goose to add some new feature or function by telling it to look at similar existing functionality.",
-    "You can use goose to analyse data as well, it can write scripts and evaluate them against your data.", 
-    "Ask goose to recommend a tool to use, and it can offer to install it as well.", 
+    "You can use goose to analyse data as well, it can write scripts and evaluate them against your data.",
+    "Ask goose to recommend a tool to use, and it can offer to install it as well.",
     "Start by asking goose to run your tests for you and it will report back.",
-    "If you have broken tests, ask goose to help you either fix the tests or the broken code (tell it how to run the tests first)"
+    "If you have broken tests, ask goose to help you either fix the tests or the broken code."
 ]
 
 

@@ -48,6 +48,7 @@ TIPS = [
     "You can use goose to analyse data as well, it can write scripts and evaluate them against your data.",
     "Ask goose to recommend a tool to use, and it can offer to install it as well.",
     "Start by asking goose to run your tests for you and it will report back.",
+    "Try asking goose to use the github command line tool to look at an issue and try to fix it.",
     "If you have broken tests, ask goose to help you either fix the tests or the broken code.",
 ]
 

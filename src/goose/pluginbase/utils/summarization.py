@@ -198,6 +198,7 @@ def summarize_files_concurrent(
 
     return file_summaries
 
+
 def _create_file_list(dir_path: str, extensions: List[str]) -> List[str]:
     """Creates a list of files with certain extensions
 

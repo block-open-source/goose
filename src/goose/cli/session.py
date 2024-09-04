@@ -12,7 +12,7 @@ from rich.panel import Panel
 from rich.status import Status
 
 from .._internal.profile.config import load_profile
-from goose.build import build_exchange
+from goose._internal.exchange.build import build_exchange
 from ..utils.session_file import session_path
 from goose.cli.prompt.goose_prompt_session import GoosePromptSession
 from goose.notifier import Notifier

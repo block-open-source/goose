@@ -6,9 +6,9 @@ from exchange.providers import get_provider
 
 from goose.notifier import Notifier
 from goose.profile import Profile
-from ._internal.toolkit import get_toolkit
 from goose.toolkit import Requirements
-from goose.view import ExchangeView
+from ..toolkit import get_toolkit
+from .view import ExchangeView
 
 
 def build_exchange(profile: Profile, notifier: Notifier) -> Exchange:

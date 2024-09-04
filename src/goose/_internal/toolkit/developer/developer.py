@@ -1,7 +1,7 @@
 from pathlib import Path
 from subprocess import CompletedProcess, run
 from typing import List
-from goose.utils.check_shell_command import is_dangerous_command
+from .utils.check_shell_command import is_dangerous_command
 
 from exchange import Message
 from rich import box

@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, Mock
 
 import pytest
 from goose.toolkit import Requirements
-from goose._internal.toolkit.developer import Developer
+from goose._internal.toolkit.developer.developer import Developer
 
 
 @pytest.fixture

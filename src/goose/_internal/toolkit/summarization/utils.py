@@ -15,7 +15,7 @@ CLONED_REPOS_FOLDER = ".goose/cloned_repos"
 
 
 # TODO: move git stuff
-def run_git_command(command: List[str]) -> subprocess.CompletedProcess[str]:
+def _run_git_command(command: List[str]) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(["git"] + command, capture_output=True, text=True, check=False)
 
     if result.returncode != 0:
@@ -24,8 +24,8 @@ def run_git_command(command: List[str]) -> subprocess.CompletedProcess[str]:
     return result
 
 
-def clone_repo(repo_url: str, target_directory: str) -> None:
-    run_git_command(["clone", repo_url, target_directory])
+def _clone_repo(repo_url: str, target_directory: str) -> None:
+    _run_git_command(["clone", repo_url, target_directory])
 
 
 def load_summary_file_if_exists(project_name: str) -> Optional[Dict]:
@@ -99,7 +99,7 @@ def summarize_repo(
             summary_instructions_prompt=summary_instructions_prompt,
         )
 
-    clone_repo(repo_url, target_directory=repo_dir)
+    _clone_repo(repo_url, target_directory=repo_dir)
 
     return summarize_directory(
         directory=repo_dir,

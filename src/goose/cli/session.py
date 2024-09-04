@@ -1,6 +1,7 @@
 import traceback
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+import random
 
 from exchange import Message, ToolResult, ToolUse, Text
 from prompt_toolkit.shortcuts import confirm
@@ -25,6 +26,16 @@ from goose.utils import droid, load_plugins
 from goose.utils.session_file import read_from_file, write_to_file
 
 RESUME_MESSAGE = "I see we were interrupted. How can I help you?"
+
+
+TIPS = [
+    "Remember to write tests for your code!",
+    "Consistency is the key to success.",
+    "Keep your code clean and well-documented.",
+    "Collaborate and communicate effectively.",
+    "Regularly update your dependencies.",
+]
+
 
 
 def load_provider() -> str:
@@ -115,6 +126,10 @@ class Session:
             self.setup_plan(plan=plan)
 
         self.prompt_session = GoosePromptSession.create_prompt_session()
+
+        # Show tip of the day
+        tip_of_the_day = random.choice(TIPS)
+        print(f"Tip of the Day: [yellow]{tip_of_the_day}[/yellow]")
 
     def setup_plan(self, plan: dict) -> None:
         if len(self.exchange.messages):

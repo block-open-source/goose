@@ -12,10 +12,10 @@ def is_dangerous_command(command: str) -> bool:
         bool: True if the command is dangerous, False otherwise.
     """
     dangerous_patterns = [
+        # Commands that are generally unsafe
         r"\brm\b",  # rm command
         r"\bgit\s+push\b",  # git push command
         r"\bsudo\b",  # sudo command
-        # Add more dangerous command patterns here
         r"\bmv\b",  # mv command
         r"\bchmod\b",  # chmod command
         r"\bchown\b",  # chown command
@@ -23,9 +23,8 @@ def is_dangerous_command(command: str) -> bool:
         r"\bsystemctl\b",  # systemctl command
         r"\breboot\b",  # reboot command
         r"\bshutdown\b",  # shutdown command
-        # Manipulating files in ~/ directly or dot files
-        r"^~/[^/]+$",  # Files directly in home directory
-        r"/\.[^/]+$",  # Dot files
+        # Target files that are unsafe
+        r"\b~\/\.|\/\.\w+",  # commands that point to files or dirs in home that start with a dot (dotfiles)
     ]
     for pattern in dangerous_patterns:
         if re.search(pattern, command):

@@ -19,6 +19,7 @@ from goose.utils.session_file import read_from_file, write_to_file, session_path
 
 RESUME_MESSAGE = "I see we were interrupted. How can I help you?"
 
+
 class Session:
     """A session handler for managing interactions between a user and the Goose exchange
 

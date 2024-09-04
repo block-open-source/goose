@@ -14,7 +14,8 @@ def mock_profile_config_path(tmp_path):
 @pytest.fixture
 def mock_default_model_configuration():
     with patch(
-        "goose._internal.profile.config._default_model_configuration", return_value=("provider", "processor", "accelerator")
+        "goose._internal.profile.config._default_model_configuration",
+        return_value=("provider", "processor", "accelerator"),
     ) as mock_default_model_configuration:
         yield mock_default_model_configuration
 
@@ -27,6 +28,7 @@ def test_read_write_config(mock_profile_config_path, profile_factory):
 
     assert _read_config() == profiles
 
+
 def test_ensure_config_create_profiles_file_with_default_profile(
     mock_profile_config_path, mock_default_model_configuration
 ):
@@ -36,6 +38,7 @@ def test_ensure_config_create_profiles_file_with_default_profile(
     assert mock_profile_config_path.exists()
 
     assert _read_config() == {"default": default_profile(*mock_default_model_configuration())}
+
 
 @patch("goose._internal.profile.config.print")
 def test_ensure_config_add_default_profile(mock_profile_config_path, profile_factory, mock_default_model_configuration):
@@ -76,4 +79,3 @@ def test_ensure_config_keep_original_default_profile(
     assert _ensure_config(name="default") == existing_profile
 
     assert _read_config() == {"default": existing_profile}
-

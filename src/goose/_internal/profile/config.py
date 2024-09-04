@@ -13,9 +13,11 @@ from ...profile import Profile
 from ...utils import load_plugins
 from .diff import pretty_diff
 
+
 @cache
 def _all_recommended_profiles() -> Mapping[str, Callable]:
     return load_plugins(group="goose.profile")
+
 
 def _write_config(profiles: Dict[str, Profile]) -> None:
     """Overwrite the config with the passed profiles"""
@@ -127,6 +129,7 @@ def _default_model_configuration() -> Tuple[str, str, str]:
     }
     processor, accelerator = recommended.get(provider, ("gpt-4o", "gpt-4o-mini"))
     return provider, processor, accelerator
+
 
 def load_profile(name: Optional[str]) -> Profile:
     if name is None:

@@ -34,7 +34,7 @@ class Developer(Toolkit):
 
     def system(self) -> str:
         """Retrieve system configuration details for developer"""
-        hints_path = Path('.goosehints')
+        hints_path = Path(".goosehints")
         system_prompt = Message.load("prompts/developer.jinja").text
         if hints_path.is_file():
             goosehints = hints_path.read_text()

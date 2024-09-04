@@ -1,7 +1,7 @@
-
 from goose.notifier import Notifier
 from rich.status import Status
 from rich.console import RenderableType
+
 
 class SessionNotifier(Notifier):
     def __init__(self, status_indicator: Status) -> None:

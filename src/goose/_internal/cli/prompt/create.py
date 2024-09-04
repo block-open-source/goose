@@ -6,7 +6,7 @@ from prompt_toolkit.styles import Style
 
 from .completer import GoosePromptCompleter
 from .lexer import PromptLexer
-from  ..command import get_commands
+from ..command import get_commands
 
 
 def create_prompt() -> PromptSession:

@@ -7,7 +7,6 @@ from prompt_toolkit.shortcuts import confirm
 from rich import print
 from rich.live import Live
 from rich.markdown import Markdown
-from rich.panel import Panel
 from rich.status import Status
 
 from .session_notifier import SessionNotifier
@@ -15,31 +14,10 @@ from .session_notifier import SessionNotifier
 from ...profile.config import load_profile
 from ...exchange.build import build_exchange
 from ..prompt.goose_prompt_session import GoosePromptSession
-from goose.utils import droid, load_plugins
+from goose.utils import droid
 from goose.utils.session_file import read_from_file, write_to_file, session_path
 
 RESUME_MESSAGE = "I see we were interrupted. How can I help you?"
-
-
-def load_provider() -> str:
-    # We try to infer a provider, by going in order of what will auth
-    providers = load_plugins(group="exchange.provider")
-    for provider, cls in providers.items():
-        try:
-            cls.from_env()
-            print(Panel(f"[green]Detected an available provider: [/]{provider}"))
-            return provider
-        except Exception:
-            pass
-    else:
-        # TODO link to auth docs
-        print(
-            Panel(
-                "[red]Could not authenticate any providers[/]\n"
-                + "Returning a default pointing to openai, but you will need to set an API token env variable."
-            )
-        )
-        return "openai"
 
 class Session:
     """A session handler for managing interactions between a user and the Goose exchange

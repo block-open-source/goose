@@ -26,8 +26,7 @@ def create_session_with_mock_configs(exchange_factory, profile_factory, tmp_path
     with patch("goose._internal.cli.session.session.build_exchange", return_value=exchange_factory()), patch(
         "goose._internal.cli.session.session.load_profile", return_value=profile_factory()
     ), patch("goose._internal.cli.session.session.SessionNotifier") as mock_session_notifier, patch(
-        "goose._internal.cli.session.session.load_provider", return_value="provider"
-    ), patch("goose.utils.session_file.SESSIONS_PATH", tmp_path):
+        "goose.utils.session_file.SESSIONS_PATH", tmp_path):
         mock_session_notifier.return_value = MagicMock()
 
         def create_session(session_attributes: dict = {}):

@@ -1,6 +1,7 @@
 from goose.notifier import Notifier
 from rich.status import Status
 from rich.console import RenderableType
+from rich import print
 
 
 class SessionNotifier(Notifier):

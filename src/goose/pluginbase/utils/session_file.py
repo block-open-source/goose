@@ -6,7 +6,6 @@ from exchange import Message
 
 from goose.config import SESSIONS_PATH, SESSION_FILE_SUFFIX
 
-
 def write_to_file(file_path: Path, messages: List[Message]) -> None:
     with open(file_path, "w") as f:
         for m in messages:
@@ -25,18 +24,18 @@ def read_from_file(file_path: Path) -> List[Message]:
 
 
 def list_sorted_session_files(session_files_directory: Path) -> Dict[str, Path]:
-    logs = list_session_files(session_files_directory)
+    logs = _list_session_files(session_files_directory)
     return {log.stem: log for log in sorted(logs, key=lambda x: x.stat().st_mtime, reverse=True)}
 
 
-def list_session_files(session_files_directory: Path) -> Iterator[Path]:
+def _list_session_files(session_files_directory: Path) -> Iterator[Path]:
     return session_files_directory.glob(f"*{SESSION_FILE_SUFFIX}")
 
 
 def session_file_exists(session_files_directory: Path) -> bool:
     if not session_files_directory.exists():
         return False
-    return any(list_session_files(session_files_directory))
+    return any(_list_session_files(session_files_directory))
 
 
 def session_path(name: str) -> Path:

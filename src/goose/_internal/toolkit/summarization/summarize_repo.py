@@ -1,7 +1,7 @@
 from typing import List, Optional
 
 from goose.pluginbase.toolkit import Toolkit, tool
-from .utils import summarize_repo
+from goose.pluginbase.utils.summarization import summarize_repo
 
 
 class SummarizeRepo(Toolkit):

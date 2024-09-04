@@ -1,3 +1,4 @@
+import glob
 import json
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -7,8 +8,7 @@ from typing import Dict, List, Optional, Tuple
 from exchange import Exchange
 from exchange.providers.utils import InitialMessageTooLargeError
 
-from goose.pluginbase.utils.ask import ask_an_ai
-from .file_utils import create_file_list
+from .ask import ask_an_ai
 
 SUMMARIES_FOLDER = ".goose/summaries"
 CLONED_REPOS_FOLDER = ".goose/cloned_repos"
@@ -139,7 +139,7 @@ def summarize_directory(
     Path(SUMMARIES_FOLDER).mkdir(exist_ok=True, parents=True)
 
     # select a subset of files to summarize based on file extension
-    files_to_summarize = create_file_list(directory, extensions=extensions)
+    files_to_summarize = _create_file_list(directory, extensions=extensions)
 
     file_summaries = summarize_files_concurrent(
         exchange=exchange,
@@ -197,3 +197,28 @@ def summarize_files_concurrent(
         json.dump(file_summaries, f, indent=2)
 
     return file_summaries
+
+def _create_file_list(dir_path: str, extensions: List[str]) -> List[str]:
+    """Creates a list of files with certain extensions
+
+    Args:
+        dir_path (str): Directory to list files of. Will include files recursively in sub-directories.
+        extensions (List[str]): List of file extensions to select for. If empty list, return all files
+
+    Returns:
+        final_file_list (List[str]): List of file paths with specified extensions.
+    """
+    # if extensions is empty list, return all files
+    if not extensions:
+        return glob.glob(f"{dir_path}/**/*", recursive=True)
+
+    # prune out files that do not end with any of the extensions in extensions
+    final_file_list = []
+    for ext in extensions:
+        if ext and not ext.startswith("."):
+            ext = f".{ext}"
+
+        files = glob.glob(f"{dir_path}/**/*{ext}", recursive=True)
+        final_file_list += files
+
+    return final_file_list

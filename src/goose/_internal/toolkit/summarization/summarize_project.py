@@ -2,7 +2,7 @@ import os
 from typing import List, Optional
 
 from goose.pluginbase.toolkit import Toolkit, tool
-from .utils import summarize_directory
+from goose.pluginbase.utils.summarization import summarize_directory
 
 
 class SummarizeProject(Toolkit):

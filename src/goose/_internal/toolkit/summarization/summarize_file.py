@@ -1,7 +1,7 @@
 from typing import Optional
 
 from goose.pluginbase.toolkit import Toolkit, tool
-from .utils import summarize_file
+from goose.pluginbase.utils.summarization import summarize_file
 
 
 class SummarizeFile(Toolkit):

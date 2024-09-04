@@ -1,6 +1,5 @@
+from os import read
 from pathlib import Path
-
-
 from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, Mock
 
@@ -28,6 +27,19 @@ def developer_toolkit():
     toolkit.exchange_view.processor.replace.return_value.messages = [Mock()]
 
     return toolkit
+
+
+def test_system_prompt_with_goosehints(temp_dir, developer_toolkit):
+    readme_file = temp_dir / "README.md"
+    readme_file.write_text("This is from the README.md file.")
+
+    hints_file = temp_dir / ".goosehints"
+    jinja_template_content = "Hints:\n\n{% include 'README.md' %}\nEnd."
+    hints_file.write_text(jinja_template_content)
+
+    system_prompt = developer_toolkit.system()
+    expected = "Hints:\n\nThis is from the README.md file.\nEnd."
+    assert system_prompt == expected
 
 
 def test_update_plan(developer_toolkit):
@@ -68,5 +80,3 @@ def test_write_file(temp_dir, developer_toolkit):
     content = "Hello World"
     developer_toolkit.write_file(test_file.as_posix(), content)
     assert test_file.read_text() == content
-
-

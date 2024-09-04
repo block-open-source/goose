@@ -11,7 +11,7 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.status import Status
 
-from .._internal.profile_config import load_profile
+from .._internal.profile.config import load_profile
 from goose.build import build_exchange
 from ..utils.session_file import session_path
 from goose.cli.prompt.goose_prompt_session import GoosePromptSession

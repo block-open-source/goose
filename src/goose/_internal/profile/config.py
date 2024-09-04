@@ -1,6 +1,6 @@
 from functools import cache
 from io import StringIO
-from typing import Any, Callable, Dict, Mapping, Optional, Tuple
+from typing import Callable, Mapping, Dict, Optional, Tuple
 
 from rich import print
 from rich.panel import Panel
@@ -8,10 +8,10 @@ from rich.prompt import Confirm
 from rich.text import Text
 from ruamel.yaml import YAML
 
-from ..config import PROFILES_CONFIG_PATH
-from ..profile import Profile, ToolkitSpec
-from ..utils import load_plugins
-from ..utils.diff import pretty_diff
+from ...config import PROFILES_CONFIG_PATH
+from ...profile import Profile
+from ...utils import load_plugins
+from .diff import pretty_diff
 
 @cache
 def _all_recommended_profiles() -> Mapping[str, Callable]:
@@ -127,19 +127,6 @@ def _default_model_configuration() -> Tuple[str, str, str]:
     }
     processor, accelerator = recommended.get(provider, ("gpt-4o", "gpt-4o-mini"))
     return provider, processor, accelerator
-
-def default_profile(provider: str, processor: str, accelerator: str, **kwargs: Dict[str, Any]) -> Profile:
-    """Get the default profile"""
-
-    # TODO consider if the providers should have recommended models
-
-    return Profile(
-        provider=provider,
-        processor=processor,
-        accelerator=accelerator,
-        moderator="truncate",
-        toolkits=[ToolkitSpec("developer")],
-    )
 
 def load_profile(name: Optional[str]) -> Profile:
     if name is None:

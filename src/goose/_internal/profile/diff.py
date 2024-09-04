@@ -3,7 +3,7 @@ from typing import List
 from rich.text import Text
 
 
-def diff(a: str, b: str) -> List[str]:
+def _diff(a: str, b: str) -> List[str]:
     """Returns a string containing the unified diff of two strings."""
 
     import difflib
@@ -23,7 +23,7 @@ def diff(a: str, b: str) -> List[str]:
 def pretty_diff(a: str, b: str) -> Text:
     """Returns a pretty-printed diff of two strings."""
 
-    diff_lines = diff(a, b)
+    diff_lines = _diff(a, b)
     result = Text()
     for line in diff_lines:
         if line.startswith("+"):

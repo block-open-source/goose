@@ -8,7 +8,7 @@ from exchange import Exchange
 from exchange.providers.utils import InitialMessageTooLargeError
 
 from goose.utils.ask import ask_an_ai
-from goose.utils.file_utils import create_file_list
+from .file_utils import create_file_list
 
 SUMMARIES_FOLDER = ".goose/summaries"
 CLONED_REPOS_FOLDER = ".goose/cloned_repos"

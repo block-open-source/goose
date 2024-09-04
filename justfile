@@ -10,8 +10,8 @@ integration *FLAGS:
   uv run pytest tests -m integration {{FLAGS}}
 
 format:
-  ruff check . --fix
-  ruff format .
+  uvx ruff check . --fix
+  uvx ruff format .
 
 coverage *FLAGS:
   uv run coverage run -m pytest tests -m "not integration" {{FLAGS}}

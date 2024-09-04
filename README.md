@@ -131,11 +131,12 @@ Rules designed to control or manage the output of the model. Moderators that cur
 * `github`: for awareness and suggestions on how to use github
 * `repo_context`: for summarizing and understanding a repository you are working in.
 
-#### .goosehints in `developer` toolkit
+#### Configuring goose per repo
 
-`goose` adds the content from `.goosehints` file in working directory to the system prompt
-of the `developer` toolkit. The hints file is meant to provide additional context about
-your project. The context can be user-specific or at the project level in which case, you
+If you are using the `developer` toolkit, `goose` adds the content from `.goosehints`
+ file in working directory to the system prompt of the `developer` toolkit. The hints
+file is meant to provide additional context about your project. The context can be
+user-specific or at the project level in which case, you
 can commit it to git. `.goosehints` file is Jinja templated so you could have something
 like this:
 ```

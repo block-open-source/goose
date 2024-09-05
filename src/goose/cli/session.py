@@ -158,8 +158,6 @@ class Session:
                 self.interrupt_reply()
             except Exception:
                 print(traceback.format_exc())
-                if self.exchange.messages:
-                    self.exchange.messages.pop()
                 print(
                     "\n[red]The error above was an exception we were not able to handle.\n\n[/]"
                     + "These errors are often related to connection or authentication\n"

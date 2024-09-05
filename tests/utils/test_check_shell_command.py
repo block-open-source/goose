@@ -15,13 +15,26 @@ from goose.utils.check_shell_command import is_dangerous_command
         "systemctl stop nginx",
         "reboot",
         "shutdown now",
-        "echo hello > ~/.bashrc",
+        "cat ~/.hello.txt",
+        "cat ~/.config/example.txt",
     ],
 )
 def test_dangerous_commands(command):
     assert is_dangerous_command(command)
 
 
-@pytest.mark.parametrize("command", ["ls -la", 'echo "Hello World"', "cp ~/folder/file.txt /tmp/"])
+@pytest.mark.parametrize(
+    "command",
+    [
+        "ls -la",
+        'echo "Hello World"',
+        "cp ~/folder/file.txt /tmp/",
+        "echo hello > ~/toplevel/sublevel.txt",
+        "cat hello.txt",
+        "cat ~/config/example.txt",
+        "ls -la path/to/visible/file",
+        "echo 'file.with.dot.txt'",
+    ],
+)
 def test_safe_commands(command):
     assert not is_dangerous_command(command)

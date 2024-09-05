@@ -1,6 +1,7 @@
 from pathlib import Path
 from subprocess import CompletedProcess, run
-from typing import List
+from typing import List, Dict
+import os
 from goose.utils.check_shell_command import is_dangerous_command
 
 from exchange import Message
@@ -14,6 +15,9 @@ from rich.text import Text
 from goose.toolkit.base import Toolkit, tool
 from goose.toolkit.utils import get_language, render_template
 
+
+# Global dictionary to store the last read timestamps
+last_read_timestamps: Dict[str, float] = {}
 
 def keep_unsafe_command_prompt(command: str) -> PromptType:
     command_text = Text(command, style="bold red")
@@ -67,7 +71,7 @@ class Developer(Toolkit):
         table.add_column("Status", justify="left")
 
         # Mapping of statuses to emojis for better visual representation in the table.
-        emoji = {"planned": "⏳", "complete": "✅", "failed": "❌", "in-progress": "🕓"}
+        emoji = {"planned": "", "complete": "", "failed": "❌", "in-progress": ""}
         for i, entry in enumerate(tasks):
             table.add_row(str(i), entry["description"], emoji[entry["status"]])
 
@@ -123,9 +127,12 @@ class Developer(Toolkit):
         Args:
             path (str): The destination file path, in the format "path/to/file.txt"
         """
+        global last_read_timestamps
         language = get_language(path)
         content = Path(path).expanduser().read_text()
         self.notifier.log(Panel.fit(Markdown(f"```\ncat {path}\n```"), box=box.MINIMAL))
+        # Record the last read timestamp
+        last_read_timestamps[path] = os.path.getmtime(path)
         return f"```{language}\n{content}\n```"
 
     @tool
@@ -186,6 +193,7 @@ class Developer(Toolkit):
             path (str): The destination file path, in the format "path/to/file.txt"
             content (str): The raw file content.
         """  # noqa: E501
+        global last_read_timestamps
         self.notifier.status("writing file")
         # Get the programming language for syntax highlighting in logs
         language = get_language(path)
@@ -196,12 +204,18 @@ class Developer(Toolkit):
         # this method is dynamically attached to functions in the Goose framework
         self.notifier.log(Panel.fit(Markdown(md), title=path))
 
-        # Prepare the path and create any necessary parent directories
         _path = Path(path)
+        if path in last_read_timestamps:
+            last_read_timestamp = last_read_timestamps[path]
+            current_timestamp = os.path.getmtime(path)
+            if current_timestamp > last_read_timestamp:
+                return f"File '{path}' has been modified since it was last read. Not writing to file."
+
+        # Prepare the path and create any necessary parent directories
         _path.parent.mkdir(parents=True, exist_ok=True)
 
         # Write the content to the file
         _path.write_text(content)
 
         # Return a success message
-        return f"Succesfully wrote to {path}"
+        return f"Successfully wrote to {path}"

@@ -83,7 +83,7 @@ def test_session_clear_command(mock_session_files_path, create_session_file):
 
 
 def test_combined_group_option():
-    with patch("goose.pluginbase.utils.load_plugins") as mock_load_plugin:
+    with patch("goose._internal.utils.load_plugins") as mock_load_plugin:
         group_option_name = "--describe-commands"
 
         def option_callback(ctx, *_):

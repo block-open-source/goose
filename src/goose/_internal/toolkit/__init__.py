@@ -10,7 +10,7 @@ from .screen import Screen  # noqa: F401
 from functools import cache
 
 from goose.pluginbase.toolkit import Toolkit
-from goose.pluginbase.utils import load_plugins
+from ..utils import load_plugins
 
 
 @cache

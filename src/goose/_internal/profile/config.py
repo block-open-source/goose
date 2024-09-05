@@ -10,7 +10,7 @@ from ruamel.yaml import YAML
 
 from goose.config import PROFILES_CONFIG_PATH
 from goose.pluginbase.profile import Profile
-from goose.pluginbase.utils import load_plugins
+from ..utils import load_plugins
 from .diff import pretty_diff
 
 

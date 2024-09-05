@@ -9,12 +9,13 @@ from rich.live import Live
 from rich.markdown import Markdown
 from rich.status import Status
 
+from .session_utils import random_session_name
+
 from .session_notifier import SessionNotifier
 
 from ...profile.config import load_profile
 from ...exchange.build import build_exchange
 from ..prompt.goose_prompt_session import GoosePromptSession
-from goose.pluginbase.utils import droid
 from goose.pluginbase.utils.session_file import read_from_file, write_to_file, session_path
 
 RESUME_MESSAGE = "I see we were interrupted. How can I help you?"
@@ -194,7 +195,7 @@ class Session:
 
     def _generate_session_name(self) -> None:
         user_entered_session_name = self.prompt_session.get_save_session_name()
-        self.name = user_entered_session_name if user_entered_session_name else droid()
+        self.name = user_entered_session_name if user_entered_session_name else random_session_name()
         print(f"Saving to [bold cyan]{self.session_file_path}[/bold cyan]")
 
 

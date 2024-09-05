@@ -2,7 +2,7 @@ from functools import cache
 from typing import Dict
 
 from goose.pluginbase.command import Command
-from goose.pluginbase.utils import load_plugins
+from ...utils import load_plugins
 
 
 @cache

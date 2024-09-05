@@ -8,7 +8,7 @@ from ruamel.yaml import YAML
 
 from ...config import SESSIONS_PATH
 from .session.session import Session
-from goose.pluginbase.utils import load_plugins
+from ..utils import load_plugins
 from goose.pluginbase.utils.session_file import list_sorted_session_files
 
 

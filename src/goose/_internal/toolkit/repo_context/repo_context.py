@@ -8,7 +8,7 @@ from exchange import Message
 from goose.pluginbase.notifier import Notifier
 from goose.pluginbase.toolkit import Toolkit
 from goose.pluginbase.toolkit import Requirements, tool
-from .utils import get_repo_size, goose_picks_files
+from .repo_context_utils import get_repo_size, goose_picks_files
 from goose.pluginbase.utils.summarization import load_summary_file_if_exists, summarize_files_concurrent
 from goose.pluginbase.utils.ask import clear_exchange, replace_prompt
 

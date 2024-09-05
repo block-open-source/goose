@@ -72,7 +72,7 @@ class Developer(Toolkit):
         table.add_column("Status", justify="left")
 
         # Mapping of statuses to emojis for better visual representation in the table.
-        emoji = {"planned": "", "complete": "", "failed": "❌", "in-progress": ""}
+        emoji = {"planned": "⏳", "complete": "✅", "failed": "❌", "in-progress": "🕓"}
         for i, entry in enumerate(tasks):
             table.add_row(str(i), entry["description"], emoji[entry["status"]])
 

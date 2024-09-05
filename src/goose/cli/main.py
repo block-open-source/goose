@@ -63,9 +63,10 @@ def list_toolkits() -> None:
 
 
 @session.command(name="start")
+@click.option("--command", help="Initial prompt command to start the session with.")
 @click.option("--profile")
 @click.option("--plan", type=click.Path(exists=True))
-def session_start(profile: str, plan: Optional[str] = None) -> None:
+def session_start(profile: str, plan: Optional[str] = None, command: Optional[str] = None) -> None:
     """Start a new goose session"""
     if plan:
         yaml = YAML()
@@ -75,6 +76,9 @@ def session_start(profile: str, plan: Optional[str] = None) -> None:
         _plan = None
 
     session = Session(profile=profile, plan=_plan)
+    if command:
+        command += ' Do your best to take action on this command to completion, when you are done - say FINISHED.'
+    session.run(command=command)
     session.run()
 
 

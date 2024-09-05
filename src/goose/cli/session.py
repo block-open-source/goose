@@ -143,12 +143,15 @@ class Session:
             return Message.user(text=user_input.text)
         return self.exchange.messages.pop()
 
-    def run(self) -> None:
+    def run(self, command: Optional[str] = None) -> None:
         """
         Runs the main loop to handle user inputs and responses.
         Continues until an empty string is returned from the prompt.
         """
-        message = self.process_first_message()
+        message = Message.user(command) if command else self.process_first_message()
+        def is_finished(response_text: str) -> bool:
+            return 'FINISHED' in response_text.upper()
+        
         while message:  # Loop until no input (empty string).
             self.notifier.start()
             try:
@@ -185,6 +188,9 @@ class Session:
 
         if response.text:
             print(Markdown(response.text))
+            if is_finished(response.text):
+                print('Task is finished as per the assistant response. Exiting...')
+                return
 
         while response.tool_use:
             content = []

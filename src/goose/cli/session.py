@@ -63,12 +63,19 @@ def load_profile(name: Optional[str]) -> Profile:
 class SessionNotifier(Notifier):
     def __init__(self, status_indicator: Status) -> None:
         self.status_indicator = status_indicator
+        self.live = Live(self.status_indicator, refresh_per_second=8, transient=True)
 
     def log(self, content: RenderableType) -> None:
         print(content)
 
     def status(self, status: str) -> None:
         self.status_indicator.update(status)
+
+    def start(self) -> None:
+        self.live.start()
+
+    def stop(self) -> None:
+        self.live.stop()
 
 
 class Session:
@@ -87,9 +94,9 @@ class Session:
     ) -> None:
         self.name = name
         self.status_indicator = Status("", spinner="dots")
-        notifier = SessionNotifier(self.status_indicator)
+        self.notifier = SessionNotifier(self.status_indicator)
 
-        self.exchange = build_exchange(profile=load_profile(profile), notifier=notifier)
+        self.exchange = build_exchange(profile=load_profile(profile), notifier=self.notifier)
 
         if name is not None and self.session_file_path.exists():
             messages = self.load_session()
@@ -143,22 +150,23 @@ class Session:
         """
         message = self.process_first_message()
         while message:  # Loop until no input (empty string).
-            with Live(self.status_indicator, refresh_per_second=8, transient=True):
-                try:
-                    self.exchange.add(message)
-                    self.reply()  # Process the user message.
-                except KeyboardInterrupt:
-                    self.interrupt_reply()
-                except Exception:
-                    print(traceback.format_exc())
-                    if self.exchange.messages:
-                        self.exchange.messages.pop()
-                    print(
-                        "\n[red]The error above was an exception we were not able to handle.\n\n[/]"
-                        + "These errors are often related to connection or authentication\n"
-                        + "We've removed your most recent input"
-                        + " - [yellow]depending on the error you may be able to continue[/]"
-                    )
+            self.notifier.start()
+            try:
+                self.exchange.add(message)
+                self.reply()  # Process the user message.
+            except KeyboardInterrupt:
+                self.interrupt_reply()
+            except Exception:
+                print(traceback.format_exc())
+                if self.exchange.messages:
+                    self.exchange.messages.pop()
+                print(
+                    "\n[red]The error above was an exception we were not able to handle.\n\n[/]"
+                    + "These errors are often related to connection or authentication\n"
+                    + "We've removed your most recent input"
+                    + " - [yellow]depending on the error you may be able to continue[/]"
+                )
+            self.notifier.stop()
 
             print()  # Print a newline for separation.
             user_input = self.prompt_session.get_user_input()

@@ -21,5 +21,7 @@ ENTRYPOINT ["goose", "session", "start"]
 
 # once built, you can run this with something like: 
 #    docker run -it --env OPENAI_API_KEY goose-ai
+# or to run against ollama running on the same host
+#    docker run -it --env OPENAI_HOST=http://host.docker.internal:11434/ --env OPENAI_API_KEY=unused goose-ai
 #
 #   To use goose in a docker style sandbox for experimenting.

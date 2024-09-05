@@ -19,6 +19,7 @@ from goose.toolkit.utils import get_language, render_template
 # Global dictionary to store the last read timestamps
 last_read_timestamps: Dict[str, float] = {}
 
+
 def keep_unsafe_command_prompt(command: str) -> PromptType:
     command_text = Text(command, style="bold red")
     message = (

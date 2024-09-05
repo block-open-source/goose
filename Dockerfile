@@ -18,3 +18,8 @@ ENV PATH="/root/.local/bin:${PATH}"
 
 # Run an infinite loop to keep the container running for testing
 ENTRYPOINT ["goose", "session", "start"]
+
+# once built, you can run this with something like: 
+#    docker run -it --env OPENAI_API_KEY goose-ai
+#
+#   To use goose in a docker style sandbox for experimenting.

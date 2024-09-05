@@ -7,7 +7,7 @@ from exchange import Message
 from rich import box
 from rich.markdown import Markdown
 from rich.panel import Panel
-from rich.prompt import Confirm, PromptType
+from rich.prompt import Confirm
 from rich.table import Table
 from rich.text import Text
 
@@ -15,12 +15,10 @@ from goose.toolkit.base import Toolkit, tool
 from goose.toolkit.utils import get_language, render_template
 
 
-def keep_unsafe_command_prompt(command: str) -> PromptType:
+def keep_unsafe_command_prompt(command: str) -> bool:
     command_text = Text(command, style="bold red")
     message = (
-        Text("\nWe flagged the command: ")
-        + command_text
-        + Text(" as potentially unsafe, do you want to proceed? (yes/no)")
+        Text("\nWe flagged the command: ") + command_text + Text(" as potentially unsafe, do you want to proceed?")
     )
     return Confirm.ask(message, default=True)
 
@@ -148,26 +146,15 @@ class Developer(Toolkit):
         # logging and integrates with the overall UI logging system
         self.notifier.log(Panel.fit(Markdown(f"```bash\n{command}\n```"), title="shell"))
 
-        safety_rails_exchange = self.exchange_view.processor.replace(
-            system=Message.load("prompts/safety_rails.jinja").text
-        )
-        # remove the previous message which was a tool_use Assistant message
-        safety_rails_exchange.messages.pop()
-
-        safety_rails_exchange.add(Message.assistant(f"Here is the command I'd like to run: `{command}`"))
-        safety_rails_exchange.add(Message.user("Please provide the danger rating of that command"))
-        rating = safety_rails_exchange.reply().text
-
-        try:
-            rating = int(rating)
-        except ValueError:
-            rating = 5  # if we can't interpret we default to unsafe
-        if is_dangerous_command(command) or int(rating) > 3:
+        if is_dangerous_command(command):
+            # Stop the notifications so we can prompt
+            self.notifier.stop()
             if not keep_unsafe_command_prompt(command):
                 raise RuntimeError(
                     f"The command {command} was rejected as dangerous by the user."
                     + " Do not proceed further, instead ask for instructions."
                 )
+            self.notifier.start()
         self.notifier.status("running shell command")
         result: CompletedProcess = run(command, shell=True, text=True, capture_output=True, check=False)
         if result.returncode == 0:

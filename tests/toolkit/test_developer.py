@@ -104,7 +104,10 @@ def test_write_file_prevent_write_if_changed(temp_dir, developer_toolkit):
     developer_toolkit.write_file(test_file.as_posix(), content)
     developer_toolkit.read_file(test_file.as_posix())
 
+    import time
+
     # Modify file externally to simulate change
+    time.sleep(1)
     test_file.write_text(updated_content)
 
     # Try to write through toolkit and check response

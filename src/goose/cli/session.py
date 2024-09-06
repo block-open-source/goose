@@ -2,7 +2,7 @@ import traceback
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from exchange import Message, ToolResult, ToolUse, Text
+from exchange import Message, ToolResult, ToolUse, Text, FailedToGenerateMessageError
 from prompt_toolkit.shortcuts import confirm
 from rich import print
 from rich.console import RenderableType
@@ -25,6 +25,12 @@ from goose.utils import droid, load_plugins
 from goose.utils.session_file import read_from_file, write_to_file
 
 RESUME_MESSAGE = "I see we were interrupted. How can I help you?"
+# TODO: decide on the correct number of retries here
+REMOVE_MESSAGE_RETRY_TIMES = 3
+
+
+class ExceededMessagePopTimesError(Exception):
+    pass
 
 
 def load_provider() -> str:
@@ -156,7 +162,9 @@ class Session:
                 self.reply()  # Process the user message.
             except KeyboardInterrupt:
                 self.interrupt_reply()
-            except Exception:
+            except FailedToGenerateMessageError:
+                # rewind to right before the last user message
+                self.exchange.rewind_to_last_user_message()
                 print(traceback.format_exc())
                 print(
                     "\n[red]The error above was an exception we were not able to handle.\n\n[/]"

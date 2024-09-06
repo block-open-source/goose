@@ -3,9 +3,9 @@ import re
 
 def is_dangerous_command(command: str) -> bool:
     """
-    Check if the command matches any dangerous patterns. 
+    Check if the command matches any dangerous patterns.
     
-    Dangerous patterns in this function are defined as commands that may present risk to system stability. 
+    Dangerous patterns in this function are defined as commands that may present risk to system stability.
     
     Args:
         command (str): The shell command to check.

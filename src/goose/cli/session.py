@@ -25,12 +25,6 @@ from goose.utils import droid, load_plugins
 from goose.utils.session_file import read_from_file, write_to_file
 
 RESUME_MESSAGE = "I see we were interrupted. How can I help you?"
-# TODO: decide on the correct number of retries here
-REMOVE_MESSAGE_RETRY_TIMES = 3
-
-
-class ExceededMessagePopTimesError(Exception):
-    pass
 
 
 def load_provider() -> str:

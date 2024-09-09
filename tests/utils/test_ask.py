@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-from exchange import Exchange
+from exchange import Exchange, CheckpointData
 from goose.utils.ask import ask_an_ai, clear_exchange, replace_prompt
 
 
@@ -76,7 +76,7 @@ def test_clear_exchange_without_tools():
     new_exchange = clear_exchange(exchange, clear_tools=False)
 
     # Assert
-    exchange.replace.assert_called_once_with(messages=[], checkpoints=[])
+    exchange.replace.assert_called_once_with(messages=[], checkpoint_data=CheckpointData())
     assert new_exchange == exchange.replace.return_value, "Should return the modified exchange"
 
 
@@ -89,7 +89,7 @@ def test_clear_exchange_with_tools():
     new_exchange = clear_exchange(exchange, clear_tools=True)
 
     # Assert
-    exchange.replace.assert_called_once_with(messages=[], checkpoints=[], tools=())
+    exchange.replace.assert_called_once_with(messages=[], checkpoint_data=CheckpointData(), tools=())
     assert new_exchange == exchange.replace.return_value, "Should return the modified exchange with tools cleared"
 
 

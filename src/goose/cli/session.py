@@ -2,7 +2,7 @@ import traceback
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from exchange import Message, ToolResult, ToolUse
+from exchange import Message, ToolResult, ToolUse, Text
 from prompt_toolkit.shortcuts import confirm
 from rich import print
 from rich.console import RenderableType
@@ -23,6 +23,8 @@ from goose.notifier import Notifier
 from goose.profile import Profile
 from goose.utils import droid, load_plugins
 from goose.utils.session_file import read_from_file, write_to_file
+
+RESUME_MESSAGE = "I see we were interrupted. How can I help you?"
 
 
 def load_provider() -> str:
@@ -61,12 +63,19 @@ def load_profile(name: Optional[str]) -> Profile:
 class SessionNotifier(Notifier):
     def __init__(self, status_indicator: Status) -> None:
         self.status_indicator = status_indicator
+        self.live = Live(self.status_indicator, refresh_per_second=8, transient=True)
 
     def log(self, content: RenderableType) -> None:
         print(content)
 
     def status(self, status: str) -> None:
         self.status_indicator.update(status)
+
+    def start(self) -> None:
+        self.live.start()
+
+    def stop(self) -> None:
+        self.live.stop()
 
 
 class Session:
@@ -85,14 +94,28 @@ class Session:
     ) -> None:
         self.name = name
         self.status_indicator = Status("", spinner="dots")
-        notifier = SessionNotifier(self.status_indicator)
+        self.notifier = SessionNotifier(self.status_indicator)
 
-        self.exchange = build_exchange(profile=load_profile(profile), notifier=notifier)
+        self.exchange = build_exchange(profile=load_profile(profile), notifier=self.notifier)
 
         if name is not None and self.session_file_path.exists():
             messages = self.load_session()
+
             if messages and messages[-1].role == "user":
+                if type(messages[-1].content[-1]) is Text:
+                    # remove the last user message
+                    messages.pop()
+                elif type(messages[-1].content[-1]) is ToolResult:
+                    # if we remove this message, we would need to remove
+                    # the previous assistant message as well. instead of doing
+                    # that, we just add a new assistant message to prompt the user
+                    messages.append(Message.assistant(RESUME_MESSAGE))
+            if messages and type(messages[-1].content[-1]) is ToolUse:
+                # remove the last request for a tool to be used
                 messages.pop()
+
+                # add a new assistant text message to prompt the user
+                messages.append(Message.assistant(RESUME_MESSAGE))
             self.exchange.messages.extend(messages)
 
         if len(self.exchange.messages) == 0 and plan:
@@ -127,22 +150,23 @@ class Session:
         """
         message = self.process_first_message()
         while message:  # Loop until no input (empty string).
-            with Live(self.status_indicator, refresh_per_second=8, transient=True):
-                try:
-                    self.exchange.add(message)
-                    self.reply()  # Process the user message.
-                except KeyboardInterrupt:
-                    self.interrupt_reply()
-                except Exception:
-                    print(traceback.format_exc())
-                    if self.exchange.messages:
-                        self.exchange.messages.pop()
-                    print(
-                        "\n[red]The error above was an exception we were not able to handle.\n\n[/]"
-                        + "These errors are often related to connection or authentication\n"
-                        + "We've removed your most recent input"
-                        + " - [yellow]depending on the error you may be able to continue[/]"
-                    )
+            self.notifier.start()
+            try:
+                self.exchange.add(message)
+                self.reply()  # Process the user message.
+            except KeyboardInterrupt:
+                self.interrupt_reply()
+            except Exception:
+                # rewind to right before the last user message
+                self.exchange.rewind()
+                print(traceback.format_exc())
+                print(
+                    "\n[red]The error above was an exception we were not able to handle.\n\n[/]"
+                    + "These errors are often related to connection or authentication\n"
+                    + "We've removed the conversation up to the most recent user message"
+                    + " - [yellow]depending on the error you may be able to continue[/]"
+                )
+            self.notifier.stop()
 
             print()  # Print a newline for separation.
             user_input = self.prompt_session.get_user_input()

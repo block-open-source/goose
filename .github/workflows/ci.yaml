@@ -9,14 +9,19 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Install UV
-      run: curl -LsSf https://astral.sh/uv/install.sh | sh
+      - name: Install UV
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
 
-    - name: Source Cargo Environment
-      run: source $HOME/.cargo/env
+      - name: Source Cargo Environment
+        run: source $HOME/.cargo/env
 
-    - name: Run tests
-      run: |
-        uv run pytest tests -m 'not integration'
+      - name: Ruff
+        run: |
+          uvx ruff check
+          uvx ruff format --check
+
+      - name: Run tests
+        run: |
+          uv run pytest tests -m 'not integration'

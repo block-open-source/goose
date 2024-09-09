@@ -157,13 +157,13 @@ class Session:
             except KeyboardInterrupt:
                 self.interrupt_reply()
             except Exception:
+                # rewind to right before the last user message
+                self.exchange.rewind_to_last_user_message()
                 print(traceback.format_exc())
-                if self.exchange.messages:
-                    self.exchange.messages.pop()
                 print(
                     "\n[red]The error above was an exception we were not able to handle.\n\n[/]"
                     + "These errors are often related to connection or authentication\n"
-                    + "We've removed your most recent input"
+                    + "We've removed the conversation up to the most recent user message"
                     + " - [yellow]depending on the error you may be able to continue[/]"
                 )
             self.notifier.stop()

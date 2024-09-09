@@ -2,7 +2,7 @@ import traceback
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from exchange import Message, ToolResult, ToolUse, Text, FailedToGenerateMessageError
+from exchange import Message, ToolResult, ToolUse, Text
 from prompt_toolkit.shortcuts import confirm
 from rich import print
 from rich.console import RenderableType
@@ -156,14 +156,14 @@ class Session:
                 self.reply()  # Process the user message.
             except KeyboardInterrupt:
                 self.interrupt_reply()
-            except FailedToGenerateMessageError:
+            except Exception:
                 # rewind to right before the last user message
                 self.exchange.rewind_to_last_user_message()
                 print(traceback.format_exc())
                 print(
                     "\n[red]The error above was an exception we were not able to handle.\n\n[/]"
                     + "These errors are often related to connection or authentication\n"
-                    + "We've removed your most recent input"
+                    + "We've removed the conversation up to the most recent user message"
                     + " - [yellow]depending on the error you may be able to continue[/]"
                 )
             self.notifier.stop()

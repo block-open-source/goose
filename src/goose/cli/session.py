@@ -1,4 +1,5 @@
 import traceback
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -76,6 +77,9 @@ class SessionNotifier(Notifier):
 
     def stop(self) -> None:
         self.live.stop()
+
+
+import threading
 
 
 class Session:
@@ -169,7 +173,15 @@ class Session:
             self.notifier.stop()
 
             print()  # Print a newline for separation.
+            def notify():
+                if os.uname().sysname == 'Darwin':
+                    os.system('''osascript -e 'display notification "Session Run Complete" with title "Goose Session"' ''')
+
+            timer = threading.Timer(5.0, notify)
+            timer.start()
             user_input = self.prompt_session.get_user_input()
+            timer.cancel()            
+
             message = Message.user(text=user_input.text) if user_input.to_continue() else None
 
         self.save_session()
@@ -259,3 +271,4 @@ class Session:
 
 if __name__ == "__main__":
     session = Session()
+

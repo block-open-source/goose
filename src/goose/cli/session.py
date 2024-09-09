@@ -158,7 +158,7 @@ class Session:
                 self.interrupt_reply()
             except Exception:
                 # rewind to right before the last user message
-                self.exchange.rewind_to_last_user_message()
+                self.exchange.rewind()
                 print(traceback.format_exc())
                 print(
                     "\n[red]The error above was an exception we were not able to handle.\n\n[/]"

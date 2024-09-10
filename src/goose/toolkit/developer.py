@@ -195,7 +195,10 @@ class Developer(Toolkit):
             last_read_timestamp = self.timestamps.get(path, 0.0)
             current_timestamp = os.path.getmtime(path)
             if current_timestamp > last_read_timestamp:
-                raise RuntimeError(f"File '{path}' has been modified since it was last read. Not writing to file.")
+                raise RuntimeError(
+                    f"File '{path}' has been modified since it was last read."
+                    + " Read the file to incorporate changes or update your plan."
+                )
 
         # Prepare the path and create any necessary parent directories
         _path.parent.mkdir(parents=True, exist_ok=True)

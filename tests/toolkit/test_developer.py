@@ -93,3 +93,24 @@ def test_write_file(temp_dir, developer_toolkit):
     content = "Hello World"
     developer_toolkit.write_file(test_file.as_posix(), content)
     assert test_file.read_text() == content
+
+
+def test_write_file_prevent_write_if_changed(temp_dir, developer_toolkit):
+    test_file = temp_dir / "test.txt"
+    content = "Hello World"
+    updated_content = "Hello Universe"
+
+    # Initial write to record the timestamp
+    developer_toolkit.write_file(test_file.as_posix(), content)
+    developer_toolkit.read_file(test_file.as_posix())
+
+    import time
+
+    # Modify file externally to simulate change
+    time.sleep(1)
+    test_file.write_text(updated_content)
+
+    # Try to write through toolkit and check for the raised exception
+    with pytest.raises(RuntimeError, match="has been modified"):
+        developer_toolkit.write_file(test_file.as_posix(), content)
+    assert test_file.read_text() == updated_content

@@ -1,6 +1,7 @@
 from pathlib import Path
 from subprocess import CompletedProcess, run
-from typing import List
+from typing import List, Dict
+import os
 from goose.utils.check_shell_command import is_dangerous_command
 
 from exchange import Message
@@ -29,6 +30,10 @@ class Developer(Toolkit):
     The tools include plan management, a general purpose shell execution tool, and file operations.
     We also include some default shell strategies in the prompt, such as using ripgrep
     """
+
+    def __init__(self, *args: object, **kwargs: Dict[str, object]) -> None:
+        super().__init__(*args, **kwargs)
+        self.timestamps: Dict[str, float] = {}
 
     def system(self) -> str:
         """Retrieve system configuration details for developer"""
@@ -65,7 +70,7 @@ class Developer(Toolkit):
         table.add_column("Status", justify="left")
 
         # Mapping of statuses to emojis for better visual representation in the table.
-        emoji = {"planned": "⏳", "complete": "✅", "failed": "❌", "in-progress": "🕓"}
+        emoji = {"planned": "⏳", "complete": "✅", "failed": "❌", "in-progress": "🕑"}
         for i, entry in enumerate(tasks):
             table.add_row(str(i), entry["description"], emoji[entry["status"]])
 
@@ -124,6 +129,8 @@ class Developer(Toolkit):
         language = get_language(path)
         content = Path(path).expanduser().read_text()
         self.notifier.log(Panel.fit(Markdown(f"```\ncat {path}\n```"), box=box.MINIMAL))
+        # Record the last read timestamp
+        self.timestamps[path] = os.path.getmtime(path)
         return f"```{language}\n{content}\n```"
 
     @tool
@@ -183,12 +190,24 @@ class Developer(Toolkit):
         # this method is dynamically attached to functions in the Goose framework
         self.notifier.log(Panel.fit(Markdown(md), title=path))
 
-        # Prepare the path and create any necessary parent directories
         _path = Path(path)
+        if path in self.timestamps:
+            last_read_timestamp = self.timestamps.get(path, 0.0)
+            current_timestamp = os.path.getmtime(path)
+            if current_timestamp > last_read_timestamp:
+                raise RuntimeError(
+                    f"File '{path}' has been modified since it was last read."
+                    + " Read the file to incorporate changes or update your plan."
+                )
+
+        # Prepare the path and create any necessary parent directories
         _path.parent.mkdir(parents=True, exist_ok=True)
 
         # Write the content to the file
         _path.write_text(content)
 
+        # Update the last read timestamp after writing to the file
+        self.timestamps[path] = os.path.getmtime(path)
+
         # Return a success message
-        return f"Succesfully wrote to {path}"
+        return f"Successfully wrote to {path}"

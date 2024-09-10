@@ -18,11 +18,11 @@ def completion_for_command(target_string: str) -> re.Pattern[str]:
 
 def command_itself(target_string: str) -> re.Pattern[str]:
     escaped_string = re.escape(target_string)
-    return re.compile(rf"(?<!\S)(\/{escaped_string})")
+    return re.compile(rf"(?<!\S)(\/{escaped_string}:?)")
 
 
 def value_for_command(command_string: str) -> re.Pattern[str]:
-    escaped_string = re.escape(command_string)
+    escaped_string = re.escape(command_string + ":")
     return re.compile(rf"(?<=(?<!\S)\/{escaped_string})(?:(?:\"(.*?)(\"|$))|([^\s]*))")
 
 
@@ -30,10 +30,9 @@ class PromptLexer(Lexer):
     def __init__(self, command_names: List[str]) -> None:
         self.patterns = []
         for command_name in command_names:
-            full_command = command_name + ":"
-            self.patterns.append((completion_for_command(full_command), "class:command"))
-            self.patterns.append((value_for_command(full_command), "class:parameter"))
-            self.patterns.append((command_itself(full_command), "class:command"))
+            self.patterns.append((completion_for_command(command_name), "class:command"))
+            self.patterns.append((value_for_command(command_name), "class:parameter"))
+            self.patterns.append((command_itself(command_name), "class:command"))
 
     def lex_document(self, document: Document) -> Callable[[int], list]:
         def get_line_tokens(line_number: int) -> Tuple[str, str]:

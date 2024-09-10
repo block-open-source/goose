@@ -239,17 +239,38 @@ def assert_pattern_matches(pattern, text, expected_group):
 
 
 def test_command_itself():
-    pattern = command_itself("file:")
+    pattern = command_itself("file")
     assert_pattern_matches(pattern, "/file:example.txt", "/file:")
+    assert_pattern_matches(pattern, "/file asdf", "/file")
+    assert_pattern_matches(pattern, "some /file", "/file")
+    assert_pattern_matches(pattern, "some /file:", "/file:")
+    assert_pattern_matches(pattern, "/file /file", "/file")
+
+    assert pattern.search("file") is None
+    assert pattern.search("/anothercommand") is None
 
 
 def test_value_for_command():
-    pattern = value_for_command("file:")
+    pattern = value_for_command("file")
     assert_pattern_matches(pattern, "/file:example.txt", "example.txt")
     assert_pattern_matches(pattern, '/file:"example space.txt"', '"example space.txt"')
     assert_pattern_matches(pattern, '/file:"example.txt" some other string', '"example.txt"')
+    assert_pattern_matches(pattern, "something before /file:example.txt", "example.txt")
+
+    # assert no pattern matches when there is no value
+    assert pattern.search("/file:").group() == ""
+    assert pattern.search("/file: other").group() == ""
+    assert pattern.search("/file: ").group() == ""
+    assert pattern.search("/file other") is None
 
 
 def test_completion_for_command():
-    pattern = completion_for_command("file:")
-    assert_pattern_matches(pattern, "/file:", "/file:")
+    pattern = completion_for_command("file")
+    assert_pattern_matches(pattern, "/file", "/file")
+    assert_pattern_matches(pattern, "/fi", "/fi")
+    assert_pattern_matches(pattern, "before /fi", "/fi")
+    assert_pattern_matches(pattern, "some /f", "/f")
+
+    assert pattern.search("/file after") is None
+    assert pattern.search("/ file") is None
+    assert pattern.search("/file:") is None

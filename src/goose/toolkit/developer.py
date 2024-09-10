@@ -205,5 +205,8 @@ class Developer(Toolkit):
         # Write the content to the file
         _path.write_text(content)
 
+        # Update the last read timestamp after writing to the file
+        last_read_timestamps[path] = os.path.getmtime(path)
+        
         # Return a success message
         return f"Successfully wrote to {path}"

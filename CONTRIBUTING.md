@@ -31,7 +31,7 @@ will run a fresh goose session (can use the usual goose commands with `uv run` p
 
 ## Running ai-exchange from source
 
-goose depends heavily on the https://github.com/square/exchange project, you can clone that and then work on both by running: 
+goose depends heavily on the https://github.com/square/exchange project, you can clone that repo and then work on both by running: 
 
 ```sh
 uv add --editable ../exchange

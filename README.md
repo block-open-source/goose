@@ -16,12 +16,79 @@ goose
 <a href="#open-source">Open Source</a>
 </p>
 
-`goose` assists in solving a wide range of programming and operational tasks. It is a live virtual developer you can interact with, guide, and learn from.
+**Welcome to `goose`, the Open-Source, Extensible AI Coding Assistant!** 
 
-To solve problems, `goose` breaks down instructions into sequences of tasks and carries them out using tools. Its ability to connect its changes with real outcomes (e.g. errors) and course correct is its most powerful and exciting feature. `goose` is free open source software and is built to be extensible and customizable.
+Unlike traditional coding tools, `goose` leverages advanced natural language processing to interpret complex commands into actionable, executable sequences. This allows for a coding assistant that not only writes code but also understands the intent behind your commands, enabling it to manage broader project scopes autonomously.
+
+```
+TODO: quick install instructions will go here in a callout
+```
+
+`TODO: slow video down and center it on the page`
 
 ![goose_demo](https://github.com/user-attachments/assets/0794eaba-97ab-40ef-af64-6fc7f68eb8e2)
 
+## What Sets Goose Apart?
+
+* **Adaptability**: `goose` excels in its ability to adapt to changes in code in real-time, making necessary adjustments as errors occur. This mimics a human developer's approach to coding, iteratively refining the work until perfection is achieved.
+* **Autonomy**: While tools like Copilot provide line-by-line code suggestions based on comments or partial code snippets, goose can take full command descriptions to manage entire projects with little to no ongoing input from developers.
+* **Customization and Extensibility**: Open-source and fully customizable, goose is built to support extensive user-defined modifications, unlike the mostly closed systems of Copilot and Cursor. Developers can tailor `goose` extensively to fit specific workflows, integrate with various toolkits, and enhance functionality through community contributions.
+* **Privacy and Security**: Operating locally on your device, `goose` ensures that your proprietary code and sensitive data are never sent to the cloud.
+
+## Features and capabilities
+`#TODO: include table (?) but add some more descriptions on goose's capabilities`
+
+|  | goose | aider | copilot | cursor |
+| --- | --- | --- | --- | --- |
+| open source | ✅ | ✅ | ❌ | ❌ |
+| in terminal | ✅ | ✅ | ❌ | ❌ |
+| VSCode extension | ✅ | ✅ | ✅ | ❌ |
+| Jetbrains extension  | WIP | ✅ | ✅ | ❌ |
+| Anthropic | ✅ | ✅ | ❌ | ✅ |
+| OpenAI | ✅ | ✅ | ✅ | ✅ |
+| Ollama | ✅ | ✅ | ❌ | ❌ |
+| Gemini | ❌ | ✅ | ❌ | ❌ |
+| Bedrock | ✅ | ✅ | ❌ | ❌ |
+| Azure | ✅ | ✅ | ❌ | ❌ |
+| Cohere | ❌ | ✅ | ❌ | ❌ |
+| DeepSeek | ❌ | ✅ | ❌ | ❌ |
+| Groq | ❌ | ✅ | ❌ | ❌ |
+| VertexAI | ❌ | ✅ | ❌ | ❌ |
+| Databricks | ✅ | ❌ | ❌ | ❌ |
+| Custom response instructions | ✅ | ✅ | ❔ | ✅ |
+|  |  |  |  |  |
+
+### Examples
+
+`#TODO: rewrite/reformat`
+
+Here are some examples that have been used: 
+
+```
+G❯ Looking at the in progress changes in this repo, help me finish off the feature. CONTRIBUTING.md shows how to run the tests.
+```
+
+```
+G❯ In this golang project, I want you to add open telemetry to help me get started with it. Look in the moneymovements module, run the `just test` command to check things work. 
+```
+
+```
+G❯ This project uses an old version of jooq. Upgrade to the latest version, and ensure there are no incompatibilities by running all tests. Dependency versions are in gradle/libs.versions.toml and to run gradle, use the binary located in bin/gradle
+```
+
+```
+G❯ This is a fresh checkout of a golang project. I do not have my golang environment set up. Set it up and run tests for this project, and ensure they pass. Use the zookeeper jar included in this repository rather than installing zookeeper via brew.
+```
+
+```
+G❯ In this repo, I want you to look at how to add a new provider for azure. 
+Some hints are in this github issue: https://github.com/square/exchange/issues
+/4 (you can use gh cli to access it).
+```
+
+```
+G❯ I want you to help me increase the test coverage in src/java... use mvn test to run the unit tests to check it works.
+```
 
 
 ## Usage
@@ -41,6 +108,7 @@ Then you can install `goose` with
 ```sh
 pipx install goose-ai
 ```
+
 #### IDEs
 There is an early version of a VS Code extension with goose support you can try here: https://github.com/square/goose-vscode - more to come soon.
 
@@ -154,62 +222,11 @@ default:
 
 ## Tips
 
-Here are some collected tips we have for working efficiently with `goose`
-
-- **`goose` can and will edit files**. Use a git strategy to avoid losing anything - such as staging your
-  personal edits and leaving `goose` edits unstaged until reviewed. Or consider using individual commits which can be reverted.
-- **`goose` can and will run commands**. You can ask it to check with you first if you are concerned. It will check commands for safety as well.  
-- You can interrupt `goose` with `CTRL+C` to correct it or give it more info.
-- `goose` works best when solving concrete problems - experiment with how far you need to break that problem
-  down to get `goose` to solve it. Be specific! E.g. it will likely fail to `"create a banking app"`, 
-  but probably does a good job if prompted with `"create a Fastapi app with an endpoint for deposit and withdrawal
-  and with account balances stored in mysql keyed by id"`
-- If `goose` doesn't have enough context to start with, it might go down the wrong direction. Tell it
-  to read files that you are referring to or search for objects in code. Even better, ask it to summarize
-  them for you, which will help it set up its own next steps.
-- Refer to any objects in files with something that is easy to search for, such as `"the MyExample class"
-- `goose` *loves* to know how to run tests to get a feedback loop going, just like you do. If you tell it how you test things locally and quickly, it can make use of that when working on your project
-- You can use `goose` for tasks that would require scripting at times, even looking at your screen and correcting designs/helping you fix bugs, try asking it to help you in a way you would ask a person. 
-- `goose` will make mistakes, and go in the wrong direction from times, feel free to correct it, or start again.
-- You can tell `goose` to run things for you continuously (and it will iterate, try, retry) but you can also tell it to check with you before doing things (and then later on tell it to go off on its own and do its best to solve).
-- `goose` can run anywhere, doesn't have to be in a repo, just ask it!
-
-
-### Examples
-
-Here are some examples that have been used: 
-
-```
-G❯ Looking at the in progress changes in this repo, help me finish off the feature. CONTRIBUTING.md shows how to run the tests.
-```
-
-```
-G❯ In this golang project, I want you to add open telemetry to help me get started with it. Look in the moneymovements module, run the `just test` command to check things work. 
-```
-
-```
-G❯ This project uses an old version of jooq. Upgrade to the latest version, and ensure there are no incompatibilities by running all tests. Dependency versions are in gradle/libs.versions.toml and to run gradle, use the binary located in bin/gradle
-```
-
-```
-G❯ This is a fresh checkout of a golang project. I do not have my golang environment set up. Set it up and run tests for this project, and ensure they pass. Use the zookeeper jar included in this repository rather than installing zookeeper via brew.
-```
-
-```
-G❯ In this repo, I want you to look at how to add a new provider for azure. 
-Some hints are in this github issue: https://github.com/square/exchange/issues
-/4 (you can use gh cli to access it).
-```
-
-```
-G❯ I want you to help me increase the test coverage in src/java... use mvn test to run the unit tests to check it works.
-```
+`Tips are removed and can be added to more extensive documentation elsewhere?`
 
 ## FAQ
 
-**Q:** Why did I get error message of "The model `gpt-4o` does not exist or you do not have access to it.` when I talked goose?
-
-**A:** You can find out the LLM provider and models in the configuration file `~/.config/goose/profiles.yaml` here to check whether your LLM provider account has access to the models.  For example, after you have made a successful payment of $5 or more (usage tier 1), you'll be able to access the GPT-4, GPT-4 Turbo, GPT-4o models via the OpenAI API. [How can I access GPT-4, GPT-4 Turbo, GPT-4o, and GPT-4o mini?](https://help.openai.com/en/articles/7102672-how-can-i-access-gpt-4-gpt-4-turbo-gpt-4o-and-gpt-4o-mini).
+`FAQs are removed and can be added to more extensive documentation elsewhere?`
 
 ## Open Source
 

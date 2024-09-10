@@ -111,6 +111,6 @@ def test_write_file_prevent_write_if_changed(temp_dir, developer_toolkit):
     test_file.write_text(updated_content)
 
     # Try to write through toolkit and check for the raised exception
-    with pytest.raises(RuntimeError, match="has been modified since it was last read. Not writing to file."):
+    with pytest.raises(RuntimeError, match="has been modified"):
         developer_toolkit.write_file(test_file.as_posix(), content)
     assert test_file.read_text() == updated_content

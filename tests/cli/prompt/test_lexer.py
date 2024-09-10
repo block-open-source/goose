@@ -232,22 +232,24 @@ def test_lex_document_ending_char_of_parameter_is_symbol():
     assert actual_tokens == expected_tokens
 
 
+def assert_pattern_matches(pattern, text, expected_group):
+    matches = pattern.search(text)
+    assert matches is not None
+    assert matches.group() == expected_group
+
+
 def test_command_itself():
     pattern = command_itself("file:")
-    matches = pattern.match("/file:example.txt")
-    assert matches is not None
-    assert matches.group(1) == "/file:"
+    assert_pattern_matches(pattern, "/file:example.txt", "/file:")
 
 
 def test_value_for_command():
     pattern = value_for_command("file:")
-    matches = pattern.search("/file:example.txt")
-    assert matches is not None
-    assert matches.group(1) == "example.txt"
+    assert_pattern_matches(pattern, "/file:example.txt", "example.txt")
+    assert_pattern_matches(pattern, '/file:"example space.txt"', '"example space.txt"')
+    assert_pattern_matches(pattern, '/file:"example.txt" some other string', '"example.txt"')
 
 
 def test_completion_for_command():
     pattern = completion_for_command("file:")
-    matches = pattern.search("/file:")
-    assert matches is not None
-    assert matches.group(1) == "file:"
+    assert_pattern_matches(pattern, "/file:", "/file:")

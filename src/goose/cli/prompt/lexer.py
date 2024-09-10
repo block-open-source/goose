@@ -23,7 +23,7 @@ def command_itself(target_string: str) -> re.Pattern[str]:
 
 def value_for_command(command_string: str) -> re.Pattern[str]:
     escaped_string = re.escape(command_string)
-    return re.compile(rf"(?<=(?<!\S)\/{escaped_string})([^\s]*)")
+    return re.compile(rf"(?<=(?<!\S)\/{escaped_string})(?:(?:\"(.*?)(\"|$))|([^\s]*))")
 
 
 class PromptLexer(Lexer):

@@ -208,4 +208,3 @@ class Developer(Toolkit):
 
         # Return a success message
         return f"Successfully wrote to {path}"
-

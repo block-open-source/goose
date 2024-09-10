@@ -6,10 +6,10 @@ from prompt_toolkit.styles import Style
 
 from goose.cli.prompt.completer import GoosePromptCompleter
 from goose.cli.prompt.lexer import PromptLexer
-from goose.command import get_commands
+from goose.command.base import Command
 
 
-def create_prompt() -> PromptSession:
+def create_prompt(commands: dict[str, Command]) -> PromptSession:
     # Define custom style
     style = Style.from_dict(
         {
@@ -51,12 +51,6 @@ def create_prompt() -> PromptSession:
             if buffer.complete_state:
                 # accept completion
                 buffer.complete_state = None
-
-    # instantiate the commands available in the prompt
-    commands = dict()
-    command_plugins = get_commands()
-    for command, command_cls in command_plugins.items():
-        commands[command] = command_cls()
 
     return PromptSession(
         completer=GoosePromptCompleter(commands=commands),

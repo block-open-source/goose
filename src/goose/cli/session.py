@@ -121,7 +121,7 @@ class Session:
         if len(self.exchange.messages) == 0 and plan:
             self.setup_plan(plan=plan)
 
-        self.prompt_session = GoosePromptSession.create_prompt_session()
+        self.prompt_session = GoosePromptSession()
 
     def setup_plan(self, plan: dict) -> None:
         if len(self.exchange.messages):

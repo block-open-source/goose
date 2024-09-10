@@ -136,7 +136,9 @@ class Developer(Toolkit):
     @tool
     def shell(self, command: str) -> str:
         """
-        Execute a command on the shell (in OSX)
+        Execute a command on the shell (in OSX). This method should avoid known interactive
+        commands and parameters like `npm init`, `mysql -u`, `psql`, etc. If running an interactive command is necessary,
+        it's recommended to run such commands directly in your own shell.
 
         This will return the output and error concatenated into a single string, as
         you would see from running on the command line. There will also be an indication

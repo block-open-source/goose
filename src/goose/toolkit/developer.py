@@ -18,10 +18,10 @@ from goose.toolkit.utils import get_language, render_template
 
 # Class to store the last read timestamps
 class FileTimestampCache:
-    def __init__(self):
+    def __init__(self) -> None:
         self.timestamps: Dict[str, float] = {}
 
-    def update_timestamp(self, path: str):
+    def update_timestamp(self, path: str) -> None:
         self.timestamps[path] = os.path.getmtime(path)
 
     def get_timestamp(self, path: str) -> float:
@@ -43,7 +43,7 @@ class Developer(Toolkit):
     We also include some default shell strategies in the prompt, such as using ripgrep
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: object, **kwargs: Dict[str, object]) -> None:
         super().__init__(*args, **kwargs)
         self.file_timestamp_cache = FileTimestampCache()
 

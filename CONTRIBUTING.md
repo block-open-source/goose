@@ -8,7 +8,6 @@ to develop a fix, we recommend you open an issue before starting.
 We provide a shortcut to standard commands using [just][just] in our `justfile`.
 
 * *goose* uses [uv][uv] for dependency management, and formats with [ruff][ruff] - install UV first: https://pypi.org/project/uv/ 
-* clone both this repository as well as https://github.com/square/exchange next to it. 
 
 ## Developing and testing
 
@@ -30,7 +29,14 @@ just test
 
 will run a fresh goose session (can use the usual goose commands with `uv run` prefixed)
 
+## Running ai-exchange from source
 
+goose depends heavily on the https://github.com/square/exchange project, you can clone that repo and then work on both by running: 
+
+```sh
+uv add --editable <path/to/cloned/exchange>
+
+then when you run goose with `uv run goose` it will be running it all from source. 
 
 ## Evaluations
 

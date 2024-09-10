@@ -16,8 +16,16 @@ from goose.toolkit.base import Toolkit, tool
 from goose.toolkit.utils import get_language, render_template
 
 
-# Global dictionary to store the last read timestamps
-last_read_timestamps: Dict[str, float] = {}
+# Class to store the last read timestamps
+class FileTimestampCache:
+    def __init__(self):
+        self.timestamps: Dict[str, float] = {}
+
+    def update_timestamp(self, path: str):
+        self.timestamps[path] = os.path.getmtime(path)
+
+    def get_timestamp(self, path: str) -> float:
+        return self.timestamps.get(path, 0.0)
 
 
 def keep_unsafe_command_prompt(command: str) -> bool:
@@ -34,6 +42,10 @@ class Developer(Toolkit):
     The tools include plan management, a general purpose shell execution tool, and file operations.
     We also include some default shell strategies in the prompt, such as using ripgrep
     """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.file_timestamp_cache = FileTimestampCache()
 
     def system(self) -> str:
         """Retrieve system configuration details for developer"""
@@ -126,12 +138,11 @@ class Developer(Toolkit):
         Args:
             path (str): The destination file path, in the format "path/to/file.txt"
         """
-        global last_read_timestamps
         language = get_language(path)
         content = Path(path).expanduser().read_text()
         self.notifier.log(Panel.fit(Markdown(f"```\ncat {path}\n```"), box=box.MINIMAL))
         # Record the last read timestamp
-        last_read_timestamps[path] = os.path.getmtime(path)
+        self.file_timestamp_cache.update_timestamp(path)
         return f"```{language}\n{content}\n```"
 
     @tool
@@ -193,11 +204,11 @@ class Developer(Toolkit):
         self.notifier.log(Panel.fit(Markdown(md), title=path))
 
         _path = Path(path)
-        if path in last_read_timestamps:
-            last_read_timestamp = last_read_timestamps[path]
+        if path in self.file_timestamp_cache.timestamps:
+            last_read_timestamp = self.file_timestamp_cache.get_timestamp(path)
             current_timestamp = os.path.getmtime(path)
             if current_timestamp > last_read_timestamp:
-                return f"File '{path}' has been modified since it was last read. Not writing to file."
+                raise RuntimeError(f"File '{path}' has been modified since it was last read. Not writing to file.")
 
         # Prepare the path and create any necessary parent directories
         _path.parent.mkdir(parents=True, exist_ok=True)
@@ -206,7 +217,7 @@ class Developer(Toolkit):
         _path.write_text(content)
 
         # Update the last read timestamp after writing to the file
-        last_read_timestamps[path] = os.path.getmtime(path)
-        
+        self.file_timestamp_cache.update_timestamp(path)
+
         # Return a success message
         return f"Successfully wrote to {path}"

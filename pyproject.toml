@@ -11,8 +11,8 @@ dependencies = [
     "ai-exchange>=0.8.4",
     "click>=8.1.7",
     "prompt-toolkit>=3.0.47",
-    "goose-plugins-block",
     "setuptools>=73.0.1",
+    "goose-plugins-community",
 ]
 author = [{ name = "Block", email = "ai-oss-tools@block.xyz" }]
 packages = [{ include = "goose", from = "src" }]
@@ -52,5 +52,8 @@ dev-dependencies = [
     "pytest>=8.3.2",
     "codecov>=2.1.13",
 ]
+
+[tool.uv.sources]
+goose-plugins-community = { path = "/Users/ldelalande/Development/goose-plugins-exemplar", editable = true }
 
 

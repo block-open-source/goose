@@ -24,6 +24,7 @@ goose-ai = "goose.module_name"
 [project.entry-points."goose.toolkit"]
 developer = "goose.toolkit.developer:Developer"
 github = "goose.toolkit.github:Github"
+jira = "goose.toolkit.jira:Jira"
 screen = "goose.toolkit.screen:Screen"
 repo_context = "goose.toolkit.repo_context.repo_context:RepoContext"
 

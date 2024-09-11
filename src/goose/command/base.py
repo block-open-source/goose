@@ -11,6 +11,6 @@ class Command(ABC):
         """Get completions for the command."""
         return []
 
-    def execute(self, query: str) -> Optional[str]:
+    def execute(self, query: str, surrounding_context: str) -> Optional[str]:
         """Execute's the command and replaces it with the output."""
         return ""

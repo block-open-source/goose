@@ -25,7 +25,7 @@ class GoosePromptSession:
     def get_message_after_commands(self, message: str) -> str:
         lexer = PromptLexer(command_names=list(self.commands.keys()))
         doc = Document(message)
-        actual_data = []
+        lines = []
         for line_num in range(len(doc.lines)):
             classes_in_line = lexer.lex_document(doc)(line_num)
             line_result = []
@@ -34,7 +34,7 @@ class GoosePromptSession:
                 if classes_in_line[i][0] == "class:command" and i + 1 < len(classes_in_line):
                     command_name = classes_in_line[i][1].strip("/").strip(":")
                     command_value = classes_in_line[i + 1][1]
-                    value_after_execution = self.commands[command_name].execute(command_value)
+                    value_after_execution = self.commands[command_name].execute(command_value, message)
                     if value_after_execution is None:
                         raise ValueError(f"Command {command_name} returned None")
                     line_result.append(value_after_execution)
@@ -42,8 +42,8 @@ class GoosePromptSession:
                 elif classes_in_line[i][0] == "class:text":
                     line_result.append(classes_in_line[i][1])
                 i += 1
-            actual_data.append("".join(line_result))
-        return "\n".join(actual_data)
+            lines.append("".join(line_result))
+        return "\n".join(lines)
 
     def get_user_input(self) -> "UserInput":
         try:

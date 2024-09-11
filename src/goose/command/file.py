@@ -56,5 +56,5 @@ class FileCommand(Command):
             )
         return completions
 
-    def execute(self, query: str) -> str | None:
+    def execute(self, query: str, _: str) -> str | None:
         return query

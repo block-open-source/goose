@@ -1,4 +1,3 @@
-import asyncio
 from unittest.mock import patch
 
 from prompt_toolkit import PromptSession

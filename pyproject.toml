@@ -49,5 +49,4 @@ build-backend = "hatchling.build"
 dev-dependencies = [
     "pytest>=8.3.2",
     "codecov>=2.1.13",
-    "pytest-asyncio",
 ]

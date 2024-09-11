@@ -27,7 +27,6 @@ def test_get_save_session_name_with_space(mock_prompt_session):
     assert goose_prompt_session.get_save_session_name() == "my_session"
 
 
-@pytest.mark.asyncio
 def test_get_user_input_to_continue():
     with patch.object(PromptSession, "prompt", return_value="input_value"):
         goose_prompt_session = GoosePromptSession()
@@ -37,7 +36,6 @@ def test_get_user_input_to_continue():
         assert user_input == UserInput(PromptAction.CONTINUE, "input_value")
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("exit_input", ["exit", ":q"])
 def test_get_user_input_to_exit(exit_input, mock_prompt_session):
     with patch.object(PromptSession, "prompt", return_value=exit_input):

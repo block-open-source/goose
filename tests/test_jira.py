@@ -3,7 +3,7 @@ from unittest.mock import patch
 from goose.toolkit.jira import Jira
 
 class TestJiraToolkit(unittest.TestCase):
-    
+
     @patch('goose.toolkit.jira.Message.load')
     def test_jira_system_prompt(self, mock_load):
         mock_load.return_value.text = "This is a prompt for jira"
@@ -21,6 +21,6 @@ class TestJiraToolkit(unittest.TestCase):
         # Ensure the regex correctly identifies valid JIRA issues
         self.assertTrue(jira_toolkit.is_jira_issue(valid_jira_issue))
         self.assertFalse(jira_toolkit.is_jira_issue(invalid_jira_issue))
-        
+
 if __name__ == '__main__':
     unittest.main()

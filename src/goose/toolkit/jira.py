@@ -21,7 +21,7 @@ class Jira(Toolkit):
         Args:
             issue_key (str): The potential Jira issue key to be validated.
 
-        """        
+        """
         pattern = r"[A-Z]+-\d+"
         return bool(re.match(pattern, issue_key))
 

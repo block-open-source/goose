@@ -2,7 +2,7 @@ import traceback
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from exchange import Message, ToolResult, ToolUse, Text
+from exchange import Message, Text, ToolResult, ToolUse
 from prompt_toolkit.shortcuts import confirm
 from rich import print
 from rich.console import RenderableType
@@ -90,9 +90,11 @@ class Session:
         name: Optional[str] = None,
         profile: Optional[str] = None,
         plan: Optional[dict] = None,
+        display_info: Optional[bool] = False,
         **kwargs: Dict[str, Any],
     ) -> None:
         self.name = name
+        self.display_info = display_info
         self.status_indicator = Status("", spinner="dots")
         self.notifier = SessionNotifier(self.status_indicator)
 
@@ -168,6 +170,9 @@ class Session:
                 )
             self.notifier.stop()
 
+            print()
+            if self.display_info:
+                self.print_info()  # Print a status update
             print()  # Print a newline for separation.
             user_input = self.prompt_session.get_user_input()
             message = Message.user(text=user_input.text) if user_input.to_continue() else None
@@ -256,6 +261,17 @@ class Session:
         self.name = user_entered_session_name if user_entered_session_name else droid()
         print(f"Saving to [bold cyan]{self.session_file_path}[/bold cyan]")
 
+    def print_info(self) -> None:
+        info = {
+            "[grey50 bold]Session[/grey50 bold]: ": f"[grey50]{self.name or 'Unnamed'}",
+            "[grey50 bold]Token Count[/grey50 bold]: ": f"[grey50]{self.exchange.checkpoint_data.total_token_count}",
+        }
+
+        info_string = ""
+        for k, v in info.items():
+            info_string += (k + v)
+            info_string += "\t"
+        print(Panel(renderable=info_string, subtitle="🪿", border_style="grey23"))
 
 if __name__ == "__main__":
     session = Session()

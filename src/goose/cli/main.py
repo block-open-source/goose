@@ -64,8 +64,9 @@ def list_toolkits() -> None:
 
 @session.command(name="start")
 @click.option("--profile")
+@click.option("--display-info", is_flag=True, default=False)
 @click.option("--plan", type=click.Path(exists=True))
-def session_start(profile: str, plan: Optional[str] = None) -> None:
+def session_start(profile: str, display_info: Optional[bool], plan: Optional[str] = None) -> None:
     """Start a new goose session"""
     if plan:
         yaml = YAML()
@@ -74,14 +75,15 @@ def session_start(profile: str, plan: Optional[str] = None) -> None:
     else:
         _plan = None
 
-    session = Session(profile=profile, plan=_plan)
+    session = Session(profile=profile, plan=_plan, display_info=display_info)
     session.run()
 
 
 @session.command(name="resume")
 @click.argument("name", required=False)
 @click.option("--profile")
-def session_resume(name: Optional[str], profile: str) -> None:
+@click.option("--display-info", is_flag=True, default=False)
+def session_resume(name: Optional[str], profile: str, display_info: Optional[bool]) -> None:
     """Resume an existing goose session"""
     if name is None:
         session_files = get_session_files()
@@ -91,7 +93,7 @@ def session_resume(name: Optional[str], profile: str) -> None:
         else:
             print("No sessions found.")
             return
-    session = Session(name=name, profile=profile)
+    session = Session(name=name, profile=profile, display_info=display_info)
     session.run()
 
 

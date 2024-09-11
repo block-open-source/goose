@@ -41,7 +41,7 @@ Unlike traditional coding tools, `goose` leverages advanced natural language pro
 * **Privacy and Security**: Operating locally on your device, `goose` ensures that your proprietary code and sensitive data are never sent to the cloud.
 
 ## Features and capabilities
-`#TODO: include table (?) but add some more descriptions on goose's capabilities`
+`#TODO: include a slimmed-down version of table but add some more descriptions on goose's capabilities (a few sentences)`
 
 |  | goose | aider | copilot | cursor |
 | --- | --- | --- | --- | --- |

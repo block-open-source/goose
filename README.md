@@ -20,9 +20,14 @@ goose
 
 Unlike traditional coding tools, `goose` leverages advanced natural language processing to interpret complex commands into actionable, executable sequences. This allows for a coding assistant that not only writes code but also understands the intent behind your commands, enabling it to manage broader project scopes autonomously.
 
-```
-TODO: quick install instructions will go here in a callout
-```
+> [!TIP]
+> **Quick install:**
+> ```
+> pipx install goose-ai
+> ```
+
+
+
 
 `TODO: slow video down and center it on the page`
 

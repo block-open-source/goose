@@ -19,7 +19,8 @@ class GoosePromptSession:
         command_plugins = get_commands()
         for command, command_cls in command_plugins.items():
             self.commands[command] = command_cls()
-        self.prompt_session = create_prompt(self.commands)
+        self.main_prompt_session = create_prompt(self.commands)
+        self.text_prompt_session = PromptSession()
 
     def get_message_after_commands(self, message: str) -> str:
         lexer = PromptLexer(command_names=list(self.commands.keys()))
@@ -47,7 +48,7 @@ class GoosePromptSession:
     def get_user_input(self) -> "UserInput":
         try:
             text = FormattedText([("#00AEAE", "G❯ ")])  # Define the prompt style and text.
-            message = self.prompt_session.prompt(text, validator=PromptValidator(), validate_while_typing=False)
+            message = self.main_prompt_session.prompt(text, validator=PromptValidator(), validate_while_typing=False)
             if message.strip() in ("exit", ":q"):
                 return UserInput(PromptAction.EXIT)
 
@@ -57,7 +58,7 @@ class GoosePromptSession:
             return UserInput(PromptAction.EXIT)
 
     def get_save_session_name(self) -> Optional[str]:
-        return self.prompt_session.prompt(
+        return self.text_prompt_session.prompt(
             "Enter a name to save this session under. A name will be generated for you if empty: ",
             validator=DummyValidator(),
-        )
+        ).strip(" ")

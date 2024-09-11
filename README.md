@@ -65,6 +65,8 @@ Unlike traditional coding tools, `goose` leverages advanced natural language pro
 
 ## What Block employees have to say about `goose`
 
+`# TODO: pick the best ones`
+
 `NOTE: may want to ask permission before adding names`
 
 > Hi team, thank you for much for making Goose, it's so amazing. Our team is working on migrating Dashboard components to React  components. I am working on adopting Goose to help the migration.

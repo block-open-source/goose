@@ -26,23 +26,43 @@ class GoosePromptSession:
         lexer = PromptLexer(command_names=list(self.commands.keys()))
         doc = Document(message)
         lines = []
+        # iterate through each line of the document
         for line_num in range(len(doc.lines)):
             classes_in_line = lexer.lex_document(doc)(line_num)
             line_result = []
             i = 0
             while i < len(classes_in_line):
+                # if a command is found and it is not the last part of the line
                 if classes_in_line[i][0] == "class:command" and i + 1 < len(classes_in_line):
+                    # extract the command name
                     command_name = classes_in_line[i][1].strip("/").strip(":")
-                    command_value = classes_in_line[i + 1][1]
+                    # get the value following the command
+                    if classes_in_line[i + 1][0] == "class:parameter":
+                        command_value = classes_in_line[i + 1][1]
+                    else:
+                        command_value = ""
+
+                    # execute the command with the given argument, expecting a return value
                     value_after_execution = self.commands[command_name].execute(command_value, message)
+
+                    # if the command returns None, raise an error - this should never happen
+                    # since the command should always return a string
                     if value_after_execution is None:
                         raise ValueError(f"Command {command_name} returned None")
+
+                    # append the result of the command execution to the line results
                     line_result.append(value_after_execution)
                     i += 1
+
+                # if the part is plain text, just append it to the line results
                 elif classes_in_line[i][0] == "class:text":
                     line_result.append(classes_in_line[i][1])
                 i += 1
+
+            # join all processed parts of the current line and add it to the lines list
             lines.append("".join(line_result))
+
+        # join all processed lines into a single string with newline characters and return
         return "\n".join(lines)
 
     def get_user_input(self) -> "UserInput":

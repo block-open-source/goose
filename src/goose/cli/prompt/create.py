@@ -10,6 +10,12 @@ from goose.command.base import Command
 
 
 def create_prompt(commands: dict[str, Command]) -> PromptSession:
+    """
+    Create a prompt session with the given commands.
+
+    Args:
+        commands (dict[str, Command]): A dictionary of command names, and instances of Command classes.
+    """
     # Define custom style
     style = Style.from_dict(
         {

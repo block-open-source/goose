@@ -63,6 +63,33 @@ Unlike traditional coding tools, `goose` leverages advanced natural language pro
 | Custom response instructions | ✅ | ✅ | ❔ | ✅ |
 |  |  |  |  |  |
 
+## What Block employees have to say about `goose`
+
+`NOTE: may want to ask permission before adding names`
+
+> Hi team, thank you for much for making Goose, it's so amazing. Our team is working on migrating Dashboard components to React  components. I am working on adopting Goose to help the migration.
+
+-- K, Software Engineer
+
+> I wanted to try to change the `sql-unit` tool to take a specific file path rather than a directory on the CLI and I'm amazed it did it... It was hands off after I told it what I wanted and how to run tests.
+
+-- J, Software Engineer
+
+> Got goose to update a dependency, run tests, make a branch and a commit... it was :chef-kiss:. Not that complicated but it figured out how to run tests from the readme which was nice.
+
+-- J, Software Engineer
+
+>  > With Goose, I feel like I am Maverick.
+> 
+> Thanks a ton for creating this. :thank:
+> I have been having way too much fun with it today.
+
+-- P, Machine Learning Engineer
+
+> Hi Team, just wanted to share my experience of using goose as a non-engineer!! I had previously installed compost data several months back during a training and I wanted to make sure my environment was up to date. I just asked Goose to ensure that my environment is up to date and copied over this guide into my prompt. Goose managed everything flawlessly, keeping me informed at every step... I was truly [impresssed] how well it works and how easy it was to get started! :heart_eyes:
+
+-- M, Product Manager
+
 ### Examples
 
 `#TODO: rewrite/reformat`
@@ -199,6 +226,8 @@ Rules designed to control or manage the output of the model. Moderators that cur
 
 #### toolkits
 
+`TODO: expand on this section`
+
 `goose` can be extended with toolkits, and out of the box there are some available: 
 
 * `screen`: for letting goose take a look at your screen to help debug or work on designs (gives goose eyes)
@@ -206,6 +235,8 @@ Rules designed to control or manage the output of the model. Moderators that cur
 * `repo_context`: for summarizing and understanding a repository you are working in.
 
 ### Examples
+
+`remove this section?`
 #### provider as `anthropic`
 
 ```yaml

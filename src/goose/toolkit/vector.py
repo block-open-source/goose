@@ -6,8 +6,7 @@ from sentence_transformers import SentenceTransformer, util
 from goose.cli.session import SessionNotifier
 from pathlib import Path
 from exchange import Message
-import os
-
+import faiss
 
 
 GOOSE_GLOBAL_PATH = Path("~/.config/goose").expanduser()
@@ -15,9 +14,9 @@ VECTOR_PATH = GOOSE_GLOBAL_PATH.joinpath("vectors")
 
 
 class VectorToolkit(Toolkit):
-        
+
     _model = None
-    
+
     @property
     def model(self):
         if self._model is None:
@@ -51,15 +50,14 @@ class VectorToolkit(Toolkit):
         return temp_db_path
 
     @tool
-    def find_simmilar_files_locations(self, repo_path: str, query: str) -> str:
+    def find_similar_files_locations(self, repo_path: str, query: str) -> str:
         """
-        Locate files and locations in a repository that are potentially semantically related to the query and may hint where to look.
-        This will not be the only location, but can serve as a starting point. 
-        Note that they will probably not be exact matches, so other tools for text searching can be used if needed.
+        Locate files and locations in a repository that are conceptually related to the query and may hint where to look.
+        Don't rely on this for exhaustive matches around strings, use ripgrep additionally for searching.
 
         Args:
             repo_path (str): The repository that we will be searching in
-            query (str): Query string to search for semantically related files or paths.            
+            query (str): Query string to search for semantically related files or paths.
         Returns:
             str: List of semantically relevant files and paths to consider.
         """
@@ -69,7 +67,27 @@ class VectorToolkit(Toolkit):
         self.notifier.status("Loading embeddings database...")
         file_paths, embeddings = self.load_vector_database(temp_db_path)
         self.notifier.status("Performing query...")
-        similar_files = self.find_similar_files(query, file_paths, embeddings)        
+        similar_files = self.find_similar_files(query, file_paths, embeddings)
+        return '\n'.join(similar_files)
+        """
+        Locate files and locations in a repository that are potentially semantically related to the query and may hint where to look.
+        This will not be the only location, but can serve as a starting point.
+        Note that they will probably not be exact matches, so other tools for text searching can be used as well.
+        Don't rely on this for exhaustive matches around keywords, it is about concepts.
+
+        Args:
+            repo_path (str): The repository that we will be searching in
+            query (str): Query string to search for semantically related files or paths.
+        Returns:
+            str: List of semantically relevant files and paths to consider.
+        """
+        temp_db_path = self.lookup_db_path(repo_path)
+        if temp_db_path is None:
+            temp_db_path = self.create_vector_db(repo_path)
+        self.notifier.status("Loading embeddings database...")
+        file_paths, embeddings = self.load_vector_database(temp_db_path)
+        self.notifier.status("Performing query...")
+        similar_files = self.find_similar_files(query, file_paths, embeddings)
         return '\n'.join(similar_files)
 
     def lookup_db_path(self, repo_path: str) -> str:
@@ -112,7 +130,7 @@ class VectorToolkit(Toolkit):
                 else:
                     skipped_file_types[file_extension] = True
         return file_paths, file_contents
-    
+
     def build_vector_database(self, file_contents):
         embeddings = self.model.encode(file_contents, convert_to_tensor=True)
         return embeddings
@@ -128,12 +146,14 @@ class VectorToolkit(Toolkit):
         return data['file_paths'], data['embeddings']
 
     def find_similar_files(self, query, file_paths, embeddings):
-        query_embedding = self.model.encode([query], convert_to_tensor=True)
         if embeddings.size(0) == 0:
             return 'No embeddings available to query against'
-        scores = util.pytorch_cos_sim(query_embedding, embeddings)[0]
-        top_results = torch.topk(scores, k=min(10, scores.size(0)))
-        similar_files = [file_paths[idx] for idx in top_results[1]]
+        query_embedding = self.model.encode([query], convert_to_tensor=True).cpu().numpy()
+        embeddings_np = embeddings.cpu().numpy()
+        index = faiss.IndexFlatL2(embeddings_np.shape[1])
+        index.add(embeddings_np)
+        D, I = index.search(query_embedding, min(10, len(embeddings_np)))
+        similar_files = [file_paths[idx] for idx in I[0]]
         expanded_similar_files = set()
         for file in similar_files:
             expanded_similar_files.add(file)

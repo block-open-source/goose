@@ -18,7 +18,7 @@ def vector_toolkit():
 def test_query_vector_db_creates_db(temp_dir, vector_toolkit):
     # Create and load a vector database lazily
     query = 'print("Hello World")'
-    result = vector_toolkit.find_simmilar_files_locations(temp_dir.as_posix(), query)
+    result = vector_toolkit.find_similar_files_locations(temp_dir.as_posix(), query)
     print("Query Result:", result)
     assert isinstance(result, str)
     temp_db_path = vector_toolkit.get_db_path(temp_dir.as_posix())
@@ -30,7 +30,7 @@ def test_query_vector_db(temp_dir, vector_toolkit):
     # Create initial db
     vector_toolkit.create_vector_db(temp_dir.as_posix())
     query = 'print("Hello World")'
-    result = vector_toolkit.find_simmilar_files_locations(temp_dir.as_posix(), query)
+    result = vector_toolkit.find_similar_files_locations(temp_dir.as_posix(), query)
     print("Query Result:", result)
     assert isinstance(result, str)
     temp_db_path = vector_toolkit.get_db_path(temp_dir.as_posix())
@@ -51,7 +51,7 @@ def test_no_new_db_if_exists_higher(temp_dir, vector_toolkit):
 
     # Perform query on the lower directory
     query = 'print("Hello World")'
-    result = vector_toolkit.find_simmilar_files_locations(lower_dir.as_posix(), query)
+    result = vector_toolkit.find_similar_files_locations(lower_dir.as_posix(), query)
     print("Query Result from Lower Directory:", result)
 
     # Ensure a DB at the lower level is not created
@@ -88,6 +88,6 @@ def test_find_similar_files_in_repo(temp_dir, vector_toolkit):
 
     # Test query
     query = 'def function_one'
-    result = vector_toolkit.find_simmilar_files_locations(temp_dir.as_posix(), query)
+    result = vector_toolkit.find_similar_files_locations(temp_dir.as_posix(), query)
     print("Similar Files Result:", result)
     assert 'file1.py' in result or 'subdir' in result

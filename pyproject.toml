@@ -13,6 +13,7 @@ dependencies = [
     "prompt-toolkit>=3.0.47",
     "sentence-transformers>=3.0.1",
     "torch>=2.4.0",
+    "faiss-cpu"
 ]
 author = [{ name = "Block", email = "ai-oss-tools@block.xyz" }]
 packages = [{ include = "goose", from = "src" }]

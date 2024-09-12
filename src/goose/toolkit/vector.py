@@ -13,7 +13,7 @@ VECTOR_PATH = GOOSE_GLOBAL_PATH.joinpath("vectors")
 
 
 class VectorToolkit(Toolkit):
-    """Use embeddings for finding related concepts in codebase. """
+    """Use embeddings for finding related concepts in codebase."""
 
     _model = None
 
@@ -22,14 +22,15 @@ class VectorToolkit(Toolkit):
         if self._model is None:
             os.environ["TOKENIZERS_PARALLELISM"] = "false"
             self.notifier.status("Preparing local model...")
-            self._model = SentenceTransformer('multi-qa-MiniLM-L6-cos-v1',
-                                              tokenizer_kwargs={"clean_up_tokenization_spaces": True})
+            self._model = SentenceTransformer(
+                "multi-qa-MiniLM-L6-cos-v1", tokenizer_kwargs={"clean_up_tokenization_spaces": True}
+            )
         return self._model
 
-    def get_db_path(self, repo_path:str) -> Path:
+    def get_db_path(self, repo_path: str) -> Path:
         # Create a hash of the repo path
         repo_hash = hashlib.md5(repo_path.encode()).hexdigest()
-        return VECTOR_PATH.joinpath(f'code_vectors_{repo_hash}.pt')
+        return VECTOR_PATH.joinpath(f"code_vectors_{repo_hash}.pt")
 
     def create_vector_db(self, repo_path: str) -> str:
         """
@@ -70,8 +71,7 @@ class VectorToolkit(Toolkit):
         file_paths, embeddings = self.load_vector_database(temp_db_path)
         self.notifier.status("Performing query...")
         similar_files = self.find_similar_files(query, file_paths, embeddings)
-        return '\n'.join(similar_files)
-
+        return "\n".join(similar_files)
 
     def lookup_db_path(self, repo_path: str) -> str:
         """
@@ -91,50 +91,84 @@ class VectorToolkit(Toolkit):
             current_path = current_path.parent
         return None
 
-    def scan_repository(self, repo_path:Path) -> tuple[list[str], list[str]]:
+    def scan_repository(self, repo_path: Path) -> tuple[list[str], list[str]]:
         repo_path = Path(repo_path).expanduser()
         file_contents = []
         file_paths = []
         skipped_file_types = {}
         for root, dirs, files in os.walk(repo_path):
             # Exclude dotfile directories
-            dirs[:] = [d for d in dirs if not d.startswith('.')]
+            dirs[:] = [d for d in dirs if not d.startswith(".")]
             for file in files:
                 file_extension = os.path.splitext(file)[1]
-                if file_extension in ['.py', '.java', '.js', '.jsx', '.ts', '.tsx', '.cpp', '.c',
-                                      '.h', '.hpp', '.rb', '.go', '.rs', '.php', '.md', '.dart',
-                                      '.kt', '.swift', '.scala', '.lua', '.pl', '.r', '.m', '.mm',
-                                      '.f', '.jl', '.cs', '.vb', '.pas', '.groovy', '.hs', '.elm',
-                                      '.erl', '.clj', '.lisp']:
+                if file_extension in [
+                    ".py",
+                    ".java",
+                    ".js",
+                    ".jsx",
+                    ".ts",
+                    ".tsx",
+                    ".cpp",
+                    ".c",
+                    ".h",
+                    ".hpp",
+                    ".rb",
+                    ".go",
+                    ".rs",
+                    ".php",
+                    ".md",
+                    ".dart",
+                    ".kt",
+                    ".swift",
+                    ".scala",
+                    ".lua",
+                    ".pl",
+                    ".r",
+                    ".m",
+                    ".mm",
+                    ".f",
+                    ".jl",
+                    ".cs",
+                    ".vb",
+                    ".pas",
+                    ".groovy",
+                    ".hs",
+                    ".elm",
+                    ".erl",
+                    ".clj",
+                    ".lisp",
+                ]:
                     file_path = os.path.join(root, file)
                     file_paths.append(file_path)
                     try:
-                        with open(file_path, 'r', errors='ignore') as f:
+                        with open(file_path, "r", errors="ignore") as f:
                             content = f.read()
                             file_contents.append(content)
                     except Exception as e:
-                        print(f'Error reading {file_path}: {e}')
+                        print(f"Error reading {file_path}: {e}")
                 else:
                     skipped_file_types[file_extension] = True
         return file_paths, file_contents
 
-    def build_vector_database(self, file_contents:str) -> list[any]:
+    def build_vector_database(self, file_contents: str) -> list[any]:
         embeddings = self.model.encode(file_contents, convert_to_tensor=True)
         return embeddings
 
-    def save_vector_database(self, file_paths:list[str], embeddings:list[any], db_path:Path) -> None:
-        torch.save({'file_paths': file_paths, 'embeddings': embeddings}, db_path)
+    def save_vector_database(self, file_paths: list[str], embeddings: list[any], db_path: Path) -> None:
+        torch.save({"file_paths": file_paths, "embeddings": embeddings}, db_path)
 
-    def load_vector_database(self, db_path:Path) -> tuple[list[str], list[any]]:
+    def load_vector_database(self, db_path: Path) -> tuple[list[str], list[any]]:
         if db_path is not None and os.path.exists(db_path):
             data = torch.load(db_path, weights_only=True)
         else:
             raise ValueError(f"Database path {db_path} does not exist.")
-        return data['file_paths'], data['embeddings']
+        return data["file_paths"], data["embeddings"]
 
-    def find_similar_files(self, query:str, file_paths:list[Path], embeddings:tuple[list[str], list[any]]) -> list[str]:
+    def find_similar_files(
+        self, query: str, file_paths: list[Path], embeddings: tuple[list[str], list[any]]
+    ) -> list[str]:
         if embeddings.size(0) == 0:
-            return 'No embeddings available to query against'
+            return "No embeddings available to query against"
         query_embedding = self.model.encode([query], convert_to_tensor=True).cpu().numpy()
         embeddings_np = embeddings.cpu().numpy()
         index = faiss.IndexFlatL2(embeddings_np.shape[1])

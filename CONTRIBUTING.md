@@ -8,7 +8,6 @@ to develop a fix, we recommend you open an issue before starting.
 We provide a shortcut to standard commands using [just][just] in our `justfile`.
 
 * *goose* uses [uv][uv] for dependency management, and formats with [ruff][ruff] - install UV first: https://pypi.org/project/uv/ 
-* clone both this repository as well as https://github.com/square/exchange next to it. 
 
 ## Developing and testing
 
@@ -30,7 +29,14 @@ just test
 
 will run a fresh goose session (can use the usual goose commands with `uv run` prefixed)
 
+## Running ai-exchange from source
 
+goose depends heavily on the https://github.com/square/exchange project, you can clone that repo and then work on both by running: 
+
+```sh
+uv add --editable <path/to/cloned/exchange>
+
+then when you run goose with `uv run goose` it will be running it all from source. 
 
 ## Evaluations
 
@@ -124,7 +130,11 @@ And now you can run goose with this new profile to use the new toolkit!
 goose session start --profile demo
 ```
 
-[developer]: src/goose/toolkit/developer.py 
+## Conventional Commits
+
+This project follows the [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) specification for PR titles. Conventional Commits make it easier to understand the history of a project and facilitate automation around versioning and changelog generation.
+
+[developer]: src/goose/toolkit/developer.py
 [uv]: https://docs.astral.sh/uv/
 [ruff]: https://docs.astral.sh/ruff/
 [just]: https://github.com/casey/just

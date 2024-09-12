@@ -14,6 +14,8 @@ from goose.utils.ask import clear_exchange, replace_prompt
 
 
 class RepoContext(Toolkit):
+    """Provides context about the current repository"""
+
     def __init__(self, notifier: Notifier, requires: Requirements) -> None:
         super().__init__(notifier=notifier, requires=requires)
 

@@ -1,39 +1,48 @@
 from pathlib import Path
 from subprocess import CompletedProcess, run
-from typing import List
+from typing import List, Dict
+import os
+from goose.utils.check_shell_command import is_dangerous_command
 
 from exchange import Message
 from rich import box
 from rich.markdown import Markdown
 from rich.panel import Panel
-from rich.prompt import Confirm, PromptType
+from rich.prompt import Confirm
 from rich.table import Table
 from rich.text import Text
 
 from goose.toolkit.base import Toolkit, tool
-from goose.toolkit.utils import get_language
+from goose.toolkit.utils import get_language, render_template
 
 
-def keep_unsafe_command_prompt(command: str) -> PromptType:
+def keep_unsafe_command_prompt(command: str) -> bool:
     command_text = Text(command, style="bold red")
     message = (
-        Text("\nWe flagged the command: ")
-        + command_text
-        + Text(" as potentially unsafe, do you want to proceed? (yes/no)")
+        Text("\nWe flagged the command: ") + command_text + Text(" as potentially unsafe, do you want to proceed?")
     )
     return Confirm.ask(message, default=True)
 
 
 class Developer(Toolkit):
-    """The developer toolkit provides a set of general purpose development capabilities
+    """Provides a set of general purpose development capabilities
 
     The tools include plan management, a general purpose shell execution tool, and file operations.
     We also include some default shell strategies in the prompt, such as using ripgrep
     """
 
+    def __init__(self, *args: object, **kwargs: Dict[str, object]) -> None:
+        super().__init__(*args, **kwargs)
+        self.timestamps: Dict[str, float] = {}
+
     def system(self) -> str:
         """Retrieve system configuration details for developer"""
-        return Message.load("prompts/developer.jinja").text
+        hints_path = Path(".goosehints")
+        system_prompt = Message.load("prompts/developer.jinja").text
+        if hints_path.is_file():
+            goosehints = render_template(hints_path)
+            system_prompt = f"{system_prompt}\n\nHints:\n{goosehints}"
+        return system_prompt
 
     @tool
     def update_plan(self, tasks: List[dict]) -> List[dict]:
@@ -61,7 +70,7 @@ class Developer(Toolkit):
         table.add_column("Status", justify="left")
 
         # Mapping of statuses to emojis for better visual representation in the table.
-        emoji = {"planned": "⏳", "complete": "✅", "failed": "❌", "in-progress": "🕓"}
+        emoji = {"planned": "⏳", "complete": "✅", "failed": "❌", "in-progress": "🕑"}
         for i, entry in enumerate(tasks):
             table.add_row(str(i), entry["description"], emoji[entry["status"]])
 
@@ -120,6 +129,8 @@ class Developer(Toolkit):
         language = get_language(path)
         content = Path(path).expanduser().read_text()
         self.notifier.log(Panel.fit(Markdown(f"```\ncat {path}\n```"), box=box.MINIMAL))
+        # Record the last read timestamp
+        self.timestamps[path] = os.path.getmtime(path)
         return f"```{language}\n{content}\n```"
 
     @tool
@@ -135,34 +146,23 @@ class Developer(Toolkit):
             command (str): The shell command to run. It can support multiline statements
                 if you need to run more than one at a time
         """
-        self.notifier.status("running shell command")
+        self.notifier.status("planning to run shell command")
         # Log the command being executed in a visually structured format (Markdown).
         # The `.log` method is used here to log the command execution in the application's UX
         # this method is dynamically attached to functions in the Goose framework to handle user-visible
         # logging and integrates with the overall UI logging system
         self.notifier.log(Panel.fit(Markdown(f"```bash\n{command}\n```"), title="shell"))
 
-        safety_rails_exchange = self.exchange_view.processor.replace(
-            system=Message.load("prompts/safety_rails.jinja").text
-        )
-        # remove the previous message which was a tool_use Assistant message
-        safety_rails_exchange.messages.pop()
-
-        safety_rails_exchange.add(Message.assistant(f"Here is the command I'd like to run: `{command}`"))
-        safety_rails_exchange.add(Message.user("Please provide the danger rating of that command"))
-        rating = safety_rails_exchange.reply().text
-
-        try:
-            rating = int(rating)
-        except ValueError:
-            rating = 5  # if we can't interpret we default to unsafe
-        if int(rating) > 3:
+        if is_dangerous_command(command):
+            # Stop the notifications so we can prompt
+            self.notifier.stop()
             if not keep_unsafe_command_prompt(command):
                 raise RuntimeError(
                     f"The command {command} was rejected as dangerous by the user."
                     + " Do not proceed further, instead ask for instructions."
                 )
-
+            self.notifier.start()
+        self.notifier.status("running shell command")
         result: CompletedProcess = run(command, shell=True, text=True, capture_output=True, check=False)
         if result.returncode == 0:
             output = "Command succeeded"
@@ -190,12 +190,24 @@ class Developer(Toolkit):
         # this method is dynamically attached to functions in the Goose framework
         self.notifier.log(Panel.fit(Markdown(md), title=path))
 
-        # Prepare the path and create any necessary parent directories
         _path = Path(path)
+        if path in self.timestamps:
+            last_read_timestamp = self.timestamps.get(path, 0.0)
+            current_timestamp = os.path.getmtime(path)
+            if current_timestamp > last_read_timestamp:
+                raise RuntimeError(
+                    f"File '{path}' has been modified since it was last read."
+                    + " Read the file to incorporate changes or update your plan."
+                )
+
+        # Prepare the path and create any necessary parent directories
         _path.parent.mkdir(parents=True, exist_ok=True)
 
         # Write the content to the file
         _path.write_text(content)
 
+        # Update the last read timestamp after writing to the file
+        self.timestamps[path] = os.path.getmtime(path)
+
         # Return a success message
-        return f"Succesfully wrote to {path}"
+        return f"Successfully wrote to {path}"

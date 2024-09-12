@@ -5,6 +5,19 @@ from unittest.mock import MagicMock, Mock
 import pytest
 from goose.toolkit.base import Requirements
 from goose.toolkit.developer import Developer
+from contextlib import contextmanager
+import os
+
+
+@contextmanager
+def change_dir(new_dir):
+    """Context manager to temporarily change the current working directory."""
+    original_dir = os.getcwd()
+    os.chdir(new_dir)
+    try:
+        yield
+    finally:
+        os.chdir(original_dir)
 
 
 @pytest.fixture
@@ -26,6 +39,20 @@ def developer_toolkit():
     toolkit.exchange_view.processor.replace.return_value.messages = [Mock()]
 
     return toolkit
+
+
+def test_system_prompt_with_goosehints(temp_dir, developer_toolkit):
+    readme_file = temp_dir / "README.md"
+    readme_file.write_text("This is from the README.md file.")
+
+    hints_file = temp_dir / ".goosehints"
+    jinja_template_content = "Hints:\n\n{% include 'README.md' %}\nEnd."
+    hints_file.write_text(jinja_template_content)
+
+    with change_dir(temp_dir):
+        system_prompt = developer_toolkit.system()
+        expected_end = "Hints:\n\nThis is from the README.md file.\nEnd."
+        assert system_prompt.endswith(expected_end)
 
 
 def test_update_plan(developer_toolkit):
@@ -66,3 +93,24 @@ def test_write_file(temp_dir, developer_toolkit):
     content = "Hello World"
     developer_toolkit.write_file(test_file.as_posix(), content)
     assert test_file.read_text() == content
+
+
+def test_write_file_prevent_write_if_changed(temp_dir, developer_toolkit):
+    test_file = temp_dir / "test.txt"
+    content = "Hello World"
+    updated_content = "Hello Universe"
+
+    # Initial write to record the timestamp
+    developer_toolkit.write_file(test_file.as_posix(), content)
+    developer_toolkit.read_file(test_file.as_posix())
+
+    import time
+
+    # Modify file externally to simulate change
+    time.sleep(1)
+    test_file.write_text(updated_content)
+
+    # Try to write through toolkit and check for the raised exception
+    with pytest.raises(RuntimeError, match="has been modified"):
+        developer_toolkit.write_file(test_file.as_posix(), content)
+    assert test_file.read_text() == updated_content

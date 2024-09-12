@@ -2,8 +2,7 @@ import os
 import torch
 import hashlib
 from goose.toolkit.base import Toolkit, tool
-from sentence_transformers import SentenceTransformer, util
-from goose.cli.session import SessionNotifier
+from sentence_transformers import SentenceTransformer
 from pathlib import Path
 from exchange import Message
 import faiss
@@ -19,14 +18,15 @@ class VectorToolkit(Toolkit):
     _model = None
 
     @property
-    def model(self):
+    def model(self) -> SentenceTransformer:
         if self._model is None:
             os.environ["TOKENIZERS_PARALLELISM"] = "false"
             self.notifier.status("Preparing local model...")
-            self._model = SentenceTransformer('multi-qa-MiniLM-L6-cos-v1', tokenizer_kwargs={"clean_up_tokenization_spaces": True})
+            self._model = SentenceTransformer('multi-qa-MiniLM-L6-cos-v1',
+                                              tokenizer_kwargs={"clean_up_tokenization_spaces": True})
         return self._model
 
-    def get_db_path(self, repo_path):
+    def get_db_path(self, repo_path:str) -> Path:
         # Create a hash of the repo path
         repo_hash = hashlib.md5(repo_path.encode()).hexdigest()
         return VECTOR_PATH.joinpath(f'code_vectors_{repo_hash}.pt')
@@ -53,7 +53,8 @@ class VectorToolkit(Toolkit):
     @tool
     def find_similar_files_locations(self, repo_path: str, query: str) -> str:
         """
-        Locate files and locations in a repository that are conceptually related to the query and may hint where to look.
+        Locate files and locations in a repository that are conceptually related to the query
+        and may hint where to look.
         Don't rely on this for exhaustive matches around strings, use ripgrep additionally for searching.
 
         Args:
@@ -70,26 +71,7 @@ class VectorToolkit(Toolkit):
         self.notifier.status("Performing query...")
         similar_files = self.find_similar_files(query, file_paths, embeddings)
         return '\n'.join(similar_files)
-        """
-        Locate files and locations in a repository that are potentially semantically related to the query and may hint where to look.
-        This will not be the only location, but can serve as a starting point.
-        Note that they will probably not be exact matches, so other tools for text searching can be used as well.
-        Don't rely on this for exhaustive matches around keywords, it is about concepts.
 
-        Args:
-            repo_path (str): The repository that we will be searching in
-            query (str): Query string to search for semantically related files or paths.
-        Returns:
-            str: List of semantically relevant files and paths to consider.
-        """
-        temp_db_path = self.lookup_db_path(repo_path)
-        if temp_db_path is None:
-            temp_db_path = self.create_vector_db(repo_path)
-        self.notifier.status("Loading embeddings database...")
-        file_paths, embeddings = self.load_vector_database(temp_db_path)
-        self.notifier.status("Performing query...")
-        similar_files = self.find_similar_files(query, file_paths, embeddings)
-        return '\n'.join(similar_files)
 
     def lookup_db_path(self, repo_path: str) -> str:
         """
@@ -109,7 +91,7 @@ class VectorToolkit(Toolkit):
             current_path = current_path.parent
         return None
 
-    def scan_repository(self, repo_path):
+    def scan_repository(self, repo_path:Path) -> tuple[list[str], list[str]]:
         repo_path = Path(repo_path).expanduser()
         file_contents = []
         file_paths = []
@@ -119,7 +101,11 @@ class VectorToolkit(Toolkit):
             dirs[:] = [d for d in dirs if not d.startswith('.')]
             for file in files:
                 file_extension = os.path.splitext(file)[1]
-                if file_extension in ['.py', '.java', '.js', '.jsx', '.ts', '.tsx', '.cpp', '.c', '.h', '.hpp', '.rb', '.go', '.rs', '.php', '.md', '.dart', '.kt', '.swift', '.scala', '.lua', '.pl', '.r', '.m', '.mm', '.f', '.jl', '.cs', '.vb', '.pas', '.groovy', '.hs', '.elm', '.erl', '.clj', '.lisp']:
+                if file_extension in ['.py', '.java', '.js', '.jsx', '.ts', '.tsx', '.cpp', '.c',
+                                      '.h', '.hpp', '.rb', '.go', '.rs', '.php', '.md', '.dart',
+                                      '.kt', '.swift', '.scala', '.lua', '.pl', '.r', '.m', '.mm',
+                                      '.f', '.jl', '.cs', '.vb', '.pas', '.groovy', '.hs', '.elm',
+                                      '.erl', '.clj', '.lisp']:
                     file_path = os.path.join(root, file)
                     file_paths.append(file_path)
                     try:
@@ -132,29 +118,29 @@ class VectorToolkit(Toolkit):
                     skipped_file_types[file_extension] = True
         return file_paths, file_contents
 
-    def build_vector_database(self, file_contents):
+    def build_vector_database(self, file_contents:str) -> list[any]:
         embeddings = self.model.encode(file_contents, convert_to_tensor=True)
         return embeddings
 
-    def save_vector_database(self, file_paths, embeddings, db_path):
+    def save_vector_database(self, file_paths:list[str], embeddings:list[any], db_path:Path) -> None:
         torch.save({'file_paths': file_paths, 'embeddings': embeddings}, db_path)
 
-    def load_vector_database(self, db_path):
+    def load_vector_database(self, db_path:Path) -> tuple[list[str], list[any]]:
         if db_path is not None and os.path.exists(db_path):
             data = torch.load(db_path, weights_only=True)
         else:
             raise ValueError(f"Database path {db_path} does not exist.")
         return data['file_paths'], data['embeddings']
 
-    def find_similar_files(self, query, file_paths, embeddings):
+    def find_similar_files(self, query:str, file_paths:list[Path], embeddings:tuple[list[str], list[any]]) -> list[str]:
         if embeddings.size(0) == 0:
             return 'No embeddings available to query against'
         query_embedding = self.model.encode([query], convert_to_tensor=True).cpu().numpy()
         embeddings_np = embeddings.cpu().numpy()
         index = faiss.IndexFlatL2(embeddings_np.shape[1])
         index.add(embeddings_np)
-        D, I = index.search(query_embedding, min(10, len(embeddings_np)))
-        similar_files = [file_paths[idx] for idx in I[0]]
+        _, i = index.search(query_embedding, min(10, len(embeddings_np)))
+        similar_files = [file_paths[idx] for idx in i[0]]
         expanded_similar_files = set()
         for file in similar_files:
             expanded_similar_files.add(file)

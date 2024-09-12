@@ -16,12 +16,11 @@ class Command(ABC):
         """
         return []
 
-    def execute(self, query: str, surrounding_context: str) -> Optional[str]:
+    def execute(self, query: str) -> Optional[str]:
         """
         Execute's the command and replaces it with the output.
 
         Args:
             query (str): The query to execute.
-            surrounding_context (str): The full user message that the query is a part of.
         """
         return ""

@@ -14,6 +14,7 @@ VECTOR_PATH = GOOSE_GLOBAL_PATH.joinpath("vectors")
 
 
 class VectorToolkit(Toolkit):
+    """Use embeddings for finding related concepts in codebase. """
 
     _model = None
 

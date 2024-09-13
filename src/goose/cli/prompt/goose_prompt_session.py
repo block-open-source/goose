@@ -19,7 +19,11 @@ class GoosePromptSession:
         command_plugins = get_commands()
         for command, command_cls in command_plugins.items():
             self.commands[command] = command_cls()
+
+        # the main prompt session that is used to interact with the llm
         self.main_prompt_session = create_prompt(self.commands)
+
+        # a text-only prompt session that doesn't contain any commands
         self.text_prompt_session = PromptSession()
 
     def get_message_after_commands(self, message: str) -> str:

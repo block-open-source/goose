@@ -12,12 +12,13 @@ Use `jira --help` if not sure of command line options.
 If the jira command line is not installed, you can install it as follows:
 
 {% if os == 'Darwin' %}
-On macOS, install with:
+If jira is not an available command, suggest to install it with brew:
 ```sh
 brew tap ankitpokhrel/jira-cli
 brew install jira-cli
 ```
 {% else %}
-On other operating systems, refer to the instructions here: https://github.com/ankitpokhrel/jira-cli
+If jira is not available as a command, suggest to install it following the instructions at
+https://github.com/ankitpokhrel/jira-cli
 {% endif %}
 

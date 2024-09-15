@@ -255,7 +255,7 @@ class Developer(Toolkit):
             stdout_thread.join()
             stderr_thread.join()
             return (
-                "Command requires interactive input.\n"
+                "Command requires interactive input. If unclear, prompt user for required input or ask to run outside of goose.\n"
                 f"Output:\n{output}\nError:\n{error}"
             )
 

@@ -228,6 +228,7 @@ class Developer(Toolkit):
             # Process output from stdout
             try:
                 line = stdout_queue.get_nowait()
+                #print('out line', line)
                 if line == 'PROMPT_DETECTED':
                     is_waiting_for_input = True
                     break
@@ -239,6 +240,7 @@ class Developer(Toolkit):
             # Process output from stderr
             try:
                 line = stderr_queue.get_nowait()
+                #print('err line', line)
                 if line == 'PROMPT_DETECTED':
                     is_waiting_for_input = True
                     break

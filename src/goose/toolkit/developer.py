@@ -11,6 +11,11 @@ from rich.panel import Panel
 from rich.prompt import Confirm
 from rich.table import Table
 from rich.text import Text
+import subprocess
+import threading
+import queue
+import re
+
 
 from goose.toolkit.base import Toolkit, tool
 from goose.toolkit.utils import get_language, render_template
@@ -146,11 +151,9 @@ class Developer(Toolkit):
             command (str): The shell command to run. It can support multiline statements
                 if you need to run more than one at a time
         """
+
         self.notifier.status("planning to run shell command")
         # Log the command being executed in a visually structured format (Markdown).
-        # The `.log` method is used here to log the command execution in the application's UX
-        # this method is dynamically attached to functions in the Goose framework to handle user-visible
-        # logging and integrates with the overall UI logging system
         self.notifier.log(Panel.fit(Markdown(f"```bash\n{command}\n```"), title="shell"))
 
         if is_dangerous_command(command):
@@ -163,12 +166,127 @@ class Developer(Toolkit):
                 )
             self.notifier.start()
         self.notifier.status("running shell command")
-        result: CompletedProcess = run(command, shell=True, text=True, capture_output=True, check=False)
-        if result.returncode == 0:
-            output = "Command succeeded"
+
+        # Define patterns that might indicate the process is waiting for input
+        PROMPT_PATTERNS = [
+            r'Do you want to',             # Common prompt phrase
+            r'Enter password',             # Password prompt
+            r'Are you sure',               # Confirmation prompt
+            r'\(y/N\)',                    # Yes/No prompt
+            r'Press any key to continue',  # Awaiting keypress
+            r'Waiting for input',          # General waiting message
+            r'Config already exist.*overwrite\?',  # Specific to 'jira init' example
+            r'\?\s'                        # Prompts starting with '? '
+        ]
+
+        # Compile the patterns for faster matching
+        compiled_patterns = [re.compile(pattern, re.IGNORECASE) for pattern in PROMPT_PATTERNS]
+
+        # Start the process
+        proc = subprocess.Popen(
+            command,
+            shell=True,
+            stdin=subprocess.DEVNULL,  # Close stdin to prevent the process from waiting for input
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+
+        # Queues to store the output
+        stdout_queue = queue.Queue()
+        stderr_queue = queue.Queue()
+
+        # Function to read stdout and stderr without blocking
+        def reader_thread(pipe, output_queue):
+            try:
+                for line in iter(pipe.readline, ''):
+                    output_queue.put(line)
+                    # Check for prompt patterns
+                    for pattern in compiled_patterns:
+                        if pattern.search(line):
+                            output_queue.put('PROMPT_DETECTED')
+            finally:
+                pipe.close()
+
+        # Start threads to read stdout and stderr
+        stdout_thread = threading.Thread(target=reader_thread, args=(proc.stdout, stdout_queue))
+        stderr_thread = threading.Thread(target=reader_thread, args=(proc.stderr, stderr_queue))
+        stdout_thread.start()
+        stderr_thread.start()
+
+        # Collect output
+        output = ''
+        error = ''
+        is_waiting_for_input = False
+
+        # Continuously read output
+        while True:
+            # Check if process has terminated
+            if proc.poll() is not None:
+                break
+
+            # Process output from stdout
+            try:
+                line = stdout_queue.get_nowait()
+                if line == 'PROMPT_DETECTED':
+                    is_waiting_for_input = True
+                    break
+                else:
+                    output += line
+            except queue.Empty:
+                pass
+
+            # Process output from stderr
+            try:
+                line = stderr_queue.get_nowait()
+                if line == 'PROMPT_DETECTED':
+                    is_waiting_for_input = True
+                    break
+                else:
+                    error += line
+            except queue.Empty:
+                pass
+
+            # Brief sleep to prevent high CPU usage
+            threading.Event().wait(0.1)
+
+        if is_waiting_for_input:
+            # Allow threads to finish reading
+            stdout_thread.join()
+            stderr_thread.join()
+            return (
+                "Command requires interactive input.\n"
+                f"Output:\n{output}\nError:\n{error}"
+            )
+
+        # Wait for process to complete
+        proc.wait()
+
+        # Ensure all output is read
+        stdout_thread.join()
+        stderr_thread.join()
+
+        # Retrieve any remaining output from queues
+        try:
+            while True:
+                output += stdout_queue.get_nowait()
+        except queue.Empty:
+            pass
+
+        try:
+            while True:
+                error += stderr_queue.get_nowait()
+        except queue.Empty:
+            pass
+
+        # Determine the result based on the return code
+        if proc.returncode == 0:
+            result = "Command succeeded"
         else:
-            output = f"Command failed with returncode {result.returncode}"
-        return "\n".join([output, result.stdout, result.stderr])
+            result = f"Command failed with returncode {proc.returncode}"
+
+        # Return the combined result and outputs
+        return "\n".join([result, output, error])
 
     @tool
     def write_file(self, path: str, content: str) -> str:

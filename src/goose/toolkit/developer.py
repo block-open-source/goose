@@ -216,15 +216,9 @@ class Developer(Toolkit):
 
         # Nested function: maybe_prompt
         def maybe_prompt(lines):
-            nonlocal is_waiting_for_input  # Access the nonlocal variable to modify it
             # Default behavior: log the lines
             self.notifier.log(f"No output for 10 seconds. Recent lines:\n{''.join(lines)}")
-
-            # Placeholder for future logic
-            # If certain conditions are met, set is_waiting_for_input = True
-            # Example condition:
-            # if some_condition_based_on(lines):
-            #     is_waiting_for_input = True
+            return True
 
         # Start threads to read stdout and stderr
         stdout_thread = threading.Thread(target=reader_thread, args=(proc.stdout, stdout_queue))
@@ -247,8 +241,6 @@ class Developer(Toolkit):
             if proc.poll() is not None:
                 break
 
-            # Flag to check if a new line was received
-            new_line_received = False
 
             # Process output from stdout
             try:
@@ -263,7 +255,6 @@ class Developer(Toolkit):
                         recent_lines.append(line)
                         recent_lines = recent_lines[-10:]  # Keep only the last 10 lines
                         last_line_time = time.time()  # Reset timer
-                        new_line_received = True
                 if is_waiting_for_input:
                     break
             except queue.Empty:
@@ -284,7 +275,6 @@ class Developer(Toolkit):
                         recent_lines.append(line)
                         recent_lines = recent_lines[-10:]  # Keep only the last 10 lines
                         last_line_time = time.time()  # Reset timer
-                        new_line_received = True
                 if is_waiting_for_input:
                     break
             except queue.Empty:
@@ -297,17 +287,21 @@ class Developer(Toolkit):
             if time.time() - last_line_time > 10:
                 # Call maybe_prompt with the last 2 to 10 recent lines
                 lines_to_check = recent_lines[-10:]
-                maybe_prompt(lines_to_check)
+                if maybe_prompt(lines_to_check):
+                    print("should break")
+                    is_waiting_for_input = True
+                    break
                 # Reset last_line_time to avoid repeated calls
                 last_line_time = time.time()
+
+            if is_waiting_for_input:
+                break
+
 
             # Brief sleep to prevent high CPU usage
             threading.Event().wait(0.1)
 
         if is_waiting_for_input:
-            # Allow threads to finish reading
-            stdout_thread.join()
-            stderr_thread.join()
             return (
                 "Command requires interactive input. If unclear, prompt user for required input or ask to run outside of goose.\n"
                 f"Output:\n{output}\nError:\n{error}"

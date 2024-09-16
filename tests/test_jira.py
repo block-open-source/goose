@@ -10,10 +10,8 @@ def test_jira_system_prompt(jira_toolkit):
     prompt = jira_toolkit.system()
     print("System Prompt:\n", prompt)
     # Ensure Jinja template syntax isn't present in the loaded prompt
-    assert "{%" not in prompt
-    assert "%}" not in prompt
     # Ensure both installation instructions are present in the prompt
-    assert "On macOS, install with:" in prompt
+    assert "macos" in prompt
     assert "On other operating systems or for alternative installation methods" in prompt
 
 

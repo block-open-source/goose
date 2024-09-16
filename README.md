@@ -130,6 +130,8 @@ Rules designed to control or manage the output of the model. Moderators that cur
 * `screen`: for letting goose take a look at your screen to help debug or work on designs (gives goose eyes)
 * `github`: for awareness and suggestions on how to use github
 * `repo_context`: for summarizing and understanding a repository you are working in.
+* `jira`: for working with JIRA (issues, backlogs, tasks, bugs etc)
+
 
 #### Configuring goose per repo
 

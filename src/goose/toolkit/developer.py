@@ -2,6 +2,7 @@ from pathlib import Path
 from subprocess import CompletedProcess, run
 from typing import List, Dict
 import os
+from goose.utils.ask import ask_an_ai
 from goose.utils.check_shell_command import is_dangerous_command
 
 from exchange import Message
@@ -181,7 +182,6 @@ class Developer(Toolkit):
             r'\(y/N\)',                    # Yes/No prompt
             r'Press any key to continue',  # Awaiting keypress
             r'Waiting for input',          # General waiting message
-            r'Config already exist.*overwrite\?',  # Specific to 'jira init' example
             r'\?\s'                        # Prompts starting with '? '
         ]
 
@@ -229,7 +229,6 @@ class Developer(Toolkit):
         # Collect output
         output = ''
         error = ''
-        is_waiting_for_input = False
 
         # Initialize timer and recent lines list
         last_line_time = time.time()
@@ -241,71 +240,56 @@ class Developer(Toolkit):
             if proc.poll() is not None:
                 break
 
-
             # Process output from stdout
             try:
                 while True:
                     line = stdout_queue.get_nowait()
-                    print("line", line)
                     if line == 'PROMPT_DETECTED':
-                        is_waiting_for_input = True
-                        break
+                        return f"Command requires interactive input. If unclear, prompt user for required input or ask to run outside of goose.\nOutput:\n{output}\nError:\n{error}"
+
                     else:
                         output += line
                         recent_lines.append(line)
                         recent_lines = recent_lines[-10:]  # Keep only the last 10 lines
                         last_line_time = time.time()  # Reset timer
-                if is_waiting_for_input:
-                    break
             except queue.Empty:
                 pass
-
-            if is_waiting_for_input:
-                break
 
             # Process output from stderr
             try:
                 while True:
                     line = stderr_queue.get_nowait()                    
                     if line == 'PROMPT_DETECTED':
-                        is_waiting_for_input = True
-                        break
+                        return f"Command requires interactive input. If unclear, prompt user for required input or ask to run outside of goose.\nOutput:\n{output}\nError:\n{error}"
                     else:
                         error += line
                         recent_lines.append(line)
                         recent_lines = recent_lines[-10:]  # Keep only the last 10 lines
                         last_line_time = time.time()  # Reset timer
-                if is_waiting_for_input:
-                    break
             except queue.Empty:
                 pass
 
-            if is_waiting_for_input:
-                break
 
             # Check if no new lines have been received for 10 seconds
             if time.time() - last_line_time > 10:
                 # Call maybe_prompt with the last 2 to 10 recent lines
-                lines_to_check = recent_lines[-10:]
-                if maybe_prompt(lines_to_check):
-                    print("should break")
-                    is_waiting_for_input = True
-                    break
+                lines_to_check = recent_lines[-10:]                
+                self.notifier.log(f"Still working:\n{''.join(lines_to_check)}")
+                response = ask_an_ai(input=('\n').join(recent_lines),
+                        prompt='This looks to see if the lines provided from running a command are potentially waiting for something, running a server or something that will not termiinate in a shell. Return [Yes], if so [No] otherwise.', 
+                        exchange=self.exchange_view.accelerator)
+                if response.content[0].text == '[Yes]':                            
+                        answer = f"The command {command} looks to be a long running task. Do not run it in goose but tell user to run it outside, unlese the user explicitly tells you to run it (and then, remind them they will need to cancel it as long running)."
+                        return answer
+                else:
+                    self.notifier.log(f"Will continue to run {command}")
+                                            
                 # Reset last_line_time to avoid repeated calls
                 last_line_time = time.time()
-
-            if is_waiting_for_input:
-                break
-
 
             # Brief sleep to prevent high CPU usage
             threading.Event().wait(0.1)
 
-        if is_waiting_for_input:
-            return (
-                "Command requires interactive input. If unclear, prompt user for required input or ask to run outside of goose.\n"
-                f"Output:\n{output}\nError:\n{error}"
-            )
 
         # Wait for process to complete
         proc.wait()

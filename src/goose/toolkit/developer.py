@@ -175,7 +175,7 @@ class Developer(Toolkit):
         self.notifier.status("running shell command")
 
         # Define patterns that might indicate the process is waiting for input
-        PROMPT_PATTERNS = [
+        INTERACTION_PATTERNS = [
             r'Do you want to',             # Common prompt phrase
             r'Enter password',             # Password prompt
             r'Are you sure',               # Confirmation prompt
@@ -184,9 +184,7 @@ class Developer(Toolkit):
             r'Waiting for input',          # General waiting message
             r'\?\s'                        # Prompts starting with '? '
         ]
-
-        # Compile the patterns for faster matching
-        compiled_patterns = [re.compile(pattern, re.IGNORECASE) for pattern in PROMPT_PATTERNS]
+        compiled_patterns = [re.compile(pattern, re.IGNORECASE) for pattern in INTERACTION_PATTERNS]
 
         # Start the process
         proc = subprocess.Popen(
@@ -210,15 +208,9 @@ class Developer(Toolkit):
                     # Check for prompt patterns
                     for pattern in compiled_patterns:
                         if pattern.search(line):
-                            output_queue.put('PROMPT_DETECTED')
+                            output_queue.put('INTERACTION_DETECTED')
             finally:
                 pipe.close()
-
-        # Nested function: maybe_prompt
-        def maybe_prompt(lines):
-            # Default behavior: log the lines
-            self.notifier.log(f"No output for 10 seconds. Recent lines:\n{''.join(lines)}")
-            return True
 
         # Start threads to read stdout and stderr
         stdout_thread = threading.Thread(target=reader_thread, args=(proc.stdout, stdout_queue))
@@ -244,7 +236,7 @@ class Developer(Toolkit):
             try:
                 while True:
                     line = stdout_queue.get_nowait()
-                    if line == 'PROMPT_DETECTED':
+                    if line == 'INTERACTION_DETECTED':
                         return f"Command requires interactive input. If unclear, prompt user for required input or ask to run outside of goose.\nOutput:\n{output}\nError:\n{error}"
 
                     else:
@@ -259,7 +251,7 @@ class Developer(Toolkit):
             try:
                 while True:
                     line = stderr_queue.get_nowait()                    
-                    if line == 'PROMPT_DETECTED':
+                    if line == 'INTERACTION_DETECTED':
                         return f"Command requires interactive input. If unclear, prompt user for required input or ask to run outside of goose.\nOutput:\n{output}\nError:\n{error}"
                     else:
                         error += line

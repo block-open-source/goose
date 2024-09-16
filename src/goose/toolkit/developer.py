@@ -1,5 +1,4 @@
 from pathlib import Path
-from subprocess import CompletedProcess, run
 from typing import List, Dict
 import os
 from goose.utils.ask import ask_an_ai
@@ -16,6 +15,8 @@ import subprocess
 import threading
 import queue
 import re
+import time
+
 
 
 from goose.toolkit.base import Toolkit, tool
@@ -139,7 +140,7 @@ class Developer(Toolkit):
         self.timestamps[path] = os.path.getmtime(path)
         return f"```{language}\n{content}\n```"
 
-        
+
     @tool
     def shell(self, command: str) -> str:
         """
@@ -153,11 +154,6 @@ class Developer(Toolkit):
             command (str): The shell command to run. It can support multiline statements
                 if you need to run more than one at a time
         """
-        import subprocess
-        import threading
-        import queue
-        import re
-        import time  # Import time module for timing functionality
 
         self.notifier.status("planning to run shell command")
         # Log the command being executed in a visually structured format (Markdown).
@@ -169,13 +165,13 @@ class Developer(Toolkit):
             if not keep_unsafe_command_prompt(command):
                 raise RuntimeError(
                     f"The command {command} was rejected as dangerous by the user."
-                    + " Do not proceed further, instead ask for instructions."
+                    " Do not proceed further, instead ask for instructions."
                 )
             self.notifier.start()
         self.notifier.status("running shell command")
 
         # Define patterns that might indicate the process is waiting for input
-        INTERACTION_PATTERNS = [
+        interaction_patterns = [
             r'Do you want to',             # Common prompt phrase
             r'Enter password',             # Password prompt
             r'Are you sure',               # Confirmation prompt
@@ -184,7 +180,7 @@ class Developer(Toolkit):
             r'Waiting for input',          # General waiting message
             r'\?\s'                        # Prompts starting with '? '
         ]
-        compiled_patterns = [re.compile(pattern, re.IGNORECASE) for pattern in INTERACTION_PATTERNS]
+        compiled_patterns = [re.compile(pattern, re.IGNORECASE) for pattern in interaction_patterns]
 
         # Start the process
         proc = subprocess.Popen(
@@ -201,7 +197,7 @@ class Developer(Toolkit):
         stderr_queue = queue.Queue()
 
         # Function to read stdout and stderr without blocking
-        def reader_thread(pipe, output_queue):
+        def reader_thread(pipe: any, output_queue: any) -> None:
             try:
                 for line in iter(pipe.readline, ''):
                     output_queue.put(line)
@@ -237,7 +233,10 @@ class Developer(Toolkit):
                 while True:
                     line = stdout_queue.get_nowait()
                     if line == 'INTERACTION_DETECTED':
-                        return f"Command requires interactive input. If unclear, prompt user for required input or ask to run outside of goose.\nOutput:\n{output}\nError:\n{error}"
+                        return (
+                            "Command requires interactive input. If unclear, prompt user for required input "
+                            f"or ask to run outside of goose.\nOutput:\n{output}\nError:\n{error}"
+                        )
 
                     else:
                         output += line
@@ -250,9 +249,12 @@ class Developer(Toolkit):
             # Process output from stderr
             try:
                 while True:
-                    line = stderr_queue.get_nowait()                    
+                    line = stderr_queue.get_nowait()
                     if line == 'INTERACTION_DETECTED':
-                        return f"Command requires interactive input. If unclear, prompt user for required input or ask to run outside of goose.\nOutput:\n{output}\nError:\n{error}"
+                        return (
+                            "Command requires interactive input. If unclear, prompt user for required input "
+                            f"or ask to run outside of goose.\nOutput:\n{output}\nError:\n{error}"
+                        )
                     else:
                         error += line
                         recent_lines.append(line)
@@ -265,17 +267,24 @@ class Developer(Toolkit):
             # Check if no new lines have been received for 10 seconds
             if time.time() - last_line_time > 10:
                 # Call maybe_prompt with the last 2 to 10 recent lines
-                lines_to_check = recent_lines[-10:]                
+                lines_to_check = recent_lines[-10:]
                 self.notifier.log(f"Still working:\n{''.join(lines_to_check)}")
                 response = ask_an_ai(input=('\n').join(recent_lines),
-                        prompt='This looks to see if the lines provided from running a command are potentially waiting for something, running a server or something that will not termiinate in a shell. Return [Yes], if so [No] otherwise.', 
+                        prompt='This looks to see if the lines provided from running a command are potentially waiting'
+                            +' for something, running a server or something that will not termiinate in a shell.'
+                            +' Return [Yes], if so [No] otherwise.',
                         exchange=self.exchange_view.accelerator)
-                if response.content[0].text == '[Yes]':                            
-                        answer = f"The command {command} looks to be a long running task. Do not run it in goose but tell user to run it outside, unlese the user explicitly tells you to run it (and then, remind them they will need to cancel it as long running)."
+                if response.content[0].text == '[Yes]':
+                        answer = (
+                            f"The command {command} looks to be a long running task. "
+                            f"Do not run it in goose but tell user to run it outside, "
+                            f"unless the user explicitly tells you to run it (and then, "
+                            f"remind them they will need to cancel it as long running)."
+                        )
                         return answer
                 else:
                     self.notifier.log(f"Will continue to run {command}")
-                                            
+
                 # Reset last_line_time to avoid repeated calls
                 last_line_time = time.time()
 

@@ -1,7 +1,6 @@
 from exchange import Message  # type: ignore
 from goose.toolkit.base import tool  # type: ignore
 import re
-
 from goose.toolkit.base import Toolkit
 
 
@@ -10,7 +9,8 @@ class Jira(Toolkit):
 
     def system(self) -> str:
         """Retrieve detailed configuration and procedural guidelines for Jira operations"""
-        return Message.load("prompts/jira.jinja").text
+        template_content = Message.load("prompts/jira.jinja").text
+        return template_content
 
     @tool
     def is_jira_issue(self, issue_key: str) -> str:
@@ -24,3 +24,4 @@ class Jira(Toolkit):
         """
         pattern = r"[A-Z]+-\d+"
         return bool(re.match(pattern, issue_key))
+

@@ -138,6 +138,7 @@ class Developer(Toolkit):
         self.timestamps[path] = os.path.getmtime(path)
         return f"```{language}\n{content}\n```"
 
+        
     @tool
     def shell(self, command: str) -> str:
         """
@@ -151,6 +152,11 @@ class Developer(Toolkit):
             command (str): The shell command to run. It can support multiline statements
                 if you need to run more than one at a time
         """
+        import subprocess
+        import threading
+        import queue
+        import re
+        import time  # Import time module for timing functionality
 
         self.notifier.status("planning to run shell command")
         # Log the command being executed in a visually structured format (Markdown).
@@ -208,6 +214,18 @@ class Developer(Toolkit):
             finally:
                 pipe.close()
 
+        # Nested function: maybe_prompt
+        def maybe_prompt(lines):
+            nonlocal is_waiting_for_input  # Access the nonlocal variable to modify it
+            # Default behavior: log the lines
+            self.notifier.log(f"No output for 10 seconds. Recent lines:\n{''.join(lines)}")
+
+            # Placeholder for future logic
+            # If certain conditions are met, set is_waiting_for_input = True
+            # Example condition:
+            # if some_condition_based_on(lines):
+            #     is_waiting_for_input = True
+
         # Start threads to read stdout and stderr
         stdout_thread = threading.Thread(target=reader_thread, args=(proc.stdout, stdout_queue))
         stderr_thread = threading.Thread(target=reader_thread, args=(proc.stderr, stderr_queue))
@@ -219,35 +237,69 @@ class Developer(Toolkit):
         error = ''
         is_waiting_for_input = False
 
+        # Initialize timer and recent lines list
+        last_line_time = time.time()
+        recent_lines = []
+
         # Continuously read output
         while True:
             # Check if process has terminated
             if proc.poll() is not None:
                 break
 
+            # Flag to check if a new line was received
+            new_line_received = False
+
             # Process output from stdout
             try:
-                line = stdout_queue.get_nowait()
-                #print('out line', line)
-                if line == 'PROMPT_DETECTED':
-                    is_waiting_for_input = True
+                while True:
+                    line = stdout_queue.get_nowait()
+                    print("line", line)
+                    if line == 'PROMPT_DETECTED':
+                        is_waiting_for_input = True
+                        break
+                    else:
+                        output += line
+                        recent_lines.append(line)
+                        recent_lines = recent_lines[-10:]  # Keep only the last 10 lines
+                        last_line_time = time.time()  # Reset timer
+                        new_line_received = True
+                if is_waiting_for_input:
                     break
-                else:
-                    output += line
             except queue.Empty:
                 pass
 
+            if is_waiting_for_input:
+                break
+
             # Process output from stderr
             try:
-                line = stderr_queue.get_nowait()
-                #print('err line', line)
-                if line == 'PROMPT_DETECTED':
-                    is_waiting_for_input = True
+                while True:
+                    line = stderr_queue.get_nowait()                    
+                    if line == 'PROMPT_DETECTED':
+                        is_waiting_for_input = True
+                        break
+                    else:
+                        error += line
+                        recent_lines.append(line)
+                        recent_lines = recent_lines[-10:]  # Keep only the last 10 lines
+                        last_line_time = time.time()  # Reset timer
+                        new_line_received = True
+                if is_waiting_for_input:
                     break
-                else:
-                    error += line
             except queue.Empty:
                 pass
+
+            if is_waiting_for_input:
+                break
+
+            # Check if no new lines have been received for 10 seconds
+            if time.time() - last_line_time > 10:
+                # Call maybe_prompt with the last 2 to 10 recent lines
+                lines_to_check = recent_lines[-10:]
+                maybe_prompt(lines_to_check)
+                # Reset last_line_time to avoid repeated calls
+                last_line_time = time.time()
 
             # Brief sleep to prevent high CPU usage
             threading.Event().wait(0.1)
@@ -271,13 +323,19 @@ class Developer(Toolkit):
         # Retrieve any remaining output from queues
         try:
             while True:
-                output += stdout_queue.get_nowait()
+                line = stdout_queue.get_nowait()
+                output += line
+                recent_lines.append(line)
+                recent_lines = recent_lines[-10:]
         except queue.Empty:
             pass
 
         try:
             while True:
-                error += stderr_queue.get_nowait()
+                line = stderr_queue.get_nowait()
+                error += line
+                recent_lines.append(line)
+                recent_lines = recent_lines[-10:]
         except queue.Empty:
             pass
 
@@ -289,6 +347,7 @@ class Developer(Toolkit):
 
         # Return the combined result and outputs
         return "\n".join([result, output, error])
+
 
     @tool
     def write_file(self, path: str, content: str) -> str:

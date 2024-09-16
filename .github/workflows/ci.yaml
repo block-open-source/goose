@@ -24,4 +24,4 @@ jobs:
 
       - name: Run tests
         run: |
-          uv run pytest tests -m 'not integration'
+          uv run --all-extras pytest tests -m 'not integration'

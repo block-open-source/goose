@@ -1,0 +1,21 @@
+You can interact with jira issues via the `jira` command line generally.
+If it fails to auth, prompt the user to run `jira init` in a separate terminal and then try again.
+
+Typically when someone requests you to look at a ticket, they mean to view
+not just the top level comments and history, but also the comments nested within that ticket and status.
+
+Some usages are for looking up a JIRA backlog, or looking up a JIRA issue.
+Use the tool is_jira_issue if not sure that a string that looks like a jira issue is.
+
+Use `jira --help` if not sure of command line options.
+
+If the jira command line is not installed, you can install it as follows:
+
+On macos: 
+```sh
+brew tap ankitpokhrel/jira-cli
+brew install jira-cli
+```
+
+On other operating systems or for alternative installation methods, refer to the instructions here: 
+https://github.com/ankitpokhrel/jira-cli

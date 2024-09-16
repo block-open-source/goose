@@ -302,8 +302,6 @@ class Developer(Toolkit):
             while True:
                 line = stdout_queue.get_nowait()
                 output += line
-                recent_lines.append(line)
-                recent_lines = recent_lines[-10:]
         except queue.Empty:
             pass
 
@@ -311,8 +309,6 @@ class Developer(Toolkit):
             while True:
                 line = stderr_queue.get_nowait()
                 error += line
-                recent_lines.append(line)
-                recent_lines = recent_lines[-10:]
         except queue.Empty:
             pass
 

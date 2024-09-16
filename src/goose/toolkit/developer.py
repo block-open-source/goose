@@ -318,7 +318,7 @@ class Developer(Toolkit):
         else:
             result = f"Command failed with returncode {proc.returncode}"
 
-        # Return the combined result and outputs
+        # Return the combined result and outputs if we made it this far
         return "\n".join([result, output, error])
 
     @tool

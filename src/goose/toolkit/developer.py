@@ -18,7 +18,6 @@ import re
 import time
 
 
-
 from goose.toolkit.base import Toolkit, tool
 from goose.toolkit.utils import get_language, render_template
 
@@ -140,7 +139,6 @@ class Developer(Toolkit):
         self.timestamps[path] = os.path.getmtime(path)
         return f"```{language}\n{content}\n```"
 
-
     @tool
     def shell(self, command: str) -> str:
         """
@@ -172,13 +170,13 @@ class Developer(Toolkit):
 
         # Define patterns that might indicate the process is waiting for input
         interaction_patterns = [
-            r'Do you want to',             # Common prompt phrase
-            r'Enter password',             # Password prompt
-            r'Are you sure',               # Confirmation prompt
-            r'\(y/N\)',                    # Yes/No prompt
-            r'Press any key to continue',  # Awaiting keypress
-            r'Waiting for input',          # General waiting message
-            r'\?\s'                        # Prompts starting with '? '
+            r"Do you want to",  # Common prompt phrase
+            r"Enter password",  # Password prompt
+            r"Are you sure",  # Confirmation prompt
+            r"\(y/N\)",  # Yes/No prompt
+            r"Press any key to continue",  # Awaiting keypress
+            r"Waiting for input",  # General waiting message
+            r"\?\s",  # Prompts starting with '? '
         ]
         compiled_patterns = [re.compile(pattern, re.IGNORECASE) for pattern in interaction_patterns]
 
@@ -189,7 +187,7 @@ class Developer(Toolkit):
             stdin=subprocess.DEVNULL,  # Close stdin to prevent the process from waiting for input
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True
+            text=True,
         )
 
         # Queues to store the output
@@ -199,12 +197,12 @@ class Developer(Toolkit):
         # Function to read stdout and stderr without blocking
         def reader_thread(pipe: any, output_queue: any) -> None:
             try:
-                for line in iter(pipe.readline, ''):
+                for line in iter(pipe.readline, ""):
                     output_queue.put(line)
                     # Check for prompt patterns
                     for pattern in compiled_patterns:
                         if pattern.search(line):
-                            output_queue.put('INTERACTION_DETECTED')
+                            output_queue.put("INTERACTION_DETECTED")
             finally:
                 pipe.close()
 
@@ -215,8 +213,8 @@ class Developer(Toolkit):
         stderr_thread.start()
 
         # Collect output
-        output = ''
-        error = ''
+        output = ""
+        error = ""
 
         # Initialize timer and recent lines list
         last_line_time = time.time()
@@ -232,7 +230,7 @@ class Developer(Toolkit):
             try:
                 while True:
                     line = stdout_queue.get_nowait()
-                    if line == 'INTERACTION_DETECTED':
+                    if line == "INTERACTION_DETECTED":
                         return (
                             "Command requires interactive input. If unclear, prompt user for required input "
                             f"or ask to run outside of goose.\nOutput:\n{output}\nError:\n{error}"
@@ -250,7 +248,7 @@ class Developer(Toolkit):
             try:
                 while True:
                     line = stderr_queue.get_nowait()
-                    if line == 'INTERACTION_DETECTED':
+                    if line == "INTERACTION_DETECTED":
                         return (
                             "Command requires interactive input. If unclear, prompt user for required input "
                             f"or ask to run outside of goose.\nOutput:\n{output}\nError:\n{error}"
@@ -263,25 +261,26 @@ class Developer(Toolkit):
             except queue.Empty:
                 pass
 
-
             # Check if no new lines have been received for 10 seconds
             if time.time() - last_line_time > 10:
                 # Call maybe_prompt with the last 2 to 10 recent lines
                 lines_to_check = recent_lines[-10:]
                 self.notifier.log(f"Still working\n{''.join(lines_to_check)}")
-                response = ask_an_ai(input=('\n').join(recent_lines),
-                        prompt='This looks to see if the lines provided from running a command are potentially waiting'
-                            +' for something, running a server or something that will not termiinate in a shell.'
-                            +' Return [Yes], if so [No] otherwise.',
-                        exchange=self.exchange_view.accelerator)
-                if response.content[0].text == '[Yes]':
-                        answer = (
-                            f"The command {command} looks to be a long running task. "
-                            f"Do not run it in goose but tell user to run it outside, "
-                            f"unless the user explicitly tells you to run it (and then, "
-                            f"remind them they will need to cancel it as long running)."
-                        )
-                        return answer
+                response = ask_an_ai(
+                    input=("\n").join(recent_lines),
+                    prompt="This looks to see if the lines provided from running a command are potentially waiting"
+                    + " for something, running a server or something that will not termiinate in a shell."
+                    + " Return [Yes], if so [No] otherwise.",
+                    exchange=self.exchange_view.accelerator,
+                )
+                if response.content[0].text == "[Yes]":
+                    answer = (
+                        f"The command {command} looks to be a long running task. "
+                        f"Do not run it in goose but tell user to run it outside, "
+                        f"unless the user explicitly tells you to run it (and then, "
+                        f"remind them they will need to cancel it as long running)."
+                    )
+                    return answer
                 else:
                     self.notifier.log(f"Will continue to run {command}")
 
@@ -290,7 +289,6 @@ class Developer(Toolkit):
 
             # Brief sleep to prevent high CPU usage
             threading.Event().wait(0.1)
-
 
         # Wait for process to complete
         proc.wait()
@@ -326,7 +324,6 @@ class Developer(Toolkit):
 
         # Return the combined result and outputs
         return "\n".join([result, output, error])
-
 
     @tool
     def write_file(self, path: str, content: str) -> str:

@@ -1,6 +1,7 @@
 import pytest
 from goose.toolkit.jira import Jira
 
+
 @pytest.fixture
 def jira_toolkit():
     return Jira(None)

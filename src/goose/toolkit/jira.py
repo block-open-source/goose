@@ -24,4 +24,3 @@ class Jira(Toolkit):
         """
         pattern = r"[A-Z]+-\d+"
         return bool(re.match(pattern, issue_key))
-

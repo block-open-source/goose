@@ -19,7 +19,8 @@ class Reasoner(Toolkit):
     @tool
     def deep_understand(self, code: str, query:str, context: List[dict]) -> str:
         """
-        Use this tool if needing to understand and reason about a piece of code based on the context more deeply than previously tried.
+        Use this tool if needing to understand and reason about a complex body of code based on the context.
+        The context is a list of relevant files to understand.
 
         Args:
             code (str): the code to be examined
@@ -31,7 +32,7 @@ class Reasoner(Toolkit):
         """
         self.notifier.status("analyzing code... ")
         provider = self.OpenAiProvider.from_env()
-        exchange = Exchange(provider=provider, model="o1-mini", system=None)
+        exchange = Exchange(provider=provider, model="o1-preview", system=None)
         # Create messages list
         messages = [Message(role="user", content="You are a helpful assistant.")]
 
@@ -73,22 +74,22 @@ class Reasoner(Toolkit):
         existing_messages_copy = [
             Message(role=msg.role, content=[self.message_content(content) for content in msg.content])
             for msg in self.exchange_view.processor.messages]
-        exchange = Exchange(provider=provider, model="o1-preview", messages=existing_messages_copy, system=None)
+        exchange = Exchange(provider=provider, model="o1-mini", messages=existing_messages_copy, system=None)
 
-        response = ask_an_ai(input="Can you help debug this probolem: " + problem, exchange=exchange)
+        response = ask_an_ai(input="Can you help debug this problem: " + problem, exchange=exchange)
         return response.content[0].text
 
 
     @tool
-    def write_code(self, instructions:str) -> str:
+    def generate_code(self, instructions:str) -> str:
         """
-        Writes code based on instructions: use this when first generating code or when it may be more complicated.
+        Always use this when editing or generating code.
 
         Args:
-            instructions (str): instructions of what code to write.
+            instructions (str): instructions of what code to write or how to modify it.
 
         Returns:
-            response (str): generated code
+            response (str): generated code to be tested or applied as needed.
         """
         # Create an instance of Exchange with the inlined OpenAI provider
         self.notifier.status("generating code...")
@@ -102,14 +103,13 @@ class Reasoner(Toolkit):
                             model="o1-preview",
                             messages=existing_messages_copy, system=None)
 
-        response = ask_an_ai(input="Please carefully generate code with the following instructions: " +instructions,
+        response = ask_an_ai(input=instructions,
                              exchange=exchange)
         return response.content[0].text
 
-    # Provide any system instructions for the model
-    # This can be generated dynamically, and is run at startup time
     def system(self) -> str:
-        return """**These tools are for code generation, reason and analysis of problems. The time taken will be longer, and context is needed.**"""  # noqa: E501
+        """Retrieve instructions on how to use this reasoning and code generation tool"""
+        return Message.load("prompts/reasoner.jinja").text
 
 
 

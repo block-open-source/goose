@@ -1,3 +1,0 @@
-# Learning to use Goose
-
-

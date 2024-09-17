@@ -50,4 +50,17 @@ build-backend = "hatchling.build"
 dev-dependencies = [
     "pytest>=8.3.2",
     "codecov>=2.1.13",
+    "mkdocstrings>=0.26.1",
+    "mkdocs-literate-nav>=0.6.1",
+    "mkdocs-gen-files>=0.5.0",
+    "mkdocs-section-index>=0.3.9",
+    "mkdocs-material>=9.5.34",
+    "mkdocstrings-python>=1.11.1",
+    "mkdocs-git-revision-date-localized-plugin",
+    "mkdocs-glightbox>=0.4.0",
+    "mkdocs-redirects>=1.2.1",
+    "mkdocs-include-markdown-plugin>=6.2.2",
+    "mkdocs-callouts>=1.14.0",
 ]
+
+

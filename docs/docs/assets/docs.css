@@ -1,0 +1,213 @@
+/*@media only screen and (min-width: 76.25em) {*/
+/*    .md-main__inner {*/
+/*        max-width: none;*/
+/*    }*/
+/*    .md-sidebar--primary {*/
+/*        left: 0;*/
+/*    }*/
+/*    .md-sidebar--secondary {*/
+/*        right: 0;*/
+/*        margin-left: 0;*/
+/*        -webkit-transform: none;*/
+/*        transform: none;*/
+/*    }*/
+/*}*/
+
+body {
+    --md-code-fg-color: white !important;
+    --md-code-bg-color: rgba(0, 0, 0, .5) !important;
+    --shadow-color: #FF9E9E;
+    --shadow-color-light: white;
+}
+
+#__mermaid_0 {
+    font-size: 16px;
+}
+
+.md-typeset code {
+    border-radius: 5px;
+}
+
+/* Reduce the space between the term and definition in a definition list
+   Reads better for flags and their documention in CLI options lists */
+.md-typeset dd {
+    margin-top: 0.125em;
+}
+
+/* We want syntax highlighting in fenced codeblocks describing shell commands
+   because it's nice to see comments dimmed and quoted strings highlighted. */ 
+.md-typeset .language-bash {
+    /* We don't need to syntax-highlight numbers in bash blocks */
+    --md-code-hl-number-color: var(--md-code-fg-color);
+    /* We don't need to syntax-highlight shell-native functions (like `cd`) in bash blocks */
+    --md-code-hl-constant-color: var(--md-code-fg-color);
+}
+
+.highlight .kc, .highlight .n {
+    color: rgba(255, 255, 255, 0.8);
+}
+
+body .md-sidebar--primary .md-sidebar__scrollwrap {
+    border-right: 1px solid #454755;
+}
+
+.md-container {
+    opacity: 1 !important;
+}
+
+@media screen and (min-width: 76.25em) {
+    .md-main::before {
+        content: "";
+
+        background-size: cover !important;
+        background-repeat: no-repeat !important;
+        background-attachment: fixed !important;
+        background-position: center !important;
+
+        position: absolute;
+        z-index: -99999;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        opacity: .06;
+
+        animation: changeBg 15s infinite ease-in-out;
+
+        -webkit-transition: background 15s linear;
+        -moz-transition: background 15s linear;
+        -o-transition: background 15s linear;
+        -ms-transition: background 15s linear;
+        transition: background 15s linear;
+
+        animation-duration: 15s;
+        animation-iteration-count: infinite;
+        animation-direction: alternate;
+    }
+}
+
+@keyframes changeBg {
+    0% {
+        background-image: var(--bg1);
+    }
+    25% {
+        background-image: var(--bg2);
+    }
+    50% {
+        background-image: var(--bg3);
+    }
+    75% {
+        background-image: var(--bg4);
+    }
+    100% {
+        background-image: var(--bg1);
+    }
+}
+
+.md-header {
+    background-color: rgba(14, 20, 24, 0.9) !important;
+}
+
+.md-tabs {
+    background-color: rgba(14, 20, 24, 0.6) !important;
+}
+
+@media screen and (min-width: 76.25em) {
+    .md-nav--lifted > .md-nav__list > .md-nav__item--active > .md-nav__link {
+        background: none;
+        box-shadow: none;
+    }
+}
+
+.md-nav__toggle.md-toggle--indeterminate~.md-nav, .md-nav__toggle:checked~.md-nav, .md-nav__toggle~.md-nav {
+    -webkit-transition-property: none;
+    -moz-transition-property: none;
+    -o-transition-property: none;
+    transition-property: none;
+}
+
+@media screen and (min-width: 60em) {
+    .md-nav--secondary .md-nav__title {
+        background: none;
+        box-shadow: none;
+    }
+}
+
+/*add a subtle breathing effect to admonitions border*/
+.admonition {
+    animation: pulsate 10s infinite;
+    border-radius: 7px;
+}
+
+@keyframes pulsate {
+    0% {
+        -webkit-box-shadow: inset 0 0 .075rem rgb(138, 163, 255);
+        -moz-box-shadow: inset 0 0 .075rem rgb(138, 163, 255);
+        box-shadow: inset 0 0 .075rem rgb(138, 163, 255);
+    }
+    50% {
+        border-color: rgba(255, 255, 255, .5);
+        -webkit-box-shadow: inset 0 0 .075rem rgba(255, 255, 255, .5);
+        -moz-box-shadow: inset 0 0 .075rem rgba(255, 255, 255, .5);
+        box-shadow: inset 0 0 .075rem rgba(255, 255, 255, .5);
+    }
+    100% {
+        -webkit-box-shadow: inset 0 0 .075rem rgb(138, 163, 255);
+        -moz-box-shadow: inset 0 0 .075rem rgb(138, 163, 255);
+        box-shadow: inset 0 0 .075rem rgb(138, 163, 255);
+    }
+}
+
+/*pop code elements a tad*/
+code {
+    border: .075rem solid rgba(0, 0, 0, .3);
+}
+
+img {
+    border-radius: 10px;
+}
+
+.neon {
+    color: white;
+    animation: neon 3s infinite;
+    margin: calc(50vh - 40px) auto 0 auto;
+    font-size: 25px;
+    text-transform: uppercase;
+    font-family: "Archivo Black", "Archivo", sans-serif;
+    font-weight: normal;
+    display: block;
+    height: auto;
+    text-align: center;
+}
+
+@keyframes neon {
+  0% {
+    text-shadow: -1px -1px 1px var(--shadow-color-light), -1px 1px 1px var(--shadow-color-light), 1px -1px 1px var(--shadow-color-light), 1px 1px 1px var(--shadow-color-light),
+    0 0 3px var(--shadow-color-light), 0 0 10px var(--shadow-color-light), 0 0 20px var(--shadow-color-light),
+    0 0 30px var(--shadow-color), 0 0 20px var(--shadow-color), 0 0 25px var(--shadow-color), 0 0 35px var(--shadow-color), 0 0 25px var(--shadow-color), 0 0 25px var(--shadow-color);
+  }
+  50% {
+    text-shadow: -1px -1px 1px var(--shadow-color-light), -1px 1px 1px var(--shadow-color-light), 1px -1px 1px var(--shadow-color-light), 1px 1px 1px var(--shadow-color-light),
+    0 0 5px var(--shadow-color-light), 0 0 15px var(--shadow-color-light), 0 0 25px var(--shadow-color-light),
+    0 0 40px var(--shadow-color), 0 0 25px var(--shadow-color), 0 0 30px var(--shadow-color), 0 0 40px var(--shadow-color), 0 0 30px var(--shadow-color), 0 0 30px var(--shadow-color);
+  }
+  100% {
+    text-shadow: -1px -1px 1px var(--shadow-color-light), -1px 1px 1px var(--shadow-color-light), 1px -1px 1px var(--shadow-color-light), 1px 1px 1px var(--shadow-color-light),
+    0 0 3px var(--shadow-color-light), 0 0 10px var(--shadow-color-light), 0 0 20px var(--shadow-color-light),
+    0 0 30px var(--shadow-color), 0 0 20px var(--shadow-color), 0 0 25px var(--shadow-color), 0 0 35px var(--shadow-color), 0 0 25px var(--shadow-color), 0 0 25px var(--shadow-color);
+  }
+}
+
+.md-nav__item--section>.md-nav__link[for] {
+    color: white;
+}
+
+/* this is the top nav item side left */
+.md-nav--lifted>.md-nav__list>.md-nav__item>[for] {
+    color: white;
+    position: absolute; /* otherwise scroll overflow does not look great */
+}
+
+.md-nav__link--active {
+    color: white !important;
+}

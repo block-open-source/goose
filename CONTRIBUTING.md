@@ -1,18 +1,45 @@
 # Contributing
 
-We welcome Pull Requests for general contributions. If you have a larger new feature or any questions on how
-to develop a fix, we recommend you open an issue before starting.
+<p>
+<a href="#prerequisites">Prerequisites</a> •
+<a href="#evaluations">Evaluations</a> •
+<a href="#developing-and-testing">Developing and testing</a> •
+<a href="#building-from-source">Building from source</a> •
+<a href="#developing-goose-plugins">Developing goose-plugins</a> •
+<a href="#running-ai-exchange-from-source">Running ai-exchange from source</a> •
+<a href="#evaluations">Evaluations</a> •
+<a href="#conventional-commits">Conventional Commits</a>
+</p>
+
+We welcome Pull Requests for general contributions. If you have a larger new feature or any questions on how to develop a fix, we recommend you open an [issue][issues] before starting.
 
 ## Prerequisites
 
 We provide a shortcut to standard commands using [just][just] in our `justfile`.
 
-* *goose* uses [uv][uv] for dependency management, and formats with [ruff][ruff] - install UV first: https://pypi.org/project/uv/ 
+Goose uses [uv][uv] for dependency management, and formats with [ruff][ruff] - install UV first: https://pypi.org/project/uv/ 
 
 ## Developing and testing
 
 Now that you have a local environment, you can make edits and run our tests. 
 
+### Creating plugins
+
+Goose is highly configurable through plugins - it reads in modules that its dependencies install (e.g.`goose-plugins`) and uses those that start with certain prefixes (e.g. `goose.toolkit`) to inject their functionality. For example, you will note that Goose's CLI is actually merged with additional CLI methods that are exported from `goose-plugins`.
+
+If you are building a net new feature, you should try to fit it inside a plugin. Goose and `goose-plugins` both support plugins, but there's an important difference in how contributions to each are reviewed. Use the guidelines below to decide where to contribute:
+
+**When to Add to Goose**:
+
+Plugins added directly to Goose are subject to rigorous review. This is because they are part of the core system and need to meet higher standards for stability, performance, and maintainability, often being validated through benchmarking.
+
+**When to Add to `goose-plugins`:**
+
+Plugins in `goose-plugins` undergo less detailed reviews and are more modular or experimental. They can prove their value through usage or iteration over time and may be eventually moved over to Goose.
+
+To see how to add a toolkit, see the [toolkits documentation][toolkits].
+
+### Running tests
 ```sh
 uv run pytest tests -m "not integration"
 ```
@@ -23,119 +50,69 @@ or, as a shortcut,
 just test
 ```
 
-## Running goose from source
+## Building from source
 
-`uv run goose session start`
+If you want to develop features on `goose`:
 
-will run a fresh goose session (can use the usual goose commands with `uv run` prefixed)
+1. Clone Goose:
+ ```bash
+ git clone git@github.com:square/goose.git ~/Development/goose
+ ```
+2. Get `uv` with `brew install uv`
+3. Set up your Python virtualenv:
+```bash
+cd ~/Development/goose
+uv sync
+uv venv
+```
+4. Run the `source` command that follows the `uv venv` command to activate the virtualenv.
+5. Run Goose:
+```bash
+uv run goose session start  # or any of goose's commands (e.g. goose --help)
+```
+
+## Developing goose-plugins
+
+1. Clone the `goose-plugins` repo:
+```bash
+ git clone git@github.com:square/goose-plugins.git ~/Development/goose-plugins
+```
+2. Follow the steps for creating a virtualenv in the `goose` section above
+3. Install `goose-plugins` in `goose`. This means any changes to `goose-plugins` in this folder will immediately be reflected in `goose`:
+```bash
+uv add --editable ~/Development/goose-plugins
+```
+4. Make your changes in `goose-plugins`, add the toolkit to the `profiles.yaml` file and run `uv run goose session --start` to see them in action.
 
 ## Running ai-exchange from source
 
-goose depends heavily on the https://github.com/square/exchange project, you can clone that repo and then work on both by running: 
+goose depends heavily on the [`ai-exchange`][ai-exchange] project, you can clone that repo and then work on both by running: 
 
 ```sh
 uv add --editable <path/to/cloned/exchange>
+```
 
-then when you run goose with `uv run goose` it will be running it all from source. 
+then when you run goose with `uv run goose session start` it will be running it all from source. 
 
 ## Evaluations
 
-Given that so much of *goose* involves interactions with LLMs, our unit tests only go so far to
-confirming things work as intended.
+Given that so much of Goose involves interactions with LLMs, our unit tests only go so far to confirming things work as intended.
 
-We're currently developing a suite of evalutions, to make it easier to make improvements to *goose* more confidently.
+We're currently developing a suite of evaluations, to make it easier to make improvements to Goose more confidently.
 
-In the meantime, we typically incubate any new additions that change the behavior of the *goose*
-through **opt-in** plugins - `Toolkit`s, `Moderator`s, and `Provider`s. We welcome contributions of plugins 
-that add new capabilities to *goose*. We recommend sending in several examples of the new capabilities 
-in action with your pull request.
+In the meantime, we typically incubate any new additions that change the behavior of the Goose through **opt-in** plugins - `Toolkit`s, `Moderator`s, and `Provider`s. We welcome contributions of plugins that add new capabilities to *goose*. We recommend sending in several examples of the new capabilities in action with your pull request.
 
 Additions to the [developer toolkit][developer] change the core performance, and so will need to be measured carefully.
-
-## Build a Toolkit
-
-To add a toolkit, start out with a plugin as mentioned above. In your code (which doesn't necessarily need to be
-in the goose package thanks to [plugin metadata][plugin]!), create a class that derives from Toolkit.
-
-```python
-import os
-import platform
-
-from goose.toolkit.base import Toolkit, tool
-
-
-class Demo(Toolkit):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-    # Provide any additional tools as needed!
-    # The docstring of the tool provides instructions to the LLM, so they are important to tune
-    # you do not have to provide any tools, but any function decorated with @tool will be available
-    @tool
-    def authenticate(self, user: str):
-        """Output an authentication code for this user
-
-        Args:
-            user (str): The username to authenticate for
-        """
-        # notifier supports any rich renderable https://rich.readthedocs.io/en/stable/introduction.html#quick-start
-        self.notifier.log(f"[bold red]auth: {str(hash(user))}[/]")
-
-    # Provide any system instructions for the model
-    # This can be generated dynamically, and is run at startup time
-    def system(self) -> str:
-        print("new")
-        return f"""**You must preceed your first message by using the authenticate tool for the current user**
-
-        ```
-        platform: {platform.system()}
-        cwd: {os.getcwd()}
-        user: {os.environ.get('USER')}
-        ```
-        """
-```
-
-To make the toolkit available, add it as a plugin. For example in a pyproject.toml
-```
-[project.entry-points."goose.toolkit"]
-developer = "goose.toolkit.developer:Developer"
-github = "goose.toolkit.github:Github"
-# Add a line like this - the key becomes the name used in profiles
-demo = "goose.toolkit.demo:Demo"
-```
-
-And then to setup a profile that uses it, add something to ~/.config/goose/profiles.yaml
-```yaml
-default:
-  provider: openai
-  processor: gpt-4o
-  accelerator: gpt-4o-mini
-  moderator: passive
-  toolkits:
-    - name: developer
-      requires: {}
-demo:
-  provider: openai
-  processor: gpt-4o
-  accelerator: gpt-4o-mini
-  moderator: passive
-  toolkits:
-    - developer
-    - demo
-```
-
-And now you can run goose with this new profile to use the new toolkit!
-
-```sh
-goose session start --profile demo
-```
 
 ## Conventional Commits
 
 This project follows the [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) specification for PR titles. Conventional Commits make it easier to understand the history of a project and facilitate automation around versioning and changelog generation.
 
+[issues]: https://github.com/square/goose/issues
+[goose-plugins]: https://github.com/square/goose-plugins
+[ai-exchange]: https://github.com/square/exchange
 [developer]: src/goose/toolkit/developer.py
 [uv]: https://docs.astral.sh/uv/
 [ruff]: https://docs.astral.sh/ruff/
 [just]: https://github.com/casey/just
-[plugin]: https://packaging.python.org/en/latest/guides/creating-and-discovering-plugins/#using-package-metadata
+[toolkits]: docs/docs/toolkits.md

@@ -97,6 +97,9 @@ nav:
   - 'Installation': installation.md
   - 'Configuration': configuration.md
   - 'Contributing': contributing.md
-  - 'Toolkits': toolkits.md
+  - Toolkits:
+      - 'Using Toolkits': using-toolkits.md
+      - 'Creating a New Toolkit': creating-a-new-toolkit.md
+      - 'Available Toolkits': available-toolkits.md
   - 'CLI Commands': cli.md
   - 'Tips': tips.md

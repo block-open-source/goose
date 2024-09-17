@@ -59,6 +59,7 @@ dev-dependencies = [
     "mkdocs-glightbox>=0.4.0",
     "mkdocs-redirects>=1.2.1",
     "mkdocs-include-markdown-plugin>=6.2.2",
+    "mkdocs-callouts>=1.14.0",
 ]
 
 

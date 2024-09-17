@@ -1,8 +1,10 @@
+# Toolkits
+
 This page contains information about building and using toolkits in Goose. Toolkits are a way to extend Goose's capabilities by adding new tools and functionalities. You can create your own toolkits or use the existing ones provided by Goose.
 
-# Using Toolkits
+## Using Toolkits
 
-## Toolkits defined in Goose
+### Toolkits defined in Goose
 
 Using Goose with toolkits is simple. You can add toolkits to your profile in the `profiles.yaml` file. Here's an example of how to add `my-toolkit` toolkit to your profile:
 
@@ -22,13 +24,28 @@ Then run Goose with the specified profile:
 goose session start --profile my-profile
 ```
 
-## Toolkits defined in Goose Plugins
+### Toolkits defined in Goose Plugins
 
-# Build a Toolkit
+1. First make sure that `goose-plugins` is intalled with Goose:
+```sh
+pipx install goose-ai --preinstall goose-plugins
+```
+2. Update the `profiles.yaml` file to include the desired toolkit:
+```yaml
+my-profile:
+  provider: openai
+  processor: gpt-4o
+  accelerator: gpt-4o-mini
+  moderator: passive
+  toolkits:
+    - my-goose-plugins-toolkit
+```
+
+## Building a Toolkit
 
 To add a toolkit, in your code (which doesn't necessarily need to be in the Goose package thanks to [plugin metadata][plugin]!), create a class that derives from the `Toolkit` class.
 
-## Example Toolkit class
+### Example toolkit class
 Below is an example of a simple toolkit called `Demo` that derives from the `Toolkit` class. This toolkit provides an `authenticate` tool that outputs an authentication code for a user. It also provides system instructions for the model. 
 ```python
 import os
@@ -68,10 +85,12 @@ class Demo(Toolkit):
         """
 ```
 
-## Exposing the new toolkit to Goose
+### Exposing the new toolkit to Goose
 
-### Update the `pyproject.toml` file
-To make the toolkit available, add it as a plugin. If you're adding the new toolkit to Goose or the Goose Plugins repo, simply find the `[project.entry-points."goose.toolkit"]` section in `pyproject.toml` and add a line like this:
+To make the toolkit available, add it to the `pyproject.toml` file and then update your `profiles.yaml` file.
+
+#### Update the `pyproject.toml` file
+If you're adding the new toolkit to Goose or the Goose Plugins repo, simply find the `[project.entry-points."goose.toolkit"]` section in `pyproject.toml` and add a line like this:
 ```toml
 [project.entry-points."goose.toolkit"]
 developer = "goose.toolkit.developer:Developer"
@@ -80,15 +99,9 @@ github = "goose.toolkit.github:Github"
 demo = "goose.toolkit.demo:Demo"
 ```
 
-If you're defining a toolkit in a separate package or directly in your project, you can add the entry point to the `pyproject.toml` file of that package:
+If you are adding the toolkit to a different package, see the docs for `goose-plugins` for more information on how to create a plugins repository that can be used by Goose.
 
-```toml
-[project.entry-points."goose.toolkit"]
-# Add a line like this - the key becomes the name used in profiles
-demo = "path.to.the.new.toolkit:ToolkitClassName"
-```
-
-### Update the `profiles.yaml` file
+#### Update the `profiles.yaml` file
 And then to set up a profile that uses it, add something to ~/.config/goose/profiles.yaml
 ```yaml
 default:
@@ -115,11 +128,16 @@ And now you can run goose with this new profile to use the new toolkit!
 goose session start --profile demo
 ```
 
-# Available Toolkits in Goose
+> [!NOTE]
+> If you're using a plugin from `goose-plugins`, make sure `goose-plugins` is installed in your environment. You can install it via pip: 
+> 
+> `pipx install goose-ai --preinstall goose-plugins`
+
+## Available Toolkits in Goose
 
 Goose provides a variety of toolkits designed to help developers with different tasks. Here's an overview of each available toolkit and its functionalities:
 
-## 1. Developer Toolkit
+### 1. Developer Toolkit
 
 The **Developer** toolkit offers general-purpose development capabilities, including:
 
@@ -131,11 +149,11 @@ The **Developer** toolkit offers general-purpose development capabilities, inclu
   - `write_file`: Write content to a specified file.
 - **Shell Command Execution:** Execute shell commands with safety checks.
 
-## 2. GitHub Toolkit
+### 2. GitHub Toolkit
 
 The **GitHub** toolkit provides detailed configuration and procedural guidelines for GitHub operations.
 
-## 3. Lint Toolkit
+### 3. Lint Toolkit
 
 The **Lint** toolkit ensures that all toolkits have proper documentation. It performs the following checks:
 
@@ -143,7 +161,7 @@ The **Lint** toolkit ensures that all toolkits have proper documentation. It per
 - The first line of the docstring should contain more than 5 words and fewer than 12 words.
 - The first letter of the docstring should be capitalized.
 
-## 4. RepoContext Toolkit
+### 4. RepoContext Toolkit
 
 The **RepoContext** toolkit provides context about the current repository. It includes:
 
@@ -151,26 +169,26 @@ The **RepoContext** toolkit provides context about the current repository. It in
 - **Monorepo Check:** Determine if the repository is a monorepo.
 - **Project Summarization:** Summarize the current project based on the repository or the current project directory.
 
-## 5. Screen Toolkit
+### 5. Screen Toolkit
 
 The **Screen** toolkit assists users in taking screenshots for debugging or designing purposes. It provides:
 
 - **Take Screenshot:** Capture a screenshot and provide the path to the screenshot file.
 - **System Instructions:** Instructions on how to work with screenshots.
 
-## 6. SummarizeRepo Toolkit
+### 6. SummarizeRepo Toolkit
 
 The **SummarizeRepo** toolkit helps in summarizing a repository. It includes:
 
 - **Summarize Repository:** Clone the repository (if not already cloned) and summarize the files based on specified extensions.
 
-## 7. SummarizeProject Toolkit
+### 7. SummarizeProject Toolkit
 
 The **SummarizeProject** toolkit generates or retrieves a summary of a project directory based on specified file extensions. It includes:
 
 - **Get Project Summary:** Generate or retrieve a summary of the project in the specified directory.
 
-## 8. SummarizeFile Toolkit
+### 8. SummarizeFile Toolkit
 
 The **SummarizeFile** toolkit helps in summarizing a specific file. It includes:
 

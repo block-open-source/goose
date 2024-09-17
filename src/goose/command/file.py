@@ -57,5 +57,4 @@ class FileCommand(Command):
         return completions
 
     def execute(self, query: str) -> str | None:
-        # GOOSE-TODO: return the query
-        pass
+        return query

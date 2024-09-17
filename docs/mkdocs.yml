@@ -98,4 +98,5 @@ nav:
   - 'Configuration': configuration.md
   - 'Contributing': contributing.md
   - 'Toolkits': toolkits.md
+  - 'CLI Commands': cli.md
   - 'Tips': tips.md

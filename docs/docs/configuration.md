@@ -73,7 +73,7 @@ Provider of LLM. LLM providers that currently are supported by Goose:
 
 #### processor
 
-Model for complex, multi-step tasks such as writing code and executing commands. Example: `gpt-4o`.  You should choose the model based the provider you configured.
+This is the model used for the main Goose loop and main tools -- it should be be capable of complex, multi-step tasks such as writing code and executing commands. Example: `gpt-4o`. You should choose the model based the provider you configured.
 
 #### accelerator
 

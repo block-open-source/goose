@@ -24,11 +24,9 @@ goose session start --profile my-profile
 
 ## Toolkits defined in Goose Plugins
 
-## Toolkits defined elsewhere
-
 # Build a Toolkit
 
-To add a toolkit, in your code (which doesn't necessarily need to be in the goose package thanks to [plugin metadata][plugin]!), create a class that derives from the `Toolkit` class.
+To add a toolkit, in your code (which doesn't necessarily need to be in the Goose package thanks to [plugin metadata][plugin]!), create a class that derives from the `Toolkit` class.
 
 ## Example Toolkit class
 Below is an example of a simple toolkit called `Demo` that derives from the `Toolkit` class. This toolkit provides an `authenticate` tool that outputs an authentication code for a user. It also provides system instructions for the model. 

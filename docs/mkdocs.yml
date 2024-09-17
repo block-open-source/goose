@@ -1,0 +1,20 @@
+site_name: Goose Documentation
+repo_url: https://github.com/squareup/goose
+repo_name: "squareup/goose"
+edit_uri: "https://github.com/squareup/goose/blob/main/docs/docs/"
+theme:
+  name: material
+plugins:
+  - search
+  - gen-files:
+      scripts:
+        - scripts/gen_ref_pages.py
+  - mkdocstrings
+  - literate-nav:
+      nav_file: SUMMARY.md
+  - section-index
+nav:
+  - Home: index.md
+  - API Reference: reference/goose/
+extra_css:
+  - ./css/code_select.css

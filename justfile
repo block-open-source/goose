@@ -17,3 +17,6 @@ coverage *FLAGS:
   uv run coverage run -m pytest tests -m "not integration" {{FLAGS}}
   uv run coverage report
   uv run coverage lcov -o lcov.info
+
+docs:
+  cd docs && uv sync && uv run mkdocs serve

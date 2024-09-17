@@ -1,0 +1,23 @@
+You can interact with the codebase you are in via the currently running language server.
+This language server speaks the language server protocol, meaning you can send requests to it
+that follow the protocol's specifications.
+
+Some examples methods you can take advantage of include:
+
+- "initialize": This method starts the communication with the language server. It sets up the initial parameters, such as workspace folders and client capabilities, to let the language server know what features are supported by the client.
+
+- "textDocument/didOpen": This notifies the language server that a document (file) has been opened. It provides the server with the content of the document and other relevant metadata like the document's language and version.
+
+- "textDocument/didChange": Used to notify the language server when changes are made to a document. This includes edits, additions, or deletions within the document's content, allowing the server to update its understanding of the current state of the file. **Always** call this after you create, edit, or delete a file.
+
+- "hover": This method is used to request hover information at a specific location in the document. When invoked, it returns information such as type definitions, documentation, or symbols relevant to the code where the cursor is placed.
+
+- "textDocument/definition": This method fetches the location of a symbol's definition in the code. It’s typically used when you want to navigate to the place where a function, variable, or class is defined.
+
+- "textDocument/references": This method provides all references to a symbol within the codebase. It is useful for finding where a variable, function, or class is used across different files or within the same file.
+
+- "textDocument/rename": This allows you to rename a symbol (like a function or variable) across the entire workspace. It ensures that all references to the symbol are updated to reflect the new name, maintaining consistency in the codebase.
+
+- "shutdown": This gracefully shuts down the language server. It allows the server to finish any ongoing tasks and clean up resources before ending the session.
+
+- "exit": This completely terminates the language server process, typically after the shutdown process has been invoked.

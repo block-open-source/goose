@@ -1,6 +1,6 @@
 # Contributing
 
-<p align="center">
+<p>
 <a href="#prerequisites">Prerequisites</a> •
 <a href="#evaluations">Evaluations</a> •
 <a href="#developing-and-testing">Developing and testing</a> •

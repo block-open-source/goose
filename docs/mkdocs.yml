@@ -97,9 +97,14 @@ nav:
   - 'Installation': installation.md
   - 'Configuration': configuration.md
   - 'Contributing': contributing.md
-  - Toolkits:
-      - 'Using Toolkits': using-toolkits.md
-      - 'Creating a New Toolkit': creating-a-new-toolkit.md
-      - 'Available Toolkits': available-toolkits.md
-  - 'CLI Commands': cli.md
+  - Plugins:
+    - 'Overview': plugins.md
+    - Toolkits:
+        - 'Using Toolkits': using-toolkits.md
+        - 'Creating a New Toolkit': creating-a-new-toolkit.md
+        - 'Available Toolkits': available-toolkits.md
+    - CLI Commands:
+        - 'Available CLI Commands': cli.md
+    - Providers:
+        - 'Available Providers': providers.md
   - 'Tips': tips.md

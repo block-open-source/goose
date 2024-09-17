@@ -69,7 +69,7 @@ default:
   toolkits:
     - name: developer
       requires: {}
-demo:
+demo-profile:
   provider: openai
   processor: gpt-4o
   accelerator: gpt-4o-mini
@@ -82,7 +82,7 @@ demo:
 And now you can run goose with this new profile to use the new toolkit!
 
 ```sh
-goose session start --profile demo
+goose session start --profile demo-profile
 ```
 
 > [!NOTE]

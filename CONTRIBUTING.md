@@ -35,6 +35,7 @@ goose depends heavily on the https://github.com/square/exchange project, you can
 
 ```sh
 uv add --editable <path/to/cloned/exchange>
+```
 
 then when you run goose with `uv run goose` it will be running it all from source. 
 

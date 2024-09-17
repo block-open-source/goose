@@ -1,3 +1,96 @@
+This page contains information about building and using toolkits in Goose. Toolkits are a way to extend Goose's capabilities by adding new tools and functionalities. You can create your own toolkits or use the existing ones provided by Goose.
+
+# Build a Toolkit
+
+To add a toolkit, in your code (which doesn't necessarily need to be in the goose package thanks to [plugin metadata][plugin]!), create a class that derives from the `Toolkit` class.
+
+## Example Toolkit class
+Below is an example of a simple toolkit called `Demo` that derives from the `Toolkit` class. This toolkit provides an `authenticate` tool that outputs an authentication code for a user. It also provides system instructions for the model. 
+```python
+import os
+import platform
+
+from goose.toolkit.base import Toolkit, tool
+
+
+class Demo(Toolkit):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    # Provide any additional tools as needed!
+    # The docstring of the tool provides instructions to the LLM, so they are important to tune
+    # you do not have to provide any tools, but any function decorated with @tool will be available
+    @tool
+    def authenticate(self, user: str):
+        """Output an authentication code for this user
+
+        Args:
+            user (str): The username to authenticate for
+        """
+        # notifier supports any rich renderable https://rich.readthedocs.io/en/stable/introduction.html#quick-start
+        self.notifier.log(f"[bold red]auth: {str(hash(user))}[/]")
+
+    # Provide any system instructions for the model
+    # This can be generated dynamically, and is run at startup time
+    def system(self) -> str:
+        print("new")
+        return f"""**You must preceed your first message by using the authenticate tool for the current user**
+
+        ```
+        platform: {platform.system()}
+        cwd: {os.getcwd()}
+        user: {os.environ.get('USER')}
+        ```
+        """
+```
+
+## Exposing the Toolkit to Goose
+
+### Update the `pyproject.toml` file
+To make the toolkit available, add it as a plugin. If you're adding the toolkit to Goose or the Goose Plugins repo, simply find the `[project.entry-points."goose.toolkit"]` section in `pyproject.toml` and add a line like this:
+```toml
+[project.entry-points."goose.toolkit"]
+developer = "goose.toolkit.developer:Developer"
+github = "goose.toolkit.github:Github"
+# Add a line like this - the key becomes the name used in profiles
+demo = "goose.toolkit.demo:Demo"
+```
+
+If you're defining a toolkit in a separate package or directly in your project, you can add the entry point to the `pyproject.toml` file of that package:
+
+```toml
+[project.entry-points."goose.toolkit"]
+# Add a line like this - the key becomes the name used in profiles
+demo = "path.to.the.new.toolkit:ToolkitClassName"
+```
+
+### Update the `profiles.yaml` file
+And then to set up a profile that uses it, add something to ~/.config/goose/profiles.yaml
+```yaml
+default:
+  provider: openai
+  processor: gpt-4o
+  accelerator: gpt-4o-mini
+  moderator: passive
+  toolkits:
+    - name: developer
+      requires: {}
+demo:
+  provider: openai
+  processor: gpt-4o
+  accelerator: gpt-4o-mini
+  moderator: passive
+  toolkits:
+    - developer
+    - demo
+```
+
+And now you can run goose with this new profile to use the new toolkit!
+
+```sh
+goose session start --profile demo
+```
+
 # Available Toolkits in Goose
 
 Goose provides a variety of toolkits designed to help developers with different tasks. Here's an overview of each available toolkit and its functionalities:
@@ -58,3 +151,6 @@ The **SummarizeProject** toolkit generates or retrieves a summary of a project d
 The **SummarizeFile** toolkit helps in summarizing a specific file. It includes:
 
 - **Summarize File:** Summarize the contents of a specified file with optional instructions.
+
+[plugin]: https://packaging.python.org/en/latest/guides/creating-and-discovering-plugins/#using-package-metadata
+[goose-plugins]: https://github.com/square/goose-plugins

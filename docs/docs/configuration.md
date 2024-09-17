@@ -1,7 +1,7 @@
 # Configuring Goose
 
 ## Adding a toolkit
-To make a toolkit available, add it as a plugin. For example in the Goose pyproject.toml file:
+To make a toolkit available to Goose, add it to your project's pyproject.toml. For example in the Goose pyproject.toml file:
 ```
 [project.entry-points."goose.toolkit"]
 developer = "goose.toolkit.developer:Developer"

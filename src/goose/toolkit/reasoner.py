@@ -16,37 +16,6 @@ class Reasoner(Toolkit):
     """This is a toolkit to add deeper and slower reasoning around code and questions and debugging"""
 
 
-    @tool
-    def deep_understand(self, code: str, query:str, context: List[dict]) -> str:
-        """
-        Use this tool if needing to understand and reason about a complex body of code based on the context.
-        The context is a list of relevant files to understand.
-
-        Args:
-            code (str): the code to be examined
-            query (str): the question being asked
-            context (List[dict]): A map of file name to file content of the relevant context
-
-        Returns:
-            response (str): the answer about the code
-        """
-        self.notifier.status("analyzing code... ")
-        provider = self.OpenAiProvider.from_env()
-        exchange = Exchange(provider=provider, model="o1-preview", system=None)
-        # Create messages list
-        messages = [Message(role="user", content="You are a helpful assistant.")]
-
-        for ctx in context:
-            for file_name, file_content in ctx.items():
-                messages.append(Message(role="user", content=f"File: {file_name}\n{file_content}"))
-
-        # Append the code to be examined
-        messages.append(Message(role="user", content=f"Code: {code}"))
-
-        response = ask_an_ai(input=messages, exchange=exchange, prompt=query)
-        return response.content[0].text
-
-
     def message_content(self, content: Content) -> Text:
         if isinstance(content, Text):
             return content
@@ -57,7 +26,8 @@ class Reasoner(Toolkit):
     @tool
     def deep_debug(self, problem:str) -> str:
         """
-        This tool can assist with debugging when there are errors or problems when trying things.
+        Thius tool can assist with debugging when there are errors or problems when trying things
+        and other approaches haven't solved it.
         It will take a minute to think about it and consider solutions.
 
         Args:
@@ -74,7 +44,7 @@ class Reasoner(Toolkit):
         existing_messages_copy = [
             Message(role=msg.role, content=[self.message_content(content) for content in msg.content])
             for msg in self.exchange_view.processor.messages]
-        exchange = Exchange(provider=provider, model="o1-mini", messages=existing_messages_copy, system=None)
+        exchange = Exchange(provider=provider, model="o1-preview", messages=existing_messages_copy, system=None)
 
         response = ask_an_ai(input="Can you help debug this problem: " + problem, exchange=exchange)
         return response.content[0].text
@@ -83,7 +53,8 @@ class Reasoner(Toolkit):
     @tool
     def generate_code(self, instructions:str) -> str:
         """
-        Always use this when editing or generating code.
+        try to use this when enhancing existing code or generating new code unless it is simple or it is required quickly.
+        this can generate high quality code to be considered and used.
 
         Args:
             instructions (str): instructions of what code to write or how to modify it.

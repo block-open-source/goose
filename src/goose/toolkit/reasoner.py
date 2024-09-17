@@ -45,8 +45,7 @@ class Reasoner(Toolkit):
         Returns:
             response (str): the answer about the code
         """
-        
-        self.notifier.log("analyzing code... ")
+        self.notifier.status("analyzing code... ")
         provider = self.OpenAiProvider.from_env()
         exchange = Exchange(provider=provider, model="o1-mini", system=None)
         # Create messages list
@@ -82,14 +81,13 @@ class Reasoner(Toolkit):
             response (str): A solution, which may include a suggestion or code snippet.
         """
         # Create an instance of Exchange with the inlined OpenAI provider
-        self.notifier.status("thinking on how to solve the problem... ")
+        self.notifier.status("thinking...")
         provider = self.OpenAiProvider.from_env()
 
         # Create messages list
         existing_messages_copy = [
             Message(role=msg.role, content=[self.message_content(content) for content in msg.content])
             for msg in self.exchange_view.processor.messages]
-        print('m', existing_messages_copy)
         exchange = Exchange(provider=provider, model="o1-mini", messages=existing_messages_copy, system=None)
 
         response = ask_an_ai(input=problem, exchange=exchange)

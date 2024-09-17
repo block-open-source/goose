@@ -12,25 +12,9 @@ from goose.toolkit.base import Toolkit, tool
 from goose.utils.ask import ask_an_ai
 
 
-class Reasoner(Toolkit):    
+class Reasoner(Toolkit):
+    """This is a toolkit to add deeper and slower reasoning around code and questions and debugging"""
 
-    @tool
-    def ask_reasoner(self, input: str) -> str:
-        """
-        A general question when asked to think about it.
-
-        Args:
-            input (str): A general query
-
-        Returns:
-            response (str): the reasoners response
-        """
-        # Create an instance of Exchange with the inlined OpenAI provider
-        self.notifier.log("deep in thought... ")
-        provider = self.OpenAiProvider.from_env()
-        exchange = Exchange(provider=provider, model="o1-mini", system=None)
-        response = ask_an_ai(input=input, exchange=exchange, prompt="please answer the following: " + input)
-        return response.content[0].text
 
     @tool
     def deep_understand(self, code: str, query:str, context: List[dict]) -> str:
@@ -72,10 +56,11 @@ class Reasoner(Toolkit):
     @tool
     def deep_debug(self, problem:str) -> str:
         """
-        If there have been some iterations and failed to solve an error, try this tool with the problem description.
+        This tool can assist with debugging when there are errors or problems when trying things.
+        It will take a minute to think about it and consider solutions.
 
         Args:
-            problem (str): optional description of problem
+            problem (str): description of problem or errors seen.
 
         Returns:
             response (str): A solution, which may include a suggestion or code snippet.
@@ -88,15 +73,43 @@ class Reasoner(Toolkit):
         existing_messages_copy = [
             Message(role=msg.role, content=[self.message_content(content) for content in msg.content])
             for msg in self.exchange_view.processor.messages]
-        exchange = Exchange(provider=provider, model="o1-mini", messages=existing_messages_copy, system=None)
+        exchange = Exchange(provider=provider, model="o1-preview", messages=existing_messages_copy, system=None)
 
-        response = ask_an_ai(input=problem, exchange=exchange)
+        response = ask_an_ai(input="Can you help debug this probolem: " + problem, exchange=exchange)
+        return response.content[0].text
+
+
+    @tool
+    def write_code(self, instructions:str) -> str:
+        """
+        Writes code based on instructions: use this when first generating code or when it may be more complicated.
+
+        Args:
+            instructions (str): instructions of what code to write.
+
+        Returns:
+            response (str): generated code
+        """
+        # Create an instance of Exchange with the inlined OpenAI provider
+        self.notifier.status("generating code...")
+        provider = self.OpenAiProvider.from_env()
+
+        # clone messages, converting to text for context
+        existing_messages_copy = [
+            Message(role=msg.role, content=[self.message_content(content) for content in msg.content])
+            for msg in self.exchange_view.processor.messages]
+        exchange = Exchange(provider=provider,
+                            model="o1-preview",
+                            messages=existing_messages_copy, system=None)
+
+        response = ask_an_ai(input="Please carefully generate code with the following instructions: " +instructions,
+                             exchange=exchange)
         return response.content[0].text
 
     # Provide any system instructions for the model
     # This can be generated dynamically, and is run at startup time
     def system(self) -> str:
-        return """**These tools are for deeper reasoning and analysis and code generation. The time taken will be longer, and context is needed. This may be when there have been some iterations, the topic is complex, there have been errors in code generation or the user has asked.**"""  # noqa: E501
+        return """**These tools are for code generation, reason and analysis of problems. The time taken will be longer, and context is needed.**"""  # noqa: E501
 
 
 

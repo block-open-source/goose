@@ -4,6 +4,8 @@ This page contains information about building and using toolkits in Goose. Toolk
 
 ## Using Toolkits
 
+Use `goose toolkit list` to list the available toolkits.
+
 ### Toolkits defined in Goose
 
 Using Goose with toolkits is simple. You can add toolkits to your profile in the `profiles.yaml` file. Here's an example of how to add `my-toolkit` toolkit to your profile:

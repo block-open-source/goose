@@ -163,4 +163,4 @@ def example_history(self):
     ...
 ```
 
-[exchange]: https://github.com/squareup/exchange
+[exchange]: https://github.com/square/exchange

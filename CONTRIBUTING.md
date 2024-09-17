@@ -29,15 +29,13 @@ Goose is highly configurable through plugins - it reads in modules that its depe
 
 If you are building a net new feature, you should try to fit it inside a plugin. Goose and `goose-plugins` both support plugins, but there's an important difference in how contributions to each are reviewed. Use the guidelines below to decide where to contribute:
 
-**When to Add to Goose:**
+**When to Add to Goose**:
 
-* Higher Scrutiny: Plugins added directly to Goose are subject to more rigorous and detailed reviews. This is because these plugins are considered part of Goose's core system and need to meet higher standards for stability, performance, and maintainability.
-* Core or Essential Plugins: If the plugin is critical to Goose's functionality or tightly coupled to its internal architecture, it should be added to Goose.
+Plugins added directly to Goose are subject to rigorous review. This is because they are part of the core system and need to meet higher standards for stability, performance, and maintainability, often being validated through benchmarking.
 
-**When to Add to Goose-Plugins:**
+**When to Add to `goose-plugins`:**
 
-* Lighter Scrutiny: Plugins in goose-plugins undergo less thorough reviews compared to Goose. This repository is intended for more modular, optional, or experimental plugins that may not be critical to Goose’s core functionality.
-* General, Reusable Plugins: If the plugin could be useful in a variety of contexts or is designed to extend Goose in a more optional way, it belongs in goose-plugins. This allows for faster iteration and easier contributions.
+Plugins in `goose-plugins` undergo less detailed reviews and are more modular or experimental. They can prove their value through usage or iteration over time and may be eventually moved over to Goose.
 
 To see how to add a toolkit, see the [toolkits documentation][toolkits].
 

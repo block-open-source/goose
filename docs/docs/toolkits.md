@@ -137,6 +137,8 @@ goose session start --profile demo
 
 ## Available Toolkits in Goose
 
+To see the available toolkits to you, run `goose toolkit list`, this will show the toolkits defined below as well as any other Goose modules you have installed (for example, `goose-plugins`).
+
 Goose provides a variety of toolkits designed to help developers with different tasks. Here's an overview of each available toolkit and its functionalities:
 
 ### 1. Developer Toolkit
@@ -146,9 +148,9 @@ The **Developer** toolkit offers general-purpose development capabilities, inclu
 - **System Configuration Details:** Retrieves system configuration details.
 - **Task Management:** Update the plan by overwriting all current tasks.
 - **File Operations:**
-  - `patch_file`: Patch a file by replacing specific content.
-  - `read_file`: Read the content of a specified file.
-  - `write_file`: Write content to a specified file.
+    - `patch_file`: Patch a file by replacing specific content.
+    - `read_file`: Read the content of a specified file.
+    - `write_file`: Write content to a specified file.
 - **Shell Command Execution:** Execute shell commands with safety checks.
 
 ### 2. GitHub Toolkit

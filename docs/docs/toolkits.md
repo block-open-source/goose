@@ -1,5 +1,31 @@
 This page contains information about building and using toolkits in Goose. Toolkits are a way to extend Goose's capabilities by adding new tools and functionalities. You can create your own toolkits or use the existing ones provided by Goose.
 
+# Using Toolkits
+
+## Toolkits defined in Goose
+
+Using Goose with toolkits is simple. You can add toolkits to your profile in the `profiles.yaml` file. Here's an example of how to add `my-toolkit` toolkit to your profile:
+
+```yaml
+my-profile:
+  provider: openai
+  processor: gpt-4o
+  accelerator: gpt-4o-mini
+  moderator: passive
+  toolkits:
+    - my-toolkit
+```
+
+Then run Goose with the specified profile:
+
+```sh
+goose session start --profile my-profile
+```
+
+## Toolkits defined in Goose Plugins
+
+## Toolkits defined elsewhere
+
 # Build a Toolkit
 
 To add a toolkit, in your code (which doesn't necessarily need to be in the goose package thanks to [plugin metadata][plugin]!), create a class that derives from the `Toolkit` class.
@@ -44,10 +70,10 @@ class Demo(Toolkit):
         """
 ```
 
-## Exposing the Toolkit to Goose
+## Exposing the new toolkit to Goose
 
 ### Update the `pyproject.toml` file
-To make the toolkit available, add it as a plugin. If you're adding the toolkit to Goose or the Goose Plugins repo, simply find the `[project.entry-points."goose.toolkit"]` section in `pyproject.toml` and add a line like this:
+To make the toolkit available, add it as a plugin. If you're adding the new toolkit to Goose or the Goose Plugins repo, simply find the `[project.entry-points."goose.toolkit"]` section in `pyproject.toml` and add a line like this:
 ```toml
 [project.entry-points."goose.toolkit"]
 developer = "goose.toolkit.developer:Developer"

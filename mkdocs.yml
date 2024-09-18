@@ -3,8 +3,7 @@ site_author: Block
 site_description: Documentation for Goose
 repo_url: https://github.com/square/goose
 repo_name: "square/goose"
-edit_uri: "https://github.com/square/goose/blob/main/docs/docs/"
-# site_url: https://goose-docs.squarecloudservices.com
+edit_uri: "https://github.com/square/goose/blob/main/docs/"
 theme:
   name: material
   features:

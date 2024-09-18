@@ -133,19 +133,36 @@ def session_planned(plan: str, args: Optional[dict[str, str]]) -> None:
     session.run()
 
 
+def autocomplete_session_files(ctx: click.Context, args: str, incomplete: str) -> None:
+    return [
+        f"{session_name}"
+        for session_name in sorted(get_session_files().keys(), reverse=True, key=lambda x: x.lower())
+        if session_name.startswith(incomplete)
+    ]
+
+
+def get_session_files() -> dict[str, Path]:
+    return list_sorted_session_files(SESSIONS_PATH)
+
+
 @session.command(name="resume")
-@click.argument("name", required=False)
+@click.argument("name", required=False, shell_complete=autocomplete_session_files)
 @click.option("--profile")
 def session_resume(name: Optional[str], profile: str) -> None:
     """Resume an existing goose session"""
+    session_files = get_session_files()
     if name is None:
-        session_files = get_session_files()
         if session_files:
             name = list(session_files.keys())[0]
             print(f"Resuming most recent session: {name} from {session_files[name]}")
         else:
             print("No sessions found.")
             return
+    else:
+        if name in session_files:
+            print(f"Resuming session: {name}")
+        else:
+            print(f"Creating new session: {name}")
     session = Session(name=name, profile=profile)
     session.run()
 
@@ -165,10 +182,6 @@ def session_clear(keep: int) -> None:
     for i, (_, session_file) in enumerate(get_session_files().items()):
         if i >= keep:
             session_file.unlink()
-
-
-def get_session_files() -> dict[str, Path]:
-    return list_sorted_session_files(SESSIONS_PATH)
 
 
 @click.group(

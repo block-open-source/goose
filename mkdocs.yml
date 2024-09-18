@@ -5,6 +5,7 @@ repo_url: https://github.com/square/goose
 repo_name: "square/goose"
 edit_uri: "https://github.com/square/goose/blob/main/docs/"
 site_url: 'https://square.github.io/goose/'
+use_directory_urls: false
 theme:
   name: material
   features:

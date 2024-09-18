@@ -144,3 +144,12 @@ def test_version_subcommand():
     result = runner.invoke(cli, ["version"])
     assert result.exit_code == 0
     assert "version" in result.output.lower()
+
+
+def test_goose_no_args_print_help():
+    runner = CliRunner()
+    result = runner.invoke(cli, [])
+    assert result.exit_code == 0
+    assert "Usage:" in result.output
+    assert "Options:" in result.output
+    assert "Commands:" in result.output

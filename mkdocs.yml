@@ -6,6 +6,8 @@ repo_name: "square/goose"
 edit_uri: "https://github.com/square/goose/blob/main/docs/"
 site_url: 'https://square.github.io/goose/'
 use_directory_urls: false
+
+# theme
 theme:
   name: material
   features:
@@ -37,6 +39,8 @@ theme:
   favicon: assets/logo.ico
   icon:
     logo: assets/logo.ico
+
+# plugins
 plugins:
   - include-markdown
   - callouts
@@ -50,6 +54,14 @@ plugins:
       separator: '[\s\u200b\-_,:!=\[\]()"`/]+|\.(?!\d)|&[lg]t;|(?!\b)(?=[A-Z][a-z])'
   - redirects:
       redirect_maps:
+  - git-committers:  # Show git committers
+      branch: main
+      enabled: !ENV [ ENV_PROD, false ]
+      repository: square/goose
+  - git-revision-date-localized:  # Show git revision date
+      enable_creation_date: true
+      enabled: !ENV [ ENV_PROD, false ]
+
 extra:
   annotate:
     json:
@@ -58,6 +70,7 @@ extra:
   analytics:
     provider: google
     property: !ENV GOOGLE_ANALYTICS_KEY
+
 markdown_extensions:
   - abbr
   - admonition
@@ -98,6 +111,7 @@ markdown_extensions:
   - pymdownx.tilde
   - toc:
       permalink: true
+
 nav:
   - Home: index.md
   - 'Installation': installation.md

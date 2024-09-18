@@ -65,9 +65,13 @@ class Reasoner(Toolkit):
         exchange = Exchange(provider=provider, model="o1-mini", messages=existing_messages_copy, system=None)
 
         self.notifier.status("generating code...")
-        response = ask_an_ai(input="Please follow the instructions, " +
-                             "and ideally return relevant code and little commentary:"
-                              + instructions, exchange=exchange, no_history=False)
+        response = ask_an_ai(
+            input="Please follow the instructions, "
+            + "and ideally return relevant code and little commentary:"
+            + instructions,
+            exchange=exchange,
+            no_history=False,
+        )
         return response.content[0].text
 
     def system(self) -> str:

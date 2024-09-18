@@ -22,6 +22,20 @@ class LogLine:
     caller_line: int
     message: str
 
+    def to_dict(self) -> dict:
+        """
+        Convert the log line to a dictionary
+        """
+
+        return {
+            "time": self.time,
+            "level": self.level,
+            "caller_file": self.caller_file,
+            "caller_name": self.caller_name,
+            "caller_line": self.caller_line,
+            "message": self.message,
+        }
+
 
 class MultilspyLogger:
     """
@@ -57,7 +71,4 @@ class MultilspyLogger:
             message=debug_message,
         )
 
-        self.logger.log(
-            level=level,
-            msg=debug_log_line.json(),
-        )
+        self.logger.log(level=level, msg=str(debug_log_line.to_dict()))

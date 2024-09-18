@@ -14,15 +14,15 @@ import pathlib
 import threading
 from contextlib import asynccontextmanager, contextmanager
 from goose.toolkit.language_server.core.lsp_constants import LSPConstants
-from goose.toolkit.language_server.core.lsp_types import LSPTypes
+import goose.toolkit.language_server.core.lsp_types as LSPTypes
 
 import goose.toolkit.language_server.types as multilspy_types
 from goose.toolkit.language_server.logger import MultilspyLogger
-from goose.toolkit.language_server.core import (
+from goose.toolkit.language_server.core.server import (
     LanguageServerHandler,
     ProcessLaunchInfo,
 )
-from goose.toolkit.language_server.exception import LangClientError
+from goose.toolkit.language_server.core.exception import LangClientError
 from goose.toolkit.language_server.config import MultilspyConfig, Language
 from goose.toolkit.language_server.utils import PathUtils, FileUtils, TextUtils
 from pathlib import PurePath
@@ -72,30 +72,11 @@ class LanguageServer:
         :return LanguageServer: A language specific LanguageServer instance.
         """
         if config.code_language == Language.PYTHON:
-            from multilspy.language_servers.jedi_language_server.jedi_server import (
+            from goose.toolkit.language_server.language_servers.jedi.jedi_server import (
                 JediServer,
             )
 
             return JediServer(config, logger, repository_root_path)
-        elif config.code_language == Language.JAVA:
-            from multilspy.language_servers.eclipse_jdtls.eclipse_jdtls import (
-                EclipseJDTLS,
-            )
-
-            return EclipseJDTLS(config, logger, repository_root_path)
-        elif config.code_language == Language.RUST:
-            from multilspy.language_servers.rust_analyzer.rust_analyzer import (
-                RustAnalyzer,
-            )
-
-            return RustAnalyzer(config, logger, repository_root_path)
-        elif config.code_language == Language.CSHARP:
-            from multilspy.language_servers.omnisharp.omnisharp import OmniSharp
-
-            return OmniSharp(config, logger, repository_root_path)
-        else:
-            logger.log(f"Language {config.code_language} is not supported", logging.ERROR)
-            raise LangClientError(f"Language {config.code_language} is not supported")
 
     def __init__(
         self,

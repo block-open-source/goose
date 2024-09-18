@@ -30,7 +30,7 @@ SOFTWARE.
 """
 
 from typing import List, Union
-from multilspy.lsp_protocol_handler import lsp_types
+import goose.toolkit.language_server.core.lsp_types as lsp_types
 
 
 class LspRequest:

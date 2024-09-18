@@ -26,7 +26,7 @@ class Reasoner(Toolkit):
     @tool
     def deep_debug(self, problem:str) -> str:
         """
-        Thius tool can assist with debugging when there are errors or problems when trying things
+        This tool can assist with debugging when there are errors or problems when trying things
         and other approaches haven't solved it.
         It will take a minute to think about it and consider solutions.
 

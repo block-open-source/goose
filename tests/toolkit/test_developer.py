@@ -73,8 +73,6 @@ def test_system_prompt_with_goosehints_only_from_home_dir(temp_dir, developer_to
         home_hints_file.unlink()
         readme_file_home.unlink()
 
-
-
     readme_file = temp_dir / "README.md"
     readme_file.write_text("This is from the README.md file.")
 
@@ -99,8 +97,6 @@ def test_system_prompt_with_goosehints_only_from_home_dir(temp_dir, developer_to
     finally:
         home_hints_file.unlink()
         home_readme_file.unlink()
-
-
 
     tasks = [
         {"description": "Task 1", "status": "planned"},

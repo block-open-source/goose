@@ -17,8 +17,8 @@ def goose_cli() -> None:
     pass
 
 
-@goose_cli.command()
-def version() -> None:
+@goose_cli.command("version")
+def get_version() -> None:
     """Lists the version of goose and any plugins"""
     from importlib.metadata import entry_points, version
 
@@ -121,9 +121,14 @@ def get_session_files() -> Dict[str, Path]:
     name="goose",
     help="AI-powered tool to assist in solving programming and operational tasks",
 )
+@click.option("-V", "--version", is_flag=True, help="List the version of goose and any plugins")
 @click.pass_context
-def cli(_: click.Context, **kwargs: Dict) -> None:
-    pass
+def cli(ctx: click.Context, version: bool, **kwargs: dict) -> None:
+    if version:
+        ctx.invoke(get_version)
+        ctx.exit()
+    elif ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
 
 
 all_cli_group_options = load_plugins("goose.cli.group_option")

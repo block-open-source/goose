@@ -123,3 +123,24 @@ def test_combined_group_commands(mock_session):
     runner.invoke(cli, ["session", "resume", "session1", "--profile", "default"])
     mock_session_class.assert_called_once_with(name="session1", profile="default")
     mock_session_instance.run.assert_called_once()
+
+
+def test_version_long_option():
+    runner = CliRunner()
+    result = runner.invoke(cli, ["--version"])
+    assert result.exit_code == 0
+    assert "version" in result.output.lower()
+
+
+def test_version_short_option():
+    runner = CliRunner()
+    result = runner.invoke(cli, ["-V"])
+    assert result.exit_code == 0
+    assert "version" in result.output.lower()
+
+
+def test_version_subcommand():
+    runner = CliRunner()
+    result = runner.invoke(cli, ["version"])
+    assert result.exit_code == 0
+    assert "version" in result.output.lower()

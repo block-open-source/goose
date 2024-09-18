@@ -1,6 +1,6 @@
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Optional
 
 import click
 from rich import print
@@ -112,7 +112,7 @@ def session_clear(keep: int) -> None:
             session_file.unlink()
 
 
-def get_session_files() -> Dict[str, Path]:
+def get_session_files() -> dict[str, Path]:
     return list_sorted_session_files(SESSIONS_PATH)
 
 

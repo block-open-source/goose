@@ -4,6 +4,7 @@ site_description: Documentation for Goose
 repo_url: https://github.com/square/goose
 repo_name: "square/goose"
 edit_uri: "https://github.com/square/goose/blob/main/docs/"
+site_url: 'https://square.github.io/goose/'
 theme:
   name: material
   features:

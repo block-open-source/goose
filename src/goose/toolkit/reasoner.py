@@ -15,16 +15,14 @@ from goose.utils.ask import ask_an_ai
 class Reasoner(Toolkit):
     """This is a toolkit to add deeper and slower reasoning around code and questions and debugging"""
 
-
     def message_content(self, content: Content) -> Text:
         if isinstance(content, Text):
             return content
         else:
             return Text(str(content))
 
-
     @tool
-    def deep_debug(self, problem:str) -> str:
+    def deep_debug(self, problem: str) -> str:
         """
         This tool can assist with debugging when there are errors or problems when trying things
         and other approaches haven't solved it.
@@ -43,19 +41,19 @@ class Reasoner(Toolkit):
         # Create messages list
         existing_messages_copy = [
             Message(role=msg.role, content=[self.message_content(content) for content in msg.content])
-            for msg in self.exchange_view.processor.messages]
+            for msg in self.exchange_view.processor.messages
+        ]
         exchange = Exchange(provider=provider, model="o1-preview", messages=existing_messages_copy, system=None)
 
         response = ask_an_ai(input="Can you help debug this problem: " + problem, exchange=exchange)
         return response.content[0].text
 
-
     @tool
-    def generate_code(self, instructions:str) -> str:
+    def generate_code(self, instructions: str) -> str:
         """
-        Try to use this when enhancing existing code or generating new code unless it is simple or
+        Use this when enhancing existing code or generating new code unless it is simple or
         it is required quickly.
-        This can generate high quality code to be considered and used.
+        This can generate high quality code to be considered and used
 
         Args:
             instructions (str): instructions of what code to write or how to modify it.
@@ -70,22 +68,16 @@ class Reasoner(Toolkit):
         # clone messages, converting to text for context
         existing_messages_copy = [
             Message(role=msg.role, content=[self.message_content(content) for content in msg.content])
-            for msg in self.exchange_view.processor.messages]
-        exchange = Exchange(provider=provider,
-                            model="o1-preview",
-                            messages=existing_messages_copy, system=None)
+            for msg in self.exchange_view.processor.messages
+        ]
+        exchange = Exchange(provider=provider, model="o1-mini", messages=existing_messages_copy, system=None)
 
-        response = ask_an_ai(input=instructions,
-                             exchange=exchange)
+        response = ask_an_ai(input=instructions, exchange=exchange)
         return response.content[0].text
 
     def system(self) -> str:
         """Retrieve instructions on how to use this reasoning and code generation tool"""
         return Message.load("prompts/reasoner.jinja").text
-
-
-
-
 
     class OpenAiProvider(Provider):
         """Inlined here as o1 model only in preview and supports very little still."""

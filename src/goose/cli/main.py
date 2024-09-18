@@ -17,7 +17,7 @@ def goose_cli() -> None:
     pass
 
 
-@goose_cli.command("version")
+@goose_cli.command(name="version")
 def get_version() -> None:
     """Lists the version of goose and any plugins"""
     from importlib.metadata import entry_points, version

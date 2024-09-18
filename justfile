@@ -20,3 +20,4 @@ coverage *FLAGS:
 
 docs:
   uv sync && uv run mkdocs serve
+

@@ -1,4 +1,5 @@
 from pathlib import Path
+
 import mkdocs_gen_files
 
 nav = mkdocs_gen_files.Nav()
@@ -15,6 +16,7 @@ utils_modules = []
 for path in sorted(src.rglob("*.py")):
     module_path = path.relative_to(src).with_suffix("")  # Removes the '.py' suffix
     doc_path = path.relative_to(src).with_suffix(".md")  # Creates .md path
+
     full_doc_path = Path("reference", doc_path)
 
     parts = tuple(module_path.parts)
@@ -62,4 +64,5 @@ with mkdocs_gen_files.open("reference/index.md", "w") as index_file:
     index_file.write("Welcome to the reference documentation for the project's Python modules.\n\n")
     index_file.write("Below is a list of available modules:\n\n")
     index_file.write("\n".join(core_modules + toolkit_modules + utils_modules))
+
 

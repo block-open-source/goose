@@ -40,6 +40,11 @@ plugins:
   - include-markdown
   - callouts
   - glightbox
+  - mkdocstrings:
+        handlers:
+          python:
+            setup_commands:
+              - "import sys; sys.path.append('src')"  # Add src folder to Python path
   - search:
       separator: '[\s\u200b\-_,:!=\[\]()"`/]+|\.(?!\d)|&[lg]t;|(?!\b)(?=[A-Z][a-z])'
   - redirects:
@@ -108,3 +113,5 @@ nav:
     - Providers:
         - 'Available Providers': providers.md
   - 'Tips': tips.md
+  - 'Reference':
+      - 'Summary': reference/SUMMARY.md

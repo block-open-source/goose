@@ -3,6 +3,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from exchange import Message, ToolResult, ToolUse, Text
+from opentelemetry import trace
+from opentelemetry.trace.status import Status as OtelStatus, StatusCode as OtelStatusCode
 from prompt_toolkit.shortcuts import confirm
 from rich import print
 from rich.console import RenderableType
@@ -90,11 +92,13 @@ class Session:
         name: Optional[str] = None,
         profile: Optional[str] = None,
         plan: Optional[dict] = None,
+        tracer: trace.Tracer = trace.get_tracer(__name__),
         **kwargs: Dict[str, Any],
     ) -> None:
         self.name = name
         self.status_indicator = Status("", spinner="dots")
         self.notifier = SessionNotifier(self.status_indicator)
+        self.tracer = tracer
 
         self.exchange = build_exchange(profile=load_profile(profile), notifier=self.notifier)
 
@@ -150,23 +154,37 @@ class Session:
         """
         message = self.process_first_message()
         while message:  # Loop until no input (empty string).
-            self.notifier.start()
-            try:
-                self.exchange.add(message)
-                self.reply()  # Process the user message.
-            except KeyboardInterrupt:
-                self.interrupt_reply()
-            except Exception:
-                # rewind to right before the last user message
-                self.exchange.rewind()
-                print(traceback.format_exc())
-                print(
-                    "\n[red]The error above was an exception we were not able to handle.\n\n[/]"
-                    + "These errors are often related to connection or authentication\n"
-                    + "We've removed the conversation up to the most recent user message"
-                    + " - [yellow]depending on the error you may be able to continue[/]"
-                )
-            self.notifier.stop()
+            # Start a span with the default tracer. This is present with opentelemetry-instrument
+            with self.tracer.start_as_current_span(message.role) as span:
+                span.set_attribute("goose.role", message.role)
+                span.set_attribute("goose.id", message.id)
+                # For starters, only add to the trace the first text content
+                first_content = message.content[0] if message.content else None
+                if isinstance(first_content, Text):
+                    span.set_attribute("goose.text", first_content.text)
+
+                self.notifier.start()
+                try:
+                    self.exchange.add(message)
+                    self.reply()  # Process the user message.
+                except KeyboardInterrupt:
+                    span.set_status(OtelStatus(OtelStatusCode.ERROR, "KeyboardInterrupt"))
+                    self.interrupt_reply()
+                except Exception as e:
+                    # rewind to right before the last user message
+                    self.exchange.rewind()
+                    span.set_status(OtelStatus(OtelStatusCode.ERROR, str(e)))
+                    span.record_exception(e)
+                    print(traceback.format_exc())
+                    print(
+                        "\n[red]The error above was an exception we were not able to handle.\n\n[/]"
+                        + "These errors are often related to connection or authentication\n"
+                        + "We've removed the conversation up to the most recent user message"
+                        + " - [yellow]depending on the error you may be able to continue[/]"
+                    )
+                finally:
+                    self.notifier.stop()
+                    span.end()
 
             print()  # Print a newline for separation.
             user_input = self.prompt_session.get_user_input()

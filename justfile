@@ -20,3 +20,6 @@ coverage *FLAGS:
 
 docs:
   cd docs && uv sync && uv run mkdocs serve
+
+otel-goose *FLAGS:
+  uv run dotenv -f ./.otel.env run -- opentelemetry-instrument goose {{FLAGS}}

@@ -14,7 +14,7 @@ import platform
 import subprocess
 from enum import Enum
 
-from goose.toolkit.language_server.exception import LangClientError
+from goose.toolkit.language_server.core.exception import LangClientError
 from pathlib import PurePath, Path
 from goose.toolkit.language_server.logger import MultilspyLogger
 

@@ -53,8 +53,9 @@ class Reasoner(Toolkit):
     @tool
     def generate_code(self, instructions:str) -> str:
         """
-        try to use this when enhancing existing code or generating new code unless it is simple or it is required quickly.
-        this can generate high quality code to be considered and used.
+        Try to use this when enhancing existing code or generating new code unless it is simple or
+        it is required quickly.
+        This can generate high quality code to be considered and used.
 
         Args:
             instructions (str): instructions of what code to write or how to modify it.

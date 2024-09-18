@@ -62,7 +62,7 @@ def test_trace_run_interrupted(create_session_with_mock_configs, memory_exporter
 
     message = Message(role="user", id="abracadabra", content=[Text("List the files in this directory")])
 
-    # Call the run function, for a single message which results in an exit.
+    # Call the run function, for a single message which results in an interrupt.
     with patch.object(Session, "process_first_message", return_value=message), patch.object(
         Session, "reply", side_effect=KeyboardInterrupt
     ), patch.object(

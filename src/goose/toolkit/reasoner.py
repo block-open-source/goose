@@ -41,7 +41,7 @@ class Reasoner(Toolkit):
         ]
         exchange = Exchange(provider=provider, model="o1-preview", messages=existing_messages_copy, system=None)
 
-        response = ask_an_ai(input="Can you help debug this problem: " + problem, exchange=exchange)
+        response = ask_an_ai(input="Can you help debug this problem: " + problem, exchange=exchange, no_history=False)
         return response.content[0].text
 
     @tool
@@ -67,10 +67,10 @@ class Reasoner(Toolkit):
         ]
         exchange = Exchange(provider=provider, model="o1-mini", messages=existing_messages_copy, system=None)
 
-
         self.notifier.status("generating code...")
-        response = ask_an_ai(input=instructions, exchange=exchange)
-        print("code response", response.content[0].text)
+        response = ask_an_ai(input="Please follow the instructions, " +
+                             "and ideally return relevant code and little commentary:"
+                              + instructions, exchange=exchange, no_history=False)
         return response.content[0].text
 
     def system(self) -> str:

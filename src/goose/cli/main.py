@@ -1,3 +1,4 @@
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -10,6 +11,7 @@ from goose.cli.config import SESSIONS_PATH
 from goose.cli.session import Session
 from goose.toolkit.utils import render_template, parse_plan
 from goose.utils import load_plugins
+from goose.utils.autocomplete import SUPPORTED_SHELLS, setup_autocomplete
 from goose.utils.session_file import list_sorted_session_files
 
 
@@ -41,6 +43,38 @@ def get_version() -> None:
             print(f"  Module: [green]{module}[/green], Version: [bold][cyan]{module_version}[/cyan][/bold]")
         except Exception as e:
             print(f"  [red]Could not retrieve version for {module}: {e}[/red]")
+
+
+def get_current_shell() -> str:
+    return os.getenv("SHELL", "").split("/")[-1]
+
+
+@goose_cli.command(name="shell-completions", help="Manage shell completions for goose")
+@click.option("--install", is_flag=True, help="Install shell completions")
+@click.option("--generate", is_flag=True, help="Generate shell completions")
+@click.argument(
+    "shell",
+    type=click.Choice(SUPPORTED_SHELLS),
+    default=get_current_shell(),
+)
+@click.pass_context
+def shell_completions(ctx: click.Context, install: bool, generate: bool, shell: str) -> None:
+    """Generate or install shell completions for goose
+
+    Args:
+        shell (str): shell to install completions for
+        install (bool): installs completions if true, otherwise generates
+                        completions
+    """
+    if not any([install, generate]):
+        print("[red]One of --install or --generate must be specified[/red]\n")
+        raise click.UsageError(ctx.get_help())
+
+    if sum([install, generate]) > 1:
+        print("[red]Only one of --install or --generate can be specified[/red]\n")
+        raise click.UsageError(ctx.get_help())
+
+    setup_autocomplete(shell, install=install)
 
 
 @goose_cli.group()

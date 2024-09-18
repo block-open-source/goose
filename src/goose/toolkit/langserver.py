@@ -5,7 +5,7 @@ from exchange import Message
 import threading
 from rich import print
 
-from goose.toolkit.language_server.core.ls_client import LSClient
+from goose.language_server.core.ls_client import LSClient
 
 
 class LSPRequest:

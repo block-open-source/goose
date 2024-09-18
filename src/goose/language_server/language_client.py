@@ -13,21 +13,21 @@ import os
 import pathlib
 import threading
 from contextlib import asynccontextmanager, contextmanager
-from goose.toolkit.language_server.core.lsp_constants import LSPConstants
-import goose.toolkit.language_server.core.lsp_types as LSPTypes
+from goose.language_server.core.lsp_constants import LSPConstants
+import goose.language_server.core.lsp_types as LSPTypes
 
-import goose.toolkit.language_server.types as multilspy_types
-from goose.toolkit.language_server.logger import MultilspyLogger
-from goose.toolkit.language_server.core.server import (
+import goose.language_server.types as multilspy_types
+from goose.language_server.logger import MultilspyLogger
+from goose.language_server.core.server import (
     LanguageServerHandler,
     ProcessLaunchInfo,
 )
-from goose.toolkit.language_server.core.exception import LangClientError
-from goose.toolkit.language_server.config import MultilspyConfig, Language
-from goose.toolkit.language_server.utils import PathUtils, FileUtils, TextUtils
+from goose.language_server.core.exception import LangClientError
+from goose.language_server.config import MultilspyConfig, Language
+from goose.language_server.utils import PathUtils, FileUtils, TextUtils
 from pathlib import PurePath
 from typing import AsyncIterator, Iterator, List, Dict, Union, Tuple
-from goose.toolkit.language_server.type_helpers import ensure_all_methods_implemented
+from goose.language_server.type_helpers import ensure_all_methods_implemented
 
 
 @dataclasses.dataclass
@@ -72,7 +72,7 @@ class LanguageServer:
         :return LanguageServer: A language specific LanguageServer instance.
         """
         if config.code_language == Language.PYTHON:
-            from goose.toolkit.language_server.language_servers.jedi.jedi_server import (
+            from goose.language_server.language_servers.jedi.jedi_server import (
                 JediServer,
             )
 

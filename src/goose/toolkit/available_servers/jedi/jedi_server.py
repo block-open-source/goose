@@ -10,11 +10,11 @@ import pathlib
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
-from goose.toolkit.language_server.logger import MultilspyLogger
-from goose.toolkit.language_server.language_client import LanguageServer
-from goose.toolkit.language_server.core.server import ProcessLaunchInfo
-from goose.toolkit.language_server.core.lsp_types import InitializeParams
-from goose.toolkit.language_server.config import MultilspyConfig
+from goose.language_server.logger import MultilspyLogger
+from goose.language_server.language_client import LanguageServer
+from goose.language_server.core.server import ProcessLaunchInfo
+from goose.language_server.core.lsp_types import InitializeParams
+from goose.language_server.config import MultilspyConfig
 
 
 class JediServer(LanguageServer):

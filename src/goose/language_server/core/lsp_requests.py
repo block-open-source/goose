@@ -30,7 +30,7 @@ SOFTWARE.
 """
 
 from typing import List, Union
-import goose.toolkit.language_server.core.lsp_types as lsp_types
+import goose.language_server.core.lsp_types as lsp_types
 
 
 class LspRequest:

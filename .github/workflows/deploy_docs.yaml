@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - main  # Trigger deployment on pushes to main
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
 
 jobs:
   deploy:

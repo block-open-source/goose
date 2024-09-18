@@ -266,8 +266,10 @@ class Developer(Toolkit):
                 # Call maybe_prompt with the last 2 to 10 recent lines
                 lines_to_check = recent_lines[-10:]
                 self.notifier.log(f"Still working\n{''.join(lines_to_check)}")
+                if not lines_to_check or len(recent_lines) == 0:
+                    lines_to_check = list(['busy...'])
                 response = ask_an_ai(
-                    input=("\n").join(recent_lines),
+                    input=("\n").join(lines_to_check),
                     prompt="This looks to see if the lines provided from running a command are potentially waiting"
                     + " for something, running a server or something that will not termiinate in a shell."
                     + " Return [Yes], if so [No] otherwise.",

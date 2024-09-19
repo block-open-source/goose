@@ -267,7 +267,7 @@ class Developer(Toolkit):
                 lines_to_check = recent_lines[-10:]
                 self.notifier.log(f"Still working\n{''.join(lines_to_check)}")
                 if not lines_to_check or len(recent_lines) == 0:
-                    lines_to_check = list(['busy...'])
+                    lines_to_check = list(["busy..."])
                 response = ask_an_ai(
                     input=("\n").join(lines_to_check),
                     prompt="This looks to see if the lines provided from running a command are potentially waiting"

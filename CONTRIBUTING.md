@@ -116,13 +116,12 @@ of the underlying HTTP requests. For example, a 404 could be indicative of an in
 First, ensure you have an OpenTelemetry compatible collector listening on port 4318, such as [otel-tui][otel-tui].
 
 ```bash
-brew install ymtdzzz/tap/otel-tui
-otel-tui
+docker run --rm -it --name otel-tui -p 4318:4318 ymtdzzz/otel-tui
 ```
 
 Then, start goose like this:
 ```bash
-uv run dotenv -f ./.otel.env run -- opentelemetry-instrument goose session start
+uv run opentelemetry-instrument --service_name goose --exporter_otlp_protocol http/protobuf goose session start
 # or `just otel-goose session start`
 ```
 

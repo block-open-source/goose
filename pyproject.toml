@@ -66,7 +66,6 @@ dev-dependencies = [
     "opentelemetry-exporter-otlp-proto-http>=1.27.0",
     "opentelemetry-distro>=0.48b0",
     "opentelemetry-instrumentation-httpx>=0.48b0",
-    "python-dotenv[cli]>=1.0.1"
 ]
 
 

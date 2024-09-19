@@ -108,6 +108,23 @@ Additions to the [developer toolkit][developer] change the core performance, and
 
 This project follows the [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) specification for PR titles. Conventional Commits make it easier to understand the history of a project and facilitate automation around versioning and changelog generation.
 
+## Running with OpenTelemetry
+
+Goose uses HTTP to access model providers. If you are receiving failures, it can be helpful to see traces
+of the underlying HTTP requests. For example, a 404 could be indicative of an incorrect URL or a missing model.
+
+First, ensure you have an OpenTelemetry compatible collector listening on port 4318, such as [otel-tui][otel-tui].
+
+```bash
+docker run --rm -it --name otel-tui -p 4318:4318 ymtdzzz/otel-tui
+```
+
+Then, start goose like this:
+```bash
+uv run opentelemetry-instrument --service_name goose --exporter_otlp_protocol http/protobuf goose session start
+# or `just otel-goose session start`
+```
+
 [issues]: https://github.com/square/goose/issues
 [goose-plugins]: https://github.com/square/goose-plugins
 [ai-exchange]: https://github.com/square/exchange
@@ -116,3 +133,4 @@ This project follows the [Conventional Commits](https://www.conventionalcommits.
 [ruff]: https://docs.astral.sh/ruff/
 [just]: https://github.com/casey/just
 [toolkits]: docs/docs/toolkits.md
+[otel-tui]: https://github.com/ymtdzzz/otel-tui

@@ -20,3 +20,6 @@ coverage *FLAGS:
 
 docs:
   cd docs && uv sync && uv run mkdocs serve
+
+otel-goose *FLAGS:
+  uv run opentelemetry-instrument --service_name goose --exporter_otlp_protocol http/protobuf goose {{FLAGS}}

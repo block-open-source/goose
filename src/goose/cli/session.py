@@ -189,9 +189,7 @@ class Session:
                         + "We've removed the conversation up to the most recent user message"
                         + " - [yellow]depending on the error you may be able to continue[/]"
                     )
-                finally:
-                    self.notifier.stop()
-                    span.end()
+            self.notifier.stop()
 
             print()  # Print a newline for separation.
             user_input = self.prompt_session.get_user_input()

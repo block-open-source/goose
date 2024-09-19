@@ -1,5 +1,5 @@
-from typing import List, Optional
-from exchange.token_usage_collector import TokenUsage
+from typing import Optional
+from exchange.providers.base import Usage
 
 PRICES = {
     "gpt-4o": (5.00, 15.00),
@@ -17,23 +17,23 @@ PRICES = {
 }
 
 
-def _calculate_cost(token_usage: TokenUsage) -> Optional[float]:
-    model_name = token_usage.model.lower()
+def _calculate_cost(model: str, token_usage: Usage) -> Optional[float]:
+    model_name = model.lower()
     if model_name in PRICES:
         input_token_price, output_token_price = PRICES[model_name]
         return (input_token_price * token_usage.input_tokens + output_token_price * token_usage.output_tokens) / 1000000
     return None
 
 
-def get_total_cost_message(token_usage: List[TokenUsage]) -> str:
+def get_total_cost_message(token_usages: dict[str, Usage]) -> str:
     total_cost = 0
     message = ""
-    for usage in token_usage:
-        cost = _calculate_cost(usage)
+    for model, token_usage in token_usages.items():
+        cost = _calculate_cost(model, token_usage)
         if cost is not None:
-            message += f"Cost for {str(usage)}: ${cost:.2f}\n"
+            message += f"Cost for model {model} {str(token_usage)}: ${cost:.2f}\n"
             total_cost += cost
         else:
-            message += f"Cost for {str(usage)}: Not available\n"
+            message += f"Cost for model {model} {str(token_usage)}: Not available\n"
     message += f"Total cost: ${total_cost:.2f}"
     return message

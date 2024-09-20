@@ -8,55 +8,62 @@ import logging
 import os
 import pathlib
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
+from typing import AsyncIterator, Type
 
 from goose.language_server.logger import MultilspyLogger
-from goose.language_server.language_client import LanguageServer
+from goose.language_server.base import LanguageServer
 from goose.language_server.core.server import ProcessLaunchInfo
 from goose.language_server.core.lsp_types import InitializeParams
 from goose.language_server.config import MultilspyConfig
 
 
+def build_initialize_params(config_preset: dict, repository_absolute_path: str) -> InitializeParams:
+    """
+    Returns the initialize params for the Jedi Language Server.
+    """
+    config_preset["processId"] = os.getpid()
+    assert config_preset["rootPath"] == "$rootPath"
+    config_preset["rootPath"] = repository_absolute_path
+
+    assert config_preset["rootUri"] == "$rootUri"
+    config_preset["rootUri"] = pathlib.Path(repository_absolute_path).as_uri()
+
+    assert config_preset["workspaceFolders"][0]["uri"] == "$uri"
+    config_preset["workspaceFolders"][0]["uri"] = pathlib.Path(repository_absolute_path).as_uri()
+
+    assert config_preset["workspaceFolders"][0]["name"] == "$name"
+    config_preset["workspaceFolders"][0]["name"] = os.path.basename(repository_absolute_path)
+
+    return config_preset
+
+
 class JediServer(LanguageServer):
-    """
-    Provides Python specific instantiation of the LanguageServer class. Contains various configurations and settings specific to Python.
-    """
+    """Provides Python specific instantiation of the LanguageServer class."""
 
-    def __init__(self, config: MultilspyConfig, logger: MultilspyLogger, repository_root_path: str) -> None:
-        """
-        Creates a JediServer instance. This class is not meant to be instantiated directly. Use LanguageServer.create() instead.
-        """
-        super().__init__(
-            config,
-            logger,
-            repository_root_path,
-            ProcessLaunchInfo(cmd="jedi-language-server", cwd=repository_root_path),
-            "python",
+    @classmethod
+    def from_env(cls: Type["JediServer"], config: MultilspyConfig, logger: MultilspyLogger) -> "JediServer":
+        config_file_path = os.environ.get("JEDI_LANGUAGE_SERVER_CONFIG_PATH", None)
+        if config_file_path:
+            config_file_path = pathlib.Path(config_file_path)
+        else:
+            config_file_path = pathlib.Path.cwd() / ".goose-jedi-config.json"
+
+        if not os.path.exists(config_file_path):
+            raise FileNotFoundError(f"Config file not found at {config_file_path}")
+
+        # read in the config file and provide the config object to the JediServer
+        with open(config_file_path, "r") as f:
+            jedi_config = json.load(f)
+
+        initialize_params = build_initialize_params(config_preset=jedi_config, repository_absolute_path=os.getcwd())
+        return cls(
+            initialize_params=initialize_params,
+            language_id="python",
+            logger=logger,
+            config=config,
+            repository_root_path=os.getcwd(),
+            process_launch_info=ProcessLaunchInfo(cmd="jedi-language-server", cwd=os.getcwd()),
         )
-
-    def _get_initialize_params(self, repository_absolute_path: str) -> InitializeParams:
-        """
-        Returns the initialize params for the Jedi Language Server.
-        """
-        with open(os.path.join(os.path.dirname(__file__), "initialize_params.json"), "r") as f:
-            d = json.load(f)
-
-        del d["_description"]
-
-        d["processId"] = os.getpid()
-        assert d["rootPath"] == "$rootPath"
-        d["rootPath"] = repository_absolute_path
-
-        assert d["rootUri"] == "$rootUri"
-        d["rootUri"] = pathlib.Path(repository_absolute_path).as_uri()
-
-        assert d["workspaceFolders"][0]["uri"] == "$uri"
-        d["workspaceFolders"][0]["uri"] = pathlib.Path(repository_absolute_path).as_uri()
-
-        assert d["workspaceFolders"][0]["name"] == "$name"
-        d["workspaceFolders"][0]["name"] = os.path.basename(repository_absolute_path)
-
-        return d
 
     @asynccontextmanager
     async def start_server(self) -> AsyncIterator["JediServer"]:
@@ -77,11 +84,11 @@ class JediServer(LanguageServer):
         async def execute_client_command_handler(params):
             return []
 
-        async def do_nothing(params):
+        async def do_nothing(_) -> None:
             return
 
         async def check_experimental_status(params):
-            if params["quiescent"] == True:
+            if params["quiescent"]:
                 self.completions_available.set()
 
         async def window_log_message(msg):
@@ -99,13 +106,12 @@ class JediServer(LanguageServer):
         async with super().start_server():
             self.logger.log("Starting jedi-language-server server process", logging.INFO)
             await self.server.start()
-            initialize_params = self._get_initialize_params(self.repository_root_path)
 
             self.logger.log(
                 "Sending initialize request from LSP client to LSP server and awaiting response",
                 logging.INFO,
             )
-            init_response = await self.server.send.initialize(initialize_params)
+            init_response = await self.server.send.initialize(self.initialize_params)
             assert init_response["capabilities"]["textDocumentSync"]["change"] == 2
             assert "completionProvider" in init_response["capabilities"]
             assert init_response["capabilities"]["completionProvider"] == {
@@ -124,12 +130,9 @@ class JediServer(LanguageServer):
 if __name__ == "__main__":
 
     async def run_server() -> None:
-        ls = JediServer(
-            MultilspyConfig(
-                code_language="python",
-            ),
+        ls = JediServer.from_env(
+            MultilspyConfig(code_language="python", trace_lsp_communication=False),
             MultilspyLogger(),
-            "/Users/lalvoeiro/Development/goose",
         )
         ls.start_server()
         async with ls.start_server():

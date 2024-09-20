@@ -4,6 +4,7 @@ Configuration parameters for Multilspy.
 
 from enum import Enum
 from dataclasses import dataclass
+from typing import Type
 
 
 class Language(str, Enum):
@@ -30,7 +31,7 @@ class MultilspyConfig:
     trace_lsp_communication: bool = False
 
     @classmethod
-    def from_dict(cls, env: dict) -> "MultilspyConfig":
+    def from_dict(cls: Type["MultilspyConfig"], env: dict) -> "MultilspyConfig":
         """
         Create a MultilspyConfig instance from a dictionary
         """

@@ -5,6 +5,7 @@ intended for creating instantiations of language specific clients.
 The details of Language Specific configuration are not exposed to the user.
 """
 
+from abc import ABC, abstractmethod
 import asyncio
 import dataclasses
 import json
@@ -26,7 +27,7 @@ from goose.language_server.core.exception import LangClientError
 from goose.language_server.config import MultilspyConfig, Language
 from goose.language_server.utils import PathUtils, FileUtils, TextUtils
 from pathlib import PurePath
-from typing import AsyncIterator, Iterator, List, Dict, Union, Tuple
+from typing import AsyncIterator, Iterator, List, Dict, Type, Union, Tuple
 from goose.language_server.type_helpers import ensure_all_methods_implemented
 
 
@@ -52,79 +53,16 @@ class LSPFileBuffer:
     ref_count: int
 
 
-class LanguageServer:
+class LanguageServer(ABC):
     """
     The LanguageServer class provides a language agnostic interface to the Language Server Protocol.
     It is used to communicate with Language Servers of different programming languages.
     """
 
     @classmethod
-    def create(cls, config: MultilspyConfig, logger: MultilspyLogger, repository_root_path: str) -> "LanguageServer":
-        """
-        Creates a language specific LanguageServer instance based on the given configuration, and appropriate settings for the programming language.
-
-        If language is Java, then ensure that jdk-17.0.6 or higher is installed, `java` is in PATH, and JAVA_HOME is set to the installation directory.
-
-        :param repository_root_path: The root path of the repository.
-        :param config: The Multilspy configuration.
-        :param logger: The logger to use.
-
-        :return LanguageServer: A language specific LanguageServer instance.
-        """
-        if config.code_language == Language.PYTHON:
-            from goose.language_server.language_servers.jedi.jedi_server import (
-                JediServer,
-            )
-
-            return JediServer(config, logger, repository_root_path)
-
-    def __init__(
-        self,
-        config: MultilspyConfig,
-        logger: MultilspyLogger,
-        repository_root_path: str,
-        process_launch_info: ProcessLaunchInfo,
-        language_id: str,
-    ):
-        """
-        Initializes a LanguageServer instance.
-
-        Do not instantiate this class directly. Use `LanguageServer.create` method instead.
-
-        :param config: The Multilspy configuration.
-        :param logger: The logger to use.
-        :param repository_root_path: The root path of the repository.
-        :param cmd: Each language server has a specific command used to start the server.
-                    This parameter is the command to launch the language server process.
-                    The command must pass appropriate flags to the binary, so that it runs in the stdio mode,
-                    as opposed to HTTP, TCP modes supported by some language servers.
-        """
-        if type(self) == LanguageServer:
-            raise LangClientError(
-                "LanguageServer is an abstract class and cannot be instantiated directly. Use LanguageServer.create method instead."
-            )
-
-        self.logger = logger
-        self.server_started = False
-        self.repository_root_path: str = repository_root_path
-        self.completions_available = asyncio.Event()
-
-        if config.trace_lsp_communication:
-
-            def logging_fn(source, target, msg):
-                self.logger.log(f"LSP: {source} -> {target}: {str(msg)}", logging.DEBUG)
-
-        else:
-
-            def logging_fn(source, target, msg):
-                pass
-
-        # cmd is obtained from the child classes, which provide the language specific command to start the language server
-        # LanguageServerHandler provides the functionality to start the language server and communicate with it
-        self.server: LanguageServerHandler = LanguageServerHandler(process_launch_info, logger=logging_fn)
-
-        self.language_id = language_id
-        self.open_file_buffers: Dict[str, LSPFileBuffer] = {}
+    @abstractmethod
+    def from_env(cls: Type["LanguageServer"]) -> "LanguageServer":
+        return cls()
 
     @asynccontextmanager
     async def start_server(self) -> AsyncIterator["LanguageServer"]:
@@ -145,7 +83,56 @@ class LanguageServer:
         yield self
         self.server_started = False
 
-    # TODO: Add support for more LSP features
+    def __init__(
+        self,
+        config: MultilspyConfig,
+        logger: MultilspyLogger,
+        repository_root_path: str,
+        process_launch_info: ProcessLaunchInfo,
+        language_id: str,
+        initialize_params: dict = {},
+    ) -> None:
+        """
+        Initializes a LanguageServer instance.
+
+        Do not instantiate this class directly. Use `LanguageServer.create` method instead.
+
+        :param config: The Multilspy configuration.
+        :param logger: The logger to use.
+        :param repository_root_path: The root path of the repository.
+        :param cmd: Each language server has a specific command used to start the server.
+                    This parameter is the command to launch the language server process.
+                    The command must pass appropriate flags to the binary, so that it runs in the stdio mode,
+                    as opposed to HTTP, TCP modes supported by some language servers.
+        """
+        if type(self) == LanguageServer:
+            raise LangClientError(
+                "LanguageServer is an abstract class and cannot be instantiated directly."
+                "Use LanguageServer.from_env method instead."
+            )
+
+        self.logger = logger
+        self.server_started = False
+        self.repository_root_path: str = repository_root_path
+        self.completions_available = asyncio.Event()
+        self.initialize_params = initialize_params
+
+        if config.trace_lsp_communication:
+
+            def logging_fn(source: str, target: str, msg: dict) -> None:
+                self.logger.log(f"LSP: {source} -> {target}: {str(msg)}", logging.DEBUG)
+
+        else:
+
+            def logging_fn(source: str, target: str, msg: dict) -> None:
+                pass
+
+        # cmd is obtained from the child classes, which provide the language specific command to start the language server
+        # LanguageServerHandler provides the functionality to start the language server and communicate with it
+        self.server: LanguageServerHandler = LanguageServerHandler(process_launch_info, logger=logging_fn)
+
+        self.language_id = language_id
+        self.open_file_buffers: Dict[str, LSPFileBuffer] = {}
 
     @contextmanager
     def open_file(self, relative_file_path: str) -> Iterator[None]:
@@ -636,12 +623,11 @@ class SyncLanguageServer:
 
     @classmethod
     def create(
-        cls, config: MultilspyConfig, logger: MultilspyLogger, repository_root_path: str
+        cls: Type["SyncLanguageServer"], config: MultilspyConfig, logger: MultilspyLogger, repository_root_path: str
     ) -> "SyncLanguageServer":
         """
-        Creates a language specific LanguageServer instance based on the given configuration, and appropriate settings for the programming language.
-
-        If language is Java, then ensure that jdk-17.0.6 or higher is installed, `java` is in PATH, and JAVA_HOME is set to the installation directory.
+        Creates a language specific LanguageServer instance based on the given configuration,
+        and appropriate settings for the programming language.
 
         :param repository_root_path: The root path of the repository.
         :param config: The Multilspy configuration.

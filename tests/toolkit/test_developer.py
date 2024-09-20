@@ -57,6 +57,7 @@ def test_system_prompt_with_goosehints(temp_dir, developer_toolkit):
 
 def test_system_prompt_with_goosehints_only_from_home_dir(temp_dir, developer_toolkit):
     readme_file_home = Path.home() / ".config/goose/README.md"
+    readme_file_home.parent.mkdir(parents=True, exist_ok=True)
     readme_file_home.write_text("This is from the README.md file in home.")
 
     home_hints_file = Path.home() / ".config/goose/.goosehints"

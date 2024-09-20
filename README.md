@@ -149,6 +149,7 @@ The following justfile shows our common commands:
 ```just
 {% include 'justfile' %}
 ```
+You can also place `.goosehints` in `~/.config/goose/.goosehints` if you like for always loaded hints personal to you. 
 
 ### Examples
 #### provider as `anthropic`

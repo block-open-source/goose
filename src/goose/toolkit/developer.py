@@ -39,7 +39,7 @@ class Developer(Toolkit):
         """Retrieve system configuration details for developer"""
         hints_path = Path(".goosehints")
         system_prompt = Message.load("prompts/developer.jinja").text
-        home_hints_path = Path.home() / ".goosehints"
+        home_hints_path = Path.home() / ".config/goose/.goosehints"
         hints = []
         if hints_path.is_file():
             hints.append(render_template(hints_path))

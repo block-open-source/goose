@@ -56,10 +56,10 @@ def test_system_prompt_with_goosehints(temp_dir, developer_toolkit):
 
 
 def test_system_prompt_with_goosehints_only_from_home_dir(temp_dir, developer_toolkit):
-    readme_file_home = Path.home() / "README.md"
+    readme_file_home = Path.home() / ".config/goose/README.md"
     readme_file_home.write_text("This is from the README.md file in home.")
 
-    home_hints_file = Path.home() / ".goosehints"
+    home_hints_file = Path.home() / ".config/goose/.goosehints"
     home_jinja_template_content = "Hints from home:\n\n{% include 'README.md' %}\nEnd."
     home_hints_file.write_text(home_jinja_template_content)
 
@@ -80,11 +80,11 @@ def test_system_prompt_with_goosehints_only_from_home_dir(temp_dir, developer_to
     jinja_template_content = "Hints from local:\n\n{% include 'README.md' %}\nEnd."
     hints_file.write_text(jinja_template_content)
 
-    home_hints_file = Path.home() / ".goosehints"
+    home_hints_file = Path.home() / ".config/goose/.goosehints"
     home_jinja_template_content = "Hints from home:\n\n{% include 'README.md' %}\nEnd."
     home_hints_file.write_text(home_jinja_template_content)
 
-    home_readme_file = Path.home() / "README.md"
+    home_readme_file = Path.home() / ".config/goose/README.md"
     home_readme_file.write_text("This is from the README.md file in home.")
 
     try:

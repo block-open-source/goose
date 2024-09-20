@@ -14,7 +14,7 @@ import platform
 import subprocess
 from enum import Enum
 
-from goose.language_server.core.exception import LangClientError
+from goose.language_server.core.exception import LanguageServerError
 from pathlib import PurePath, Path
 from goose.language_server.logger import MultilspyLogger
 
@@ -114,9 +114,9 @@ class FileUtils:
                     continue
         except Exception as exc:
             logger.log(f"File read '{file_path}' failed: {exc}", logging.ERROR)
-            raise LangClientError("File read failed.") from None
+            raise LanguageServerError("File read failed.") from None
         logger.log(f"File read '{file_path}' failed: Unsupported encoding.", logging.ERROR)
-        raise LangClientError(f"File read '{file_path}' failed: Unsupported encoding.") from None
+        raise LanguageServerError(f"File read '{file_path}' failed: Unsupported encoding.") from None
 
     @staticmethod
     def download_file(logger: MultilspyLogger, url: str, target_path: str) -> None:
@@ -127,12 +127,12 @@ class FileUtils:
             response = requests.get(url, stream=True, timeout=60)
             if response.status_code != 200:
                 logger.log(f"Error downloading file '{url}': {response.status_code} {response.text}", logging.ERROR)
-                raise LangClientError("Error downoading file.")
+                raise LanguageServerError("Error downoading file.")
             with open(target_path, "wb") as f:
                 shutil.copyfileobj(response.raw, f)
         except Exception as exc:
             logger.log(f"Error downloading file '{url}': {exc}", logging.ERROR)
-            raise LangClientError("Error downoading file.") from None
+            raise LanguageServerError("Error downoading file.") from None
 
     @staticmethod
     def download_and_extract_archive(logger: MultilspyLogger, url: str, target_path: str, archive_type: str) -> None:
@@ -160,10 +160,10 @@ class FileUtils:
                     shutil.copyfileobj(f_in, f_out)
             else:
                 logger.log(f"Unknown archive type '{archive_type}' for extraction", logging.ERROR)
-                raise LangClientError(f"Unknown archive type '{archive_type}'")
+                raise LanguageServerError(f"Unknown archive type '{archive_type}'")
         except Exception as exc:
             logger.log(f"Error extracting archive '{tmp_file_name}' obtained from '{url}': {exc}", logging.ERROR)
-            raise LangClientError("Error extracting archive.") from exc
+            raise LanguageServerError("Error extracting archive.") from exc
         finally:
             for tmp_file_name in tmp_files:
                 if os.path.exists(tmp_file_name):
@@ -223,7 +223,7 @@ class PlatformUtils:
                     platform_id += "-" + libc
             return PlatformId(platform_id)
         else:
-            raise LangClientError("Unknown platform: " + system + " " + machine + " " + bitness)
+            raise LanguageServerError("Unknown platform: " + system + " " + machine + " " + bitness)
 
     @staticmethod
     def get_dotnet_version() -> DotnetVersion:
@@ -238,7 +238,7 @@ class PlatformUtils:
                     version = line.split(" ")[1]
                     break
             if version == "":
-                raise LangClientError("dotnet not found on the system")
+                raise LanguageServerError("dotnet not found on the system")
             if version.startswith("8"):
                 return DotnetVersion.V8
             elif version.startswith("7"):
@@ -248,10 +248,10 @@ class PlatformUtils:
             elif version.startswith("4"):
                 return DotnetVersion.V4
             else:
-                raise LangClientError("Unknown dotnet version: " + version)
+                raise LanguageServerError("Unknown dotnet version: " + version)
         except subprocess.CalledProcessError:
             try:
                 result = subprocess.run(["mono", "--version"], capture_output=True, check=True)
                 return DotnetVersion.VMONO
             except subprocess.CalledProcessError:
-                raise LangClientError("dotnet or mono not found on the system")
+                raise LanguageServerError("dotnet or mono not found on the system")

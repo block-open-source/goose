@@ -20,6 +20,25 @@ class Language(str, Enum):
     def __str__(self) -> str:
         return self.value
 
+    @classmethod
+    def from_file_path(cls: Type["Language"], file_path: str) -> "Language":
+        """
+        Get the language from a file path.
+        """
+        from pathlib import Path
+
+        ext = Path(file_path).suffix
+        if ext == ".cs":
+            return cls.CSHARP
+        elif ext == ".py":
+            return cls.PYTHON
+        elif ext == ".rs":
+            return cls.RUST
+        elif ext == ".java":
+            return cls.JAVA
+        else:
+            raise ValueError(f"Unsupported language for file {file_path}")
+
 
 @dataclass
 class MultilspyConfig:
@@ -27,7 +46,6 @@ class MultilspyConfig:
     Configuration parameters
     """
 
-    code_language: Language
     trace_lsp_communication: bool = False
 
     @classmethod

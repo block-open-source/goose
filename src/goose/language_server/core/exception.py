@@ -3,7 +3,7 @@ This module contains the exceptions raised by the Multilspy framework.
 """
 
 
-class LangClientError(Exception):
+class LanguageServerError(Exception):
     """
     Exceptions raised by the Multilspy framework.
     """

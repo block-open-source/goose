@@ -41,7 +41,9 @@ class JediServer(LanguageServer):
     """Provides Python specific instantiation of the LanguageServer class."""
 
     @classmethod
-    def from_env(cls: Type["JediServer"], config: MultilspyConfig, logger: MultilspyLogger) -> "JediServer":
+    def from_env(
+        cls: Type["JediServer"], config: MultilspyConfig, logger: MultilspyLogger, **kwargs: dict
+    ) -> "JediServer":
         config_file_path = os.environ.get("JEDI_LANGUAGE_SERVER_CONFIG_PATH", None)
         if config_file_path:
             config_file_path = pathlib.Path(config_file_path)
@@ -131,7 +133,7 @@ if __name__ == "__main__":
 
     async def run_server() -> None:
         ls = JediServer.from_env(
-            MultilspyConfig(code_language="python", trace_lsp_communication=False),
+            MultilspyConfig(trace_lsp_communication=True),
             MultilspyLogger(),
         )
         ls.start_server()

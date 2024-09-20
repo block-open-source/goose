@@ -23,7 +23,7 @@ from goose.language_server.core.server import (
     LanguageServerHandler,
     ProcessLaunchInfo,
 )
-from goose.language_server.core.exception import LangClientError
+from goose.language_server.core.exception import LanguageServerError
 from goose.language_server.config import MultilspyConfig, Language
 from goose.language_server.utils import PathUtils, FileUtils, TextUtils
 from pathlib import PurePath
@@ -61,8 +61,10 @@ class LanguageServer(ABC):
 
     @classmethod
     @abstractmethod
-    def from_env(cls: Type["LanguageServer"]) -> "LanguageServer":
-        return cls()
+    def from_env(
+        cls: Type["LanguageServer"], config: MultilspyConfig, logger: MultilspyLogger, **kwargs: dict
+    ) -> "LanguageServer":
+        pass
 
     @asynccontextmanager
     async def start_server(self) -> AsyncIterator["LanguageServer"]:
@@ -106,7 +108,7 @@ class LanguageServer(ABC):
                     as opposed to HTTP, TCP modes supported by some language servers.
         """
         if type(self) == LanguageServer:
-            raise LangClientError(
+            raise LanguageServerError(
                 "LanguageServer is an abstract class and cannot be instantiated directly."
                 "Use LanguageServer.from_env method instead."
             )
@@ -146,7 +148,7 @@ class LanguageServer(ABC):
                 "open_file called before Language Server started",
                 logging.ERROR,
             )
-            raise LangClientError("Language Server not started")
+            raise LanguageServerError("Language Server not started")
 
         absolute_file_path = str(PurePath(self.repository_root_path, relative_file_path))
         uri = pathlib.Path(absolute_file_path).as_uri()
@@ -204,7 +206,7 @@ class LanguageServer(ABC):
                 "insert_text_at_position called before Language Server started",
                 logging.ERROR,
             )
-            raise LangClientError("Language Server not started")
+            raise LanguageServerError("Language Server not started")
 
         absolute_file_path = str(PurePath(self.repository_root_path, relative_file_path))
         uri = pathlib.Path(absolute_file_path).as_uri()
@@ -252,7 +254,7 @@ class LanguageServer(ABC):
                 "insert_text_at_position called before Language Server started",
                 logging.ERROR,
             )
-            raise LangClientError("Language Server not started")
+            raise LanguageServerError("Language Server not started")
 
         absolute_file_path = str(PurePath(self.repository_root_path, relative_file_path))
         uri = pathlib.Path(absolute_file_path).as_uri()
@@ -288,7 +290,7 @@ class LanguageServer(ABC):
                 "get_open_file_text called before Language Server started",
                 logging.ERROR,
             )
-            raise LangClientError("Language Server not started")
+            raise LanguageServerError("Language Server not started")
 
         absolute_file_path = str(PurePath(self.repository_root_path, relative_file_path))
         uri = pathlib.Path(absolute_file_path).as_uri()
@@ -318,7 +320,7 @@ class LanguageServer(ABC):
                 "find_function_definition called before Language Server started",
                 logging.ERROR,
             )
-            raise LangClientError("Language Server not started")
+            raise LanguageServerError("Language Server not started")
 
         with self.open_file(relative_file_path):
             # sending request to the language server and waiting for response
@@ -401,7 +403,7 @@ class LanguageServer(ABC):
                 "find_all_callers_of_function called before Language Server started",
                 logging.ERROR,
             )
-            raise LangClientError("Language Server not started")
+            raise LanguageServerError("Language Server not started")
 
         with self.open_file(relative_file_path):
             # sending request to the language server and waiting for response

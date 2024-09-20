@@ -75,4 +75,5 @@ def parse_plan(input_plan_str: str) -> Dict:
     kickoff_message_list = input_plan_str.splitlines()[:last_group_start_index]
     kickoff_message = "\n".join(kickoff_message_list).strip()
     tasks_list = input_plan_str.splitlines()[last_group_start_index:]
-    return {"kickoff_message": kickoff_message, "tasks": list(filter(str.strip, tasks_list))}
+    tasks_list_output = [s[1:] for s in tasks_list if s.strip()]  # filter leading -
+    return {"kickoff_message": kickoff_message, "tasks": tasks_list_output}

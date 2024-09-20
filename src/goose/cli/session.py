@@ -172,7 +172,7 @@ class Session:
             message = Message.user(text=user_input.text) if user_input.to_continue() else None
 
         self.save_session()
-        self.log_cost()
+        self._log_cost()
 
     def reply(self) -> None:
         """Reply to the last user message, calling tools as needed

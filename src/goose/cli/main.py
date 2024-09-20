@@ -8,6 +8,7 @@ from ruamel.yaml import YAML
 
 from goose.cli.config import SESSIONS_PATH
 from goose.cli.session import Session
+from goose.toolkit.utils import render_template, parse_plan
 from goose.utils import load_plugins
 from goose.utils.session_file import list_sorted_session_files
 
@@ -73,8 +74,28 @@ def session_start(profile: str, plan: Optional[str] = None) -> None:
             _plan = yaml.load(f)
     else:
         _plan = None
-
     session = Session(profile=profile, plan=_plan)
+    session.run()
+
+
+def parse_args(ctx: click.Context, param: click.Parameter, value: str) -> dict[str, str]:
+    if not value:
+        return {}
+    args = {}
+    for item in value.split(","):
+        key, val = item.split(":")
+        args[key.strip()] = val.strip()
+
+    return args
+
+
+@session.command(name="planned")
+@click.option("--plan", type=click.Path(exists=True))
+@click.option("-a", "--args", callback=parse_args, help="Args in the format arg1:value1,arg2:value2")
+def session_planned(plan: str, args: Optional[dict[str, str]]) -> None:
+    plan_templated = render_template(Path(plan), context=args)
+    _plan = parse_plan(plan_templated)
+    session = Session(plan=_plan)
     session.run()
 
 

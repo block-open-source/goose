@@ -1,6 +1,6 @@
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Optional
 
 import click
 from rich import print
@@ -8,6 +8,7 @@ from ruamel.yaml import YAML
 
 from goose.cli.config import SESSIONS_PATH
 from goose.cli.session import Session
+from goose.toolkit.utils import render_template, parse_plan
 from goose.utils import load_plugins
 from goose.utils.session_file import list_sorted_session_files
 
@@ -17,8 +18,8 @@ def goose_cli() -> None:
     pass
 
 
-@goose_cli.command()
-def version() -> None:
+@goose_cli.command(name="version")
+def get_version() -> None:
     """Lists the version of goose and any plugins"""
     from importlib.metadata import entry_points, version
 
@@ -73,8 +74,28 @@ def session_start(profile: str, plan: Optional[str] = None) -> None:
             _plan = yaml.load(f)
     else:
         _plan = None
-
     session = Session(profile=profile, plan=_plan)
+    session.run()
+
+
+def parse_args(ctx: click.Context, param: click.Parameter, value: str) -> dict[str, str]:
+    if not value:
+        return {}
+    args = {}
+    for item in value.split(","):
+        key, val = item.split(":")
+        args[key.strip()] = val.strip()
+
+    return args
+
+
+@session.command(name="planned")
+@click.option("--plan", type=click.Path(exists=True))
+@click.option("-a", "--args", callback=parse_args, help="Args in the format arg1:value1,arg2:value2")
+def session_planned(plan: str, args: Optional[dict[str, str]]) -> None:
+    plan_templated = render_template(Path(plan), context=args)
+    _plan = parse_plan(plan_templated)
+    session = Session(plan=_plan)
     session.run()
 
 
@@ -112,7 +133,7 @@ def session_clear(keep: int) -> None:
             session_file.unlink()
 
 
-def get_session_files() -> Dict[str, Path]:
+def get_session_files() -> dict[str, Path]:
     return list_sorted_session_files(SESSIONS_PATH)
 
 
@@ -121,9 +142,14 @@ def get_session_files() -> Dict[str, Path]:
     name="goose",
     help="AI-powered tool to assist in solving programming and operational tasks",
 )
+@click.option("-V", "--version", is_flag=True, help="List the version of goose and any plugins")
 @click.pass_context
-def cli(_: click.Context, **kwargs: Dict) -> None:
-    pass
+def cli(ctx: click.Context, version: bool, **kwargs: dict) -> None:
+    if version:
+        ctx.invoke(get_version)
+        ctx.exit()
+    elif ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
 
 
 all_cli_group_options = load_plugins("goose.cli.group_option")

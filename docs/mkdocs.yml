@@ -1,0 +1,110 @@
+site_name: Goose Documentation
+site_author: Block
+site_description: Documentation for Goose
+repo_url: https://github.com/square/goose
+repo_name: "square/goose"
+edit_uri: "https://github.com/square/goose/blob/main/docs/docs/"
+# site_url: https://goose-docs.squarecloudservices.com
+theme:
+  name: material
+  features:
+    - announce.dismiss
+    - content.action.edit
+    - content.action.view
+    - content.code.annotate
+    - content.code.copy
+    - content.tooltips
+    - content.tabs.link
+    - navigation.footer
+    - navigation.indexes
+    - navigation.instant
+    - navigation.sections
+    - navigation.top
+    - navigation.tracking
+    - navigation.expand
+    - search.share
+    - search.suggest
+    - toc.follow
+  palette:
+    - scheme: slate
+      primary: black
+      accent: indigo
+  logo: assets/logo.png
+  font:
+    text: Roboto
+    code: Roboto Mono
+  favicon: assets/logo.ico
+  icon:
+    logo: assets/logo.ico
+plugins:
+  - include-markdown
+  - callouts
+  - glightbox
+  - search:
+      separator: '[\s\u200b\-_,:!=\[\]()"`/]+|\.(?!\d)|&[lg]t;|(?!\b)(?=[A-Z][a-z])'
+  - redirects:
+      redirect_maps:
+extra:
+  annotate:
+    json:
+      - .s2
+  social: [ ]
+  analytics:
+    provider: google
+    property: !ENV GOOGLE_ANALYTICS_KEY
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - nl2br # Newline to <br> (like GitHub)
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.magiclink:
+      repo_url_shorthand: false
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+  - toc:
+      permalink: true
+nav:
+  - Home: index.md
+  - 'Installation': installation.md
+  - 'Configuration': configuration.md
+  - 'Contributing': contributing.md
+  - Plugins:
+    - 'Overview': plugins.md
+    - Toolkits:
+        - 'Using Toolkits': using-toolkits.md
+        - 'Creating a New Toolkit': creating-a-new-toolkit.md
+        - 'Available Toolkits': available-toolkits.md
+    - CLI Commands:
+        - 'Available CLI Commands': cli.md
+    - Providers:
+        - 'Available Providers': providers.md
+  - 'Tips': tips.md

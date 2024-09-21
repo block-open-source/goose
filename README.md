@@ -101,14 +101,16 @@ default:
 You can edit this configuration file to use different LLMs and toolkits in `goose`. `goose can also be extended to support any LLM or combination of LLMs
 
 #### provider
-Provider of LLM. LLM providers that currently are supported by `goose`:
+Provider of LLM. LLM providers that currently are supported by `goose` (more can be supported by plugins):
 
 | Provider        | Required environment variable(s) to access provider |
 | :-----          | :------------------------------                     |
 | openai          | `OPENAI_API_KEY`                                    |
 | anthropic       | `ANTHROPIC_API_KEY`                                 |
 | databricks      | `DATABRICKS_HOST` and `DATABRICKS_TOKEN`            |
+| ollama *          | `OLLAMA_HOST` and ollama running |
 
+* ollama is for local LLMs, and is limited by the tool calling model you can choose and run on local hardware, considered experimental.
 
 #### processor
 Model for complex, multi-step tasks such as writing code and executing commands. Example: `gpt-4o`.  You should choose the model based the provider you configured.

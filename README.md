@@ -5,7 +5,8 @@ goose
 <p align="center"><strong>goose</strong> <em>is a programming agent that runs on your machine.</em></p>
 
 <p align="center">
-<a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg"></a>
+  <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg"></a>
+  <a href="https://square.github.io/goose/"><img src="https://img.shields.io/badge/goose_documentation-blue"></a>
 </p>
 
 <p align="center">

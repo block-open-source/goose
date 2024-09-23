@@ -158,8 +158,7 @@ class O1Developer(Toolkit):
 
         Args:
             index (int): The index of the task
-            status (str): The new status for the task. This **must** be either
-            "complete" or "failed"
+            status (str): The new status for the task. This **must** be either "complete" or "failed"
         """
         if status not in {"complete", "failed"}:
             raise ValueError(f"Invalid status provided: {status}")

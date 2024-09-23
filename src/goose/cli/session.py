@@ -12,16 +12,13 @@ from rich.panel import Panel
 from rich.status import Status
 
 from goose.build import build_exchange
-from goose.cli.config import (
-    default_profiles,
-    ensure_config,
-    read_config,
-    session_path,
-)
+from goose.cli.config import default_profiles, ensure_config, read_config, session_path, LOG_PATH
+from goose._logger import get_logger, setup_logging
 from goose.cli.prompt.goose_prompt_session import GoosePromptSession
 from goose.notifier import Notifier
 from goose.profile import Profile
 from goose.utils import droid, load_plugins
+from goose.utils._cost_calculator import get_total_cost_message
 from goose.utils.session_file import read_from_file, write_to_file
 
 RESUME_MESSAGE = "I see we were interrupted. How can I help you?"
@@ -90,6 +87,7 @@ class Session:
         name: Optional[str] = None,
         profile: Optional[str] = None,
         plan: Optional[dict] = None,
+        log_level: Optional[str] = "INFO",
         **kwargs: Dict[str, Any],
     ) -> None:
         self.name = name
@@ -97,6 +95,7 @@ class Session:
         self.notifier = SessionNotifier(self.status_indicator)
 
         self.exchange = build_exchange(profile=load_profile(profile), notifier=self.notifier)
+        setup_logging(log_file_directory=LOG_PATH, log_level=log_level)
 
         if name is not None and self.session_file_path.exists():
             messages = self.load_session()
@@ -173,6 +172,7 @@ class Session:
             message = Message.user(text=user_input.text) if user_input.to_continue() else None
 
         self.save_session()
+        self._log_cost()
 
     def reply(self) -> None:
         """Reply to the last user message, calling tools as needed
@@ -255,6 +255,10 @@ class Session:
         user_entered_session_name = self.prompt_session.get_save_session_name()
         self.name = user_entered_session_name if user_entered_session_name else droid()
         print(f"Saving to [bold cyan]{self.session_file_path}[/bold cyan]")
+
+    def _log_cost(self) -> None:
+        get_logger().info(get_total_cost_message(self.exchange.get_token_usage()))
+        print("You can view the cost and token usage in the log directory", LOG_PATH)
 
 
 if __name__ == "__main__":

@@ -66,7 +66,8 @@ def list_toolkits() -> None:
 @session.command(name="start")
 @click.option("--profile")
 @click.option("--plan", type=click.Path(exists=True))
-def session_start(profile: str, plan: Optional[str] = None) -> None:
+@click.option("--log-level", type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]), default="INFO")
+def session_start(profile: str, log_level: str, plan: Optional[str] = None) -> None:
     """Start a new goose session"""
     if plan:
         yaml = YAML()
@@ -74,7 +75,7 @@ def session_start(profile: str, plan: Optional[str] = None) -> None:
             _plan = yaml.load(f)
     else:
         _plan = None
-    session = Session(profile=profile, plan=_plan)
+    session = Session(profile=profile, plan=_plan, log_level=log_level)
     session.run()
 
 

@@ -8,13 +8,13 @@ import logging
 import os
 import pathlib
 from contextlib import asynccontextmanager
-from typing import AsyncIterator, Type
+from typing import AsyncIterator, List, Type
 
 from goose.language_server.logger import MultilspyLogger
 from goose.language_server.base import LanguageServer
 from goose.language_server.core.server import ProcessLaunchInfo
 from goose.language_server.core.lsp_types import InitializeParams
-from goose.language_server.config import MultilspyConfig
+from goose.language_server.config import Language, MultilspyConfig
 
 
 def build_initialize_params(config_preset: dict, repository_absolute_path: str) -> InitializeParams:
@@ -66,6 +66,10 @@ class JediServer(LanguageServer):
             repository_root_path=os.getcwd(),
             process_launch_info=ProcessLaunchInfo(cmd="jedi-language-server", cwd=os.getcwd()),
         )
+
+    @property
+    def supported_languages(self) -> List[Language]:
+        return [Language.PYTHON]
 
     @asynccontextmanager
     async def start_server(self) -> AsyncIterator["JediServer"]:

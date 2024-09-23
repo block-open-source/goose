@@ -66,6 +66,10 @@ class LanguageServer(ABC):
     ) -> "LanguageServer":
         pass
 
+    @property
+    def supported_languages(self) -> List[str]:
+        return []
+
     @asynccontextmanager
     async def start_server(self) -> AsyncIterator["LanguageServer"]:
         """
@@ -622,22 +626,6 @@ class SyncLanguageServer:
         self.language_server = language_server
         self.loop = None
         self.loop_thread = None
-
-    @classmethod
-    def create(
-        cls: Type["SyncLanguageServer"], config: MultilspyConfig, logger: MultilspyLogger, repository_root_path: str
-    ) -> "SyncLanguageServer":
-        """
-        Creates a language specific LanguageServer instance based on the given configuration,
-        and appropriate settings for the programming language.
-
-        :param repository_root_path: The root path of the repository.
-        :param config: The Multilspy configuration.
-        :param logger: The logger to use.
-
-        :return SyncLanguageServer: A language specific LanguageServer instance.
-        """
-        return SyncLanguageServer(LanguageServer.create(config, logger, repository_root_path))
 
     @contextmanager
     def open_file(self, relative_file_path: str) -> Iterator[None]:

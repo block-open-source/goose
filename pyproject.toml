@@ -26,7 +26,7 @@ developer = "goose.toolkit.developer:Developer"
 github = "goose.toolkit.github:Github"
 jira = "goose.toolkit.jira:Jira"
 screen = "goose.toolkit.screen:Screen"
-langserver = "goose.toolkit.langserver:LanguageServer"
+langserver = "goose.toolkit.language_servers.coordinator:LanguageServerCoordinator"
 repo_context = "goose.toolkit.repo_context.repo_context:RepoContext"
 
 [project.entry-points."goose.profile"]
@@ -39,6 +39,9 @@ file = "goose.command.file:FileCommand"
 goose = "goose.cli.main:goose_cli"
 
 [project.entry-points."goose.cli.group_option"]
+
+[project.entry-points."goose.langserver"]
+jedi = "goose.language_servers.implementations.jedi:JediServer"
 
 [project.scripts]
 goose = "goose.cli.main:cli"

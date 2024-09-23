@@ -700,7 +700,7 @@ class SyncLanguageServer:
         """
         result = asyncio.run_coroutine_threadsafe(
             self.language_server.request_definition(file_path, line, column), self.loop
-        ).result()
+        ).result(timeout=5)
         return result
 
     def request_references(self, file_path: str, line: int, column: int) -> List[multilspy_types.Location]:
@@ -716,7 +716,7 @@ class SyncLanguageServer:
         """
         result = asyncio.run_coroutine_threadsafe(
             self.language_server.request_references(file_path, line, column), self.loop
-        ).result()
+        ).result(timeout=5)
         return result
 
     def request_completions(
@@ -751,7 +751,7 @@ class SyncLanguageServer:
         """
         result = asyncio.run_coroutine_threadsafe(
             self.language_server.request_document_symbols(relative_file_path), self.loop
-        ).result()
+        ).result(timeout=5)
         return result
 
     def request_hover(self, relative_file_path: str, line: int, column: int) -> Union[multilspy_types.Hover, None]:
@@ -767,5 +767,5 @@ class SyncLanguageServer:
         """
         result = asyncio.run_coroutine_threadsafe(
             self.language_server.request_hover(relative_file_path, line, column), self.loop
-        ).result()
+        ).result(timeout=5)
         return result

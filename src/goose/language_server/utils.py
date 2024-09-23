@@ -2,20 +2,15 @@
 This file contains various utility functions like I/O operations, handling paths, etc.
 """
 
-import gzip
 import logging
 import os
 from typing import Tuple
-import requests
-import shutil
-import uuid
 
 import platform
 import subprocess
 from enum import Enum
 
 from goose.language_server.core.exception import LanguageServerError
-from pathlib import PurePath, Path
 from goose.language_server.logger import MultilspyLogger
 
 
@@ -117,57 +112,6 @@ class FileUtils:
             raise LanguageServerError("File read failed.") from None
         logger.log(f"File read '{file_path}' failed: Unsupported encoding.", logging.ERROR)
         raise LanguageServerError(f"File read '{file_path}' failed: Unsupported encoding.") from None
-
-    @staticmethod
-    def download_file(logger: MultilspyLogger, url: str, target_path: str) -> None:
-        """
-        Downloads the file from the given URL to the given {target_path}
-        """
-        try:
-            response = requests.get(url, stream=True, timeout=60)
-            if response.status_code != 200:
-                logger.log(f"Error downloading file '{url}': {response.status_code} {response.text}", logging.ERROR)
-                raise LanguageServerError("Error downoading file.")
-            with open(target_path, "wb") as f:
-                shutil.copyfileobj(response.raw, f)
-        except Exception as exc:
-            logger.log(f"Error downloading file '{url}': {exc}", logging.ERROR)
-            raise LanguageServerError("Error downoading file.") from None
-
-    @staticmethod
-    def download_and_extract_archive(logger: MultilspyLogger, url: str, target_path: str, archive_type: str) -> None:
-        """
-        Downloads the archive from the given URL having format {archive_type} and extracts it to the given {target_path}
-        """
-        try:
-            tmp_files = []
-            tmp_file_name = str(PurePath(os.path.expanduser("~"), "multilspy_tmp", uuid.uuid4().hex))
-            tmp_files.append(tmp_file_name)
-            os.makedirs(os.path.dirname(tmp_file_name), exist_ok=True)
-            FileUtils.download_file(logger, url, tmp_file_name)
-            if archive_type in ["zip", "tar", "gztar", "bztar", "xztar"]:
-                assert os.path.isdir(target_path)
-                shutil.unpack_archive(tmp_file_name, target_path, archive_type)
-            elif archive_type == "zip.gz":
-                assert os.path.isdir(target_path)
-                tmp_file_name_ungzipped = tmp_file_name + ".zip"
-                tmp_files.append(tmp_file_name_ungzipped)
-                with gzip.open(tmp_file_name, "rb") as f_in, open(tmp_file_name_ungzipped, "wb") as f_out:
-                    shutil.copyfileobj(f_in, f_out)
-                shutil.unpack_archive(tmp_file_name_ungzipped, target_path, "zip")
-            elif archive_type == "gz":
-                with gzip.open(tmp_file_name, "rb") as f_in, open(target_path, "wb") as f_out:
-                    shutil.copyfileobj(f_in, f_out)
-            else:
-                logger.log(f"Unknown archive type '{archive_type}' for extraction", logging.ERROR)
-                raise LanguageServerError(f"Unknown archive type '{archive_type}'")
-        except Exception as exc:
-            logger.log(f"Error extracting archive '{tmp_file_name}' obtained from '{url}': {exc}", logging.ERROR)
-            raise LanguageServerError("Error extracting archive.") from exc
-        finally:
-            for tmp_file_name in tmp_files:
-                if os.path.exists(tmp_file_name):
-                    Path.unlink(Path(tmp_file_name))
 
 
 class PlatformId(str, Enum):

@@ -1,6 +1,8 @@
 import traceback
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+import json
+import logging
 
 from exchange import Message, ToolResult, ToolUse, Text
 from prompt_toolkit.shortcuts import confirm
@@ -13,7 +15,7 @@ from rich.status import Status
 
 from goose.build import build_exchange
 from goose.cli.config import default_profiles, ensure_config, read_config, session_path, LOG_PATH
-from goose._logger import get_logger, setup_logging
+from goose._logger import get_logger, setup_logging, get_trace_logger
 from goose.cli.prompt.goose_prompt_session import GoosePromptSession
 from goose.notifier import Notifier
 from goose.profile import Profile
@@ -22,7 +24,6 @@ from goose.utils._cost_calculator import get_total_cost_message
 from goose.utils.session_file import read_from_file, write_to_file
 
 RESUME_MESSAGE = "I see we were interrupted. How can I help you?"
-
 
 def load_provider() -> str:
     # We try to infer a provider, by going in order of what will auth
@@ -55,6 +56,7 @@ def load_profile(name: Optional[str]) -> Profile:
 
     # Otherwise this is a custom config and we return it from the config file
     return read_config()[name]
+
 
 
 class SessionNotifier(Notifier):
@@ -96,6 +98,7 @@ class Session:
 
         self.exchange = build_exchange(profile=load_profile(profile), notifier=self.notifier)
         setup_logging(log_file_directory=LOG_PATH, log_level=log_level)
+        self.trace_logger = get_trace_logger()
 
         if name is not None and self.session_file_path.exists():
             messages = self.load_session()
@@ -149,6 +152,7 @@ class Session:
         """
         message = self.process_first_message()
         while message:  # Loop until no input (empty string).
+            self.trace_logger.trace(message.to_dict())
             self.notifier.start()
             try:
                 self.exchange.add(message)
@@ -182,6 +186,7 @@ class Session:
         """
         self.status_indicator.update("responding")
         response = self.exchange.generate()
+        self.trace_logger.trace(response.to_dict())
 
         if response.text:
             print(Markdown(response.text))
@@ -194,6 +199,7 @@ class Session:
             self.exchange.add(Message(role="user", content=content))
             self.status_indicator.update("responding")
             response = self.exchange.generate()
+            self.trace_logger.trace(response.to_dict())
 
             if response.text:
                 print(Markdown(response.text))

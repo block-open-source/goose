@@ -8,7 +8,6 @@ The details of Language Specific configuration are not exposed to the user.
 from abc import ABC, abstractmethod
 import asyncio
 import dataclasses
-import json
 import logging
 import os
 import pathlib
@@ -24,7 +23,7 @@ from goose.language_server.core.server import (
 )
 from goose.language_server.core.exception import LanguageServerError
 from goose.language_server.config import MultilspyConfig
-from goose.language_server.utils import PathUtils, FileUtils, TextUtils
+from goose.language_server.utils import PathUtils, FileUtils
 from pathlib import PurePath
 from typing import AsyncIterator, Iterator, List, Dict, Type, Union, Tuple
 
@@ -192,118 +191,6 @@ class LanguageServer(ABC):
             )
             del self.open_file_buffers[uri]
 
-    def insert_text_at_position(
-        self, relative_file_path: str, line: int, column: int, text_to_be_inserted: str
-    ) -> multilspy_types.Position:
-        """
-        Insert text at the given line and column in the given file and return
-        the updated cursor position after inserting the text.
-
-        :param relative_file_path: The relative path of the file to open.
-        :param line: The line number at which text should be inserted.
-        :param column: The column number at which text should be inserted.
-        :param text_to_be_inserted: The text to insert.
-        """
-        if not self.server_started:
-            self.logger.log(
-                "insert_text_at_position called before Language Server started",
-                logging.ERROR,
-            )
-            raise LanguageServerError("Language Server not started")
-
-        absolute_file_path = str(PurePath(self.repository_root_path, relative_file_path))
-        uri = pathlib.Path(absolute_file_path).as_uri()
-
-        # Ensure the file is open
-        assert uri in self.open_file_buffers
-
-        file_buffer = self.open_file_buffers[uri]
-        file_buffer.version += 1
-        change_index = TextUtils.get_index_from_line_col(file_buffer.contents, line, column)
-        file_buffer.contents = (
-            file_buffer.contents[:change_index] + text_to_be_inserted + file_buffer.contents[change_index:]
-        )
-        self.server.notify.did_change_text_document(
-            {
-                LSPConstants.TEXT_DOCUMENT: {
-                    LSPConstants.VERSION: file_buffer.version,
-                    LSPConstants.URI: file_buffer.uri,
-                },
-                LSPConstants.CONTENT_CHANGES: [
-                    {
-                        LSPConstants.RANGE: {
-                            "start": {"line": line, "character": column},
-                            "end": {"line": line, "character": column},
-                        },
-                        "text": text_to_be_inserted,
-                    }
-                ],
-            }
-        )
-        new_l, new_c = TextUtils.get_updated_position_from_line_and_column_and_edit(line, column, text_to_be_inserted)
-        return multilspy_types.Position(line=new_l, character=new_c)
-
-    def delete_text_between_positions(
-        self,
-        relative_file_path: str,
-        start: multilspy_types.Position,
-        end: multilspy_types.Position,
-    ) -> str:
-        """
-        Delete text between the given start and end positions in the given file and return the deleted text.
-        """
-        if not self.server_started:
-            self.logger.log(
-                "insert_text_at_position called before Language Server started",
-                logging.ERROR,
-            )
-            raise LanguageServerError("Language Server not started")
-
-        absolute_file_path = str(PurePath(self.repository_root_path, relative_file_path))
-        uri = pathlib.Path(absolute_file_path).as_uri()
-
-        # Ensure the file is open
-        assert uri in self.open_file_buffers
-
-        file_buffer = self.open_file_buffers[uri]
-        file_buffer.version += 1
-        del_start_idx = TextUtils.get_index_from_line_col(file_buffer.contents, start["line"], start["character"])
-        del_end_idx = TextUtils.get_index_from_line_col(file_buffer.contents, end["line"], end["character"])
-        deleted_text = file_buffer.contents[del_start_idx:del_end_idx]
-        file_buffer.contents = file_buffer.contents[:del_start_idx] + file_buffer.contents[del_end_idx:]
-        self.server.notify.did_change_text_document(
-            {
-                LSPConstants.TEXT_DOCUMENT: {
-                    LSPConstants.VERSION: file_buffer.version,
-                    LSPConstants.URI: file_buffer.uri,
-                },
-                LSPConstants.CONTENT_CHANGES: [{LSPConstants.RANGE: {"start": start, "end": end}, "text": ""}],
-            }
-        )
-        return deleted_text
-
-    def get_open_file_text(self, relative_file_path: str) -> str:
-        """
-        Get the contents of the given opened file as per the Language Server.
-
-        :param relative_file_path: The relative path of the file to open.
-        """
-        if not self.server_started:
-            self.logger.log(
-                "get_open_file_text called before Language Server started",
-                logging.ERROR,
-            )
-            raise LanguageServerError("Language Server not started")
-
-        absolute_file_path = str(PurePath(self.repository_root_path, relative_file_path))
-        uri = pathlib.Path(absolute_file_path).as_uri()
-
-        # Ensure the file is open
-        assert uri in self.open_file_buffers
-
-        file_buffer = self.open_file_buffers[uri]
-        return file_buffer.contents
-
     async def request_definition(
         self, relative_file_path: str, line: int, column: int
     ) -> List[multilspy_types.Location]:
@@ -436,100 +323,6 @@ class LanguageServer(ABC):
             ret.append(multilspy_types.Location(**new_item))
 
         return ret
-
-    async def request_completions(
-        self, relative_file_path: str, line: int, column: int, allow_incomplete: bool = False
-    ) -> List[multilspy_types.CompletionItem]:
-        """
-        Raise a [textDocument/completion](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_completion) request to the Language Server
-        to find completions at the given line and column in the given file. Wait for the response and return the result.
-
-        :param relative_file_path: The relative path of the file that has the symbol for which completions should be looked up
-        :param line: The line number of the symbol
-        :param column: The column number of the symbol
-
-        :return List[multilspy_types.CompletionItem]: A list of completions
-        """
-        with self.open_file(relative_file_path):
-            open_file_buffer = self.open_file_buffers[
-                pathlib.Path(os.path.join(self.repository_root_path, relative_file_path)).as_uri()
-            ]
-            completion_params: LSPTypes.CompletionParams = {
-                "position": {"line": line, "character": column},
-                "textDocument": {"uri": open_file_buffer.uri},
-                "context": {"triggerKind": LSPTypes.CompletionTriggerKind.Invoked},
-            }
-            response: Union[List[LSPTypes.CompletionItem], LSPTypes.CompletionList, None] = None
-
-            num_retries = 0
-            while response is None or (response["isIncomplete"] and num_retries < 30):
-                await self.completions_available.wait()
-                response: Union[
-                    List[LSPTypes.CompletionItem], LSPTypes.CompletionList, None
-                ] = await self.server.send.completion(completion_params)
-                if isinstance(response, list):
-                    response = {"items": response, "isIncomplete": False}
-                num_retries += 1
-
-            # TODO: Understand how to appropriately handle `isIncomplete`
-            if response is None or (response["isIncomplete"] and not (allow_incomplete)):
-                return []
-
-            if "items" in response:
-                response = response["items"]
-
-            response: List[LSPTypes.CompletionItem] = response
-
-            # TODO: Handle the case when the completion is a keyword
-            items = [item for item in response if item["kind"] != LSPTypes.CompletionItemKind.Keyword]
-
-            completions_list: List[multilspy_types.CompletionItem] = []
-
-            for item in items:
-                assert "insertText" in item or "textEdit" in item
-                assert "kind" in item
-                completion_item = {}
-                if "detail" in item:
-                    completion_item["detail"] = item["detail"]
-
-                if "label" in item:
-                    completion_item["completionText"] = item["label"]
-                    completion_item["kind"] = item["kind"]
-                elif "insertText" in item:
-                    completion_item["completionText"] = item["insertText"]
-                    completion_item["kind"] = item["kind"]
-                elif "textEdit" in item and "newText" in item["textEdit"]:
-                    completion_item["completionText"] = item["textEdit"]["newText"]
-                    completion_item["kind"] = item["kind"]
-                elif "textEdit" in item and "range" in item["textEdit"]:
-                    new_dot_lineno, new_dot_colno = (
-                        completion_params["position"]["line"],
-                        completion_params["position"]["character"],
-                    )
-                    assert all(
-                        (
-                            item["textEdit"]["range"]["start"]["line"] == new_dot_lineno,
-                            item["textEdit"]["range"]["start"]["character"] == new_dot_colno,
-                            item["textEdit"]["range"]["start"]["line"] == item["textEdit"]["range"]["end"]["line"],
-                            item["textEdit"]["range"]["start"]["character"]
-                            == item["textEdit"]["range"]["end"]["character"],
-                        )
-                    )
-
-                    completion_item["completionText"] = item["textEdit"]["newText"]
-                    completion_item["kind"] = item["kind"]
-                elif "textEdit" in item and "insert" in item["textEdit"]:
-                    assert False
-                else:
-                    assert False
-
-                completion_item = multilspy_types.CompletionItem(**completion_item)
-                completions_list.append(completion_item)
-
-            return [
-                json.loads(json_repr)
-                for json_repr in set([json.dumps(item, sort_keys=True) for item in completions_list])
-            ]
 
     async def request_document_symbols(
         self, relative_file_path: str

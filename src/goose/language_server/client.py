@@ -4,9 +4,10 @@ import threading
 from contextlib import contextmanager
 
 from goose.language_server.base import LanguageServer
+from goose.language_server.type_helpers import ensure_all_methods_implemented
 import goose.language_server.types as multilspy_types
 from goose.language_server.config import Language
-from typing import Any, Callable, Iterator, List, TypeVar
+from typing import Any, Callable, Iterator, List, Tuple, TypeVar, Union
 
 T = TypeVar("T")
 
@@ -26,7 +27,7 @@ def langserver_request(func: Callable[[T, Any], Any]) -> Callable[[T, Any], Any]
     return wrapper
 
 
-# @ensure_all_methods_implemented(LanguageServer)
+@ensure_all_methods_implemented(LanguageServer)
 class LanguageServerClient:
     """
     The SyncLanguageServer class provides a language-agnostic interface to the Language Server Protocol.
@@ -89,6 +90,16 @@ class LanguageServerClient:
             loop.call_soon_threadsafe(loop.stop)
             self.loop_threads[language_name].join()
 
+    @contextmanager
+    def open_file(self, relative_file_path: str) -> Iterator[None]:
+        """
+        Open a file in the Language Server. This is required before making any requests to the Language Server.
+
+        :param relative_file_path: The relative path of the file to open.
+        """
+        with self.language_server.open_file(relative_file_path):
+            yield
+
     @langserver_request
     def request_definition(
         self, language_server: LanguageServer, file_path: str, line: int, column: int
@@ -122,7 +133,9 @@ class LanguageServerClient:
         return language_server.request_references(file_path, line, column)
 
     @langserver_request
-    def hover(self, language_server: LanguageServer, file_path: str, line: int, column: int) -> multilspy_types.Hover:
+    def request_hover(
+        self, language_server: LanguageServer, file_path: str, line: int, column: int
+    ) -> Union[multilspy_types.Hover, None]:
         """
         Request hover information from a specific language server.
         Args:
@@ -133,3 +146,17 @@ class LanguageServerClient:
             (Hover) The hover information.
         """
         return language_server.hover(file_path, line, column)
+
+    @langserver_request
+    def request_document_symbols(
+        self, language_server: LanguageServer, file_path: str
+    ) -> Tuple[List[multilspy_types.UnifiedSymbolInformation], Union[List[multilspy_types.TreeRepr], None]]:
+        """
+        Request document symbols from a specific language server.
+        Args:
+            file_path (str): The absolute file path.
+
+        Return:
+            (list) A list of document symbols.
+        """
+        return language_server.request_document_symbols(file_path)

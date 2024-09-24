@@ -50,7 +50,7 @@ class ProcessLaunchInfo:
     """
 
     # The command to launch the process
-    cmd: str
+    cmd: List[str]
 
     # The environment variables to set for the process
     env: Dict[str, str] = dataclasses.field(default_factory=dict)
@@ -203,8 +203,8 @@ class LanguageServerHandler:
         """
         child_proc_env = os.environ.copy()
         child_proc_env.update(self.process_launch_info.env)
-        self.process = await asyncio.create_subprocess_shell(
-            self.process_launch_info.cmd,
+        self.process = await asyncio.create_subprocess_exec(
+            *self.process_launch_info.cmd,
             stdout=asyncio.subprocess.PIPE,
             stdin=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,

@@ -64,7 +64,7 @@ class JediServer(LanguageServer):
             logger=logger,
             config=config,
             repository_root_path=os.getcwd(),
-            process_launch_info=ProcessLaunchInfo(cmd="jedi-language-server", cwd=os.getcwd()),
+            process_launch_info=ProcessLaunchInfo(cmd=["jedi-language-server"], cwd=os.getcwd()),
         )
 
     @property

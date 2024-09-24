@@ -615,157 +615,74 @@ class LanguageServer(ABC):
         return multilspy_types.Hover(**response)
 
 
-@ensure_all_methods_implemented(LanguageServer)
 class SyncLanguageServer:
     """
-    The SyncLanguageServer class provides a language agnostic interface to the Language Server Protocol.
-    It is used to communicate with Language Servers of different programming languages.
+    The SyncLanguageServer class provides a language-agnostic interface to the Language Server Protocol.
+    It communicates with Language Servers for different programming languages.
     """
 
-    def __init__(self, language_server: LanguageServer) -> None:
-        self.language_server = language_server
-        self.loop = None
-        self.loop_thread = None
+    def __init__(self, language_servers: Dict[str, LanguageServer]) -> None:
+        """
+        Initialize SyncLanguageServer with a dictionary of language servers.
+        Each language server is run on its own daemon thread.
+
+        :param language_servers: A dictionary of {language_name: LanguageServer}
+        """
+        self.language_servers = language_servers
+        self.server_loops = {}
+        self.loop_threads = {}
+
+        for language_name, server in self.language_servers.items():
+            loop = asyncio.new_event_loop()
+            thread = threading.Thread(target=loop.run_forever, daemon=True)
+            self.server_loops[language_name] = loop
+            self.loop_threads[language_name] = thread
+            thread.start()
 
     @contextmanager
-    def open_file(self, relative_file_path: str) -> Iterator[None]:
+    def start_servers(self) -> Iterator["SyncLanguageServer"]:
         """
-        Open a file in the Language Server. This is required before making any requests to the Language Server.
+        Starts all language server processes and connects to them.
+        Each server is run on its own thread and event loop.
 
-        :param relative_file_path: The relative path of the file to open.
+        :yield: The SyncLanguageServer instance with all servers started.
         """
-        with self.language_server.open_file(relative_file_path):
-            yield
+        ctxs = {}
+        # Start all language servers
+        for language_name, language_server in self.language_servers.items():
+            loop = self.server_loops[language_name]
+            ctx = language_server.start_server()
+            ctxs[language_name] = ctx
+            asyncio.run_coroutine_threadsafe(ctx.__aenter__(), loop=loop).result()
 
-    def insert_text_at_position(
-        self, relative_file_path: str, line: int, column: int, text_to_be_inserted: str
-    ) -> multilspy_types.Position:
-        """
-        Insert text at the given line and column in the given file and return
-        the updated cursor position after inserting the text.
-
-        :param relative_file_path: The relative path of the file to open.
-        :param line: The line number at which text should be inserted.
-        :param column: The column number at which text should be inserted.
-        :param text_to_be_inserted: The text to insert.
-        """
-        return self.language_server.insert_text_at_position(relative_file_path, line, column, text_to_be_inserted)
-
-    def delete_text_between_positions(
-        self,
-        relative_file_path: str,
-        start: multilspy_types.Position,
-        end: multilspy_types.Position,
-    ) -> str:
-        """
-        Delete text between the given start and end positions in the given file and return the deleted text.
-        """
-        return self.language_server.delete_text_between_positions(relative_file_path, start, end)
-
-    def get_open_file_text(self, relative_file_path: str) -> str:
-        """
-        Get the contents of the given opened file as per the Language Server.
-
-        :param relative_file_path: The relative path of the file to open.
-        """
-        return self.language_server.get_open_file_text(relative_file_path)
-
-    @contextmanager
-    def start_server(self) -> Iterator["SyncLanguageServer"]:
-        """
-        Starts the language server process and connects to it.
-
-        :return: None
-        """
-        self.loop = asyncio.new_event_loop()
-        loop_thread = threading.Thread(target=self.loop.run_forever, daemon=True)
-        loop_thread.start()
-        ctx = self.language_server.start_server()
-        asyncio.run_coroutine_threadsafe(ctx.__aenter__(), loop=self.loop).result()
+        # Yield the context for using the servers
         yield self
-        asyncio.run_coroutine_threadsafe(ctx.__aexit__(None, None, None), loop=self.loop).result()
-        self.loop.call_soon_threadsafe(self.loop.stop)
-        loop_thread.join()
 
-    def request_definition(self, file_path: str, line: int, column: int) -> List[multilspy_types.Location]:
+        # Stop all language servers and shut down their loops
+        for language_name, language_server in self.language_servers.items():
+            loop = self.server_loops[language_name]
+            ctx = ctxs[language_name]
+            asyncio.run_coroutine_threadsafe(ctx.__aexit__(None, None, None), loop=loop).result()
+
+            # Stop the event loop and join the thread
+            loop.call_soon_threadsafe(loop.stop)
+            self.loop_threads[language_name].join()
+
+    def request_definition(
+        self, language_name: str, file_path: str, line: int, column: int
+    ) -> List[multilspy_types.Location]:
         """
-        Raise a [textDocument/definition](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_definition) request to the Language Server
-        for the symbol at the given line and column in the given file. Wait for the response and return the result.
+        Request definition from a specific language server.
 
-        :param relative_file_path: The relative path of the file that has the symbol for which definition should be looked up
-        :param line: The line number of the symbol
-        :param column: The column number of the symbol
-
-        :return List[multilspy_types.Location]: A list of locations where the symbol is defined
+        :param language_name: The name of the language server.
+        :param file_path: The relative file path.
+        :param line: The line number.
+        :param column: The column number.
+        :return: A list of locations where the symbol is defined.
         """
+        loop = self.server_loops[language_name]
+        language_server = self.language_servers[language_name]
         result = asyncio.run_coroutine_threadsafe(
-            self.language_server.request_definition(file_path, line, column), self.loop
-        ).result(timeout=5)
-        return result
-
-    def request_references(self, file_path: str, line: int, column: int) -> List[multilspy_types.Location]:
-        """
-        Raise a [textDocument/references](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_references) request to the Language Server
-        to find references to the symbol at the given line and column in the given file. Wait for the response and return the result.
-
-        :param relative_file_path: The relative path of the file that has the symbol for which references should be looked up
-        :param line: The line number of the symbol
-        :param column: The column number of the symbol
-
-        :return List[multilspy_types.Location]: A list of locations where the symbol is referenced
-        """
-        result = asyncio.run_coroutine_threadsafe(
-            self.language_server.request_references(file_path, line, column), self.loop
-        ).result(timeout=5)
-        return result
-
-    def request_completions(
-        self, relative_file_path: str, line: int, column: int, allow_incomplete: bool = False
-    ) -> List[multilspy_types.CompletionItem]:
-        """
-        Raise a [textDocument/completion](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_completion) request to the Language Server
-        to find completions at the given line and column in the given file. Wait for the response and return the result.
-
-        :param relative_file_path: The relative path of the file that has the symbol for which completions should be looked up
-        :param line: The line number of the symbol
-        :param column: The column number of the symbol
-
-        :return List[multilspy_types.CompletionItem]: A list of completions
-        """
-        result = asyncio.run_coroutine_threadsafe(
-            self.language_server.request_completions(relative_file_path, line, column, allow_incomplete),
-            self.loop,
-        ).result()
-        return result
-
-    def request_document_symbols(
-        self, relative_file_path: str
-    ) -> Tuple[List[multilspy_types.UnifiedSymbolInformation], Union[List[multilspy_types.TreeRepr], None]]:
-        """
-        Raise a [textDocument/documentSymbol](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_documentSymbol) request to the Language Server
-        to find symbols in the given file. Wait for the response and return the result.
-
-        :param relative_file_path: The relative path of the file that has the symbols
-
-        :return Tuple[List[multilspy_types.UnifiedSymbolInformation], Union[List[multilspy_types.TreeRepr], None]]: A list of symbols in the file, and the tree representation of the symbols
-        """
-        result = asyncio.run_coroutine_threadsafe(
-            self.language_server.request_document_symbols(relative_file_path), self.loop
-        ).result(timeout=5)
-        return result
-
-    def request_hover(self, relative_file_path: str, line: int, column: int) -> Union[multilspy_types.Hover, None]:
-        """
-        Raise a [textDocument/hover](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_hover) request to the Language Server
-        to find the hover information at the given line and column in the given file. Wait for the response and return the result.
-
-        :param relative_file_path: The relative path of the file that has the hover information
-        :param line: The line number of the symbol
-        :param column: The column number of the symbol
-
-        :return None
-        """
-        result = asyncio.run_coroutine_threadsafe(
-            self.language_server.request_hover(relative_file_path, line, column), self.loop
+            language_server.request_definition(file_path, line, column), loop
         ).result(timeout=5)
         return result

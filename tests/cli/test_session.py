@@ -167,3 +167,14 @@ def test_generate_session_name(create_session_with_mock_configs):
         session.generate_session_name()
 
         assert session.name == SPECIFIED_SESSION_NAME
+
+
+def test_log_log_cost(create_session_with_mock_configs):
+    session = create_session_with_mock_configs()
+    mock_logger = MagicMock()
+    cost_message = "You have used 100 tokens"
+    with patch("exchange.Exchange.get_token_usage", return_value={}), patch(
+        "goose.cli.session.get_total_cost_message", return_value=cost_message
+    ), patch("goose.cli.session.get_logger", return_value=mock_logger):
+        session._log_cost()
+        mock_logger.info.assert_called_once_with(cost_message)

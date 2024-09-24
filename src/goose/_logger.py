@@ -11,6 +11,7 @@ _TRACE_LOGGER_FILE_NAME = "trace.log"
 TRACE_LEVEL = 5
 logging.addLevelName(TRACE_LEVEL, "TRACE")
 
+
 def trace(self: logging.Logger, message: str, *args: tuple, **kws: dict) -> None:
     """
     Log 'message' with severity 'TRACE' to log agent traces.
@@ -21,21 +22,23 @@ def trace(self: logging.Logger, message: str, *args: tuple, **kws: dict) -> None
         try:
             role = message.get("role", "")
             content_type = message.get("content", [{}])[0].get("type", "")
-            if content_type == 'ToolUse':
+            if content_type == "ToolUse":
                 tool = message.get("content", [{}])[0].get("name", "")
                 content_type = f"{content_type} [{tool}]"
             content = message.get("content", [{}])[0]
-            formatted_content = '\n' + json.dumps(content, indent=4)
-            formatted_content = formatted_content.replace('\\n', '\n')
+            formatted_content = "\n" + json.dumps(content, indent=4)
+            formatted_content = formatted_content.replace("\\n", "\n")
             formatted_message = f"** {role} / {content_type} ** \n{formatted_content}\n\n"
             message = formatted_message
         except Exception:
-            message = '\n' + json.dumps(message, indent=4)
-            message = message.replace('\\n', '\n')
+            message = "\n" + json.dumps(message, indent=4)
+            message = message.replace("\\n", "\n")
     if self.isEnabledFor(TRACE_LEVEL):
         self._log(TRACE_LEVEL, message, args, **kws)
 
+
 logging.Logger.trace = trace
+
 
 def setup_logging(log_file_directory: Path, log_level: str = "INFO") -> None:
     logger = logging.getLogger(_LOGGER_NAME)
@@ -52,8 +55,10 @@ def setup_logging(log_file_directory: Path, log_level: str = "INFO") -> None:
     trace_logger.addHandler(trace_file_handler)
     trace_file_handler.setFormatter(formatter)
 
+
 def get_logger() -> logging.Logger:
     return logging.getLogger(_LOGGER_NAME)
+
 
 def get_trace_logger() -> logging.Logger:
     return logging.getLogger(_TRACE_LOGGER_NAME)

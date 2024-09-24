@@ -70,9 +70,7 @@ def clear_exchange(exchange: Exchange, clear_tools: bool = False) -> Exchange:
 
     """
     if clear_tools:
-        new_exchange = exchange.replace(
-            messages=[], checkpoint_data=CheckpointData(), tools=()
-        )
+        new_exchange = exchange.replace(messages=[], checkpoint_data=CheckpointData(), tools=())
     else:
         new_exchange = exchange.replace(messages=[], checkpoint_data=CheckpointData())
     return new_exchange

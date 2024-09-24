@@ -21,9 +21,7 @@ from rich.text import Text
 def keep_unsafe_command_prompt(command: str) -> bool:
     command_text = Text(command, style="bold red")
     message = (
-        Text("\nWe flagged the command: ")
-        + command_text
-        + Text(" as potentially unsafe, do you want to proceed?")
+        Text("\nWe flagged the command: ") + command_text + Text(" as potentially unsafe, do you want to proceed?")
     )
     return Confirm.ask(message, default=True)
 
@@ -104,13 +102,9 @@ class Developer(Toolkit):
         content = _path.read_text()
 
         if content.count(before) > 1:
-            raise ValueError(
-                "The before content is present multiple times in the file, be more specific."
-            )
+            raise ValueError("The before content is present multiple times in the file, be more specific.")
         if content.count(before) < 1:
-            raise ValueError(
-                "The before content was not found in file, be careful that you recreate it exactly."
-            )
+            raise ValueError("The before content was not found in file, be careful that you recreate it exactly.")
 
         content = content.replace(before, after)
         _path.write_text(content)
@@ -155,9 +149,7 @@ class Developer(Toolkit):
                 if you need to run more than one at a time
         """
         # Log the command being executed in a visually structured format (Markdown).
-        self.notifier.log(
-            Panel.fit(Markdown(f"```bash\n{command}\n```"), title="shell")
-        )
+        self.notifier.log(Panel.fit(Markdown(f"```bash\n{command}\n```"), title="shell"))
 
         if is_dangerous_command(command):
             # Stop the notifications so we can prompt
@@ -180,9 +172,7 @@ class Developer(Toolkit):
             r"Waiting for input",  # General waiting message
             r"\?\s",  # Prompts starting with '? '
         ]
-        compiled_patterns = [
-            re.compile(pattern, re.IGNORECASE) for pattern in interaction_patterns
-        ]
+        compiled_patterns = [re.compile(pattern, re.IGNORECASE) for pattern in interaction_patterns]
 
         proc = subprocess.Popen(
             command,
@@ -216,7 +206,8 @@ class Developer(Toolkit):
                     input="\n".join([command] + output_lines),
                     prompt=(
                         "You will evaluate the output of shell commands to see if they may be stuck."
-                        " If the command appears to be awaiting user input, or otherwise running indefinitely (such as a web service)"
+                        " If the command appears to be awaiting user input, or otherwise running indefinitely (such as a web service)."  # noqa
+                        " Long running tasks are okay, only identify tasks that are awaiting input or will otherwise never terminate."  # noqa
                         " return [Yes] if so [No] otherwise."
                     ),
                     exchange=self.exchange_view.accelerator,
@@ -231,7 +222,7 @@ class Developer(Toolkit):
                 raise ValueError(
                     f"The command `{command}` looks like it will run indefinitely or is otherwise stuck."
                     f"You may be able to specify inputs if it applies to this command."
-                    f"Otherwise to enable continued iteration, you'll need to ask the user to run this command in another terminal."
+                    f"Otherwise to enable continued iteration, you'll need to ask the user to run this command in another terminal."  # noqa
                 )
 
         # read any remaining lines

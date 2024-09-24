@@ -1,5 +1,3 @@
-# This is the default recipe when no arguments are provided
-[private]
 default:
   @just --list --unsorted
 
@@ -20,3 +18,26 @@ coverage *FLAGS:
 
 docs:
   cd docs && uv sync && uv run mkdocs serve
+
+ai-exchange-version:
+  curl -s https://pypi.org/pypi/ai-exchange/json | jq -r .info.version
+
+# bump project version, push, create pr
+release version:
+  uvx --from=toml-cli toml set --toml-path=pyproject.toml project.version {{version}}
+  ai_exchange_version=$(just ai-exchange-version) && sed -i '' 's/ai-exchange>=.*/ai-exchange>='"${ai_exchange_version}"'\",/' pyproject.toml
+  git checkout -b release-version-{{version}}
+  git add pyproject.toml
+  git commit -m "chore(release): release version {{version}}"
+
+tag_version:
+  grep 'version' pyproject.toml | cut -d '"' -f 2
+
+tag:
+  git tag v$(just tag_version)
+
+# this will kick of ci for release
+# use this when release branch is merged to main
+tag-push:
+  just tag
+  git push origin tag v$(just tag_version)

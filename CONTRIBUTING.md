@@ -71,6 +71,14 @@ uv venv
 uv run goose session start  # or any of goose's commands (e.g. goose --help)
 ```
 
+### Running from source
+
+When you build from source you may want to run it from elsewhere.
+
+1. Run `uv sync` as above
+2. Run ```export goose_dev=`uv run which goose` ```
+3. You can use that from anywhere in your system, for example `cd ~/ && $goose_dev session start`, or from your path if you like (advanced users only) to be running the latest.
+
 ## Developing goose-plugins
 
 1. Clone the `goose-plugins` repo:

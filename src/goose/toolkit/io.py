@@ -53,4 +53,5 @@ class IO(Toolkit):
     # Provide any system instructions for the model
     # This can be generated dynamically, and is run at startup time
     def system(self) -> str:
-        return """**You can control the mouse and keyboard using the tools provided by the IO toolkit. Please narate all the action taken back to user.**"""
+        return """**You can control the mouse and keyboard using the tools provided by the IO toolkit.
+        Please narate all the actions taken back to user.**"""

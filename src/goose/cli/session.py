@@ -25,6 +25,7 @@ from goose.utils.session_file import read_from_file, write_to_file
 
 RESUME_MESSAGE = "I see we were interrupted. How can I help you?"
 
+
 def load_provider() -> str:
     # We try to infer a provider, by going in order of what will auth
     providers = load_plugins(group="exchange.provider")
@@ -56,7 +57,6 @@ def load_profile(name: Optional[str]) -> Profile:
 
     # Otherwise this is a custom config and we return it from the config file
     return read_config()[name]
-
 
 
 class SessionNotifier(Notifier):

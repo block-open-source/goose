@@ -2,7 +2,6 @@ import logging
 from pathlib import Path
 import json
 
-
 _LOGGER_NAME = "goose"
 _LOGGER_FILE_NAME = "goose.log"
 

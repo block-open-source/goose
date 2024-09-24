@@ -9,6 +9,8 @@ from rich.prompt import Confirm
 from rich.text import Text
 from ruamel.yaml import YAML
 
+from exchange.providers.ollama import OLLAMA_MODEL
+
 from goose.profile import Profile
 from goose.utils import load_plugins
 from goose.utils.diff import pretty_diff
@@ -127,6 +129,7 @@ def default_model_configuration() -> Tuple[str, str, str]:
         )
 
     recommended = {
+        "ollama": (OLLAMA_MODEL, OLLAMA_MODEL),
         "openai": ("gpt-4o", "gpt-4o-mini"),
         "anthropic": (
             "claude-3-5-sonnet-20240620",

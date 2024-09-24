@@ -206,11 +206,11 @@ class Developer(Toolkit):
                     input="\n".join([command] + output_lines),
                     prompt=(
                         "You will evaluate the output of shell commands to see if they may be stuck."
-                        " If the command appears to be awaiting user input, or otherwise running indefinitely (such as a web service)."  # noqa
-                        " Long running tasks are okay, only identify tasks that are awaiting input or will otherwise never terminate."  # noqa
-                        " return [Yes] if so [No] otherwise."
+                        " Look for commands that appear to be awaiting user input, or otherwise running indefinitely (such as a web service)."  # noqa
+                        " A command that will take a while, such as downloading resources is okay."  # noqa
+                        " return [Yes] if stuck, [No] otherwise."
                     ),
-                    exchange=self.exchange_view.accelerator,
+                    exchange=self.exchange_view.processor,
                     with_tools=False,
                 )
                 exit_criteria = "[yes]" in response.content[0].text.lower()

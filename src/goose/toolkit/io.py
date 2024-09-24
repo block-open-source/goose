@@ -1,4 +1,5 @@
 from goose.toolkit.base import Toolkit, tool
+from exchange import Message
 
 
 class IO(Toolkit):
@@ -157,6 +158,4 @@ class IO(Toolkit):
     # Provide any system instructions for the model
     # This can be generated dynamically, and is run at startup time
     def system(self) -> str:
-        return """**You can move the mouse, click, right-click, type text, send hotkeys, scroll,
-         and locate images on the screen using the tools provided by the IO toolkit.
-        Please narrate all the actions taken back to user.**"""
+        return Message.load("prompts/io.jinja").text

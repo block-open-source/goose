@@ -4,10 +4,26 @@ import threading
 from contextlib import contextmanager
 
 from goose.language_server.base import LanguageServer
-from goose.language_server.type_helpers import ensure_all_methods_implemented
 import goose.language_server.types as multilspy_types
 from goose.language_server.config import Language
-from typing import Iterator, List
+from typing import Any, Callable, Iterator, List, TypeVar
+
+T = TypeVar("T")
+
+
+def langserver_request(func: Callable[[T, Any], Any]) -> Callable[[T, Any], Any]:
+    def wrapper(self: "LanguageServerClient", file_path: str, line: int, column: int) -> List[T]:
+        language = Language.from_file_path(file_path)
+        for language_server in self.language_servers[language]:
+            language_server_name = language_server.__class__.__name__
+            loop = self.server_loops[language_server_name]
+            result = asyncio.run_coroutine_threadsafe(
+                func(self, language_server, file_path, line, column), loop
+            ).result(timeout=5)
+            if result:
+                return result
+
+    return wrapper
 
 
 # @ensure_all_methods_implemented(LanguageServer)
@@ -73,7 +89,10 @@ class LanguageServerClient:
             loop.call_soon_threadsafe(loop.stop)
             self.loop_threads[language_name].join()
 
-    def request_definition(self, file_path: str, line: int, column: int) -> List[multilspy_types.Location]:
+    @langserver_request
+    def request_definition(
+        self, language_server: LanguageServer, file_path: str, line: int, column: int
+    ) -> List[multilspy_types.Location]:
         """
         Request definition from a specific language server.
 
@@ -85,12 +104,32 @@ class LanguageServerClient:
         Return:
             (list) A list of locations where the symbol is defined.
         """
-        language = Language.from_file_path(file_path)
-        for language_server in self.language_servers[language]:
-            language_server_name = language_server.__class__.__name__
-            loop = self.server_loops[language_server_name]
-            result = asyncio.run_coroutine_threadsafe(
-                language_server.request_definition(file_path, line, column), loop
-            ).result(timeout=5)
-            if result:
-                return result
+        return language_server.request_definition(file_path, line, column)
+
+    @langserver_request
+    def request_references(
+        self, language_server: LanguageServer, file_path: str, line: int, column: int
+    ) -> List[multilspy_types.Location]:
+        """
+        Request references from a specific language server.
+        Args:
+            file_path (str): The absolute file path.
+            line (int): The line number.
+            column (str): The column number.
+        Return:
+            (list) A list of locations where the symbol is referenced.
+        """
+        return language_server.request_references(file_path, line, column)
+
+    @langserver_request
+    def hover(self, language_server: LanguageServer, file_path: str, line: int, column: int) -> multilspy_types.Hover:
+        """
+        Request hover information from a specific language server.
+        Args:
+            file_path (str): The absolute file path.
+            line (int): The line number.
+            column (str): The column number.
+        Return:
+            (Hover) The hover information.
+        """
+        return language_server.hover(file_path, line, column)

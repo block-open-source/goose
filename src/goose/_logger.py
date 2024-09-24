@@ -11,7 +11,7 @@ _TRACE_LOGGER_FILE_NAME = "trace.log"
 TRACE_LEVEL = 5
 logging.addLevelName(TRACE_LEVEL, "TRACE")
 
-def trace(self, message, *args, **kws):
+def trace(self: logging.Logger, message: str, *args: tuple, **kws: dict) -> None:
     """
     Log 'message' with severity 'TRACE' to log agent traces.
 
@@ -29,7 +29,7 @@ def trace(self, message, *args, **kws):
             formatted_content = formatted_content.replace('\\n', '\n')
             formatted_message = f"** {role} / {content_type} ** \n{formatted_content}\n\n"
             message = formatted_message
-        except Exception as e:
+        except Exception:
             message = '\n' + json.dumps(message, indent=4)
             message = message.replace('\\n', '\n')
     if self.isEnabledFor(TRACE_LEVEL):

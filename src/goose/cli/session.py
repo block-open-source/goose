@@ -1,8 +1,6 @@
 import traceback
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-import json
-import logging
 
 from exchange import Message, ToolResult, ToolUse, Text
 from prompt_toolkit.shortcuts import confirm

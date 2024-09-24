@@ -1,31 +1,29 @@
-from pathlib import Path
-from typing import List, Dict
 import os
-from goose.utils.ask import ask_an_ai
-from goose.utils.check_shell_command import is_dangerous_command
+import re
+import subprocess
+import time
+from pathlib import Path
+from typing import Dict, List
 
 from exchange import Message
+from goose.toolkit.base import Toolkit, tool
+from goose.toolkit.utils import get_language, render_template
+from goose.utils.ask import ask_an_ai
+from goose.utils.check_shell_command import is_dangerous_command
 from rich import box
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.prompt import Confirm
 from rich.table import Table
 from rich.text import Text
-import subprocess
-import threading
-import queue
-import re
-import time
-
-
-from goose.toolkit.base import Toolkit, tool
-from goose.toolkit.utils import get_language, render_template
 
 
 def keep_unsafe_command_prompt(command: str) -> bool:
     command_text = Text(command, style="bold red")
     message = (
-        Text("\nWe flagged the command: ") + command_text + Text(" as potentially unsafe, do you want to proceed?")
+        Text("\nWe flagged the command: ")
+        + command_text
+        + Text(" as potentially unsafe, do you want to proceed?")
     )
     return Confirm.ask(message, default=True)
 
@@ -106,9 +104,13 @@ class Developer(Toolkit):
         content = _path.read_text()
 
         if content.count(before) > 1:
-            raise ValueError("The before content is present multiple times in the file, be more specific.")
+            raise ValueError(
+                "The before content is present multiple times in the file, be more specific."
+            )
         if content.count(before) < 1:
-            raise ValueError("The before content was not found in file, be careful that you recreate it exactly.")
+            raise ValueError(
+                "The before content was not found in file, be careful that you recreate it exactly."
+            )
 
         content = content.replace(before, after)
         _path.write_text(content)
@@ -142,7 +144,7 @@ class Developer(Toolkit):
     @tool
     def shell(self, command: str) -> str:
         """
-        Execute a command on the shell (in OSX)
+        Execute a command on the shell
 
         This will return the output and error concatenated into a single string, as
         you would see from running on the command line. There will also be an indication
@@ -152,10 +154,10 @@ class Developer(Toolkit):
             command (str): The shell command to run. It can support multiline statements
                 if you need to run more than one at a time
         """
-
-        self.notifier.status("planning to run shell command")
         # Log the command being executed in a visually structured format (Markdown).
-        self.notifier.log(Panel.fit(Markdown(f"```bash\n{command}\n```"), title="shell"))
+        self.notifier.log(
+            Panel.fit(Markdown(f"```bash\n{command}\n```"), title="shell")
+        )
 
         if is_dangerous_command(command):
             # Stop the notifications so we can prompt
@@ -178,141 +180,64 @@ class Developer(Toolkit):
             r"Waiting for input",  # General waiting message
             r"\?\s",  # Prompts starting with '? '
         ]
-        compiled_patterns = [re.compile(pattern, re.IGNORECASE) for pattern in interaction_patterns]
+        compiled_patterns = [
+            re.compile(pattern, re.IGNORECASE) for pattern in interaction_patterns
+        ]
 
-        # Start the process
         proc = subprocess.Popen(
             command,
             shell=True,
-            stdin=subprocess.DEVNULL,  # Close stdin to prevent the process from waiting for input
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
         )
+        # this enables us to read lines without blocking
+        os.set_blocking(proc.stdout.fileno(), False)
 
-        # Queues to store the output
-        stdout_queue = queue.Queue()
-        stderr_queue = queue.Queue()
+        # Accumulate the output logs while checking if it might be blocked
+        output_lines = []
+        last_output_time = time.time()
+        cutoff = 10
+        while proc.poll() is None:
+            self.notifier.status("running shell command")
+            line = proc.stdout.readline()
+            if line:
+                output_lines.append(line)
+                last_output_time = time.time()
 
-        # Function to read stdout and stderr without blocking
-        def reader_thread(pipe: any, output_queue: any) -> None:
-            try:
-                for line in iter(pipe.readline, ""):
-                    output_queue.put(line)
-                    # Check for prompt patterns
-                    for pattern in compiled_patterns:
-                        if pattern.search(line):
-                            output_queue.put("INTERACTION_DETECTED")
-            finally:
-                pipe.close()
+            # If we see a clear pattern match, we plan to abort
+            exit_criteria = any(pattern.search(line) for pattern in compiled_patterns)
 
-        # Start threads to read stdout and stderr
-        stdout_thread = threading.Thread(target=reader_thread, args=(proc.stdout, stdout_queue))
-        stderr_thread = threading.Thread(target=reader_thread, args=(proc.stderr, stderr_queue))
-        stdout_thread.start()
-        stderr_thread.start()
-
-        # Collect output
-        output = ""
-        error = ""
-
-        # Initialize timer and recent lines list
-        last_line_time = time.time()
-        recent_lines = []
-
-        # Continuously read output
-        while True:
-            # Check if process has terminated
-            if proc.poll() is not None:
-                break
-
-            # Process output from stdout
-            try:
-                while True:
-                    line = stdout_queue.get_nowait()
-                    if line == "INTERACTION_DETECTED":
-                        return (
-                            "Command requires interactive input. If unclear, prompt user for required input "
-                            f"or ask to run outside of goose.\nOutput:\n{output}\nError:\n{error}"
-                        )
-
-                    else:
-                        output += line
-                        recent_lines.append(line)
-                        recent_lines = recent_lines[-10:]  # Keep only the last 10 lines
-                        last_line_time = time.time()  # Reset timer
-            except queue.Empty:
-                pass
-
-            # Process output from stderr
-            try:
-                while True:
-                    line = stderr_queue.get_nowait()
-                    if line == "INTERACTION_DETECTED":
-                        return (
-                            "Command requires interactive input. If unclear, prompt user for required input "
-                            f"or ask to run outside of goose.\nOutput:\n{output}\nError:\n{error}"
-                        )
-                    else:
-                        error += line
-                        recent_lines.append(line)
-                        recent_lines = recent_lines[-10:]  # Keep only the last 10 lines
-                        last_line_time = time.time()  # Reset timer
-            except queue.Empty:
-                pass
-
-            # Check if no new lines have been received for 10 seconds
-            if time.time() - last_line_time > 10:
-                # Call maybe_prompt with the last 2 to 10 recent lines
-                lines_to_check = recent_lines[-10:]
-                self.notifier.log(f"Still working\n{''.join(lines_to_check)}")
-                if not lines_to_check or len(recent_lines) == 0:
-                    lines_to_check = list(["busy..."])
+            # and if we haven't seen a new line in 10+s, check with AI to see if it may be stuck
+            if not exit_criteria and time.time() - last_output_time > cutoff:
+                self.notifier.status("checking on shell status")
                 response = ask_an_ai(
-                    input=("\n").join(lines_to_check),
-                    prompt="This looks to see if the lines provided from running a command are potentially waiting"
-                    + " for something, running a server or something that will not termiinate in a shell."
-                    + " Return [Yes], if so [No] otherwise.",
+                    input="\n".join([command] + output_lines),
+                    prompt=(
+                        "You will evaluate the output of shell commands to see if they may be stuck."
+                        " If the command appears to be awaiting user input, or otherwise running indefinitely (such as a web service)"
+                        " return [Yes] if so [No] otherwise."
+                    ),
                     exchange=self.exchange_view.accelerator,
+                    with_tools=False,
                 )
-                if response.content[0].text == "[Yes]":
-                    answer = (
-                        f"The command {command} looks to be a long running task. "
-                        f"Do not run it in goose but tell user to run it outside, "
-                        f"unless the user explicitly tells you to run it (and then, "
-                        f"remind them they will need to cancel it as long running)."
-                    )
-                    return answer
-                else:
-                    self.notifier.log(f"Will continue to run {command}")
+                exit_criteria = "[yes]" in response.content[0].text.lower()
+                # We add exponential backoff for how often we check for the command being stuck
+                cutoff *= 10
 
-                # Reset last_line_time to avoid repeated calls
-                last_line_time = time.time()
+            if exit_criteria:
+                proc.terminate()
+                raise ValueError(
+                    f"The command `{command}` looks like it will run indefinitely or is otherwise stuck."
+                    f"You may be able to specify inputs if it applies to this command."
+                    f"Otherwise to enable continued iteration, you'll need to ask the user to run this command in another terminal."
+                )
 
-            # Brief sleep to prevent high CPU usage
-            threading.Event().wait(0.1)
-
-        # Wait for process to complete
-        proc.wait()
-
-        # Ensure all output is read
-        stdout_thread.join()
-        stderr_thread.join()
-
-        # Retrieve any remaining output from queues
-        try:
-            while True:
-                line = stdout_queue.get_nowait()
-                output += line
-        except queue.Empty:
-            pass
-
-        try:
-            while True:
-                line = stderr_queue.get_nowait()
-                error += line
-        except queue.Empty:
-            pass
+        # read any remaining lines
+        while line := proc.stdout.readline():
+            output_lines.append(line)
+        output = "".join(output_lines)
 
         # Determine the result based on the return code
         if proc.returncode == 0:
@@ -321,7 +246,7 @@ class Developer(Toolkit):
             result = f"Command failed with returncode {proc.returncode}"
 
         # Return the combined result and outputs if we made it this far
-        return "\n".join([result, output, error])
+        return "\n".join([result, output])
 
     @tool
     def write_file(self, path: str, content: str) -> str:

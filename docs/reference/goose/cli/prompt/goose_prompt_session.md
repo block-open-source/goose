@@ -1,0 +1,1 @@
+::: goose.cli.prompt.goose_prompt_session

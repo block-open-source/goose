@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 import traceback
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -21,6 +22,7 @@ from goose.cli.config import (
 from goose.cli.prompt.goose_prompt_session import GoosePromptSession
 from goose.notifier import Notifier
 from goose.profile import Profile
+from goose.toolkit.language_servers.coordinator import LanguageServerCoordinator
 from goose.utils import droid, load_plugins
 from goose.utils.session_file import read_from_file, write_to_file
 
@@ -95,8 +97,9 @@ class Session:
         self.name = name
         self.status_indicator = Status("", spinner="dots")
         self.notifier = SessionNotifier(self.status_indicator)
+        self.profile = load_profile(profile)
 
-        self.exchange = build_exchange(profile=load_profile(profile), notifier=self.notifier)
+        self.exchange = build_exchange(profile=self.profile, notifier=self.notifier)
 
         if name is not None and self.session_file_path.exists():
             messages = self.load_session()
@@ -134,6 +137,12 @@ class Session:
         plan_tool_use = ToolUse(id="initialplan", name="update_plan", parameters=dict(tasks=tasks))
         self.exchange.add_tool_use(plan_tool_use)
 
+    def setup_language_server(self) -> None:
+        if "langserver" not in [t.name for t in self.profile.toolkits]:
+            return nullcontext
+
+        return LanguageServerCoordinator.get_instance().language_server_client.start_servers
+
     def process_first_message(self) -> Optional[Message]:
         # Get a first input unless it has been specified, such as by a plan
         if len(self.exchange.messages) == 0 or self.exchange.messages[-1].role == "assistant":
@@ -149,30 +158,31 @@ class Session:
         Continues until an empty string is returned from the prompt.
         """
         message = self.process_first_message()
-        while message:  # Loop until no input (empty string).
-            self.notifier.start()
-            try:
-                self.exchange.add(message)
-                self.reply()  # Process the user message.
-            except KeyboardInterrupt:
-                self.interrupt_reply()
-            except Exception:
-                # rewind to right before the last user message
-                self.exchange.rewind()
-                print(traceback.format_exc())
-                print(
-                    "\n[red]The error above was an exception we were not able to handle.\n\n[/]"
-                    + "These errors are often related to connection or authentication\n"
-                    + "We've removed the conversation up to the most recent user message"
-                    + " - [yellow]depending on the error you may be able to continue[/]"
-                )
-            self.notifier.stop()
+        with self.setup_language_server()() as _:
+            while message:  # Loop until no input (empty string).
+                self.notifier.start()
+                try:
+                    self.exchange.add(message)
+                    self.reply()  # Process the user message.
+                except KeyboardInterrupt:
+                    self.interrupt_reply()
+                except Exception:
+                    # rewind to right before the last user message
+                    self.exchange.rewind()
+                    print(traceback.format_exc())
+                    print(
+                        "\n[red]The error above was an exception we were not able to handle.\n\n[/]"
+                        + "These errors are often related to connection or authentication\n"
+                        + "We've removed the conversation up to the most recent user message"
+                        + " - [yellow]depending on the error you may be able to continue[/]"
+                    )
+                self.notifier.stop()
 
-            print()  # Print a newline for separation.
-            user_input = self.prompt_session.get_user_input()
-            message = Message.user(text=user_input.text) if user_input.to_continue() else None
+                print()  # Print a newline for separation.
+                user_input = self.prompt_session.get_user_input()
+                message = Message.user(text=user_input.text) if user_input.to_continue() else None
 
-        self.save_session()
+            self.save_session()
 
     def reply(self) -> None:
         """Reply to the last user message, calling tools as needed

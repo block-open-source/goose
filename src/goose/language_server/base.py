@@ -13,7 +13,7 @@ import os
 import pathlib
 from contextlib import asynccontextmanager, contextmanager
 from goose.language_server.core.lsp_constants import LSPConstants
-import goose.language_server.core.lsp_types as LSPTypes
+from goose.language_server.core import lsp_types
 
 import goose.language_server.types as multilspy_types
 from goose.language_server.logger import MultilspyLogger
@@ -356,7 +356,7 @@ class LanguageServer(ABC):
                 # TODO: l_tree should be a list of TreeRepr. Define the following function to return TreeRepr as well
 
                 def visit_tree_nodes_and_build_tree_repr(
-                    tree: LSPTypes.DocumentSymbol,
+                    tree: lsp_types.DocumentSymbol,
                 ) -> List[multilspy_types.UnifiedSymbolInformation]:
                     l: List[multilspy_types.UnifiedSymbolInformation] = []
                     children = tree["children"] if "children" in tree else []

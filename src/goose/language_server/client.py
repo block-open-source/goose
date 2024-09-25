@@ -30,8 +30,9 @@ def langserver_request(func: Callable[[T, Any], Any]) -> Callable[[T, Any], Any]
 @ensure_all_methods_implemented(LanguageServer)
 class LanguageServerClient:
     """
-    The SyncLanguageServer class provides a language-agnostic interface to the Language Server Protocol.
-    It communicates with Language Servers for different programming languages.
+    The LanguageServerClient class provides a language-agnostic interface to locally runnin
+    Language Servers for different programming languages. It is implemented as a singleton,
+    as we only support running one instance of each programming language.
     """
 
     def __init__(self) -> None:

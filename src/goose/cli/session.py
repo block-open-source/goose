@@ -138,7 +138,7 @@ class Session:
         self.exchange.add_tool_use(plan_tool_use)
 
     def setup_language_server(self) -> None:
-        if "langserver" not in [t.name for t in self.profile.toolkits]:
+        if "language_server" not in [t.name for t in self.profile.toolkits]:
             return nullcontext
 
         return LanguageServerCoordinator.get_instance().language_server_client.start_servers

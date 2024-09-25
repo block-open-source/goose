@@ -5,14 +5,14 @@ from contextlib import contextmanager
 
 from goose.language_server.base import LanguageServer
 from goose.language_server.type_helpers import ensure_all_methods_implemented
-import goose.language_server.types as langserver_types
+import goose.language_server.types as language_server_types
 from goose.utils.language import Language
 from typing import Any, Callable, Iterator, List, Tuple, TypeVar, Union
 
 T = TypeVar("T")
 
 
-def langserver_request(func: Callable[[T, Any], Any]) -> Callable[[T, Any], Any]:
+def language_server_request(func: Callable[[T, Any], Any]) -> Callable[[T, Any], Any]:
     def wrapper(self: "LanguageServerClient", file_path: str, line: int, column: int) -> List[T]:
         language = Language.from_file_path(file_path)
         for language_server in self.language_servers[language]:
@@ -101,10 +101,10 @@ class LanguageServerClient:
         with self.language_server.open_file(relative_file_path):
             yield
 
-    @langserver_request
+    @language_server_request
     def request_definition(
         self, language_server: LanguageServer, file_path: str, line: int, column: int
-    ) -> List[langserver_types.Location]:
+    ) -> List[language_server_types.Location]:
         """
         Request definition from a specific language server.
 
@@ -118,10 +118,10 @@ class LanguageServerClient:
         """
         return language_server.request_definition(file_path, line, column)
 
-    @langserver_request
+    @language_server_request
     def request_references(
         self, language_server: LanguageServer, file_path: str, line: int, column: int
-    ) -> List[langserver_types.Location]:
+    ) -> List[language_server_types.Location]:
         """
         Request references from a specific language server.
         Args:
@@ -133,10 +133,10 @@ class LanguageServerClient:
         """
         return language_server.request_references(file_path, line, column)
 
-    @langserver_request
+    @language_server_request
     def request_hover(
         self, language_server: LanguageServer, file_path: str, line: int, column: int
-    ) -> Union[langserver_types.Hover, None]:
+    ) -> Union[language_server_types.Hover, None]:
         """
         Request hover information from a specific language server.
         Args:
@@ -148,10 +148,10 @@ class LanguageServerClient:
         """
         return language_server.hover(file_path, line, column)
 
-    @langserver_request
+    @language_server_request
     def request_document_symbols(
         self, language_server: LanguageServer, file_path: str
-    ) -> Tuple[List[langserver_types.UnifiedSymbolInformation], Union[List[langserver_types.TreeRepr], None]]:
+    ) -> Tuple[List[language_server_types.UnifiedSymbolInformation], Union[List[language_server_types.TreeRepr], None]]:
         """
         Request document symbols from a specific language server.
         Args:

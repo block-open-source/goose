@@ -7,7 +7,7 @@ from typing import Type
 
 
 @dataclass
-class LangServerConfig:
+class LanguageServerConfig:
     """
     Configuration parameters
     """
@@ -15,9 +15,9 @@ class LangServerConfig:
     trace_lsp_communication: bool = False
 
     @classmethod
-    def from_dict(cls: Type["LangServerConfig"], env: dict) -> "LangServerConfig":
+    def from_dict(cls: Type["LanguageServerConfig"], env: dict) -> "LanguageServerConfig":
         """
-        Create a LangServerConfig instance from a dictionary
+        Create a LanguageServerConfig instance from a dictionary
         """
         import inspect
 

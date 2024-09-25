@@ -14,7 +14,7 @@ from goose.language_server.logger import LanguageServerLogger
 from goose.language_server.base import LanguageServer
 from goose.language_server.core.server import ProcessLaunchInfo
 from goose.language_server.core.lsp_types import InitializeParams
-from goose.language_server.config import LangServerConfig
+from goose.language_server.config import LanguageServerConfig
 from goose.utils.language import Language
 
 
@@ -43,7 +43,7 @@ class JediServer(LanguageServer):
 
     @classmethod
     def from_env(
-        cls: Type["JediServer"], config: LangServerConfig, logger: LanguageServerLogger, **kwargs: dict
+        cls: Type["JediServer"], config: LanguageServerConfig, logger: LanguageServerLogger, **kwargs: dict
     ) -> "JediServer":
         config_file_path = os.environ.get("JEDI_LANGUAGE_SERVER_CONFIG_PATH", None)
         if config_file_path:
@@ -138,7 +138,7 @@ if __name__ == "__main__":
 
     async def run_server() -> None:
         ls = JediServer.from_env(
-            LangServerConfig(trace_lsp_communication=True),
+            LanguageServerConfig(trace_lsp_communication=True),
             LanguageServerLogger(),
         )
         ls.start_server()

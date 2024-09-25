@@ -22,7 +22,7 @@ from goose.cli.config import (
 from goose.cli.prompt.goose_prompt_session import GoosePromptSession
 from goose.notifier import Notifier
 from goose.profile import Profile
-from goose.toolkit.language_servers.coordinator import LanguageServerCoordinator
+from goose.toolkit.language_server import LanguageServerCoordinator
 from goose.utils import droid, load_plugins
 from goose.utils.session_file import read_from_file, write_to_file
 

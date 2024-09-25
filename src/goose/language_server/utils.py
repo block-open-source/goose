@@ -6,8 +6,6 @@ import logging
 import os
 from typing import Tuple
 
-from enum import Enum
-
 from goose.language_server.core.exception import LanguageServerError
 from goose.language_server.logger import LanguageServerLogger
 
@@ -22,18 +20,18 @@ class TextUtils:
         """
         Returns the zero-indexed line and column number of the given index in the given text
         """
-        l = 0
-        c = 0
+        line_num = 0
+        col_num = 0
         idx = 0
         while idx < index:
             if text[idx] == "\n":
-                l += 1
-                c = 0
+                line_num += 1
+                col_num = 0
             else:
-                c += 1
+                col_num += 1
             idx += 1
 
-        return l, c
+        return line_num, col_num
 
     @staticmethod
     def get_index_from_line_col(text: str, line: int, col: int) -> int:
@@ -50,17 +48,19 @@ class TextUtils:
         return idx
 
     @staticmethod
-    def get_updated_position_from_line_and_column_and_edit(l: int, c: int, text_to_be_inserted: str) -> Tuple[int, int]:
+    def get_updated_position_from_line_and_column_and_edit(
+        line_num: int, col_num: int, text_to_be_inserted: str
+    ) -> Tuple[int, int]:
         """
         Utility function to get the position of the cursor after inserting text at a given line and column.
         """
         num_newlines_in_gen_text = text_to_be_inserted.count("\n")
         if num_newlines_in_gen_text > 0:
-            l += num_newlines_in_gen_text
-            c = len(text_to_be_inserted.split("\n")[-1])
+            line_num += num_newlines_in_gen_text
+            col_num = len(text_to_be_inserted.split("\n")[-1])
         else:
-            c += len(text_to_be_inserted)
-        return (l, c)
+            col_num += len(text_to_be_inserted)
+        return (line_num, col_num)
 
 
 class PathUtils:

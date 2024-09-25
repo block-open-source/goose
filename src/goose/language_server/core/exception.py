@@ -1,11 +1,11 @@
 """
-This module contains the exceptions raised by the Multilspy framework.
+This module contains the exceptions raised by the Language Server framework.
 """
 
 
 class LanguageServerError(Exception):
     """
-    Exceptions raised by the Multilspy framework.
+    Exceptions raised by the Language Server framework.
     """
 
     def __init__(self, message: str) -> None:

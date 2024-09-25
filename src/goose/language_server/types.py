@@ -1,5 +1,6 @@
 """
-Defines wrapper objects around the types returned by LSP to ensure decoupling between LSP versions and multilspy
+Defines wrapper objects around the types returned by LSP to ensure decoupling
+between LSP versions and our implementation.
 """
 
 from __future__ import annotations

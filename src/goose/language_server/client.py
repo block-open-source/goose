@@ -5,7 +5,7 @@ from contextlib import contextmanager
 
 from goose.language_server.base import LanguageServer
 from goose.language_server.type_helpers import ensure_all_methods_implemented
-import goose.language_server.types as multilspy_types
+import goose.language_server.types as langserver_types
 from goose.language_server.config import Language
 from typing import Any, Callable, Iterator, List, Tuple, TypeVar, Union
 
@@ -104,7 +104,7 @@ class LanguageServerClient:
     @langserver_request
     def request_definition(
         self, language_server: LanguageServer, file_path: str, line: int, column: int
-    ) -> List[multilspy_types.Location]:
+    ) -> List[langserver_types.Location]:
         """
         Request definition from a specific language server.
 
@@ -121,7 +121,7 @@ class LanguageServerClient:
     @langserver_request
     def request_references(
         self, language_server: LanguageServer, file_path: str, line: int, column: int
-    ) -> List[multilspy_types.Location]:
+    ) -> List[langserver_types.Location]:
         """
         Request references from a specific language server.
         Args:
@@ -136,7 +136,7 @@ class LanguageServerClient:
     @langserver_request
     def request_hover(
         self, language_server: LanguageServer, file_path: str, line: int, column: int
-    ) -> Union[multilspy_types.Hover, None]:
+    ) -> Union[langserver_types.Hover, None]:
         """
         Request hover information from a specific language server.
         Args:
@@ -151,7 +151,7 @@ class LanguageServerClient:
     @langserver_request
     def request_document_symbols(
         self, language_server: LanguageServer, file_path: str
-    ) -> Tuple[List[multilspy_types.UnifiedSymbolInformation], Union[List[multilspy_types.TreeRepr], None]]:
+    ) -> Tuple[List[langserver_types.UnifiedSymbolInformation], Union[List[langserver_types.TreeRepr], None]]:
         """
         Request document symbols from a specific language server.
         Args:

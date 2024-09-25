@@ -1,5 +1,5 @@
 """
-This module provides type-helpers used across multilspy implementation
+This module provides type-helpers used across our language server implementation
 """
 
 import inspect

@@ -6,8 +6,6 @@ import logging
 import os
 from typing import Tuple
 
-import platform
-import subprocess
 from enum import Enum
 
 from goose.language_server.core.exception import LanguageServerError
@@ -112,90 +110,3 @@ class FileUtils:
             raise LanguageServerError("File read failed.") from None
         logger.log(f"File read '{file_path}' failed: Unsupported encoding.", logging.ERROR)
         raise LanguageServerError(f"File read '{file_path}' failed: Unsupported encoding.") from None
-
-
-class PlatformId(str, Enum):
-    """
-    multilspy supported platforms
-    """
-
-    WIN_x86 = "win-x86"
-    WIN_x64 = "win-x64"
-    WIN_arm64 = "win-arm64"
-    OSX = "osx"
-    OSX_x64 = "osx-x64"
-    OSX_arm64 = "osx-arm64"
-    LINUX_x86 = "linux-x86"
-    LINUX_x64 = "linux-x64"
-    LINUX_arm64 = "linux-arm64"
-    LINUX_MUSL_x64 = "linux-musl-x64"
-    LINUX_MUSL_arm64 = "linux-musl-arm64"
-
-
-class DotnetVersion(str, Enum):
-    """
-    multilspy supported dotnet versions
-    """
-
-    V4 = "4"
-    V6 = "6"
-    V7 = "7"
-    V8 = "8"
-    VMONO = "mono"
-
-
-class PlatformUtils:
-    """
-    This class provides utilities for platform detection and identification.
-    """
-
-    @staticmethod
-    def get_platform_id() -> PlatformId:
-        """
-        Returns the platform id for the current system
-        """
-        system = platform.system()
-        machine = platform.machine()
-        bitness = platform.architecture()[0]
-        system_map = {"Windows": "win", "Darwin": "osx", "Linux": "linux"}
-        machine_map = {"AMD64": "x64", "x86_64": "x64", "i386": "x86", "i686": "x86", "aarch64": "arm64"}
-        if system in system_map and machine in machine_map:
-            platform_id = system_map[system] + "-" + machine_map[machine]
-            if system == "Linux" and bitness == "64bit":
-                libc = platform.libc_ver()[0]
-                if libc != "glibc":
-                    platform_id += "-" + libc
-            return PlatformId(platform_id)
-        else:
-            raise LanguageServerError("Unknown platform: " + system + " " + machine + " " + bitness)
-
-    @staticmethod
-    def get_dotnet_version() -> DotnetVersion:
-        """
-        Returns the dotnet version for the current system
-        """
-        try:
-            result = subprocess.run(["dotnet", "--list-runtimes"], capture_output=True, check=True)
-            version = ""
-            for line in result.stdout.decode("utf-8").split("\n"):
-                if line.startswith("Microsoft.NETCore.App"):
-                    version = line.split(" ")[1]
-                    break
-            if version == "":
-                raise LanguageServerError("dotnet not found on the system")
-            if version.startswith("8"):
-                return DotnetVersion.V8
-            elif version.startswith("7"):
-                return DotnetVersion.V7
-            elif version.startswith("6"):
-                return DotnetVersion.V6
-            elif version.startswith("4"):
-                return DotnetVersion.V4
-            else:
-                raise LanguageServerError("Unknown dotnet version: " + version)
-        except subprocess.CalledProcessError:
-            try:
-                result = subprocess.run(["mono", "--version"], capture_output=True, check=True)
-                return DotnetVersion.VMONO
-            except subprocess.CalledProcessError:
-                raise LanguageServerError("dotnet or mono not found on the system")

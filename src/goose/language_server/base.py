@@ -1,8 +1,6 @@
 """
-This file contains the main interface and the public API for multilspy.
-The abstract class LanguageServer provides a factory method, creator that is
-intended for creating instantiations of language specific clients.
-The details of Language Specific configuration are not exposed to the user.
+This file contains the main interface and the public API for a language server.
+The details of language-specific configuration are not exposed to the user.
 """
 
 from abc import ABC, abstractmethod
@@ -15,14 +13,14 @@ from contextlib import asynccontextmanager, contextmanager
 from goose.language_server.core.lsp_constants import LSPConstants
 from goose.language_server.core import lsp_types
 
-import goose.language_server.types as multilspy_types
+import goose.language_server.types as langserver_types
 from goose.language_server.logger import LanguageServerLogger
 from goose.language_server.core.server import (
     LanguageServerHandler,
     ProcessLaunchInfo,
 )
 from goose.language_server.core.exception import LanguageServerError
-from goose.language_server.config import MultilspyConfig
+from goose.language_server.config import LangServerConfig
 from goose.language_server.utils import PathUtils, FileUtils
 from pathlib import PurePath
 from typing import AsyncIterator, Iterator, List, Dict, Type, Union, Tuple
@@ -59,7 +57,7 @@ class LanguageServer(ABC):
     @classmethod
     @abstractmethod
     def from_env(
-        cls: Type["LanguageServer"], config: MultilspyConfig, logger: LanguageServerLogger, **kwargs: dict
+        cls: Type["LanguageServer"], config: LangServerConfig, logger: LanguageServerLogger, **kwargs: dict
     ) -> "LanguageServer":
         pass
 
@@ -88,7 +86,7 @@ class LanguageServer(ABC):
 
     def __init__(
         self,
-        config: MultilspyConfig,
+        config: LangServerConfig,
         logger: LanguageServerLogger,
         repository_root_path: str,
         process_launch_info: ProcessLaunchInfo,
@@ -100,13 +98,14 @@ class LanguageServer(ABC):
 
         Do not instantiate this class directly. Use `LanguageServer.create` method instead.
 
-        :param config: The Multilspy configuration.
-        :param logger: The logger to use.
-        :param repository_root_path: The root path of the repository.
-        :param cmd: Each language server has a specific command used to start the server.
-                    This parameter is the command to launch the language server process.
-                    The command must pass appropriate flags to the binary, so that it runs in the stdio mode,
-                    as opposed to HTTP, TCP modes supported by some language servers.
+        Args:
+            config: The language server configuration.
+            logger: The logger to use.
+            repository_root_path: The root path of the repository.
+            cmd: Each language server has a specific command used to start the server.
+                This parameter is the command to launch the language server process.
+                The command must pass appropriate flags to the binary, so that it runs in the stdio mode,
+                as opposed to HTTP, TCP modes supported by some language servers.
         """
         if type(self) == LanguageServer:
             raise LanguageServerError(
@@ -143,7 +142,8 @@ class LanguageServer(ABC):
         """
         Open a file in the Language Server. This is required before making any requests to the Language Server.
 
-        :param relative_file_path: The relative path of the file to open.
+        Args:
+            relative_file_path: The relative path of the file to open.
         """
         if not self.server_started:
             self.logger.log(
@@ -193,16 +193,18 @@ class LanguageServer(ABC):
 
     async def request_definition(
         self, relative_file_path: str, line: int, column: int
-    ) -> List[multilspy_types.Location]:
+    ) -> List[langserver_types.Location]:
         """
         Raise a [textDocument/definition](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_definition) request to the Language Server
         for the symbol at the given line and column in the given file. Wait for the response and return the result.
 
-        :param relative_file_path: The relative path of the file that has the symbol for which definition should be looked up
-        :param line: The line number of the symbol
-        :param column: The column number of the symbol
+        Args:
+            relative_file_path: The relative path of the file that has the symbol for which definition should be looked up
+            line: The line number of the symbol
+            column: The column number of the symbol
 
-        :return List[multilspy_types.Location]: A list of locations where the symbol is defined
+        Returns:
+            List[Location]: A list of locations where the symbol is defined
         """
 
         if not self.server_started:
@@ -228,33 +230,33 @@ class LanguageServer(ABC):
                 }
             )
 
-        ret: List[multilspy_types.Location] = []
+        ret: List[langserver_types.Location] = []
         if isinstance(response, list):
             # response is either of type Location[] or LocationLink[]
             for item in response:
                 assert isinstance(item, dict)
                 if LSPConstants.URI in item and LSPConstants.RANGE in item:
-                    new_item: multilspy_types.Location = {}
+                    new_item: langserver_types.Location = {}
                     new_item.update(item)
                     new_item["absolutePath"] = PathUtils.uri_to_path(new_item["uri"])
                     new_item["relativePath"] = str(
                         PurePath(os.path.relpath(new_item["absolutePath"], self.repository_root_path))
                     )
-                    ret.append(multilspy_types.Location(new_item))
+                    ret.append(langserver_types.Location(new_item))
                 elif (
                     LSPConstants.ORIGIN_SELECTION_RANGE in item
                     and LSPConstants.TARGET_URI in item
                     and LSPConstants.TARGET_RANGE in item
                     and LSPConstants.TARGET_SELECTION_RANGE in item
                 ):
-                    new_item: multilspy_types.Location = {}
+                    new_item: langserver_types.Location = {}
                     new_item["uri"] = item[LSPConstants.TARGET_URI]
                     new_item["absolutePath"] = PathUtils.uri_to_path(new_item["uri"])
                     new_item["relativePath"] = str(
                         PurePath(os.path.relpath(new_item["absolutePath"], self.repository_root_path))
                     )
                     new_item["range"] = item[LSPConstants.TARGET_SELECTION_RANGE]
-                    ret.append(multilspy_types.Location(**new_item))
+                    ret.append(langserver_types.Location(**new_item))
                 else:
                     assert False, f"Unexpected response from Language Server: {item}"
         elif isinstance(response, dict):
@@ -262,13 +264,13 @@ class LanguageServer(ABC):
             assert LSPConstants.URI in response
             assert LSPConstants.RANGE in response
 
-            new_item: multilspy_types.Location = {}
+            new_item: langserver_types.Location = {}
             new_item.update(response)
             new_item["absolutePath"] = PathUtils.uri_to_path(new_item["uri"])
             new_item["relativePath"] = str(
                 PurePath(os.path.relpath(new_item["absolutePath"], self.repository_root_path))
             )
-            ret.append(multilspy_types.Location(**new_item))
+            ret.append(langserver_types.Location(**new_item))
         else:
             assert False, f"Unexpected response from Language Server: {response}"
 
@@ -276,16 +278,18 @@ class LanguageServer(ABC):
 
     async def request_references(
         self, relative_file_path: str, line: int, column: int
-    ) -> List[multilspy_types.Location]:
+    ) -> List[langserver_types.Location]:
         """
         Raise a [textDocument/references](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_references) request to the Language Server
         to find references to the symbol at the given line and column in the given file. Wait for the response and return the result.
 
-        :param relative_file_path: The relative path of the file that has the symbol for which references should be looked up
-        :param line: The line number of the symbol
-        :param column: The column number of the symbol
+        Args:
+            relative_file_path: The relative path of the file that has the symbol for which references should found
+            line: The line number of the symbol
+            column: The column number of the symbol
 
-        :return List[multilspy_types.Location]: A list of locations where the symbol is referenced
+        Returns:
+            List[Location]: A list of locations where the symbol is referenced
         """
 
         if not self.server_started:
@@ -307,33 +311,36 @@ class LanguageServer(ABC):
                 }
             )
 
-        ret: List[multilspy_types.Location] = []
+        ret: List[langserver_types.Location] = []
         assert isinstance(response, list)
         for item in response:
             assert isinstance(item, dict)
             assert LSPConstants.URI in item
             assert LSPConstants.RANGE in item
 
-            new_item: multilspy_types.Location = {}
+            new_item: langserver_types.Location = {}
             new_item.update(item)
             new_item["absolutePath"] = PathUtils.uri_to_path(new_item["uri"])
             new_item["relativePath"] = str(
                 PurePath(os.path.relpath(new_item["absolutePath"], self.repository_root_path))
             )
-            ret.append(multilspy_types.Location(**new_item))
+            ret.append(langserver_types.Location(**new_item))
 
         return ret
 
     async def request_document_symbols(
         self, relative_file_path: str
-    ) -> Tuple[List[multilspy_types.UnifiedSymbolInformation], Union[List[multilspy_types.TreeRepr], None]]:
+    ) -> Tuple[List[langserver_types.UnifiedSymbolInformation], Union[List[langserver_types.TreeRepr], None]]:
         """
         Raise a [textDocument/documentSymbol](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_documentSymbol) request to the Language Server
         to find symbols in the given file. Wait for the response and return the result.
 
-        :param relative_file_path: The relative path of the file that has the symbols
+        Args:
+            relative_file_path: The relative path of the file that has the symbols
 
-        :return Tuple[List[multilspy_types.UnifiedSymbolInformation], Union[List[multilspy_types.TreeRepr], None]]: A list of symbols in the file, and the tree representation of the symbols
+        Returns:
+            Tuple[List[UnifiedSymbolInformation], Union[List[TreeRepr], None]]:
+                A list of symbols in the file, and the tree representation of the symbols
         """
         with self.open_file(relative_file_path):
             response = await self.server.send.document_symbol(
@@ -344,7 +351,7 @@ class LanguageServer(ABC):
                 }
             )
 
-        ret: List[multilspy_types.UnifiedSymbolInformation] = []
+        ret: List[langserver_types.UnifiedSymbolInformation] = []
         l_tree = None
         assert isinstance(response, list)
         for item in response:
@@ -357,34 +364,33 @@ class LanguageServer(ABC):
 
                 def visit_tree_nodes_and_build_tree_repr(
                     tree: lsp_types.DocumentSymbol,
-                ) -> List[multilspy_types.UnifiedSymbolInformation]:
-                    l: List[multilspy_types.UnifiedSymbolInformation] = []
+                ) -> List[langserver_types.UnifiedSymbolInformation]:
+                    l: List[langserver_types.UnifiedSymbolInformation] = []
                     children = tree["children"] if "children" in tree else []
                     if "children" in tree:
                         del tree["children"]
-                    l.append(multilspy_types.UnifiedSymbolInformation(**tree))
+                    l.append(langserver_types.UnifiedSymbolInformation(**tree))
                     for child in children:
                         l.extend(visit_tree_nodes_and_build_tree_repr(child))
                     return l
 
                 ret.extend(visit_tree_nodes_and_build_tree_repr(item))
             else:
-                ret.append(multilspy_types.UnifiedSymbolInformation(**item))
+                ret.append(langserver_types.UnifiedSymbolInformation(**item))
 
         return ret, l_tree
 
     async def request_hover(
         self, relative_file_path: str, line: int, column: int
-    ) -> Union[multilspy_types.Hover, None]:
+    ) -> Union[langserver_types.Hover, None]:
         """
         Raise a [textDocument/hover](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_hover) request to the Language Server
         to find the hover information at the given line and column in the given file. Wait for the response and return the result.
 
-        :param relative_file_path: The relative path of the file that has the hover information
-        :param line: The line number of the symbol
-        :param column: The column number of the symbol
-
-        :return None
+        Args:
+            relative_file_path: The relative path of the file that has the hover information
+            line: The line number of the symbol
+            column: The column number of the symbol
         """
         with self.open_file(relative_file_path):
             response = await self.server.send.hover(
@@ -404,4 +410,4 @@ class LanguageServer(ABC):
 
         assert isinstance(response, dict)
 
-        return multilspy_types.Hover(**response)
+        return langserver_types.Hover(**response)

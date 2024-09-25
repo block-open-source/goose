@@ -1,5 +1,5 @@
 """
-Configuration parameters for Multilspy.
+Configuration parameters for a language server.
 """
 
 from enum import Enum
@@ -9,7 +9,8 @@ from typing import Type
 
 class Language(str, Enum):
     """
-    Possible languages with Multilspy.
+    TODO: remove this
+    Possible languages supported by registered language servers.
     """
 
     CSHARP = "csharp"
@@ -41,7 +42,7 @@ class Language(str, Enum):
 
 
 @dataclass
-class MultilspyConfig:
+class LangServerConfig:
     """
     Configuration parameters
     """
@@ -49,9 +50,9 @@ class MultilspyConfig:
     trace_lsp_communication: bool = False
 
     @classmethod
-    def from_dict(cls: Type["MultilspyConfig"], env: dict) -> "MultilspyConfig":
+    def from_dict(cls: Type["LangServerConfig"], env: dict) -> "LangServerConfig":
         """
-        Create a MultilspyConfig instance from a dictionary
+        Create a LangServerConfig instance from a dictionary
         """
         import inspect
 

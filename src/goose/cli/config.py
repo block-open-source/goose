@@ -45,8 +45,9 @@ def ensure_config(name: Optional[str]) -> Tuple[str, Profile]:
     name = name or default_profile_name
     default_profiles_dict = default_profiles()
     provider, processor, accelerator = default_model_configuration()
-    default_profile = default_profiles_dict.get(
-        name, default_profiles_dict[default_profile_name])(provider, processor, accelerator)
+    default_profile = default_profiles_dict.get(name, default_profiles_dict[default_profile_name])(
+        provider, processor, accelerator
+    )
 
     if not PROFILES_CONFIG_PATH.exists():
         print(

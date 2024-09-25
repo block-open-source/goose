@@ -33,7 +33,7 @@ def test_ensure_config_create_profiles_file_with_default_profile_with_name_defau
 ):
     assert not mock_profile_config_path.exists()
 
-    (profile_name, profile) = ensure_config(name = None)
+    (profile_name, profile) = ensure_config(name=None)
 
     expected_profile = default_profile(*mock_default_model_configuration())
 
@@ -41,6 +41,7 @@ def test_ensure_config_create_profiles_file_with_default_profile_with_name_defau
     assert profile == expected_profile
     assert mock_profile_config_path.exists()
     assert read_config() == {"default": expected_profile}
+
 
 def test_ensure_config_create_profiles_file_with_default_profile_with_profile_name(
     mock_profile_config_path, mock_default_model_configuration
@@ -56,7 +57,10 @@ def test_ensure_config_create_profiles_file_with_default_profile_with_profile_na
     assert mock_profile_config_path.exists()
     assert read_config() == {"my_profile": expected_profile}
 
-def test_ensure_config_add_default_profile_when_profile_not_exist(mock_profile_config_path, profile_factory, mock_default_model_configuration):
+
+def test_ensure_config_add_default_profile_when_profile_not_exist(
+    mock_profile_config_path, profile_factory, mock_default_model_configuration
+):
     existing_profile = profile_factory({"provider": "providerA"})
     write_config({"profile1": existing_profile})
 
@@ -70,7 +74,10 @@ def test_ensure_config_add_default_profile_when_profile_not_exist(mock_profile_c
         "my_new_profile": expected_profile,
     }
 
-def test_ensure_config_get_existing_profile_not_exist(mock_profile_config_path, profile_factory, mock_default_model_configuration):
+
+def test_ensure_config_get_existing_profile_not_exist(
+    mock_profile_config_path, profile_factory, mock_default_model_configuration
+):
     existing_profile = profile_factory({"provider": "providerA"})
     write_config({"profile1": existing_profile})
 
@@ -81,6 +88,7 @@ def test_ensure_config_get_existing_profile_not_exist(mock_profile_config_path, 
     assert read_config() == {
         "profile1": existing_profile,
     }
+
 
 def test_session_path(mock_sessions_path):
     assert session_path("session1") == mock_sessions_path / "session1.jsonl"

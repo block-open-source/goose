@@ -41,7 +41,7 @@ class Profile:
 
     def profile_info(self) -> str:
         tookit_names = [toolkit.name for toolkit in self.toolkits]
-        return f"provider:{self.provider}, processor:{self.processor} toolkits: {", ".join(tookit_names)}"
+        return f"provider:{self.provider}, processor:{self.processor} toolkits: {', '.join(tookit_names)}"
 
 
 def default_profile(provider: str, processor: str, accelerator: str, **kwargs: Dict[str, Any]) -> Profile:

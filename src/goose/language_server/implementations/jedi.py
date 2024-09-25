@@ -14,7 +14,8 @@ from goose.language_server.logger import LanguageServerLogger
 from goose.language_server.base import LanguageServer
 from goose.language_server.core.server import ProcessLaunchInfo
 from goose.language_server.core.lsp_types import InitializeParams
-from goose.language_server.config import Language, LangServerConfig
+from goose.language_server.config import LangServerConfig
+from goose.utils.language import Language
 
 
 def build_initialize_params(config_preset: dict, repository_absolute_path: str) -> InitializeParams:

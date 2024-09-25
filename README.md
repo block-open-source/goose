@@ -17,11 +17,26 @@ goose
 <a href="#open-source">Open Source</a>
 </p>
 
-`goose` assists in solving a wide range of programming and operational tasks. It is a live virtual developer you can interact with, guide, and learn from.
+`goose` is a developer agent that runs on your machine, in your terminal or in your IDE. 
+It can take on tasks with your direction, and the make changes, write code, run code, take action. 
+
+Some ideas:
+* Have goose write a brand new app
+* Ask goose to go through a backlog (in JIRA) and find things it can fix and open PRs
+* Write code, run tests, iterate until it solves the problem (by running tests, executing code, self correcting as it goes)
+
+<table>
+  <tr>
+    <td><img width="1725" alt="IDE view" src="https://github.com/user-attachments/assets/a18751e8-06c8-4366-a9d2-1e34a75a48a3"></td>
+    <td>
+      <img src="https://github.com/user-attachments/assets/4f41ce0d-8e55-4652-ab49-0211ac23e132"/><br/>
+      <img src="https://github.com/user-attachments/assets/cf81140c-8b37-4556-9213-849ab323dc04"/>
+    </td>
+  </tr>
+</table>
+ 
 
 To solve problems, `goose` breaks down instructions into sequences of tasks and carries them out using tools. Its ability to connect its changes with real outcomes (e.g. errors) and course correct is its most powerful and exciting feature. `goose` is free open source software and is built to be extensible and customizable.
-
-![goose_demo](https://github.com/user-attachments/assets/0794eaba-97ab-40ef-af64-6fc7f68eb8e2)
 
 
 

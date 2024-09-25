@@ -1103,7 +1103,7 @@
 <p>Plugins added directly to Goose are subject to rigorous review. This is because they are part of the core system and need to meet higher standards for stability, performance, and maintainability, often being validated through benchmarking.</p>
 <p><strong>When to Add to <code>goose-plugins</code>:</strong></p>
 <p>Plugins in <code>goose-plugins</code> undergo less detailed reviews and are more modular or experimental. They can prove their value through usage or iteration over time and may be eventually moved over to Goose.</p>
-<p>To see how to add a toolkit, see the [toolkits documentation][adding-toolkit].</p>
+<p>To see how to add a toolkit, see the <a href="docs/configuration.md#adding-a-toolkit">toolkits documentation</a>.</p>
 <h3 id="running-tests">Running tests<a class="headerlink" href="#running-tests" title="Permanent link">&para;</a></h3>
 <div class="language-sh highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;not integration&quot;</span>
 </span></code></pre></div>
@@ -1157,7 +1157,6 @@
 <p>Additions to the <a href="src/goose/toolkit/developer.py">developer toolkit</a> change the core performance, and so will need to be measured carefully.</p>
 <h2 id="conventional-commits">Conventional Commits<a class="headerlink" href="#conventional-commits" title="Permanent link">&para;</a></h2>
 <p>This project follows the <a href="https://www.conventionalcommits.org/en/v1.0.0/">Conventional Commits</a> specification for PR titles. Conventional Commits make it easier to understand the history of a project and facilitate automation around versioning and changelog generation.</p>
-<p><a href="docs/configuration.md#adding-a-toolkit">adding-toolkit</a></p>
 
 
 

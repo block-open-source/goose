@@ -1,5 +1,5 @@
 """
-Multilspy logger module.
+Language Server logger module.
 """
 
 import inspect
@@ -12,7 +12,7 @@ from dataclasses import dataclass
 @dataclass
 class LogLine:
     """
-    Represents a line in the Multilspy log
+    Represents a line in the Language Server log
     """
 
     time: str
@@ -37,13 +37,13 @@ class LogLine:
         }
 
 
-class MultilspyLogger:
+class LanguageServerLogger:
     """
     Logger class
     """
 
     def __init__(self) -> None:
-        self.logger = logging.getLogger("multilspy")
+        self.logger = logging.getLogger("language_server")
         self.logger.setLevel(logging.INFO)
 
     def log(self, debug_message: str, level: int, sanitized_error_message: str = "") -> None:

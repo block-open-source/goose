@@ -11,7 +11,7 @@ import subprocess
 from enum import Enum
 
 from goose.language_server.core.exception import LanguageServerError
-from goose.language_server.logger import MultilspyLogger
+from goose.language_server.logger import LanguageServerLogger
 
 
 class TextUtils:
@@ -95,7 +95,7 @@ class FileUtils:
     """
 
     @staticmethod
-    def read_file(logger: MultilspyLogger, file_path: str) -> str:
+    def read_file(logger: LanguageServerLogger, file_path: str) -> str:
         """
         Reads the file at the given path and returns the contents as a string.
         """

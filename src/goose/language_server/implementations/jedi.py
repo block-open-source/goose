@@ -10,7 +10,7 @@ import pathlib
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, List, Type
 
-from goose.language_server.logger import MultilspyLogger
+from goose.language_server.logger import LanguageServerLogger
 from goose.language_server.base import LanguageServer
 from goose.language_server.core.server import ProcessLaunchInfo
 from goose.language_server.core.lsp_types import InitializeParams
@@ -42,7 +42,7 @@ class JediServer(LanguageServer):
 
     @classmethod
     def from_env(
-        cls: Type["JediServer"], config: MultilspyConfig, logger: MultilspyLogger, **kwargs: dict
+        cls: Type["JediServer"], config: MultilspyConfig, logger: LanguageServerLogger, **kwargs: dict
     ) -> "JediServer":
         config_file_path = os.environ.get("JEDI_LANGUAGE_SERVER_CONFIG_PATH", None)
         if config_file_path:
@@ -138,7 +138,7 @@ if __name__ == "__main__":
     async def run_server() -> None:
         ls = JediServer.from_env(
             MultilspyConfig(trace_lsp_communication=True),
-            MultilspyLogger(),
+            LanguageServerLogger(),
         )
         ls.start_server()
         async with ls.start_server():

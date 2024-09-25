@@ -1,7 +1,7 @@
 from typing import List, Optional, Tuple, Type
 from goose.language_server.client import LanguageServerClient
 from goose.language_server.config import MultilspyConfig
-from goose.language_server.logger import MultilspyLogger
+from goose.language_server.logger import LanguageServerLogger
 from goose.notifier import Notifier
 from goose.toolkit.base import Requirements, Toolkit, tool
 from goose.utils import load_plugins
@@ -25,7 +25,7 @@ class LanguageServerCoordinator(Toolkit):
     def __init__(self, notifier: Notifier, requires: Optional[Requirements] = None) -> None:
         super().__init__(notifier=notifier, requires=requires)
 
-        language_server_logger = MultilspyLogger()
+        language_server_logger = LanguageServerLogger()
         language_server_config = MultilspyConfig(trace_lsp_communication=False)
         self.language_server_client = LanguageServerClient()
 

@@ -16,7 +16,7 @@ from goose.language_server.core.lsp_constants import LSPConstants
 from goose.language_server.core import lsp_types
 
 import goose.language_server.types as multilspy_types
-from goose.language_server.logger import MultilspyLogger
+from goose.language_server.logger import LanguageServerLogger
 from goose.language_server.core.server import (
     LanguageServerHandler,
     ProcessLaunchInfo,
@@ -59,7 +59,7 @@ class LanguageServer(ABC):
     @classmethod
     @abstractmethod
     def from_env(
-        cls: Type["LanguageServer"], config: MultilspyConfig, logger: MultilspyLogger, **kwargs: dict
+        cls: Type["LanguageServer"], config: MultilspyConfig, logger: LanguageServerLogger, **kwargs: dict
     ) -> "LanguageServer":
         pass
 
@@ -89,7 +89,7 @@ class LanguageServer(ABC):
     def __init__(
         self,
         config: MultilspyConfig,
-        logger: MultilspyLogger,
+        logger: LanguageServerLogger,
         repository_root_path: str,
         process_launch_info: ProcessLaunchInfo,
         language_id: str,

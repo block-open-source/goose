@@ -1,10 +1,10 @@
 site_name: Goose Documentation
 site_author: Block
 site_description: Documentation for Goose
-repo_url: https://github.com/square/goose
+repo_url: https://github.com/block-open-source/goose
 repo_name: "square/goose"
-edit_uri: "https://github.com/square/goose/blob/main/docs/"
-site_url: 'https://square.github.io/goose/'
+edit_uri: "https://github.com/block-open-source/goose/blob/main/docs/"
+site_url: 'https://block-open-source.github.io/goose/'
 use_directory_urls: false
 
 # theme

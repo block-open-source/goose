@@ -23,8 +23,7 @@ Goose is your on-machine developer agent, automating engineering tasks seamlessl
 <a href="#unique-features-of-goose-compared-to-other-ai-assistants">Unique features</a> 🤖 •
 <a href="#what-block-employees-have-to-say-about-goose"> Block Employees on Goose</a> <img src=docs/assets/logo.png height="15", width="15" alt="Block Emoji"/> •
 <a href="#quick-start-guide">Quick start guide</a> 🚀 •
-<a href="#getting-involved">Getting involved!</a> 👋 •
-</p>
+<a href="#getting-involved!">Getting involved!</a> 👋
 
 > [!TIP]
 > **Quick install:**
@@ -143,7 +142,7 @@ To see more documentation on the CLI commands currently available to Goose check
 
 ### Next steps
 
-Learn how to modify your Goose profiles.yaml file to add and remove functionality (toolkits) and providing context to get the most out of Goose in our [Getting Started Guide].
+Learn how to modify your Goose profiles.yaml file to add and remove functionality (toolkits) and providing context to get the most out of Goose in our [Getting Started Guide][getting-started].
 
 **Want to move out of the terminal and into an IDE?** 
 
@@ -176,12 +175,13 @@ Let us know what you think in our [Discussions][discussions] or the [**`#goose`*
 [cli]: https://block-open-source.github.io/goose/plugins/cli.html
 [providers]: https://block-open-source.github.io/goose/providers.html
 [use-cases]: https://block-open-source.github.io/goose/guidance/applications.html
-
+[getting-started]: https://block-open-source.github.io/goose/guidance/getting-started.html
 
 [discord-invite]: https://discord.gg/7GaTvbDwga
 [gh-issues]: https://github.com/block-open-source/goose/issues
-[van-code]: https://github.com/block-open-source/goose-plugins/src/goose-plugins/toolkits/artify.py
+[van-code]: https://github.com/block-open-source/goose-plugins/blob/de98cd6c29f8e7cd3b6ace26535f24ac57c9effa/src/goose_plugins/toolkits/artify.py
 [discussions]: https://github.com/block-open-source/goose/discussions
 [goose-channel]: https://discord.com/channels/1287729918100246654/1287729920319033345
 [goose-ai-pypi]: https://pypi.org/project/goose-ai/
+ 
 

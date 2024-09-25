@@ -36,7 +36,7 @@ Plugins added directly to Goose are subject to rigorous review. This is because 
 
 Plugins in `goose-plugins` undergo less detailed reviews and are more modular or experimental. They can prove their value through usage or iteration over time and may be eventually moved over to Goose.
 
-To see how to add a toolkit, see the [toolkits documentation][toolkits].
+To see how to add a toolkit, see the [toolkits documentation][adding-toolkit].
 
 ### Running tests
 ```sh
@@ -122,4 +122,4 @@ This project follows the [Conventional Commits](https://www.conventionalcommits.
 [uv]: https://docs.astral.sh/uv/
 [ruff]: https://docs.astral.sh/ruff/
 [just]: https://github.com/casey/just
-[toolkits]: docs/docs/toolkits.md
+[adding-toolkit]: https://square.github.io/goose/configuration.html#adding-a-toolkit

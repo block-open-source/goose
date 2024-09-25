@@ -1,7 +1,13 @@
 from exchange import Exchange, Message, CheckpointData
 
 
-def ask_an_ai(input: str, exchange: Exchange, prompt: str = "", no_history: bool = True) -> Message:
+def ask_an_ai(
+    input: str,
+    exchange: Exchange,
+    prompt: str = "",
+    no_history: bool = True,
+    with_tools: bool = True,
+) -> Message:
     """Sends a separate message to an LLM using a separate Exchange than the one underlying the Goose session.
 
     Can be used to summarize a file, or submit any other request that you'd like to an AI. The Exchange can have a
@@ -35,6 +41,9 @@ def ask_an_ai(input: str, exchange: Exchange, prompt: str = "", no_history: bool
     """
     if no_history:
         exchange = clear_exchange(exchange)
+
+    if not with_tools:
+        exchange = exchange.replace(tools=())
 
     if prompt:
         exchange = replace_prompt(exchange, prompt)

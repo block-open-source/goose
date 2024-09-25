@@ -53,6 +53,7 @@ class TraceFilter(logging.Filter):
 
 
 def setup_logging(log_file_directory: Path, log_level: str = "INFO") -> None:
+    print('LOG LEVEL:', log_level)
     logger = logging.getLogger(_LOGGER_NAME)
     logger.setLevel(getattr(logging, log_level))
     log_file_directory.mkdir(parents=True, exist_ok=True)
@@ -62,7 +63,7 @@ def setup_logging(log_file_directory: Path, log_level: str = "INFO") -> None:
     file_handler.setFormatter(formatter)
 
     trace_logger = logging.getLogger(_TRACE_LOGGER_NAME)
-    trace_logger.setLevel(logging.DEBUG)
+    trace_logger.setLevel(log_level)
     trace_handler = logging.FileHandler(log_file_directory / _TRACE_LOGGER_FILE_NAME)
     trace_handler.addFilter(TraceFilter(toolResultOutputMaxTokens=500))
     trace_logger.addHandler(trace_handler)

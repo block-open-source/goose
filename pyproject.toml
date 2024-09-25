@@ -48,20 +48,21 @@ build-backend = "hatchling.build"
 
 [tool.uv]
 dev-dependencies = [
-    "pytest>=8.3.2",
     "codecov>=2.1.13",
-    "mkdocstrings>=0.26.1",
-    "mkdocs-literate-nav>=0.6.1",
-    "mkdocs-gen-files>=0.5.0",
-    "mkdocs-section-index>=0.3.9",
-    "mkdocs-material>=9.5.34",
-    "mkdocstrings-python>=1.11.1",
-    "mkdocs-git-revision-date-localized-plugin",
-    "mkdocs-glightbox>=0.4.0",
-    "mkdocs-redirects>=1.2.1",
-    "mkdocs-include-markdown-plugin>=6.2.2",
     "mkdocs-callouts>=1.14.0",
+    "mkdocs-gen-files>=0.5.0",
     "mkdocs-git-authors-plugin>=0.9.0",
-    "mkdocs-git-revision-date-localized-plugin>=1.2.9",
     "mkdocs-git-committers-plugin>=0.2.3",
+    "mkdocs-git-revision-date-localized-plugin",
+    "mkdocs-git-revision-date-localized-plugin>=1.2.9",
+    "mkdocs-glightbox>=0.4.0",
+    "mkdocs-include-markdown-plugin>=6.2.2",
+    "mkdocs-literate-nav>=0.6.1",
+    "mkdocs-material>=9.5.34",
+    "mkdocs-redirects>=1.2.1",
+    "mkdocs-section-index>=0.3.9",
+    "mkdocstrings-python>=1.11.1",
+    "mkdocstrings>=0.26.1",
+    "pytest-mock>=3.14.0",
+    "pytest>=8.3.2"
 ]

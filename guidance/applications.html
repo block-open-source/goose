@@ -12,24 +12,28 @@
         <meta name="author" content="Block">
       
       
-        <link rel="canonical" href="https://square.github.io/goose/reference/goose/build.html">
+        <link rel="canonical" href="https://square.github.io/goose/guidance/applications.html">
       
       
+        <link rel="prev" href="tips.html">
       
       
-      <link rel="icon" href="../../assets/logo.ico">
+        <link rel="next" href="../plugins/plugins.html">
+      
+      
+      <link rel="icon" href="../assets/logo.ico">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.5.37">
     
     
       
-        <title>Build - Goose Documentation</title>
+        <title>Applications of Goose - Goose Documentation</title>
       
     
     
-      <link rel="stylesheet" href="../../assets/stylesheets/main.8c3ca2c6.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.8c3ca2c6.min.css">
       
         
-        <link rel="stylesheet" href="../../assets/stylesheets/palette.06af60db.min.css">
+        <link rel="stylesheet" href="../assets/stylesheets/palette.06af60db.min.css">
       
       
 
@@ -48,9 +52,9 @@
       
     
     
-      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
     
-    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
   
@@ -67,7 +71,7 @@
     
     
     
-   <link href="../../assets/stylesheets/glightbox.min.css" rel="stylesheet"/><style>
+   <link href="../assets/stylesheets/glightbox.min.css" rel="stylesheet"/><style>
     html.glightbox-open { overflow: initial; height: 100%; }
     .gslide-title { margin-top: 0px; user-select: text; }
     .gslide-desc { color: #666; user-select: text; }
@@ -76,7 +80,7 @@
     .gdesc-inner { font-size: 0.75rem; }
     body[data-md-color-scheme="slate"] .gdesc-inner { background: var(--md-default-bg-color);}
     body[data-md-color-scheme="slate"] .gslide-title { color: var(--md-default-fg-color);}
-    body[data-md-color-scheme="slate"] .gslide-desc { color: var(--md-default-fg-color);}</style> <script src="../../assets/javascripts/glightbox.min.js"></script></head>
+    body[data-md-color-scheme="slate"] .gslide-desc { color: var(--md-default-fg-color);}</style> <script src="../assets/javascripts/glightbox.min.js"></script></head>
   
   
     
@@ -95,7 +99,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#goose.build" class="md-skip">
+        <a href="#uses-of-goose-so-far" class="md-skip">
           Skip to content
         </a>
       
@@ -111,9 +115,9 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="../../index.html" title="Goose Documentation" class="md-header__button md-logo" aria-label="Goose Documentation" data-md-component="logo">
+    <a href="../index.html" title="Goose Documentation" class="md-header__button md-logo" aria-label="Goose Documentation" data-md-component="logo">
       
-  <img src="../../assets/logo.png" alt="logo">
+  <img src="../assets/logo.png" alt="logo">
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -130,7 +134,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Build
+              Applications of Goose
             
           </span>
         </div>
@@ -236,9 +240,9 @@
 
 <nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="../../index.html" title="Goose Documentation" class="md-nav__button md-logo" aria-label="Goose Documentation" data-md-component="logo">
+    <a href="../index.html" title="Goose Documentation" class="md-nav__button md-logo" aria-label="Goose Documentation" data-md-component="logo">
       
-  <img src="../../assets/logo.png" alt="logo">
+  <img src="../assets/logo.png" alt="logo">
 
     </a>
     Goose Documentation
@@ -265,7 +269,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../index.html" class="md-nav__link">
+      <a href="../index.html" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -285,7 +289,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../installation.html" class="md-nav__link">
+      <a href="../installation.html" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -305,7 +309,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../contributing.html" class="md-nav__link">
+      <a href="../contributing.html" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -322,8 +326,10 @@
       
   
   
+    
   
   
+  
     
     
       
@@ -341,13 +347,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-          
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
         
           
           <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
@@ -361,7 +365,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             Guidance
@@ -375,7 +379,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../guidance/getting-started.html" class="md-nav__link">
+      <a href="getting-started.html" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -396,7 +400,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../guidance/tips.html" class="md-nav__link">
+      <a href="tips.html" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -414,10 +418,28 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../guidance/applications.html" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  <span class="md-ellipsis">
+    Applications of Goose
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="applications.html" class="md-nav__link md-nav__link--active">
         
   
   <span class="md-ellipsis">
@@ -426,6 +448,33 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#uses-of-goose-so-far" class="md-nav__link">
+    <span class="md-ellipsis">
+      Uses of Goose so Far
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -497,7 +546,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../plugins/plugins.html" class="md-nav__link">
+      <a href="../plugins/plugins.html" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -565,7 +614,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../plugins/using-toolkits.html" class="md-nav__link">
+      <a href="../plugins/using-toolkits.html" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -586,7 +635,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../plugins/creating-a-new-toolkit.html" class="md-nav__link">
+      <a href="../plugins/creating-a-new-toolkit.html" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -607,7 +656,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../plugins/available-toolkits.html" class="md-nav__link">
+      <a href="../plugins/available-toolkits.html" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -679,7 +728,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../plugins/cli.html" class="md-nav__link">
+      <a href="../plugins/cli.html" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -751,7 +800,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../plugins/providers.html" class="md-nav__link">
+      <a href="../plugins/providers.html" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -833,7 +882,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../configuration.html" class="md-nav__link">
+      <a href="../configuration.html" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -886,7 +935,7 @@
           
           
           <div class="md-nav__link md-nav__container">
-            <a href="../index.html" class="md-nav__link ">
+            <a href="../reference/index.html" class="md-nav__link ">
               
   
   <span class="md-ellipsis">
@@ -939,18 +988,9 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#goose.build" class="md-nav__link">
+  <a href="#uses-of-goose-so-far" class="md-nav__link">
     <span class="md-ellipsis">
-      build
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#goose.build.build_exchange" class="md-nav__link">
-    <span class="md-ellipsis">
-      build_exchange
+      Uses of Goose so Far
     </span>
   </a>
   
@@ -971,7 +1011,7 @@
                   
 
   
-    <a href="https://github.com/square/goose/blob/main/docs/reference/goose/build.md" title="Edit this page" class="md-content__button md-icon">
+    <a href="https://github.com/square/goose/blob/main/docs/guidance/applications.md" title="Edit this page" class="md-content__button md-icon">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -980,210 +1020,32 @@
     
       
     
-    <a href="https://github.com/square/goose/raw/main/docs/reference/goose/build.md" title="View source of this page" class="md-content__button md-icon">
+    <a href="https://github.com/square/goose/raw/main/docs/guidance/applications.md" title="View source of this page" class="md-content__button md-icon">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17 18c.56 0 1 .44 1 1s-.44 1-1 1-1-.44-1-1 .44-1 1-1m0-3c-2.73 0-5.06 1.66-6 4 .94 2.34 3.27 4 6 4s5.06-1.66 6-4c-.94-2.34-3.27-4-6-4m0 6.5a2.5 2.5 0 0 1-2.5-2.5 2.5 2.5 0 0 1 2.5-2.5 2.5 2.5 0 0 1 2.5 2.5 2.5 2.5 0 0 1-2.5 2.5M9.27 20H6V4h7v5h5v4.07c.7.08 1.36.25 2 .49V8l-6-6H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h4.5a8.2 8.2 0 0 1-1.23-2"/></svg>
     </a>
   
 
 
-  <h1>Build</h1>
+  <h1>Applications of Goose</h1>
 
-<div class="doc doc-object doc-module">
-
-
-
-<a id="goose.build"></a>
-    <div class="doc doc-contents first">
-
-
-
-  <div class="doc doc-children">
-
-
-
-
-
-
-
-
-
-<div class="doc doc-object doc-function">
-
-
-<h2 id="goose.build.build_exchange" class="doc doc-heading">
-            <code class="highlight language-python"><span class="n">build_exchange</span><span class="p">(</span><span class="n">profile</span><span class="p">,</span> <span class="n">notifier</span><span class="p">)</span></code>
-
-<a href="#goose.build.build_exchange" class="headerlink" title="Permanent link">&para;</a></h2>
-
-
-    <div class="doc doc-contents ">
-
-        <p>Build an exchange configured through the profile</p>
-<p>This will setup any toolkits and use that to build the exchange's collection<br />
-of tools.</p>
-
-
-<p><span class="doc-section-title">Parameters:</span></p>
-    <table>
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Type</th>
-          <th>Description</th>
-          <th>Default</th>
-        </tr>
-      </thead>
-      <tbody>
-          <tr class="doc-section-item">
-            <td><code>profile</code></td>
-            <td>
-                  <code><a class="autorefs autorefs-internal" title="goose.profile.Profile" href="profile.html#goose.profile.Profile">Profile</a></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>The profile specifying how to setup this exchange</p>
-              </div>
-            </td>
-            <td>
-                <em>required</em>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td><code>notifier</code></td>
-            <td>
-                  <code><a class="autorefs autorefs-internal" title="goose.notifier.Notifier" href="notifier.html#goose.notifier.Notifier">Notifier</a></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>A notifier instance used by tools to send info</p>
-              </div>
-            </td>
-            <td>
-                <em>required</em>
-            </td>
-          </tr>
-      </tbody>
-    </table>
-
-            <details class="quote">
-              <summary>Source code in <code>src/goose/build.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-14">14</a></span>
-<span class="normal"><a href="#__codelineno-0-15">15</a></span>
-<span class="normal"><a href="#__codelineno-0-16">16</a></span>
-<span class="normal"><a href="#__codelineno-0-17">17</a></span>
-<span class="normal"><a href="#__codelineno-0-18">18</a></span>
-<span class="normal"><a href="#__codelineno-0-19">19</a></span>
-<span class="normal"><a href="#__codelineno-0-20">20</a></span>
-<span class="normal"><a href="#__codelineno-0-21">21</a></span>
-<span class="normal"><a href="#__codelineno-0-22">22</a></span>
-<span class="normal"><a href="#__codelineno-0-23">23</a></span>
-<span class="normal"><a href="#__codelineno-0-24">24</a></span>
-<span class="normal"><a href="#__codelineno-0-25">25</a></span>
-<span class="normal"><a href="#__codelineno-0-26">26</a></span>
-<span class="normal"><a href="#__codelineno-0-27">27</a></span>
-<span class="normal"><a href="#__codelineno-0-28">28</a></span>
-<span class="normal"><a href="#__codelineno-0-29">29</a></span>
-<span class="normal"><a href="#__codelineno-0-30">30</a></span>
-<span class="normal"><a href="#__codelineno-0-31">31</a></span>
-<span class="normal"><a href="#__codelineno-0-32">32</a></span>
-<span class="normal"><a href="#__codelineno-0-33">33</a></span>
-<span class="normal"><a href="#__codelineno-0-34">34</a></span>
-<span class="normal"><a href="#__codelineno-0-35">35</a></span>
-<span class="normal"><a href="#__codelineno-0-36">36</a></span>
-<span class="normal"><a href="#__codelineno-0-37">37</a></span>
-<span class="normal"><a href="#__codelineno-0-38">38</a></span>
-<span class="normal"><a href="#__codelineno-0-39">39</a></span>
-<span class="normal"><a href="#__codelineno-0-40">40</a></span>
-<span class="normal"><a href="#__codelineno-0-41">41</a></span>
-<span class="normal"><a href="#__codelineno-0-42">42</a></span>
-<span class="normal"><a href="#__codelineno-0-43">43</a></span>
-<span class="normal"><a href="#__codelineno-0-44">44</a></span>
-<span class="normal"><a href="#__codelineno-0-45">45</a></span>
-<span class="normal"><a href="#__codelineno-0-46">46</a></span>
-<span class="normal"><a href="#__codelineno-0-47">47</a></span>
-<span class="normal"><a href="#__codelineno-0-48">48</a></span>
-<span class="normal"><a href="#__codelineno-0-49">49</a></span>
-<span class="normal"><a href="#__codelineno-0-50">50</a></span>
-<span class="normal"><a href="#__codelineno-0-51">51</a></span>
-<span class="normal"><a href="#__codelineno-0-52">52</a></span>
-<span class="normal"><a href="#__codelineno-0-53">53</a></span>
-<span class="normal"><a href="#__codelineno-0-54">54</a></span>
-<span class="normal"><a href="#__codelineno-0-55">55</a></span>
-<span class="normal"><a href="#__codelineno-0-56">56</a></span>
-<span class="normal"><a href="#__codelineno-0-57">57</a></span>
-<span class="normal"><a href="#__codelineno-0-58">58</a></span>
-<span class="normal"><a href="#__codelineno-0-59">59</a></span>
-<span class="normal"><a href="#__codelineno-0-60">60</a></span>
-<span class="normal"><a href="#__codelineno-0-61">61</a></span>
-<span class="normal"><a href="#__codelineno-0-62">62</a></span>
-<span class="normal"><a href="#__codelineno-0-63">63</a></span>
-<span class="normal"><a href="#__codelineno-0-64">64</a></span>
-<span class="normal"><a href="#__codelineno-0-65">65</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14"></a><span class="k">def</span> <span class="nf">build_exchange</span><span class="p">(</span><span class="n">profile</span><span class="p">:</span> <span class="n">Profile</span><span class="p">,</span> <span class="n">notifier</span><span class="p">:</span> <span class="n">Notifier</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Exchange</span><span class="p">:</span>
-</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Build an exchange configured through the profile</span>
-</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16"></a>
-</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17"></a><span class="sd">    This will setup any toolkits and use that to build the exchange&#39;s collection</span>
-</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18"></a><span class="sd">    of tools.</span>
-</span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19"></a>
-</span><span id="__span-0-20"><a id="__codelineno-0-20" name="__codelineno-0-20"></a><span class="sd">    Args:</span>
-</span><span id="__span-0-21"><a id="__codelineno-0-21" name="__codelineno-0-21"></a><span class="sd">        profile (Profile): The profile specifying how to setup this exchange</span>
-</span><span id="__span-0-22"><a id="__codelineno-0-22" name="__codelineno-0-22"></a><span class="sd">        notifier (Notifier): A notifier instance used by tools to send info</span>
-</span><span id="__span-0-23"><a id="__codelineno-0-23" name="__codelineno-0-23"></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="__span-0-24"><a id="__codelineno-0-24" name="__codelineno-0-24"></a>
-</span><span id="__span-0-25"><a id="__codelineno-0-25" name="__codelineno-0-25"></a>    <span class="n">provider</span> <span class="o">=</span> <span class="n">get_provider</span><span class="p">(</span><span class="n">profile</span><span class="o">.</span><span class="n">provider</span><span class="p">)</span><span class="o">.</span><span class="n">from_env</span><span class="p">()</span>
-</span><span id="__span-0-26"><a id="__codelineno-0-26" name="__codelineno-0-26"></a>
-</span><span id="__span-0-27"><a id="__codelineno-0-27" name="__codelineno-0-27"></a>    <span class="c1"># Support instantating toolkits in *two* passes for now, no further nesting</span>
-</span><span id="__span-0-28"><a id="__codelineno-0-28" name="__codelineno-0-28"></a>    <span class="n">concrete_toolkits</span> <span class="o">=</span> <span class="p">{}</span>
-</span><span id="__span-0-29"><a id="__codelineno-0-29" name="__codelineno-0-29"></a>
-</span><span id="__span-0-30"><a id="__codelineno-0-30" name="__codelineno-0-30"></a>    <span class="c1"># First instantiate all toolkits that are sub dependencies</span>
-</span><span id="__span-0-31"><a id="__codelineno-0-31" name="__codelineno-0-31"></a>    <span class="k">for</span> <span class="n">spec</span> <span class="ow">in</span> <span class="n">profile</span><span class="o">.</span><span class="n">toolkits</span><span class="p">:</span>
-</span><span id="__span-0-32"><a id="__codelineno-0-32" name="__codelineno-0-32"></a>        <span class="k">for</span> <span class="n">required</span> <span class="ow">in</span> <span class="n">spec</span><span class="o">.</span><span class="n">requires</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
-</span><span id="__span-0-33"><a id="__codelineno-0-33" name="__codelineno-0-33"></a>            <span class="n">concrete_toolkits</span><span class="p">[</span><span class="n">required</span><span class="p">]</span> <span class="o">=</span> <span class="n">get_toolkit</span><span class="p">(</span><span class="n">required</span><span class="p">)(</span><span class="n">notifier</span><span class="o">=</span><span class="n">notifier</span><span class="p">,</span> <span class="n">requires</span><span class="o">=</span><span class="n">Requirements</span><span class="p">(</span><span class="n">required</span><span class="p">))</span>
-</span><span id="__span-0-34"><a id="__codelineno-0-34" name="__codelineno-0-34"></a>
-</span><span id="__span-0-35"><a id="__codelineno-0-35" name="__codelineno-0-35"></a>    <span class="c1"># Now that we have the dependencies available, we can instantiate everything else</span>
-</span><span id="__span-0-36"><a id="__codelineno-0-36" name="__codelineno-0-36"></a>    <span class="n">toolkits</span> <span class="o">=</span> <span class="p">[]</span>
-</span><span id="__span-0-37"><a id="__codelineno-0-37" name="__codelineno-0-37"></a>    <span class="k">for</span> <span class="n">spec</span> <span class="ow">in</span> <span class="n">profile</span><span class="o">.</span><span class="n">toolkits</span><span class="p">:</span>
-</span><span id="__span-0-38"><a id="__codelineno-0-38" name="__codelineno-0-38"></a>        <span class="k">if</span> <span class="n">spec</span><span class="o">.</span><span class="n">name</span> <span class="ow">in</span> <span class="n">concrete_toolkits</span><span class="p">:</span>
-</span><span id="__span-0-39"><a id="__codelineno-0-39" name="__codelineno-0-39"></a>            <span class="n">toolkits</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">concrete_toolkits</span><span class="p">[</span><span class="n">spec</span><span class="o">.</span><span class="n">name</span><span class="p">])</span>
-</span><span id="__span-0-40"><a id="__codelineno-0-40" name="__codelineno-0-40"></a>            <span class="k">continue</span>
-</span><span id="__span-0-41"><a id="__codelineno-0-41" name="__codelineno-0-41"></a>
-</span><span id="__span-0-42"><a id="__codelineno-0-42" name="__codelineno-0-42"></a>        <span class="n">requires</span> <span class="o">=</span> <span class="n">Requirements</span><span class="p">(</span>
-</span><span id="__span-0-43"><a id="__codelineno-0-43" name="__codelineno-0-43"></a>            <span class="n">spec</span><span class="o">.</span><span class="n">name</span><span class="p">,</span>
-</span><span id="__span-0-44"><a id="__codelineno-0-44" name="__codelineno-0-44"></a>            <span class="p">{</span><span class="n">key</span><span class="p">:</span> <span class="n">concrete_toolkits</span><span class="p">[</span><span class="n">val</span><span class="p">]</span> <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">val</span> <span class="ow">in</span> <span class="n">spec</span><span class="o">.</span><span class="n">requires</span><span class="o">.</span><span class="n">items</span><span class="p">()},</span>
-</span><span id="__span-0-45"><a id="__codelineno-0-45" name="__codelineno-0-45"></a>        <span class="p">)</span>
-</span><span id="__span-0-46"><a id="__codelineno-0-46" name="__codelineno-0-46"></a>        <span class="n">toolkit</span> <span class="o">=</span> <span class="n">get_toolkit</span><span class="p">(</span><span class="n">spec</span><span class="o">.</span><span class="n">name</span><span class="p">)(</span><span class="n">notifier</span><span class="o">=</span><span class="n">notifier</span><span class="p">,</span> <span class="n">requires</span><span class="o">=</span><span class="n">requires</span><span class="p">)</span>
-</span><span id="__span-0-47"><a id="__codelineno-0-47" name="__codelineno-0-47"></a>        <span class="n">toolkits</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">toolkit</span><span class="p">)</span>
-</span><span id="__span-0-48"><a id="__codelineno-0-48" name="__codelineno-0-48"></a>
-</span><span id="__span-0-49"><a id="__codelineno-0-49" name="__codelineno-0-49"></a>    <span class="c1"># From the toolkits, we derive the exchange prompt and tools</span>
-</span><span id="__span-0-50"><a id="__codelineno-0-50" name="__codelineno-0-50"></a>    <span class="n">system</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="se">\n\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">([</span><span class="n">Message</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;system.jinja&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">text</span><span class="p">]</span> <span class="o">+</span> <span class="p">[</span><span class="n">toolkit</span><span class="o">.</span><span class="n">system</span><span class="p">()</span> <span class="k">for</span> <span class="n">toolkit</span> <span class="ow">in</span> <span class="n">toolkits</span><span class="p">])</span>
-</span><span id="__span-0-51"><a id="__codelineno-0-51" name="__codelineno-0-51"></a>    <span class="n">tools</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">chain</span><span class="p">(</span><span class="o">*</span><span class="p">(</span><span class="n">toolkit</span><span class="o">.</span><span class="n">tools</span><span class="p">()</span> <span class="k">for</span> <span class="n">toolkit</span> <span class="ow">in</span> <span class="n">toolkits</span><span class="p">)))</span>
-</span><span id="__span-0-52"><a id="__codelineno-0-52" name="__codelineno-0-52"></a>    <span class="n">exchange</span> <span class="o">=</span> <span class="n">Exchange</span><span class="p">(</span>
-</span><span id="__span-0-53"><a id="__codelineno-0-53" name="__codelineno-0-53"></a>        <span class="n">provider</span><span class="o">=</span><span class="n">provider</span><span class="p">,</span>
-</span><span id="__span-0-54"><a id="__codelineno-0-54" name="__codelineno-0-54"></a>        <span class="n">system</span><span class="o">=</span><span class="n">system</span><span class="p">,</span>
-</span><span id="__span-0-55"><a id="__codelineno-0-55" name="__codelineno-0-55"></a>        <span class="n">tools</span><span class="o">=</span><span class="n">tools</span><span class="p">,</span>
-</span><span id="__span-0-56"><a id="__codelineno-0-56" name="__codelineno-0-56"></a>        <span class="n">moderator</span><span class="o">=</span><span class="n">get_moderator</span><span class="p">(</span><span class="n">profile</span><span class="o">.</span><span class="n">moderator</span><span class="p">)(),</span>
-</span><span id="__span-0-57"><a id="__codelineno-0-57" name="__codelineno-0-57"></a>        <span class="n">model</span><span class="o">=</span><span class="n">profile</span><span class="o">.</span><span class="n">processor</span><span class="p">,</span>
-</span><span id="__span-0-58"><a id="__codelineno-0-58" name="__codelineno-0-58"></a>    <span class="p">)</span>
-</span><span id="__span-0-59"><a id="__codelineno-0-59" name="__codelineno-0-59"></a>
-</span><span id="__span-0-60"><a id="__codelineno-0-60" name="__codelineno-0-60"></a>    <span class="c1"># This is a bit awkward, but we have to set this after the fact because building</span>
-</span><span id="__span-0-61"><a id="__codelineno-0-61" name="__codelineno-0-61"></a>    <span class="c1"># the exchange requires having the toolkits</span>
-</span><span id="__span-0-62"><a id="__codelineno-0-62" name="__codelineno-0-62"></a>    <span class="k">for</span> <span class="n">toolkit</span> <span class="ow">in</span> <span class="n">toolkits</span><span class="p">:</span>
-</span><span id="__span-0-63"><a id="__codelineno-0-63" name="__codelineno-0-63"></a>        <span class="n">toolkit</span><span class="o">.</span><span class="n">exchange_view</span> <span class="o">=</span> <span class="n">ExchangeView</span><span class="p">(</span><span class="n">profile</span><span class="o">.</span><span class="n">processor</span><span class="p">,</span> <span class="n">profile</span><span class="o">.</span><span class="n">accelerator</span><span class="p">,</span> <span class="n">exchange</span><span class="p">)</span>
-</span><span id="__span-0-64"><a id="__codelineno-0-64" name="__codelineno-0-64"></a>
-</span><span id="__span-0-65"><a id="__codelineno-0-65" name="__codelineno-0-65"></a>    <span class="k">return</span> <span class="n">exchange</span>
-</span></code></pre></div></td></tr></table></div>
-            </details>
-    </div>
-
-</div>
-
-
-
-  </div>
-
-    </div>
-
-</div>
+<h2 id="uses-of-goose-so-far">Uses of Goose so Far<a class="headerlink" href="#uses-of-goose-so-far" title="Permanent link">&para;</a></h2>
+<p>We've been using Goose to help us with a variety of tasks. Here are some examples:</p>
+<ul>
+<li>Conduct code migrations like:<ul>
+<li>Ember to React</li>
+<li>Ruby to Kotlin</li>
+<li>Prefect-1 to Prefect-2</li>
+</ul>
+</li>
+<li>Dive into a new project in an unfamiliar coding language</li>
+<li>Transition a code-base from field-based injection to constructor-based injection in a dependency injection framework</li>
+<li>Conduct performance benchmarks for a build command using a build automation tool</li>
+<li>Increasing code coverage above a specific threshold</li>
+<li>Scaffolding an API for data retention</li>
+<li>Creating Datadog monitors</li>
+<li>Removing or adding feature flags</li>
+</ul>
 
 
 
@@ -1219,6 +1081,44 @@ of tools.</p>
         <footer class="md-footer">
   
     
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="tips.html" class="md-footer__link md-footer__link--prev" aria-label="Previous: Quick Tips">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Quick Tips
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../plugins/plugins.html" class="md-footer__link md-footer__link--next" aria-label="Next: Overview">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Overview
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
   
   <div class="md-footer-meta md-typeset">
     <div class="md-footer-meta__inner md-grid">
@@ -1242,10 +1142,10 @@ of tools.</p>
     </div>
     
     
-    <script id="__config" type="application/json">{"base": "../..", "features": ["announce.dismiss", "content.action.edit", "content.action.view", "content.code.annotate", "content.code.copy", "content.tooltips", "content.tabs.link", "navigation.footer", "navigation.indexes", "navigation.instant", "navigation.sections", "navigation.top", "navigation.tracking", "navigation.expand", "search.share", "search.suggest", "toc.follow"], "search": "../../assets/javascripts/workers/search.6ce7567c.min.js", "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}}</script>
+    <script id="__config" type="application/json">{"base": "..", "features": ["announce.dismiss", "content.action.edit", "content.action.view", "content.code.annotate", "content.code.copy", "content.tooltips", "content.tabs.link", "navigation.footer", "navigation.indexes", "navigation.instant", "navigation.sections", "navigation.top", "navigation.tracking", "navigation.expand", "search.share", "search.suggest", "toc.follow"], "search": "../assets/javascripts/workers/search.6ce7567c.min.js", "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}}</script>
     
     
-      <script src="../../assets/javascripts/bundle.d6f25eb3.min.js"></script>
+      <script src="../assets/javascripts/bundle.d6f25eb3.min.js"></script>
       
     
   <script id="init-glightbox">const lightbox = GLightbox({"touchNavigation": true, "loop": false, "zoomable": true, "draggable": true, "openEffect": "zoom", "closeEffect": "zoom", "slideEffect": "slide"});

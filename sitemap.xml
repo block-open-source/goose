@@ -5,14 +5,6 @@
          <lastmod>2024-09-25</lastmod>
     </url>
     <url>
-         <loc>https://square.github.io/goose/available-toolkits.html</loc>
-         <lastmod>2024-09-25</lastmod>
-    </url>
-    <url>
-         <loc>https://square.github.io/goose/cli.html</loc>
-         <lastmod>2024-09-25</lastmod>
-    </url>
-    <url>
          <loc>https://square.github.io/goose/configuration.html</loc>
          <lastmod>2024-09-25</lastmod>
     </url>
@@ -21,35 +13,47 @@
          <lastmod>2024-09-25</lastmod>
     </url>
     <url>
-         <loc>https://square.github.io/goose/creating-a-new-toolkit.html</loc>
-         <lastmod>2024-09-25</lastmod>
-    </url>
-    <url>
          <loc>https://square.github.io/goose/installation.html</loc>
          <lastmod>2024-09-25</lastmod>
     </url>
     <url>
-         <loc>https://square.github.io/goose/plugins.html</loc>
+         <loc>https://square.github.io/goose/guidance/applications.html</loc>
          <lastmod>2024-09-25</lastmod>
     </url>
     <url>
-         <loc>https://square.github.io/goose/providers.html</loc>
+         <loc>https://square.github.io/goose/guidance/getting-started.html</loc>
          <lastmod>2024-09-25</lastmod>
     </url>
     <url>
-         <loc>https://square.github.io/goose/tips.html</loc>
+         <loc>https://square.github.io/goose/guidance/tips.html</loc>
          <lastmod>2024-09-25</lastmod>
     </url>
     <url>
-         <loc>https://square.github.io/goose/using-toolkits.html</loc>
+         <loc>https://square.github.io/goose/plugins/available-toolkits.html</loc>
+         <lastmod>2024-09-25</lastmod>
+    </url>
+    <url>
+         <loc>https://square.github.io/goose/plugins/cli.html</loc>
+         <lastmod>2024-09-25</lastmod>
+    </url>
+    <url>
+         <loc>https://square.github.io/goose/plugins/creating-a-new-toolkit.html</loc>
+         <lastmod>2024-09-25</lastmod>
+    </url>
+    <url>
+         <loc>https://square.github.io/goose/plugins/plugins.html</loc>
+         <lastmod>2024-09-25</lastmod>
+    </url>
+    <url>
+         <loc>https://square.github.io/goose/plugins/providers.html</loc>
+         <lastmod>2024-09-25</lastmod>
+    </url>
+    <url>
+         <loc>https://square.github.io/goose/plugins/using-toolkits.html</loc>
          <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/reference/index.html</loc>
-         <lastmod>2024-09-25</lastmod>
-    </url>
-    <url>
-         <loc>https://square.github.io/goose/reference/SUMMARY.html</loc>
          <lastmod>2024-09-25</lastmod>
     </url>
     <url>

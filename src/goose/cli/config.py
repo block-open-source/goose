@@ -1,19 +1,15 @@
 from functools import cache
-from io import StringIO
 from pathlib import Path
 from typing import Callable, Dict, Mapping, Tuple
 
 from rich import print
 from rich.panel import Panel
-from rich.prompt import Confirm
-from rich.text import Text
 from ruamel.yaml import YAML
 
 from exchange.providers.ollama import OLLAMA_MODEL
 
 from goose.profile import Profile
 from goose.utils import load_plugins
-from goose.utils.diff import pretty_diff
 
 GOOSE_GLOBAL_PATH = Path("~/.config/goose").expanduser()
 PROFILES_CONFIG_PATH = GOOSE_GLOBAL_PATH.joinpath("profiles.yaml")
@@ -68,38 +64,6 @@ def ensure_config(name: str) -> Profile:
         print(Panel(f"[yellow]Your configuration doesn't have a profile named '{name}', adding one now[/yellow]"))
         profiles.update({name: profile})
         write_config(profiles)
-    elif name in profiles:
-        # if the profile stored differs from the default one, we should prompt the user to see if they want
-        # to update it! we need to recursively compare the two profiles, as object comparison will always return false
-        is_profile_eq = profile.to_dict() == profiles[name].to_dict()
-        if not is_profile_eq:
-            yaml = YAML()
-            before = StringIO()
-            after = StringIO()
-            yaml.dump(profiles[name].to_dict(), before)
-            yaml.dump(profile.to_dict(), after)
-            before.seek(0)
-            after.seek(0)
-
-            print(
-                Panel(
-                    Text(
-                        f"Your profile uses one of the default options - '{name}'"
-                        + " - but it differs from the latest version:\n\n",
-                    )
-                    + pretty_diff(before.read(), after.read())
-                )
-            )
-            should_update = Confirm.ask(
-                "Do you want to update your profile to use the latest?",
-                default=False,
-            )
-            if should_update:
-                profiles[name] = profile
-                write_config(profiles)
-            else:
-                profile = profiles[name]
-
     return profile
 
 
@@ -118,7 +82,6 @@ def default_model_configuration() -> Tuple[str, str, str]:
     for provider, cls in providers.items():
         try:
             cls.from_env()
-            print(Panel(f"[green]Detected an available provider: [/]{provider}"))
             break
         except Exception:
             pass

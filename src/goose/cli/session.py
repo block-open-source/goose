@@ -48,13 +48,9 @@ def load_provider() -> str:
 def load_profile(name: Optional[str]) -> Profile:
     if name is None:
         name = "default"
-
-    # If the name is one of the default values, we ensure a valid configuration
-    if name in default_profiles():
-        return ensure_config(name)
-
-    # Otherwise this is a custom config and we return it from the config file
-    return read_config()[name]
+    profile = ensure_config(name) if name in default_profiles() else read_config()[name]
+    print(Panel(f"[green]Using profile: [/]{name}, {profile.profile_info()}"))
+    return profile
 
 
 class SessionNotifier(Notifier):

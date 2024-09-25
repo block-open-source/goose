@@ -1,0 +1,1 @@
+::: goose.cli.prompt.user_input

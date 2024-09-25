@@ -18,7 +18,7 @@ goose
 </p>
 
 `goose` is a software engineering agent that runs on your machine, in your terminal or in your IDE. 
-It can take on tasks with your direction, and the make changes, write code, run code, take action. 
+It can take on tasks with your direction, and then make changes, write code, run code, take action. 
 
 
 Goose can:

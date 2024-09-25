@@ -50,5 +50,6 @@ def test_ensure_config_add_default_profile(mock_profile_config_path, profile_fac
         "default": default_profile(*mock_default_model_configuration()),
     }
 
+
 def test_session_path(mock_sessions_path):
     assert session_path("session1") == mock_sessions_path / "session1.jsonl"

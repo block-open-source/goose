@@ -2,214 +2,214 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://square.github.io/goose/index.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/available-toolkits.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/cli.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/configuration.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/contributing.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/creating-a-new-toolkit.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/installation.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/plugins.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/providers.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/tips.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/using-toolkits.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/reference/index.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/reference/SUMMARY.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/reference/goose/index.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/reference/goose/build.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/reference/goose/notifier.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/reference/goose/profile.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/reference/goose/view.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/reference/goose/cli/index.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/reference/goose/cli/config.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/reference/goose/cli/main.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/reference/goose/cli/session.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/reference/goose/cli/prompt/index.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/reference/goose/cli/prompt/completer.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/reference/goose/cli/prompt/create.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/reference/goose/cli/prompt/goose_prompt_session.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/reference/goose/cli/prompt/lexer.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/reference/goose/cli/prompt/prompt_validator.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/reference/goose/cli/prompt/user_input.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/reference/goose/command/index.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/reference/goose/command/base.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/reference/goose/command/file.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/reference/goose/toolkit/index.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/reference/goose/toolkit/base.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/reference/goose/toolkit/developer.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/reference/goose/toolkit/github.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/reference/goose/toolkit/lint.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/reference/goose/toolkit/screen.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/reference/goose/toolkit/utils.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/reference/goose/toolkit/repo_context/index.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/reference/goose/toolkit/repo_context/repo_context.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/reference/goose/toolkit/repo_context/utils.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/reference/goose/toolkit/summarization/index.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/reference/goose/toolkit/summarization/summarize_file.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/reference/goose/toolkit/summarization/summarize_project.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/reference/goose/toolkit/summarization/summarize_repo.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/reference/goose/toolkit/summarization/utils.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/reference/goose/utils/index.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/reference/goose/utils/ask.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/reference/goose/utils/check_shell_command.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/reference/goose/utils/diff.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/reference/goose/utils/file_utils.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
     <url>
          <loc>https://square.github.io/goose/reference/goose/utils/session_file.html</loc>
-         <lastmod>2024-09-18</lastmod>
+         <lastmod>2024-09-25</lastmod>
     </url>
 </urlset>

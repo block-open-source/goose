@@ -22,7 +22,7 @@
       
       
       <link rel="icon" href="assets/logo.ico">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.5.34">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.5.37">
     
     
       
@@ -30,7 +30,7 @@
       
     
     
-      <link rel="stylesheet" href="assets/stylesheets/main.35f28582.min.css">
+      <link rel="stylesheet" href="assets/stylesheets/main.8c3ca2c6.min.css">
       
         
         <link rel="stylesheet" href="assets/stylesheets/palette.06af60db.min.css">
@@ -422,6 +422,21 @@
       Building from source
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Building from source">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#running-from-source" class="md-nav__link">
+    <span class="md-ellipsis">
+      Running from source
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -980,6 +995,21 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Building from source">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#running-from-source" class="md-nav__link">
+    <span class="md-ellipsis">
+      Running from source
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1052,7 +1082,6 @@
 <h1 id="contributing">Contributing<a class="headerlink" href="#contributing" title="Permanent link">&para;</a></h1>
 <p>
 <a href="#prerequisites">Prerequisites</a> •
-<a href="#evaluations">Evaluations</a> •
 <a href="#developing-and-testing">Developing and testing</a> •
 <a href="#building-from-source">Building from source</a> •
 <a href="#developing-goose-plugins">Developing goose-plugins</a> •
@@ -1097,6 +1126,13 @@
 <li>Run Goose:<br />
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>uv<span class="w"> </span>run<span class="w"> </span>goose<span class="w"> </span>session<span class="w"> </span>start<span class="w">  </span><span class="c1"># or any of goose&#39;s commands (e.g. goose --help)</span>
 </span></code></pre></div></li>
+</ol>
+<h3 id="running-from-source">Running from source<a class="headerlink" href="#running-from-source" title="Permanent link">&para;</a></h3>
+<p>When you build from source you may want to run it from elsewhere.</p>
+<ol>
+<li>Run <code>uv sync</code> as above</li>
+<li>Run <code>export goose_dev=`uv run which goose`</code></li>
+<li>You can use that from anywhere in your system, for example <code>cd ~/ &amp;&amp; $goose_dev session start</code>, or from your path if you like (advanced users only) to be running the latest.</li>
 </ol>
 <h2 id="developing-goose-plugins">Developing goose-plugins<a class="headerlink" href="#developing-goose-plugins" title="Permanent link">&para;</a></h2>
 <ol>
@@ -1217,10 +1253,10 @@
     </div>
     
     
-    <script id="__config" type="application/json">{"base": ".", "features": ["announce.dismiss", "content.action.edit", "content.action.view", "content.code.annotate", "content.code.copy", "content.tooltips", "content.tabs.link", "navigation.footer", "navigation.indexes", "navigation.instant", "navigation.sections", "navigation.top", "navigation.tracking", "navigation.expand", "search.share", "search.suggest", "toc.follow"], "search": "assets/javascripts/workers/search.07f07601.min.js", "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}}</script>
+    <script id="__config" type="application/json">{"base": ".", "features": ["announce.dismiss", "content.action.edit", "content.action.view", "content.code.annotate", "content.code.copy", "content.tooltips", "content.tabs.link", "navigation.footer", "navigation.indexes", "navigation.instant", "navigation.sections", "navigation.top", "navigation.tracking", "navigation.expand", "search.share", "search.suggest", "toc.follow"], "search": "assets/javascripts/workers/search.6ce7567c.min.js", "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}}</script>
     
     
-      <script src="assets/javascripts/bundle.56dfad97.min.js"></script>
+      <script src="assets/javascripts/bundle.d6f25eb3.min.js"></script>
       
     
   <script id="init-glightbox">const lightbox = GLightbox({"touchNavigation": true, "loop": false, "zoomable": true, "draggable": true, "openEffect": "zoom", "closeEffect": "zoom", "slideEffect": "slide"});

@@ -21,9 +21,9 @@ goose
 It can take on tasks with your direction, and the make changes, write code, run code, take action. 
 
 Some ideas:
-* Have goose write a brand new app
-* Ask goose to go through a backlog (in JIRA) and find things it can fix and open PRs
-* Write code, run tests, iterate until it solves the problem (by running tests, executing code, self correcting as it goes)
+* Have goose write a brand new app, run it, and then have it add features and test them
+* Ask goose to go through a backlog (in JIRA) and find things it can fix, test locally, and then open PRs for them
+* have it write code and iterate until it solves the problem (by running tests, executing code, self correcting as it goes until it is happy with results)
 
 <table>
   <tr>

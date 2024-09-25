@@ -160,7 +160,7 @@ class Session:
             except Exception:
                 # rewind to right before the last user message
                 self.exchange.rewind()
-                print(traceback.format_exc())
+                print(traceback.lformat_exc())
                 print(
                     "\n[red]The error above was an exception we were not able to handle.\n\n[/]"
                     + "These errors are often related to connection or authentication\n"
@@ -234,6 +234,11 @@ class Session:
         return session_path(self.name)
 
     def load_session(self) -> List[Message]:
+        message = (
+            f"session is going to be saved to [bold cyan]{self.session_file_path}[/bold cyan]."
+            + " You can view it anytime."
+        )
+        print(Panel(message))
         return read_or_create_file(self.session_file_path)
 
     def _log_cost(self) -> None:

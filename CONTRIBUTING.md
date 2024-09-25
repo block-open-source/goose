@@ -2,7 +2,6 @@
 
 <p>
 <a href="#prerequisites">Prerequisites</a> •
-<a href="#evaluations">Evaluations</a> •
 <a href="#developing-and-testing">Developing and testing</a> •
 <a href="#building-from-source">Building from source</a> •
 <a href="#developing-goose-plugins">Developing goose-plugins</a> •

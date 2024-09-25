@@ -1,6 +1,7 @@
 import logging
 from pathlib import Path
 import json
+from typing import Union
 from exchange import Message, ToolResult
 
 _LOGGER_NAME = "goose"
@@ -9,40 +10,46 @@ _LOGGER_FILE_NAME = "goose.log"
 _TRACE_LOGGER_NAME = "trace_logger"
 _TRACE_LOGGER_FILE_NAME = "trace.log"
 
-TRACE_LEVEL = 5
-logging.addLevelName(TRACE_LEVEL, "TRACE")
+class TraceFilter(logging.Filter):
+    def __init__(self, toolResultOutputMaxTokens=1000):
+        super().__init__()
+        self.toolResultOutputMaxTokens = toolResultOutputMaxTokens
 
+    def filter(self, record):
+        if hasattr(record, 'trace_contents'):
+            record.msg = self.parse_trace_message(record.trace_contents)
+        return True  
 
-def trace(
-    self: logging.Logger, message: dict, toolResultOutputMaxTokens: int = 1000, *args: tuple, **kws: dict
-) -> None:
-    """
-    Log 'message' with severity 'TRACE' to log agent traces.
+    def parse_trace_message(self, message: Union[str, dict, Message, ToolResult]):
+        # Custom parsing logic for trace messages
+        logMsg = ""
+        try:
+            if isinstance(message, Message):
+                logMsg += f"{message.role}: {message.__class__.__name__}\n"
+                for content in message.content:
+                    logMsg += json.dumps(content.to_dict(), indent=4) + "\n\n"
+            elif isinstance(message, ToolResult):
+                logMsg += f"{message.__class__.__name__}\n"
+                if message.is_error:
+                    logMsg += " ********** ERROR **********\n"
+                
+                message.output = message.output.replace("\\n", "\n")
+                if len(message.output) > self.toolResultOutputMaxTokens:
+                    message.output = message.output[:self.toolResultOutputMaxTokens] + "...[TRUNCATED]..."
+                logMsg += "\n" + json.dumps(message.to_dict(), indent=4, ensure_ascii=False) + "\n\n"
+                
+            elif isinstance(message, dict):
+                logMsg += json.dumps(message, indent=4) + "\n\n"
 
-    Usage: logger.trace("message")
-    """
-    tempLog = ""
-    try:
-        if isinstance(message, Message):
-            tempLog += f"{message.role}: {message.__class__.__name__}"
-            for c in message.content:
-                tempLog += "\n" + json.dumps(c.to_dict(), indent=4) + "\n\n"
-        elif isinstance(message, ToolResult):
-            tempLog += f"{message.__class__.__name__}"
-            if message.is_error:
-                tempLog += " ********** ERROR **********"
-            if len(message.output) > toolResultOutputMaxTokens:
-                message.output = message.output[:toolResultOutputMaxTokens] + "...[TRUNCATED]..."
-            tempLog += "\n" + json.dumps(message.to_dict(), indent=4).replace("\\n", "\n") + "\n\n"
-        else:
-            tempLog += "\n" + message + "\n\n"
-    except Exception as e:
-        tempLog += f"Exception raised in trace logging: {e}"
-    if self.isEnabledFor(TRACE_LEVEL):
-        self._log(TRACE_LEVEL, tempLog, args, **kws)
+            elif isinstance(message, str):
+                logMsg += message + "\n\n"
 
+            else:
+                logMsg += f"Unhandled trace message type: {type(message)}\n\n"
+        except Exception as e:
+            logMsg += f"Exception raised in trace logging: {e}\n"
 
-logging.Logger.trace = trace
+        return logMsg
 
 
 def setup_logging(log_file_directory: Path, log_level: str = "INFO") -> None:
@@ -55,10 +62,11 @@ def setup_logging(log_file_directory: Path, log_level: str = "INFO") -> None:
     file_handler.setFormatter(formatter)
 
     trace_logger = logging.getLogger(_TRACE_LOGGER_NAME)
-    trace_logger.setLevel(TRACE_LEVEL)
-    trace_file_handler = logging.FileHandler(log_file_directory / _TRACE_LOGGER_FILE_NAME)
-    trace_logger.addHandler(trace_file_handler)
-    trace_file_handler.setFormatter(formatter)
+    trace_logger.setLevel(logging.DEBUG)
+    trace_handler = logging.FileHandler(log_file_directory / _TRACE_LOGGER_FILE_NAME)
+    trace_handler.addFilter(TraceFilter(toolResultOutputMaxTokens=500))
+    trace_logger.addHandler(trace_handler)
+    trace_handler.setFormatter(formatter)
 
 
 def get_logger() -> logging.Logger:

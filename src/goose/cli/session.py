@@ -150,7 +150,7 @@ class Session:
         """
         message = self.process_first_message()
         while message:  # Loop until no input (empty string).
-            self.trace_logger.trace(message)
+            self.trace_logger.debug(["trace"], extra={"trace_contents": message})
             self.notifier.start()
             try:
                 self.exchange.add(message)
@@ -184,7 +184,7 @@ class Session:
         """
         self.status_indicator.update("responding")
         response = self.exchange.generate()
-        self.trace_logger.trace(response)
+        self.trace_logger.debug(["trace"], extra={"trace_contents": response})
 
         if response.text:
             print(Markdown(response.text))
@@ -194,12 +194,11 @@ class Session:
             for tool_use in response.tool_use:
                 tool_result = self.exchange.call_function(tool_use)
                 content.append(tool_result)
-                # print(tool_result.to_dict())
-                self.trace_logger.trace(tool_result)
+                self.trace_logger.debug(["trace"], extra={"trace_contents": tool_result})
             self.exchange.add(Message(role="user", content=content))
             self.status_indicator.update("responding")
             response = self.exchange.generate()
-            self.trace_logger.trace(response)
+            self.trace_logger.debug(["trace"], extra={"trace_contents": response})
 
             if response.text:
                 print(Markdown(response.text))

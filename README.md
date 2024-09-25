@@ -2,7 +2,7 @@
 goose
 </h1>
 
-<p align="center"><strong>goose</strong> <em>is a programming agent that runs on your machine.</em></p>
+<p align="center"><strong>goose</strong> <em>is a software engineering agent that runs on your machine.</em></p>
 
 <p align="center">
   <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg"></a>
@@ -24,8 +24,8 @@ It can take on tasks with your direction, and the make changes, write code, run 
 Goose can:
 
 * write a brand new app
-* go through a backlog (in JIRA) and find things it can fix and open PRs
-* Write code, run tests, iterate until it solves the problem (by running tests, executing code, self correcting as it goes)
+* find an issue in your JIRA backlog and raise a PR to fix it
+* write code, install tools, run tests and iterate until it solves the problem (self correcting as it goes)
 
 
 <table>

@@ -8,7 +8,7 @@ This page contains two sections that will help you get started with Goose:
 ## Configuring Goose with the `profiles.yaml` file
 On the first run, Goose will detect what LLMs are available from your environment, and generate a configuration file at `~/.config/goose/profiles.yaml`. You can edit those profiles to further configure goose. 
 
-Here’s what the default `profiles.yaml` could look like if Goose detects an OpenAI API key::
+Here’s what the default `profiles.yaml` could look like if Goose detects an OpenAI API key:
 
 ```yaml
 default:
@@ -22,6 +22,15 @@ default:
 ```
 
 You can edit this configuration file to use different LLMs and toolkits in Goose. Check out the [configuration docs][configuration] to better understand the different fields of the `profiles.yaml` file! You can add new profiles with different settings to change how goose works from one section to the next - use `goose session start --profile {profile}` to select which to use.
+
+### LLM provider access setup
+
+Goose works on top of LLMs.  You'll need to configure one before using it. By default, Goose uses `openai` as the LLM provider but you can customize it as needed. You need to set OPENAI_API_KEY as an environment variable if you would like to use `openai`.
+
+To learn more about providers and modes of access, check out the [provider docs][providers].
+```sh
+export OPENAI_API_KEY=your_open_api_key
+```
 
 ## Working with Goose
 
@@ -128,3 +137,4 @@ goose session start --plan plan.md --args dep=pytest,repo=github
 
 [configuration]: ../configuration.md
 [available-toolkits]: ../plugins/available-toolkits.md
+[providers]: ../plugins/providers.md

@@ -170,7 +170,6 @@ class Developer(Toolkit):
             r"\(y/N\)",  # Yes/No prompt
             r"Press any key to continue",  # Awaiting keypress
             r"Waiting for input",  # General waiting message
-            r"\?\s",  # Prompts starting with '? '
         ]
         compiled_patterns = [re.compile(pattern, re.IGNORECASE) for pattern in interaction_patterns]
 

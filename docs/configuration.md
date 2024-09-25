@@ -139,7 +139,7 @@ Or, if you're developing a new toolkit and want to test it:
 uv run goose session start --profile my-profile
 ```
 
-## Tuning it to your repo
+## Tuning Goose to your repo
 
 Goose ships with the ability to read in the contents of a file named `.goosehints` from your repo. If you find yourself repeating the same information across sessions to Goose, this file is the right place to add this information.
 

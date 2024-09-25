@@ -115,18 +115,22 @@ markdown_extensions:
 nav:
   - Home: index.md
   - 'Installation': installation.md
-  - 'Configuration': configuration.md
   - 'Contributing': contributing.md
+  - Guidance:
+      - 'Getting Started': guidance/getting-started.md
+      - 'Quick Tips': guidance/tips.md
+      - 'Applications of Goose': guidance/applications.md
   - Plugins:
-    - 'Overview': plugins.md
+    - 'Overview': plugins/plugins.md
     - Toolkits:
-        - 'Using Toolkits': using-toolkits.md
-        - 'Creating a New Toolkit': creating-a-new-toolkit.md
-        - 'Available Toolkits': available-toolkits.md
+        - 'Using Toolkits': plugins/using-toolkits.md
+        - 'Creating a New Toolkit': plugins/creating-a-new-toolkit.md
+        - 'Available Toolkits': plugins/available-toolkits.md
     - CLI Commands:
-        - 'Available CLI Commands': cli.md
+        - 'Available CLI Commands': plugins/cli.md
     - Providers:
-        - 'Available Providers': providers.md
-  - 'Tips': tips.md
+        - 'Available Providers': plugins/providers.md
+  - Advanced:
+      - Configuration: configuration.md
   - 'Reference':
-      - 'Summary': reference/SUMMARY.md
+      - 'API Docs': reference/index.md

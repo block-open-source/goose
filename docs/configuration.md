@@ -1,47 +1,5 @@
 # Configuring Goose
 
-## Adding a toolkit
-To make a toolkit available to Goose, add it to your project's pyproject.toml. For example in the Goose pyproject.toml file:
-```
-[project.entry-points."goose.toolkit"]
-developer = "goose.toolkit.developer:Developer"
-github = "goose.toolkit.github:Github"
-# Add a line like this - the key becomes the name used in profiles
-my-new-toolkit = "goose.toolkit.my_toolkits:MyNewToolkit"  # this is the path to the class that implements the toolkit
-```
-
-Then to set up a profile that uses it, add something to `~/.config/goose/profiles.yaml`:
-```yaml
-my-profile:
-  provider: openai
-  processor: gpt-4o
-  accelerator: gpt-4o-mini
-  moderator: passive
-  toolkits:  # new toolkit gets added here
-    - developer
-    - my-new-toolkit
-```
-
-And now you can run Goose with this new profile to use the new toolkit!
-
-```sh
-goose session start --profile my-profile
-```
-
-Or, if you're developing a new toolkit and want to test it:
-```sh
-uv run goose session start --profile my-profile
-```
-
-## Tuning it to your repo
-
-Goose ships with the ability to read in the contents of a file named `.goosehints` from your repo. If you find yourself repeating the same information across sessions to Goose, this file is the right place to add this information.
-
-This file will be read into the Goose system prompt if it is present in the current working directory.
-
-> [!NOTE] 
-> `.goosehints` follows [jinja templating rules][jinja-guide] in case you want to leverage templating to insert file contents or variables.
-
 ## Profiles
 
 If you need to customize goose, one way is via editing: `~/.config/goose/profiles.yaml`.
@@ -146,3 +104,46 @@ unit-test-gen:
 ```
 
 [jinja-guide]: https://jinja.palletsprojects.com/en/3.1.x/
+
+
+## Adding a toolkit
+To make a toolkit available to Goose, add it to your project's pyproject.toml. For example in the Goose pyproject.toml file:
+```
+[project.entry-points."goose.toolkit"]
+developer = "goose.toolkit.developer:Developer"
+github = "goose.toolkit.github:Github"
+# Add a line like this - the key becomes the name used in profiles
+my-new-toolkit = "goose.toolkit.my_toolkits:MyNewToolkit"  # this is the path to the class that implements the toolkit
+```
+
+Then to set up a profile that uses it, add something to `~/.config/goose/profiles.yaml`:
+```yaml
+my-profile:
+  provider: openai
+  processor: gpt-4o
+  accelerator: gpt-4o-mini
+  moderator: passive
+  toolkits:  # new toolkit gets added here
+    - developer
+    - my-new-toolkit
+```
+
+And now you can run Goose with this new profile to use the new toolkit!
+
+```sh
+goose session start --profile my-profile
+```
+
+Or, if you're developing a new toolkit and want to test it:
+```sh
+uv run goose session start --profile my-profile
+```
+
+## Tuning Goose to your repo
+
+Goose ships with the ability to read in the contents of a file named `.goosehints` from your repo. If you find yourself repeating the same information across sessions to Goose, this file is the right place to add this information.
+
+This file will be read into the Goose system prompt if it is present in the current working directory.
+
+> [!NOTE] 
+> `.goosehints` follows [jinja templating rules][jinja-guide] in case you want to leverage templating to insert file contents or variables.

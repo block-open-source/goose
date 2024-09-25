@@ -17,7 +17,8 @@ coverage *FLAGS:
   uv run coverage lcov -o lcov.info
 
 docs:
-  cd docs && uv sync && uv run mkdocs serve
+  uv sync && uv run mkdocs serve
+
 
 ai-exchange-version:
   curl -s https://pypi.org/pypi/ai-exchange/json | jq -r .info.version

@@ -144,14 +144,16 @@ file is meant to provide additional context about your project. The context can 
 user-specific or at the project level in which case, you
 can commit it to git. `.goosehints` file is Jinja templated so you could have something
 like this:
+
 ```
 Here is an overview of how to contribute:
-{% include 'CONTRIBUTING.md' %}
+&#123;% include 'CONTRIBUTING.md' %&#125;
 
 The following justfile shows our common commands:
-```just
-{% include 'justfile' %}
+&#123;% include 'justfile' %&#125;
 ```
+
+
 
 ### Examples
 #### provider as `anthropic`

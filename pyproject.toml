@@ -61,4 +61,7 @@ dev-dependencies = [
     "mkdocs-redirects>=1.2.1",
     "mkdocs-include-markdown-plugin>=6.2.2",
     "mkdocs-callouts>=1.14.0",
+    "mkdocs-git-authors-plugin>=0.9.0",
+    "mkdocs-git-revision-date-localized-plugin>=1.2.9",
+    "mkdocs-git-committers-plugin>=0.2.3",
 ]

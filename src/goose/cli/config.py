@@ -1,6 +1,6 @@
 from functools import cache
 from pathlib import Path
-from typing import Callable, Dict, Mapping, Tuple
+from typing import Callable, Dict, Mapping, Optional, Tuple
 
 from rich import print
 from rich.panel import Panel
@@ -37,15 +37,17 @@ def write_config(profiles: Dict[str, Profile]) -> None:
         yaml.dump(converted, f)
 
 
-def ensure_config(name: str) -> Profile:
+def ensure_config(name: Optional[str]) -> Tuple[str, Profile]:
     """Ensure that the config exists and has the default section"""
     # TODO we should copy a templated default config in to better document
     # but this is complicated a bit by autodetecting the provider
-
+    default_profile_name = "default"
+    name = name or default_profile_name
+    default_profiles_dict = default_profiles()
     provider, processor, accelerator = default_model_configuration()
-    profile = default_profiles()[name](provider, processor, accelerator)
+    default_profile = default_profiles_dict.get(
+        name, default_profiles_dict[default_profile_name])(provider, processor, accelerator)
 
-    profiles = {}
     if not PROFILES_CONFIG_PATH.exists():
         print(
             Panel(
@@ -54,17 +56,16 @@ def ensure_config(name: str) -> Profile:
                 + "You can add your own profile in this file to further configure goose!"
             )
         )
-        default = profile
-        profiles = {name: default}
-        write_config(profiles)
-        return profile
+        write_config({name: default_profile})
+        return (name, default_profile)
 
     profiles = read_config()
-    if name not in profiles:
-        print(Panel(f"[yellow]Your configuration doesn't have a profile named '{name}', adding one now[/yellow]"))
-        profiles.update({name: profile})
-        write_config(profiles)
-    return profile
+    if name in profiles:
+        return (name, profiles[name])
+    print(Panel(f"[yellow]Your configuration doesn't have a profile named '{name}', adding one now[/yellow]"))
+    profiles.update({name: default_profile})
+    write_config(profiles)
+    return (name, default_profile)
 
 
 def read_config() -> Dict[str, Profile]:

@@ -1,6 +1,7 @@
 import logging
 from pathlib import Path
 import json
+from exchange import Message, ToolResult
 
 _LOGGER_NAME = "goose"
 _LOGGER_FILE_NAME = "goose.log"
@@ -12,29 +13,33 @@ TRACE_LEVEL = 5
 logging.addLevelName(TRACE_LEVEL, "TRACE")
 
 
-def trace(self: logging.Logger, message: str, *args: tuple, **kws: dict) -> None:
+def trace(
+    self: logging.Logger, message: dict, toolResultOutputMaxTokens: int = 1000, *args: tuple, **kws: dict
+) -> None:
     """
     Log 'message' with severity 'TRACE' to log agent traces.
 
     Usage: logger.trace("message")
     """
-    if isinstance(message, dict):
-        try:
-            role = message.get("role", "")
-            content_type = message.get("content", [{}])[0].get("type", "")
-            if content_type == "ToolUse":
-                tool = message.get("content", [{}])[0].get("name", "")
-                content_type = f"{content_type} [{tool}]"
-            content = message.get("content", [{}])[0]
-            formatted_content = "\n" + json.dumps(content, indent=4)
-            formatted_content = formatted_content.replace("\\n", "\n")
-            formatted_message = f"** {role} / {content_type} ** \n{formatted_content}\n\n"
-            message = formatted_message
-        except Exception:
-            message = "\n" + json.dumps(message, indent=4)
-            message = message.replace("\\n", "\n")
+    tempLog = ""
+    try:
+        if isinstance(message, Message):
+            tempLog += f"{message.role}: {message.__class__.__name__}"
+            for c in message.content:
+                tempLog += "\n" + json.dumps(c.to_dict(), indent=4) + "\n\n"
+        elif isinstance(message, ToolResult):
+            tempLog += f"{message.__class__.__name__}"
+            if message.is_error:
+                tempLog += " ********** ERROR **********"
+            if len(message.output) > toolResultOutputMaxTokens:
+                message.output = message.output[:toolResultOutputMaxTokens] + "...[TRUNCATED]..."
+            tempLog += "\n" + json.dumps(message.to_dict(), indent=4).replace("\\n", "\n") + "\n\n"
+        else:
+            tempLog += "\n" + message + "\n\n"
+    except Exception as e:
+        tempLog += f"Exception raised in trace logging: {e}"
     if self.isEnabledFor(TRACE_LEVEL):
-        self._log(TRACE_LEVEL, message, args, **kws)
+        self._log(TRACE_LEVEL, tempLog, args, **kws)
 
 
 logging.Logger.trace = trace

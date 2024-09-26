@@ -2,7 +2,7 @@ site_name: Goose Documentation
 site_author: Block
 site_description: Documentation for Goose
 repo_url: https://github.com/block-open-source/goose
-repo_name: "square/goose"
+repo_name: "block-open-source/goose"
 edit_uri: "https://github.com/block-open-source/goose/blob/main/docs/"
 site_url: 'https://block-open-source.github.io/goose/'
 use_directory_urls: false
@@ -57,7 +57,7 @@ plugins:
   - git-committers:  # Show git committers
       branch: main
       enabled: !ENV [ ENV_PROD, false ]
-      repository: square/goose
+      repository: block-open-source/goose
   - git-revision-date-localized:  # Show git revision date
       enable_creation_date: true
       enabled: !ENV [ ENV_PROD, false ]

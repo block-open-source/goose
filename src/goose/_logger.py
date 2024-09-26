@@ -1,4 +1,5 @@
 import logging
+from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 import json
 from typing import Union
@@ -15,45 +16,50 @@ class TraceFilter(logging.Filter):
         super().__init__()
         self.toolResultOutputMaxTokens = toolResultOutputMaxTokens
 
-    def filter(self, record):
+    def filter(self, record) -> bool:
         if hasattr(record, 'trace_contents'):
             record.msg = self.parse_trace_message(record.trace_contents)
         return True  
 
-    def parse_trace_message(self, message: Union[str, dict, Message, ToolResult]):
+    def parse_trace_message(self, message: Union[str, dict, Message, ToolResult]) -> str:
         # Custom parsing logic for trace messages
-        logMsg = ""
+        log_msg = ""
         try:
             if isinstance(message, Message):
-                logMsg += f"{message.role}: {message.__class__.__name__}\n"
+                log_msg += f"{message.role}: {message.__class__.__name__}\n"
                 for content in message.content:
-                    logMsg += json.dumps(content.to_dict(), indent=4) + "\n\n"
+                    log_msg += json.dumps(content.to_dict(), indent=4) + "\n\n"
             elif isinstance(message, ToolResult):
-                logMsg += f"{message.__class__.__name__}\n"
+                log_msg += f"{message.__class__.__name__}\n"
                 if message.is_error:
-                    logMsg += " ********** ERROR **********\n"
+                    log_msg += " ********** ERROR **********\n"
                 
-                message.output = message.output.replace("\\n", "\n")
                 if len(message.output) > self.toolResultOutputMaxTokens:
                     message.output = message.output[:self.toolResultOutputMaxTokens] + "...[TRUNCATED]..."
-                logMsg += "\n" + json.dumps(message.to_dict(), indent=4, ensure_ascii=False) + "\n\n"
-                
+                log_msg += "\n" + json.dumps(message.to_dict(), indent=4, ensure_ascii=False) + "\n\n"
+
+                formatted_output = message.output.replace("\\n", "\n")
+                try:
+                    formatted_output = json.dumps(json.loads(formatted_output), indent=4)
+                except:
+                    pass                
+                log_msg += f"Formatted message.output:\n{formatted_output}\n\n"
+
             elif isinstance(message, dict):
-                logMsg += json.dumps(message, indent=4) + "\n\n"
+                log_msg += json.dumps(message, indent=4) + "\n\n"
 
             elif isinstance(message, str):
-                logMsg += message + "\n\n"
+                log_msg += message + "\n\n"
 
             else:
-                logMsg += f"Unhandled trace message type: {type(message)}\n\n"
+                log_msg += f"Unhandled trace message type: {type(message)}\n\n"
         except Exception as e:
-            logMsg += f"Exception raised in trace logging: {e}\n"
+            log_msg += f"Exception raised in trace logging: {e}\n"
 
-        return logMsg
+        return log_msg
 
 
 def setup_logging(log_file_directory: Path, log_level: str = "INFO") -> None:
-    print('LOG LEVEL:', log_level)
     logger = logging.getLogger(_LOGGER_NAME)
     logger.setLevel(getattr(logging, log_level))
     log_file_directory.mkdir(parents=True, exist_ok=True)
@@ -64,8 +70,10 @@ def setup_logging(log_file_directory: Path, log_level: str = "INFO") -> None:
 
     trace_logger = logging.getLogger(_TRACE_LOGGER_NAME)
     trace_logger.setLevel(log_level)
-    trace_handler = logging.FileHandler(log_file_directory / _TRACE_LOGGER_FILE_NAME)
-    trace_handler.addFilter(TraceFilter(toolResultOutputMaxTokens=500))
+    trace_handler = TimedRotatingFileHandler(
+        log_file_directory / _TRACE_LOGGER_FILE_NAME, when='midnight', interval=1, backupCount=7
+    )
+    trace_handler.addFilter(TraceFilter(toolResultOutputMaxTokens=1000))
     trace_logger.addHandler(trace_handler)
     trace_handler.setFormatter(formatter)
 

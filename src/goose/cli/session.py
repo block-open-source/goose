@@ -45,8 +45,7 @@ def load_provider() -> str:
 
 
 def load_profile(name: Optional[str]) -> Profile:
-    (profile_name, profile) = ensure_config(name)
-    print(Panel(f"[green]Using profile[/]: {profile_name}, {{{profile.profile_info()}}}"))
+    _, profile = ensure_config(name)
     return profile
 
 
@@ -85,9 +84,9 @@ class Session:
     ) -> None:
         if name is None:
             self.name = droid()
-            print(Panel(f"Session name not provided, using generated name: {self.name}"))
         else:
             self.name = name
+        self.profile = profile
         self.status_indicator = Status("", spinner="dots")
         self.notifier = SessionNotifier(self.status_indicator)
 
@@ -146,6 +145,9 @@ class Session:
         Runs the main loop to handle user inputs and responses.
         Continues until an empty string is returned from the prompt.
         """
+        print(f"[dim]starting session | name:[cyan]{self.name}[/]  profile:[cyan]{self.profile or 'default'}[/]")
+        print(f"[dim]saving to {self.session_file_path}")
+        print()
         message = self.process_first_message()
         while message:  # Loop until no input (empty string).
             self.notifier.start()
@@ -231,16 +233,11 @@ class Session:
         return session_path(self.name)
 
     def load_session(self) -> List[Message]:
-        message = (
-            f"session is going to be saved to [bold cyan]{self.session_file_path}[/bold cyan]."
-            + " You can view it anytime."
-        )
-        print(Panel(message))
         return read_or_create_file(self.session_file_path)
 
     def _log_cost(self) -> None:
         get_logger().info(get_total_cost_message(self.exchange.get_token_usage()))
-        print("You can view the cost and token usage in the log directory", LOG_PATH)
+        print(f"[dim]you can view the cost and token usage in the log directory {LOG_PATH}")
 
 
 if __name__ == "__main__":

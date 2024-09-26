@@ -12,7 +12,7 @@ from rich.panel import Panel
 from rich.status import Status
 
 from goose.build import build_exchange
-from goose.cli.config import default_profiles, ensure_config, read_config, session_path, LOG_PATH
+from goose.cli.config import ensure_config, session_path, LOG_PATH
 from goose._logger import get_logger, setup_logging
 from goose.cli.prompt.goose_prompt_session import GoosePromptSession
 from goose.notifier import Notifier
@@ -46,15 +46,9 @@ def load_provider() -> str:
 
 
 def load_profile(name: Optional[str]) -> Profile:
-    if name is None:
-        name = "default"
-
-    # If the name is one of the default values, we ensure a valid configuration
-    if name in default_profiles():
-        return ensure_config(name)
-
-    # Otherwise this is a custom config and we return it from the config file
-    return read_config()[name]
+    (profile_name, profile) = ensure_config(name)
+    print(Panel(f"[green]Using profile[/]: {profile_name}, {{{profile.profile_info()}}}"))
+    return profile
 
 
 class SessionNotifier(Notifier):

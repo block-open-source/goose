@@ -1,8 +1,16 @@
+import os
 from pathlib import Path
 
 import pytest
 from exchange import Message
-from goose.utils.session_file import list_sorted_session_files, read_from_file, session_file_exists, write_to_file
+from goose.utils.session_file import (
+    list_sorted_session_files,
+    read_from_file,
+    read_or_create_file,
+    save_latest_session,
+    session_file_exists,
+    write_to_file,
+)
 
 
 @pytest.fixture
@@ -30,6 +38,23 @@ def test_read_from_file_non_jsonl_file(file_path):
     file_path.write_text("Hello World")
     with pytest.raises(RuntimeError):
         read_from_file(file_path)
+
+
+def test_read_or_create_file_when_file_not_exist(tmp_path):
+    file_path = tmp_path / "no_existing.json"
+
+    assert read_or_create_file(file_path) == []
+    assert os.path.exists(file_path)
+
+
+def test_read_or_create_file_when_file_exists(file_path):
+    messages = [
+        Message.user("prompt1"),
+    ]
+    write_to_file(file_path, messages)
+
+    assert file_path.exists()
+    assert read_from_file(file_path) == messages
 
 
 def test_list_sorted_session_files(tmp_path):
@@ -69,6 +94,21 @@ def test_session_file_exists_return_true_when_session_file_exists(tmp_path):
     session_files_directory.mkdir()
     create_session_file(session_files_directory, "session1")
     assert session_file_exists(session_files_directory)
+
+
+def test_save_latest_session(file_path, tmp_path):
+    messages = [
+        Message.user("prompt1"),
+        Message.user("prompt2"),
+    ]
+    write_to_file(file_path, messages)
+
+    messages.append(Message.user("prompt3"))
+    save_latest_session(file_path, messages)
+
+    messages_in_file = read_from_file(file_path)
+    assert messages_in_file == messages
+    assert len(messages_in_file) == 3
 
 
 def create_session_file(file_path, file_name) -> Path:

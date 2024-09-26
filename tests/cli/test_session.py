@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-from exchange import Message, ToolUse, ToolResult
+from exchange import Exchange, Message, ToolUse, ToolResult
 from goose.cli.prompt.goose_prompt_session import GoosePromptSession
 from goose.cli.prompt.user_input import PromptAction, UserInput
 from goose.cli.session import Session
@@ -19,12 +19,13 @@ def mock_specified_session_name():
 
 @pytest.fixture
 def create_session_with_mock_configs(mock_sessions_path, exchange_factory, profile_factory):
-    with patch("goose.cli.session.build_exchange", return_value=exchange_factory()), patch(
+    with patch("goose.cli.session.build_exchange") as mock_exchange, patch(
         "goose.cli.session.load_profile", return_value=profile_factory()
     ), patch("goose.cli.session.SessionNotifier") as mock_session_notifier, patch(
         "goose.cli.session.load_provider", return_value="provider"
     ):
         mock_session_notifier.return_value = MagicMock()
+        mock_exchange.return_value = exchange_factory()
 
         def create_session(session_attributes: dict = {}):
             return Session(**session_attributes)
@@ -79,59 +80,6 @@ def test_session_removes_tool_use_and_adds_resume_message_if_last_message_is_too
     ]
 
 
-def test_save_session_create_session(mock_sessions_path, create_session_with_mock_configs, mock_specified_session_name):
-    session = create_session_with_mock_configs()
-    session.exchange.messages.append(Message.assistant("Hello"))
-
-    session.save_session()
-    session_file = mock_sessions_path / f"{SPECIFIED_SESSION_NAME}.jsonl"
-    assert session_file.exists()
-
-    saved_messages = session.load_session()
-    assert len(saved_messages) == 1
-    assert saved_messages[0].text == "Hello"
-
-
-def test_save_session_resume_session_new_file(
-    mock_sessions_path, create_session_with_mock_configs, mock_specified_session_name, create_session_file
-):
-    with patch("goose.cli.session.confirm", return_value=False):
-        existing_messages = [Message.assistant("existing_message")]
-        existing_session_file = mock_sessions_path / f"{SESSION_NAME}.jsonl"
-        create_session_file(existing_messages, existing_session_file)
-
-        new_session_file = mock_sessions_path / f"{SPECIFIED_SESSION_NAME}.jsonl"
-        assert not new_session_file.exists()
-
-        session = create_session_with_mock_configs({"name": SESSION_NAME})
-        session.exchange.messages.append(Message.assistant("new_message"))
-
-        session.save_session()
-
-        assert new_session_file.exists()
-        assert existing_session_file.exists()
-
-        saved_messages = session.load_session()
-        assert [message.text for message in saved_messages] == ["existing_message", "new_message"]
-
-
-def test_save_session_resume_session_existing_session_file(
-    mock_sessions_path, create_session_with_mock_configs, create_session_file
-):
-    with patch("goose.cli.session.confirm", return_value=True):
-        existing_messages = [Message.assistant("existing_message")]
-        existing_session_file = mock_sessions_path / f"{SESSION_NAME}.jsonl"
-        create_session_file(existing_messages, existing_session_file)
-
-        session = create_session_with_mock_configs({"name": SESSION_NAME})
-        session.exchange.messages.append(Message.assistant("new_message"))
-
-        session.save_session()
-
-        saved_messages = session.load_session()
-        assert [message.text for message in saved_messages] == ["existing_message", "new_message"]
-
-
 def test_process_first_message_return_message(create_session_with_mock_configs):
     session = create_session_with_mock_configs()
     with patch.object(
@@ -161,14 +109,6 @@ def test_process_first_message_return_last_exchange_message(create_session_with_
     assert len(session.exchange.messages) == 0
 
 
-def test_generate_session_name(create_session_with_mock_configs):
-    session = create_session_with_mock_configs()
-    with patch.object(GoosePromptSession, "get_save_session_name", return_value=SPECIFIED_SESSION_NAME):
-        session.generate_session_name()
-
-        assert session.name == SPECIFIED_SESSION_NAME
-
-
 def test_log_log_cost(create_session_with_mock_configs):
     session = create_session_with_mock_configs()
     mock_logger = MagicMock()
@@ -178,3 +118,36 @@ def test_log_log_cost(create_session_with_mock_configs):
     ), patch("goose.cli.session.get_logger", return_value=mock_logger):
         session._log_cost()
         mock_logger.info.assert_called_once_with(cost_message)
+
+
+def test_run_should_auto_save_session(create_session_with_mock_configs, mock_sessions_path):
+    def custom_exchange_generate(self, *args, **kwargs):
+        message = Message.assistant("Response")
+        self.add(message)
+        return message
+
+    user_inputs = [
+        UserInput(action=PromptAction.CONTINUE, text="Question1"),
+        UserInput(action=PromptAction.CONTINUE, text="Question2"),
+        UserInput(action=PromptAction.EXIT),
+    ]
+
+    session = create_session_with_mock_configs({"name": SESSION_NAME})
+    with patch.object(GoosePromptSession, "get_user_input", side_effect=user_inputs), patch.object(
+        Exchange, "generate"
+    ) as mock_generate, patch("goose.cli.session.save_latest_session") as mock_save_latest_session:
+        mock_generate.side_effect = lambda *args, **kwargs: custom_exchange_generate(session.exchange, *args, **kwargs)
+        session.run()
+
+        session_file = mock_sessions_path / f"{SESSION_NAME}.jsonl"
+        assert session.exchange.generate.call_count == 2
+        assert mock_save_latest_session.call_count == 2
+        assert mock_save_latest_session.call_args_list[0][0][0] == session_file
+        assert session_file.exists()
+
+
+def test_set_generated_session_name(create_session_with_mock_configs, mock_sessions_path):
+    generated_session_name = "generated_session_name"
+    with patch("goose.cli.session.droid", return_value=generated_session_name):
+        session = create_session_with_mock_configs({"name": None})
+        assert session.name == generated_session_name

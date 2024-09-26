@@ -19,6 +19,25 @@ coverage *FLAGS:
 docs:
   uv sync && uv run mkdocs serve
 
+install-hooks:
+  #!/usr/bin/env bash
+  HOOKS_DIR="$(git rev-parse --git-path hooks)"
+
+  if [ ! -d "$HOOKS_DIR" ]; then
+    mkdir -p "$HOOKS_DIR"
+  fi
+
+  cat > "$HOOKS_DIR/pre-commit" <<EOF
+  #!/usr/bin/env bash
+
+  just format
+  EOF
+
+  if [ ! -f "$HOOKS_DIR/pre-commit" ]; then
+    echo "[error]: failed to create pre-commit hook at $HOOKS_DIR/pre-commit"
+    exit 1
+  fi
+  chmod +x "$HOOKS_DIR/pre-commit"
 
 ai-exchange-version:
   curl -s https://pypi.org/pypi/ai-exchange/json | jq -r .info.version

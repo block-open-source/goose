@@ -1,4 +1,5 @@
 import logging
+
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 import json
@@ -11,7 +12,14 @@ _LOGGER_FILE_NAME = "goose.log"
 _TRACE_LOGGER_NAME = "trace_logger"
 _TRACE_LOGGER_FILE_NAME = "trace.log"
 
+
 class TraceFilter(logging.Filter):
+    """
+    TraceFilter is a custom logging filter that processes and formats trace messages for logging.
+    
+    Attributes:
+        toolResultOutputMaxTokens (int): Maximum number of tokens to include in the output of a ToolResult message.
+    """
     def __init__(self, toolResultOutputMaxTokens=1000):
         super().__init__()
         self.toolResultOutputMaxTokens = toolResultOutputMaxTokens
@@ -20,42 +28,57 @@ class TraceFilter(logging.Filter):
         if hasattr(record, 'trace_contents'):
             record.msg = self.parse_trace_message(record.trace_contents)
         return True  
-
+    
     def parse_trace_message(self, message: Union[str, dict, Message, ToolResult]) -> str:
         # Custom parsing logic for trace messages
         log_msg = ""
         try:
             if isinstance(message, Message):
-                log_msg += f"{message.role}: {message.__class__.__name__}\n"
-                for content in message.content:
-                    log_msg += json.dumps(content.to_dict(), indent=4) + "\n\n"
+                log_msg += TraceFilter._render_message(message)
             elif isinstance(message, ToolResult):
-                log_msg += f"{message.__class__.__name__}\n"
-                if message.is_error:
-                    log_msg += " ********** ERROR **********\n"
-                
-                if len(message.output) > self.toolResultOutputMaxTokens:
-                    message.output = message.output[:self.toolResultOutputMaxTokens] + "...[TRUNCATED]..."
-                log_msg += "\n" + json.dumps(message.to_dict(), indent=4, ensure_ascii=False) + "\n\n"
-
-                formatted_output = message.output.replace("\\n", "\n")
-                try:
-                    formatted_output = json.dumps(json.loads(formatted_output), indent=4)
-                except:
-                    pass                
-                log_msg += f"Formatted message.output:\n{formatted_output}\n\n"
-
+                log_msg += TraceFilter._render_tool_result(message, self.toolResultOutputMaxTokens)
             elif isinstance(message, dict):
-                log_msg += json.dumps(message, indent=4) + "\n\n"
-
+                log_msg += TraceFilter._render_dict(message)
             elif isinstance(message, str):
-                log_msg += message + "\n\n"
-
+                log_msg += TraceFilter._render_str(message)
             else:
                 log_msg += f"Unhandled trace message type: {type(message)}\n\n"
         except Exception as e:
             log_msg += f"Exception raised in trace logging: {e}\n"
 
+        return log_msg
+
+    @staticmethod
+    def _render_str(message: str) -> str:
+        return message + "\n\n"
+    
+    @staticmethod
+    def _render_dict(message: dict) -> str:
+            return json.dumps(message, indent=4) + "\n\n"
+
+    @staticmethod
+    def _render_message(message: Message) -> str:
+        log_msg = f"{message.role}: {message.__class__.__name__}\n"
+        for content in message.content:
+            log_msg += json.dumps(content.to_dict(), indent=4) + "\n\n"
+        return log_msg
+    
+    @staticmethod
+    def _render_tool_result(message: ToolResult, outputMaxTokens) -> str:
+        log_msg = f"{message.__class__.__name__}\n"
+        if message.is_error:
+            log_msg += " ********** ERROR **********\n"
+        
+        if len(message.output) > outputMaxTokens:
+            message.output = message.output[:outputMaxTokens] + "...[TRUNCATED]..."
+        log_msg += "\n" + json.dumps(message.to_dict(), indent=4, ensure_ascii=False) + "\n\n"
+
+        formatted_output = message.output.replace("\\n", "\n")
+        try:
+            formatted_output = json.dumps(json.loads(formatted_output), indent=4)
+        except:
+            pass                
+        log_msg += f"Formatted message.output:\n{formatted_output}\n\n"
         return log_msg
 
 

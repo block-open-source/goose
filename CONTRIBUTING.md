@@ -55,7 +55,7 @@ If you want to develop features on `goose`:
 
 1. Clone Goose:
  ```bash
- git clone git@github.com:square/goose.git ~/Development/goose
+ git clone git@github.com:block-open-source/goose.git ~/Development/goose
  ```
 2. Get `uv` with `brew install uv`
 3. Set up your Python virtualenv:
@@ -82,7 +82,7 @@ When you build from source you may want to run it from elsewhere.
 
 1. Clone the `goose-plugins` repo:
 ```bash
- git clone git@github.com:square/goose-plugins.git ~/Development/goose-plugins
+ git clone git@github.com:block-open-source/goose-plugins.git ~/Development/goose-plugins
 ```
 2. Follow the steps for creating a virtualenv in the `goose` section above
 3. Install `goose-plugins` in `goose`. This means any changes to `goose-plugins` in this folder will immediately be reflected in `goose`:
@@ -115,11 +115,11 @@ Additions to the [developer toolkit][developer] change the core performance, and
 
 This project follows the [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) specification for PR titles. Conventional Commits make it easier to understand the history of a project and facilitate automation around versioning and changelog generation.
 
-[issues]: https://github.com/square/goose/issues
-[goose-plugins]: https://github.com/square/goose-plugins
+[issues]: https://github.com/block-open-source/goose/issues
+[goose-plugins]: https://github.com/block-open-source/goose-plugins
 [ai-exchange]: https://github.com/square/exchange
 [developer]: src/goose/toolkit/developer.py
 [uv]: https://docs.astral.sh/uv/
 [ruff]: https://docs.astral.sh/ruff/
 [just]: https://github.com/casey/just
-[adding-toolkit]: https://square.github.io/goose/configuration.html#adding-a-toolkit
+[adding-toolkit]: https://block-open-source.github.io/goose/configuration.html#adding-a-toolkit

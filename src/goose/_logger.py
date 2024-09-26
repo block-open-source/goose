@@ -16,19 +16,20 @@ _TRACE_LOGGER_FILE_NAME = "trace.log"
 class TraceFilter(logging.Filter):
     """
     TraceFilter is a custom logging filter that processes and formats trace messages for logging.
-    
+
     Attributes:
         toolResultOutputMaxTokens (int): Maximum number of tokens to include in the output of a ToolResult message.
     """
+
     def __init__(self, toolResultOutputMaxTokens=1000):
         super().__init__()
         self.toolResultOutputMaxTokens = toolResultOutputMaxTokens
 
     def filter(self, record) -> bool:
-        if hasattr(record, 'trace_contents'):
+        if hasattr(record, "trace_contents"):
             record.msg = self.parse_trace_message(record.trace_contents)
-        return True  
-    
+        return True
+
     def parse_trace_message(self, message: Union[str, dict, Message, ToolResult]) -> str:
         # Custom parsing logic for trace messages
         log_msg = ""
@@ -51,10 +52,10 @@ class TraceFilter(logging.Filter):
     @staticmethod
     def _render_str(message: str) -> str:
         return message + "\n\n"
-    
+
     @staticmethod
     def _render_dict(message: dict) -> str:
-            return json.dumps(message, indent=4) + "\n\n"
+        return json.dumps(message, indent=4) + "\n\n"
 
     @staticmethod
     def _render_message(message: Message) -> str:
@@ -62,13 +63,13 @@ class TraceFilter(logging.Filter):
         for content in message.content:
             log_msg += json.dumps(content.to_dict(), indent=4) + "\n\n"
         return log_msg
-    
+
     @staticmethod
     def _render_tool_result(message: ToolResult, outputMaxTokens) -> str:
         log_msg = f"{message.__class__.__name__}\n"
         if message.is_error:
             log_msg += " ********** ERROR **********\n"
-        
+
         if len(message.output) > outputMaxTokens:
             message.output = message.output[:outputMaxTokens] + "...[TRUNCATED]..."
         log_msg += "\n" + json.dumps(message.to_dict(), indent=4, ensure_ascii=False) + "\n\n"
@@ -77,7 +78,7 @@ class TraceFilter(logging.Filter):
         try:
             formatted_output = json.dumps(json.loads(formatted_output), indent=4)
         except:
-            pass                
+            pass
         log_msg += f"Formatted message.output:\n{formatted_output}\n\n"
         return log_msg
 
@@ -94,7 +95,7 @@ def setup_logging(log_file_directory: Path, log_level: str = "INFO") -> None:
     trace_logger = logging.getLogger(_TRACE_LOGGER_NAME)
     trace_logger.setLevel(log_level)
     trace_handler = TimedRotatingFileHandler(
-        log_file_directory / _TRACE_LOGGER_FILE_NAME, when='midnight', interval=1, backupCount=7
+        log_file_directory / _TRACE_LOGGER_FILE_NAME, when="midnight", interval=1, backupCount=7
     )
     trace_handler.addFilter(TraceFilter(toolResultOutputMaxTokens=1000))
     trace_logger.addHandler(trace_handler)

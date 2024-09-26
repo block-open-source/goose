@@ -182,7 +182,7 @@ class Session:
                 user_input = self.prompt_session.get_user_input()
                 message = Message.user(text=user_input.text) if user_input.to_continue() else None
 
-            self.save_session()
+        self.save_session()
 
     def reply(self) -> None:
         """Reply to the last user message, calling tools as needed

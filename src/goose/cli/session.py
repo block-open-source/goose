@@ -3,7 +3,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from exchange import Message, ToolResult, ToolUse, Text
-from prompt_toolkit.shortcuts import confirm
 from rich import print
 from rich.console import RenderableType
 from rich.live import Live
@@ -19,7 +18,7 @@ from goose.notifier import Notifier
 from goose.profile import Profile
 from goose.utils import droid, load_plugins
 from goose.utils._cost_calculator import get_total_cost_message
-from goose.utils.session_file import read_from_file, write_to_file
+from goose.utils.session_file import read_or_create_file, save_latest_session
 
 RESUME_MESSAGE = "I see we were interrupted. How can I help you?"
 
@@ -84,37 +83,43 @@ class Session:
         log_level: Optional[str] = "INFO",
         **kwargs: Dict[str, Any],
     ) -> None:
-        self.name = name
+        if name is None:
+            self.name = droid()
+            print(Panel(f"Session name not provided, using generated name: {self.name}"))
+        else:
+            self.name = name
         self.status_indicator = Status("", spinner="dots")
         self.notifier = SessionNotifier(self.status_indicator)
 
         self.exchange = build_exchange(profile=load_profile(profile), notifier=self.notifier)
         setup_logging(log_file_directory=LOG_PATH, log_level=log_level)
 
-        if name is not None and self.session_file_path.exists():
-            messages = self.load_session()
-
-            if messages and messages[-1].role == "user":
-                if type(messages[-1].content[-1]) is Text:
-                    # remove the last user message
-                    messages.pop()
-                elif type(messages[-1].content[-1]) is ToolResult:
-                    # if we remove this message, we would need to remove
-                    # the previous assistant message as well. instead of doing
-                    # that, we just add a new assistant message to prompt the user
-                    messages.append(Message.assistant(RESUME_MESSAGE))
-            if messages and type(messages[-1].content[-1]) is ToolUse:
-                # remove the last request for a tool to be used
-                messages.pop()
-
-                # add a new assistant text message to prompt the user
-                messages.append(Message.assistant(RESUME_MESSAGE))
-            self.exchange.messages.extend(messages)
+        self.exchange.messages.extend(self._get_initial_messages())
 
         if len(self.exchange.messages) == 0 and plan:
             self.setup_plan(plan=plan)
 
         self.prompt_session = GoosePromptSession()
+
+    def _get_initial_messages(self) -> List[Message]:
+        messages = self.load_session()
+
+        if messages and messages[-1].role == "user":
+            if type(messages[-1].content[-1]) is Text:
+                # remove the last user message
+                messages.pop()
+            elif type(messages[-1].content[-1]) is ToolResult:
+                # if we remove this message, we would need to remove
+                # the previous assistant message as well. instead of doing
+                # that, we just add a new assistant message to prompt the user
+                messages.append(Message.assistant(RESUME_MESSAGE))
+        if messages and type(messages[-1].content[-1]) is ToolUse:
+            # remove the last request for a tool to be used
+            messages.pop()
+
+            # add a new assistant text message to prompt the user
+            messages.append(Message.assistant(RESUME_MESSAGE))
+        return messages
 
     def setup_plan(self, plan: dict) -> None:
         if len(self.exchange.messages):
@@ -160,12 +165,11 @@ class Session:
                     + " - [yellow]depending on the error you may be able to continue[/]"
                 )
             self.notifier.stop()
-
+            save_latest_session(self.session_file_path, self.exchange.messages)
             print()  # Print a newline for separation.
             user_input = self.prompt_session.get_user_input()
             message = Message.user(text=user_input.text) if user_input.to_continue() else None
 
-        self.save_session()
         self._log_cost()
 
     def reply(self) -> None:
@@ -226,29 +230,13 @@ class Session:
     def session_file_path(self) -> Path:
         return session_path(self.name)
 
-    def save_session(self) -> None:
-        """Save the current session to a file in JSON format."""
-        if self.name is None:
-            self.generate_session_name()
-
-        try:
-            if self.session_file_path.exists():
-                if not confirm(f"Session {self.name} exists in {self.session_file_path}, overwrite?"):
-                    self.generate_session_name()
-            write_to_file(self.session_file_path, self.exchange.messages)
-        except PermissionError as e:
-            raise RuntimeError(f"Failed to save session due to permissions: {e}")
-        except (IOError, OSError) as e:
-            raise RuntimeError(f"Failed to save session due to I/O error: {e}")
-
     def load_session(self) -> List[Message]:
-        """Load a session from a JSON file."""
-        return read_from_file(self.session_file_path)
-
-    def generate_session_name(self) -> None:
-        user_entered_session_name = self.prompt_session.get_save_session_name()
-        self.name = user_entered_session_name if user_entered_session_name else droid()
-        print(f"Saving to [bold cyan]{self.session_file_path}[/bold cyan]")
+        message = (
+            f"session is going to be saved to [bold cyan]{self.session_file_path}[/bold cyan]."
+            + " You can view it anytime."
+        )
+        print(Panel(message))
+        return read_or_create_file(self.session_file_path)
 
     def _log_cost(self) -> None:
         get_logger().info(get_total_cost_message(self.exchange.get_token_usage()))

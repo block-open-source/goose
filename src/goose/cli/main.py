@@ -97,11 +97,24 @@ def list_toolkits() -> None:
         print(f" - [bold]{toolkit_name}[/bold]: {first_line_of_doc}")
 
 
+def autocomplete_session_files(ctx: click.Context, args: str, incomplete: str) -> None:
+    return [
+        f"{session_name}"
+        for session_name in sorted(get_session_files().keys(), reverse=True, key=lambda x: x.lower())
+        if session_name.startswith(incomplete)
+    ]
+
+
+def get_session_files() -> dict[str, Path]:
+    return list_sorted_session_files(SESSIONS_PATH)
+
+
 @session.command(name="start")
+@click.argument("name", required=False, shell_complete=autocomplete_session_files)
 @click.option("--profile")
 @click.option("--plan", type=click.Path(exists=True))
 @click.option("--log-level", type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]), default="INFO")
-def session_start(profile: str, log_level: str, plan: Optional[str] = None) -> None:
+def session_start(name: Optional[str], profile: str, log_level: str, plan: Optional[str] = None) -> None:
     """Start a new goose session"""
     if plan:
         yaml = YAML()
@@ -109,7 +122,7 @@ def session_start(profile: str, log_level: str, plan: Optional[str] = None) -> N
             _plan = yaml.load(f)
     else:
         _plan = None
-    session = Session(profile=profile, plan=_plan, log_level=log_level)
+    session = Session(name=name, profile=profile, plan=_plan, log_level=log_level)
     session.run()
 
 
@@ -126,30 +139,20 @@ def parse_args(ctx: click.Context, param: click.Parameter, value: str) -> dict[s
 
 @session.command(name="planned")
 @click.option("--plan", type=click.Path(exists=True))
+@click.option("--log-level", type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]), default="INFO")
 @click.option("-a", "--args", callback=parse_args, help="Args in the format arg1:value1,arg2:value2")
-def session_planned(plan: str, args: Optional[dict[str, str]]) -> None:
+def session_planned(plan: str, log_level: str, args: Optional[dict[str, str]]) -> None:
     plan_templated = render_template(Path(plan), context=args)
     _plan = parse_plan(plan_templated)
-    session = Session(plan=_plan)
+    session = Session(plan=_plan, log_level=log_level)
     session.run()
-
-
-def autocomplete_session_files(ctx: click.Context, args: str, incomplete: str) -> None:
-    return [
-        f"{session_name}"
-        for session_name in sorted(get_session_files().keys(), reverse=True, key=lambda x: x.lower())
-        if session_name.startswith(incomplete)
-    ]
-
-
-def get_session_files() -> dict[str, Path]:
-    return list_sorted_session_files(SESSIONS_PATH)
 
 
 @session.command(name="resume")
 @click.argument("name", required=False, shell_complete=autocomplete_session_files)
 @click.option("--profile")
-def session_resume(name: Optional[str], profile: str) -> None:
+@click.option("--log-level", type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]), default="INFO")
+def session_resume(name: Optional[str], profile: str, log_level: str) -> None:
     """Resume an existing goose session"""
     session_files = get_session_files()
     if name is None:
@@ -164,7 +167,7 @@ def session_resume(name: Optional[str], profile: str) -> None:
             print(f"Resuming session: {name}")
         else:
             print(f"Creating new session: {name}")
-    session = Session(name=name, profile=profile)
+    session = Session(name=name, profile=profile, log_level=log_level)
     session.run()
 
 

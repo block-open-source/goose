@@ -1,19 +1,15 @@
 from functools import cache
-from io import StringIO
 from pathlib import Path
-from typing import Callable, Dict, Mapping, Tuple
+from typing import Callable, Dict, Mapping, Optional, Tuple
 
 from rich import print
 from rich.panel import Panel
-from rich.prompt import Confirm
-from rich.text import Text
 from ruamel.yaml import YAML
 
 from exchange.providers.ollama import OLLAMA_MODEL
 
 from goose.profile import Profile
 from goose.utils import load_plugins
-from goose.utils.diff import pretty_diff
 
 GOOSE_GLOBAL_PATH = Path("~/.config/goose").expanduser()
 PROFILES_CONFIG_PATH = GOOSE_GLOBAL_PATH.joinpath("profiles.yaml")
@@ -41,15 +37,18 @@ def write_config(profiles: Dict[str, Profile]) -> None:
         yaml.dump(converted, f)
 
 
-def ensure_config(name: str) -> Profile:
+def ensure_config(name: Optional[str]) -> Tuple[str, Profile]:
     """Ensure that the config exists and has the default section"""
     # TODO we should copy a templated default config in to better document
     # but this is complicated a bit by autodetecting the provider
-
+    default_profile_name = "default"
+    name = name or default_profile_name
+    default_profiles_dict = default_profiles()
     provider, processor, accelerator = default_model_configuration()
-    profile = default_profiles()[name](provider, processor, accelerator)
+    default_profile = default_profiles_dict.get(name, default_profiles_dict[default_profile_name])(
+        provider, processor, accelerator
+    )
 
-    profiles = {}
     if not PROFILES_CONFIG_PATH.exists():
         print(
             Panel(
@@ -58,49 +57,16 @@ def ensure_config(name: str) -> Profile:
                 + "You can add your own profile in this file to further configure goose!"
             )
         )
-        default = profile
-        profiles = {name: default}
-        write_config(profiles)
-        return profile
+        write_config({name: default_profile})
+        return (name, default_profile)
 
     profiles = read_config()
-    if name not in profiles:
-        print(Panel(f"[yellow]Your configuration doesn't have a profile named '{name}', adding one now[/yellow]"))
-        profiles.update({name: profile})
-        write_config(profiles)
-    elif name in profiles:
-        # if the profile stored differs from the default one, we should prompt the user to see if they want
-        # to update it! we need to recursively compare the two profiles, as object comparison will always return false
-        is_profile_eq = profile.to_dict() == profiles[name].to_dict()
-        if not is_profile_eq:
-            yaml = YAML()
-            before = StringIO()
-            after = StringIO()
-            yaml.dump(profiles[name].to_dict(), before)
-            yaml.dump(profile.to_dict(), after)
-            before.seek(0)
-            after.seek(0)
-
-            print(
-                Panel(
-                    Text(
-                        f"Your profile uses one of the default options - '{name}'"
-                        + " - but it differs from the latest version:\n\n",
-                    )
-                    + pretty_diff(before.read(), after.read())
-                )
-            )
-            should_update = Confirm.ask(
-                "Do you want to update your profile to use the latest?",
-                default=False,
-            )
-            if should_update:
-                profiles[name] = profile
-                write_config(profiles)
-            else:
-                profile = profiles[name]
-
-    return profile
+    if name in profiles:
+        return (name, profiles[name])
+    print(Panel(f"[yellow]Your configuration doesn't have a profile named '{name}', adding one now[/yellow]"))
+    profiles.update({name: default_profile})
+    write_config(profiles)
+    return (name, default_profile)
 
 
 def read_config() -> Dict[str, Profile]:
@@ -118,7 +84,6 @@ def default_model_configuration() -> Tuple[str, str, str]:
     for provider, cls in providers.items():
         try:
             cls.from_env()
-            print(Panel(f"[green]Detected an available provider: [/]{provider}"))
             break
         except Exception:
             pass

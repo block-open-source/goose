@@ -91,4 +91,4 @@ goose session start --profile demo-profile
 > `pipx install goose-ai --preinstall goose-plugins`
 
 [plugin]: https://packaging.python.org/en/latest/guides/creating-and-discovering-plugins/#using-package-metadata
-[goose-plugins]: https://github.com/square/goose-plugins
+[goose-plugins]: https://github.com/block-open-source/goose-plugins

@@ -8,8 +8,16 @@ integration *FLAGS:
   uv run pytest tests -m integration {{FLAGS}}
 
 format:
-  uvx ruff check . --fix
-  uvx ruff format .
+  #!/usr/bin/env bash
+  UVX_PATH="$(which uvx)"
+
+  if [ -z "$UVX_PATH" ]; then
+    echo "[error]: unable to find uvx"
+    exit 1
+  fi
+  eval "$UVX_PATH ruff format ."
+  eval "$UVX_PATH ruff check . --fix"
+
 
 coverage *FLAGS:
   uv run coverage run -m pytest tests -m "not integration" {{FLAGS}}
@@ -37,6 +45,7 @@ install-hooks:
     echo "[error]: failed to create pre-commit hook at $HOOKS_DIR/pre-commit"
     exit 1
   fi
+  echo "installed pre-commit hook to $HOOKS_DIR"
   chmod +x "$HOOKS_DIR/pre-commit"
 
 ai-exchange-version:

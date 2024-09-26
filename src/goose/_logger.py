@@ -21,11 +21,11 @@ class TraceFilter(logging.Filter):
         toolResultOutputMaxTokens (int): Maximum number of tokens to include in the output of a ToolResult message.
     """
 
-    def __init__(self, toolResultOutputMaxTokens=1000):
+    def __init__(self, tool_result_output_max_tokens: int=1000) -> None:
         super().__init__()
-        self.toolResultOutputMaxTokens = toolResultOutputMaxTokens
+        self.toolResultOutputMaxTokens = tool_result_output_max_tokens
 
-    def filter(self, record) -> bool:
+    def filter(self, record: logging.LogRecord) -> bool:
         if hasattr(record, "trace_contents"):
             record.msg = self.parse_trace_message(record.trace_contents)
         return True
@@ -65,19 +65,19 @@ class TraceFilter(logging.Filter):
         return log_msg
 
     @staticmethod
-    def _render_tool_result(message: ToolResult, outputMaxTokens) -> str:
+    def _render_tool_result(message: ToolResult, tool_result_output_max_tokens: int) -> str:
         log_msg = f"{message.__class__.__name__}\n"
         if message.is_error:
             log_msg += " ********** ERROR **********\n"
 
-        if len(message.output) > outputMaxTokens:
-            message.output = message.output[:outputMaxTokens] + "...[TRUNCATED]..."
+        if len(message.output) > tool_result_output_max_tokens:
+            message.output = message.output[:tool_result_output_max_tokens] + "...[TRUNCATED]..."
         log_msg += "\n" + json.dumps(message.to_dict(), indent=4, ensure_ascii=False) + "\n\n"
 
         formatted_output = message.output.replace("\\n", "\n")
         try:
             formatted_output = json.dumps(json.loads(formatted_output), indent=4)
-        except:
+        except json.JSONDecodeError:
             pass
         log_msg += f"Formatted message.output:\n{formatted_output}\n\n"
         return log_msg
@@ -97,7 +97,7 @@ def setup_logging(log_file_directory: Path, log_level: str = "INFO") -> None:
     trace_handler = TimedRotatingFileHandler(
         log_file_directory / _TRACE_LOGGER_FILE_NAME, when="midnight", interval=1, backupCount=7
     )
-    trace_handler.addFilter(TraceFilter(toolResultOutputMaxTokens=1000))
+    trace_handler.addFilter(TraceFilter(tool_result_output_max_tokens=1000))
     trace_logger.addHandler(trace_handler)
     trace_handler.setFormatter(formatter)
 

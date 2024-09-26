@@ -97,8 +97,20 @@ def list_toolkits() -> None:
         print(f" - [bold]{toolkit_name}[/bold]: {first_line_of_doc}")
 
 
+def autocomplete_session_files(ctx: click.Context, args: str, incomplete: str) -> None:
+    return [
+        f"{session_name}"
+        for session_name in sorted(get_session_files().keys(), reverse=True, key=lambda x: x.lower())
+        if session_name.startswith(incomplete)
+    ]
+
+
+def get_session_files() -> dict[str, Path]:
+    return list_sorted_session_files(SESSIONS_PATH)
+
+
 @session.command(name="start")
-@click.argument("name", required=False)
+@click.argument("name", required=False, shell_complete=autocomplete_session_files)
 @click.option("--profile")
 @click.option("--plan", type=click.Path(exists=True))
 @click.option("--log-level", type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]), default="INFO")
@@ -134,18 +146,6 @@ def session_planned(plan: str, log_level: str, args: Optional[dict[str, str]]) -
     _plan = parse_plan(plan_templated)
     session = Session(plan=_plan, log_level=log_level)
     session.run()
-
-
-def autocomplete_session_files(ctx: click.Context, args: str, incomplete: str) -> None:
-    return [
-        f"{session_name}"
-        for session_name in sorted(get_session_files().keys(), reverse=True, key=lambda x: x.lower())
-        if session_name.startswith(incomplete)
-    ]
-
-
-def get_session_files() -> dict[str, Path]:
-    return list_sorted_session_files(SESSIONS_PATH)
 
 
 @session.command(name="resume")

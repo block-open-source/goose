@@ -16,12 +16,11 @@ from goose._logger import get_logger, setup_logging
 from goose.cli.prompt.goose_prompt_session import GoosePromptSession
 from goose.notifier import Notifier
 from goose.profile import Profile
-from goose.utils import load_plugins
+from goose.utils import droid, load_plugins
 from goose.utils._cost_calculator import get_total_cost_message
 from goose.utils.session_file import read_or_create_file, save_latest_session
 
 RESUME_MESSAGE = "I see we were interrupted. How can I help you?"
-DEFAULT_SESSION_NAME = "current_session"
 
 
 def load_provider() -> str:
@@ -90,7 +89,11 @@ class Session:
         log_level: Optional[str] = "INFO",
         **kwargs: Dict[str, Any],
     ) -> None:
-        self.name = name or DEFAULT_SESSION_NAME
+        if name is None:
+            self.name = droid()
+            print(Panel(f"Session name not provided, using generated name: {self.name}"))
+        else:
+            self.name = name
         self.status_indicator = Status("", spinner="dots")
         self.notifier = SessionNotifier(self.status_indicator)
 
@@ -160,7 +163,7 @@ class Session:
             except Exception:
                 # rewind to right before the last user message
                 self.exchange.rewind()
-                print(traceback.lformat_exc())
+                print(traceback.format_exc())
                 print(
                     "\n[red]The error above was an exception we were not able to handle.\n\n[/]"
                     + "These errors are often related to connection or authentication\n"

@@ -138,5 +138,16 @@ def test_run_should_auto_save_session(create_session_with_mock_configs, mock_ses
     ) as mock_generate, patch("goose.cli.session.save_latest_session") as mock_save_latest_session:
         mock_generate.side_effect = lambda *args, **kwargs: custom_exchange_generate(session.exchange, *args, **kwargs)
         session.run()
+
+        session_file = mock_sessions_path / f"{SESSION_NAME}.jsonl"
         assert session.exchange.generate.call_count == 2
         assert mock_save_latest_session.call_count == 2
+        assert mock_save_latest_session.call_args_list[0][0][0] == session_file
+        assert session_file.exists()
+
+
+def test_set_generated_session_name(create_session_with_mock_configs, mock_sessions_path):
+    generated_session_name = "generated_session_name"
+    with patch("goose.cli.session.droid", return_value=generated_session_name):
+        session = create_session_with_mock_configs({"name": None})
+        assert session.name == generated_session_name

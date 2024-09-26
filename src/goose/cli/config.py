@@ -87,10 +87,11 @@ def ensure_config(name: str) -> Profile:
                     + pretty_diff(before.read(), after.read())
                 )
             )
-            should_update = Confirm.ask(
-                "Do you want to update your profile to use the latest?",
-                default=False,
-            )
+            # should_update = Confirm.ask(
+            #     "Do you want to update your profile to use the latest?",
+            #     default=False,
+            # )
+            should_update = False
             if should_update:
                 profiles[name] = profile
                 write_config(profiles)

@@ -5,7 +5,7 @@ from contextlib import contextmanager
 
 from goose.language_server.base import LanguageServer
 from goose.language_server.type_helpers import ensure_all_methods_implemented
-import goose.language_server.types as language_server_types
+from goose.language_server import language_server_types
 from goose.utils.language import Language
 from typing import Any, Callable, Iterator, List, Tuple, TypeVar, Union
 

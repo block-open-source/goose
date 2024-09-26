@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager, contextmanager
 from goose.language_server.core.lsp_constants import LSPConstants
 from goose.language_server.core import lsp_types
 
-import goose.language_server.types as language_server_types
+from goose.language_server import language_server_types
 from goose.language_server.logger import LanguageServerLogger
 from goose.language_server.core.server import (
     LanguageServerHandler,

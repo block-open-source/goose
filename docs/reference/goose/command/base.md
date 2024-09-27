@@ -1,0 +1,1 @@
+::: goose.command.base

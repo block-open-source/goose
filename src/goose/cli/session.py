@@ -145,8 +145,10 @@ class Session:
         Runs the main loop to handle user inputs and responses.
         Continues until an empty string is returned from the prompt.
         """
-        print(f"[dim]starting session | name:[cyan]{self.name}[/]  profile:[cyan]{self.profile or 'default'}[/]")
-        print(f"[dim]saving to {self.session_file_path}")
+        print(
+            f"[dim]starting session | name: [cyan]{self.name}[/]  profile: [cyan]{self.profile or 'default'}[/][/dim]"
+        )
+        print(f"[dim]saving to {self.session_file_path}[/dim]")
         print()
         message = self.process_first_message()
         while message:  # Loop until no input (empty string).

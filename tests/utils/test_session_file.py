@@ -120,17 +120,21 @@ def create_session_file(file_path, file_name) -> Path:
 
 
 def test_is_empty_session():
-    with patch("pathlib.Path.is_file", return_value=True):
-        with patch("pathlib.Path.stat") as mock_stat:
-            mock_stat.return_value.st_size = 0
-            assert is_empty_session(Path("empty_file.json"))
+    with (
+        patch("pathlib.Path.is_file", return_value=True),
+        patch("pathlib.Path.stat") as mock_stat,
+    ):
+        mock_stat.return_value.st_size = 0
+        assert is_empty_session(Path("empty_file.json"))
 
 
 def test_is_not_empty_session():
-    with patch("pathlib.Path.is_file", return_value=True):
-        with patch("pathlib.Path.stat") as mock_stat:
-            mock_stat.return_value.st_size = 100
-            assert not is_empty_session(Path("non_empty_file.json"))
+    with (
+        patch("pathlib.Path.is_file", return_value=True),
+        patch("pathlib.Path.stat") as mock_stat,
+    ):
+        mock_stat.return_value.st_size = 100
+        assert not is_empty_session(Path("non_empty_file.json"))
 
 
 def test_is_not_empty_session_file_not_found():

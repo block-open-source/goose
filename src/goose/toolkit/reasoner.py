@@ -6,7 +6,7 @@ from goose.utils.ask import ask_an_ai
 
 
 class Reasoner(Toolkit):
-    """Deep thinking toolkit with alternative models"""
+    """Deep thinking toolkit for reasoning through problems and solutions"""
 
     def message_content(self, content: Content) -> Text:
         if isinstance(content, Text):
@@ -15,10 +15,9 @@ class Reasoner(Toolkit):
             return Text(str(content))
 
     @tool
-    def deep_debug(self, problem: str) -> str:
+    def deep_reason(self, problem: str) -> str:
         """
-        This tool can assist with debugging when there are errors or problems when trying things
-        and other approaches haven't solved it.
+        Debug or reason about challenges or problems.
         It will take a minute to think about it and consider solutions.
 
         Args:
@@ -38,22 +37,21 @@ class Reasoner(Toolkit):
         ]
         exchange = Exchange(provider=provider, model="o1-preview", messages=existing_messages_copy, system=None)
 
-        response = ask_an_ai(input="Can you help debug this problem: " + problem, exchange=exchange, no_history=False)
+        response = ask_an_ai(input="please help reason about this: " + problem, exchange=exchange, no_history=False)
         return response.content[0].text
 
     @tool
     def generate_code(self, instructions: str) -> str:
         """
-        Use this when enhancing existing code or generating new code unless it is simple or
-        it is required quickly.
-        This can generate high quality code to be considered and used
+        reason about and write code based on instructions given.
+        this will consider and reason about the instructions and come up with code to solve it.
 
         Args:
             instructions (str): instructions of what code to write or how to modify it.
 
         Returns:
-            response (str): generated code to be tested or applied as needed.
-        """
+            response (str): generated code to be tested or applied. Not it will not write directly to files so you have to take it and process it if it is suitable.
+        """  # noqa: E501
         # Create an instance of Exchange with the inlined OpenAI provider
         provider = OpenAiProvider.from_env()
 

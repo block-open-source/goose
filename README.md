@@ -101,6 +101,7 @@ To install Goose, use `pipx`. First ensure [pipx][pipx] is installed:
 brew install pipx
 pipx ensurepath
 ```
+You can also place `.goosehints` in `~/.config/goose/.goosehints` if you like for always loaded hints personal to you. 
 
 Then install Goose:
 

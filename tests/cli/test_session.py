@@ -1,5 +1,4 @@
 import json
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -171,6 +170,7 @@ def test_run_should_auto_save_session(create_session_with_mock_configs, mock_ses
             assert saved["role"] == expected.role
             assert saved["content"][0]["text"] == expected.text
 
+
 def test_set_generated_session_name(create_session_with_mock_configs, mock_sessions_path):
     generated_session_name = "generated_session_name"
     with patch("goose.cli.session.droid", return_value=generated_session_name):
@@ -178,28 +178,9 @@ def test_set_generated_session_name(create_session_with_mock_configs, mock_sessi
         assert session.name == generated_session_name
 
 
-def test_is_empty_session():
-    with patch("pathlib.Path.is_file", return_value=True):
-        with patch("pathlib.Path.stat") as mock_stat:
-            mock_stat.return_value.st_size = 0
-            assert Session.is_empty_session(Path("empty_file.json"))
-
-
-def test_is_not_empty_session():
-    with patch("pathlib.Path.is_file", return_value=True):
-        with patch("pathlib.Path.stat") as mock_stat:
-            mock_stat.return_value.st_size = 100
-            assert not Session.is_empty_session(Path("non_empty_file.json"))
-
-
-def test_is_not_empty_session_file_not_found():
-    with patch("pathlib.Path.is_file", return_value=False):
-        assert not Session.is_empty_session(Path("non_existent_file.json"))
-
-
 def test_existing_session_prompt(create_session_with_mock_configs):
     with (
-        patch("goose.cli.session.Session.is_existing_session", return_value=True) as mock_is_existing,
+        patch("goose.cli.session.is_existing_session", return_value=True) as mock_is_existing,
         patch("goose.cli.session.Session.prompt_overwrite_session") as mock_prompt,
     ):
         session = create_session_with_mock_configs({"name": SESSION_NAME})

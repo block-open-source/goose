@@ -18,7 +18,7 @@ from goose.notifier import Notifier
 from goose.profile import Profile
 from goose.utils import droid, load_plugins
 from goose.utils._cost_calculator import get_total_cost_message
-from goose.utils.session_file import read_or_create_file, save_latest_session
+from goose.utils.session_file import is_empty_session, is_existing_session, read_or_create_file, save_latest_session
 
 RESUME_MESSAGE = "I see we were interrupted. How can I help you?"
 
@@ -157,7 +157,7 @@ class Session:
 
                 case "n" | "no":
                     new_session_name = input("enter a new session name: ")
-                    while Session.is_existing_session(session_path(new_session_name)):
+                    while is_existing_session(session_path(new_session_name)):
                         print(f"[yellow]session '{new_session_name}' already exists[/]")
                         new_session_name = input("enter a new session name: ")
                     self.name = new_session_name
@@ -172,7 +172,7 @@ class Session:
         Runs the main loop to handle user inputs and responses.
         Continues until an empty string is returned from the prompt.
         """
-        if Session.is_existing_session(self.session_file_path):
+        if is_existing_session(self.session_file_path):
             self.prompt_overwrite_session()
 
         print(
@@ -206,7 +206,7 @@ class Session:
 
         # prevents cluttering the `sessions` with empty files, which
         # can be confusing when resuming a session
-        if Session.is_empty_session(self.session_file_path):
+        if is_empty_session(self.session_file_path):
             try:
                 self.session_file_path.unlink()
             except FileNotFoundError:
@@ -272,14 +272,6 @@ class Session:
     @property
     def session_file_path(self) -> Path:
         return session_path(self.name)
-
-    @staticmethod
-    def is_existing_session(path: Path) -> bool:
-        return path.is_file() and path.stat().st_size > 0
-
-    @staticmethod
-    def is_empty_session(path: Path) -> bool:
-        return path.is_file() and path.stat().st_size == 0
 
     def load_session(self) -> List[Message]:
         return read_or_create_file(self.session_file_path)

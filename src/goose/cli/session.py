@@ -146,9 +146,9 @@ class Session:
         Continues until an empty string is returned from the prompt.
         """
         print(
-            f"[dim]starting session | name: [cyan]{self.name}[/]  profile: [cyan]{self.profile or 'default'}[/][/dim]"
+            f"[bold]starting session | name: [cyan]{self.name}[/]  profile: [cyan]{self.profile or 'default'}[/][/bold]"
         )
-        print(f"[dim]saving to {self.session_file_path}[/dim]")
+        print(f"[bold]saving to {self.session_file_path}[/bold]")
         print()
         message = self.process_first_message()
         while message:  # Loop until no input (empty string).

@@ -174,6 +174,15 @@ class Session:
             user_input = self.prompt_session.get_user_input()
             message = Message.user(text=user_input.text) if user_input.to_continue() else None
 
+        # prevents cluttering the `sessions` with empty files, which
+        # can be confusing when resuming a session
+        if Session.is_empty_session(self.session_file_path):
+            try:
+                self.session_file_path.unlink()
+            except FileNotFoundError:
+                pass
+            except Exception as e:
+                raise Exception(f"error deleting empty session file: {e}")
         self._log_cost()
 
     def reply(self) -> None:
@@ -233,6 +242,10 @@ class Session:
     @property
     def session_file_path(self) -> Path:
         return session_path(self.name)
+
+    @staticmethod
+    def is_empty_session(path: Path) -> bool:
+        return path.is_file() and path.stat().st_size == 0
 
     def load_session(self) -> List[Message]:
         return read_or_create_file(self.session_file_path)

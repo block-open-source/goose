@@ -1,3 +1,4 @@
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -151,3 +152,22 @@ def test_set_generated_session_name(create_session_with_mock_configs, mock_sessi
     with patch("goose.cli.session.droid", return_value=generated_session_name):
         session = create_session_with_mock_configs({"name": None})
         assert session.name == generated_session_name
+
+
+def test_is_empty_session():
+    with patch("pathlib.Path.is_file", return_value=True):
+        with patch("pathlib.Path.stat") as mock_stat:
+            mock_stat.return_value.st_size = 0
+            assert Session.is_empty_session(Path("empty_file.json"))
+
+
+def test_is_not_empty_session():
+    with patch("pathlib.Path.is_file", return_value=True):
+        with patch("pathlib.Path.stat") as mock_stat:
+            mock_stat.return_value.st_size = 100
+            assert not Session.is_empty_session(Path("non_empty_file.json"))
+
+
+def test_is_not_empty_session_file_not_found():
+    with patch("pathlib.Path.is_file", return_value=False):
+        assert not Session.is_empty_session(Path("non_existent_file.json"))

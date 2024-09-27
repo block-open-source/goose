@@ -140,11 +140,41 @@ class Session:
             return Message.user(text=user_input.text)
         return self.exchange.messages.pop()
 
+    def prompt_overwrite_session(self) -> None:
+        print(f"[yellow]session already exists at {self.session_file_path}.[/]\n")
+        print("would like to overwrite the existing session?")
+        while True:
+            print(" - y/yes: overwrite the existing session")
+            print(" - n/no: pick a new session name")
+            print(" - r/resume: resume the existing session")
+            print()
+            user_input = input("enter your choice: ")
+            input_value = user_input.strip().lower()
+            match input_value:
+                case "y" | "yes":
+                    print("overwriting existing session")
+                    break
+
+                case "n" | "no":
+                    new_session_name = input("enter a new session name: ")
+                    while Session.is_existing_session(session_path(new_session_name)):
+                        print(f"[yellow]session '{new_session_name}' already exists[/]")
+                        new_session_name = input("enter a new session name: ")
+                    self.name = new_session_name
+                    break
+
+                case "r" | "resume":
+                    self.exchange.messages.extend(self.load_session())
+                    break
+
     def run(self) -> None:
         """
         Runs the main loop to handle user inputs and responses.
         Continues until an empty string is returned from the prompt.
         """
+        if Session.is_existing_session(self.session_file_path):
+            self.prompt_overwrite_session()
+
         print(
             f"[bold]starting session | name: [cyan]{self.name}[/]  profile: [cyan]{self.profile or 'default'}[/][/bold]"
         )
@@ -242,6 +272,10 @@ class Session:
     @property
     def session_file_path(self) -> Path:
         return session_path(self.name)
+
+    @staticmethod
+    def is_existing_session(path: Path) -> bool:
+        return path.is_file() and path.stat().st_size > 0
 
     @staticmethod
     def is_empty_session(path: Path) -> bool:

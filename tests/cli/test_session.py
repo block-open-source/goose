@@ -171,3 +171,19 @@ def test_is_not_empty_session():
 def test_is_not_empty_session_file_not_found():
     with patch("pathlib.Path.is_file", return_value=False):
         assert not Session.is_empty_session(Path("non_existent_file.json"))
+
+
+def test_existing_session_prompt(create_session_with_mock_configs):
+    with (
+        patch("goose.cli.session.Session.is_existing_session", return_value=True) as mock_is_existing,
+        patch("goose.cli.session.Session.prompt_overwrite_session") as mock_prompt,
+    ):
+        session = create_session_with_mock_configs({"name": SESSION_NAME})
+        mock_is_existing.return_value = True
+        session.run()
+        mock_prompt.assert_called_once()
+
+        mock_prompt.reset_mock()
+        mock_is_existing.return_value = False
+        session.run()
+        mock_prompt.assert_not_called()

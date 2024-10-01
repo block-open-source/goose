@@ -5,7 +5,7 @@ on:
     branches: [main]
 
 jobs:
-  build:
+  exchange:
     runs-on: ubuntu-latest
 
     steps:
@@ -19,9 +19,82 @@ jobs:
 
       - name: Ruff
         run: |
-          uvx ruff check
-          uvx ruff format --check
+          uvx ruff check packages/exchange
+          uvx ruff format packages/exchange --check
+
+      - name: Run tests
+        working-directory: ./packages/exchange
+        run: |
+          uv run pytest tests -m 'not integration'
+
+  goose:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install UV
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - name: Source Cargo Environment
+        run: source $HOME/.cargo/env
+
+      - name: Ruff
+        run: |
+          uvx ruff check src tests
+          uvx ruff format src tests --check
 
       - name: Run tests
         run: |
           uv run pytest tests -m 'not integration'
+
+
+  # This runs integration tests of the OpenAI API, using Ollama to host models.
+  # This lets us test PRs from forks which can't access secrets like API keys.
+  ollama:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        python-version:
+          # Only test the lastest python version.
+          - "3.12"
+        ollama-model:
+          # For quicker CI, use a smaller, tool-capable model than the default.
+          - "qwen2.5:0.5b"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install UV
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - name: Source Cargo Environment
+        run: source $HOME/.cargo/env
+
+      - name: Set up Python
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Install Ollama
+        run: curl -fsSL https://ollama.com/install.sh | sh
+
+      - name: Start Ollama
+        run: |
+            # Run the background, in a way that survives to the next step
+            nohup ollama serve > ollama.log 2>&1 &
+
+            # Block using the ready endpoint
+            time curl --retry 5 --retry-connrefused --retry-delay 1 -sf http://localhost:11434
+
+      # Tests use OpenAI which does not have a mechanism to pull models. Run a
+      # simple prompt to (pull and) test the model first.
+      - name: Test Ollama model
+        run: ollama run $OLLAMA_MODEL hello || cat ollama.log
+        env:
+          OLLAMA_MODEL: ${{ matrix.ollama-model }}
+
+      - name: Run Ollama tests
+        run: uv run pytest tests -m integration -k ollama
+        working-directory: ./packages/exchange
+        env:
+          OLLAMA_MODEL: ${{ matrix.ollama-model }}

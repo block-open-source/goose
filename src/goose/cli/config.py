@@ -87,11 +87,6 @@ def default_model_configuration() -> Tuple[str, str, str]:
             break
         except Exception:
             pass
-    else:
-        raise ValueError(
-            "Could not detect an available provider,"
-            + " make sure to plugin a provider or set an env var such as OPENAI_API_KEY"
-        )
 
     recommended = {
         "ollama": (OLLAMA_MODEL, OLLAMA_MODEL),

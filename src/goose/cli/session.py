@@ -1,8 +1,10 @@
+import sys
 import traceback
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from exchange import Message, ToolResult, ToolUse, Text
+from exchange import Message, ToolResult, ToolUse, Text, Exchange
+from exchange.providers.base import MissingProviderEnvVariableError
 from rich import print
 from rich.console import RenderableType
 from rich.live import Live
@@ -89,8 +91,7 @@ class Session:
         self.profile = profile
         self.status_indicator = Status("", spinner="dots")
         self.notifier = SessionNotifier(self.status_indicator)
-
-        self.exchange = build_exchange(profile=load_profile(profile), notifier=self.notifier)
+        self.exchange = self._create_exchange()
         setup_logging(log_file_directory=LOG_PATH, log_level=log_level)
 
         self.exchange.messages.extend(self._get_initial_messages())
@@ -99,6 +100,16 @@ class Session:
             self.setup_plan(plan=plan)
 
         self.prompt_session = GoosePromptSession()
+
+    def _create_exchange(self) -> Exchange:
+        try:
+            return build_exchange(profile=load_profile(self.profile), notifier=self.notifier)
+        except MissingProviderEnvVariableError as e:
+            error_message = (
+                f"Missing environment variable: {e.message}. Please set the required environment variable to continue."
+            )
+            print(Panel(error_message, style="red"))
+            sys.exit(1)
 
     def _get_initial_messages(self) -> List[Message]:
         messages = self.load_session()

@@ -106,7 +106,7 @@ class Session:
             return build_exchange(profile=load_profile(self.profile), notifier=self.notifier)
         except MissingProviderEnvVariableError as e:
             error_message = (
-                f"Missing environment variable: {e.message}. Please set the required environment variable to continue."
+                f"{e.message}. Please set the required environment variable to continue."
             )
             print(Panel(error_message, style="red"))
             sys.exit(1)

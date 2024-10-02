@@ -1,0 +1,272 @@
+# Plan for Transforming Goose into a MemGPT Model
+
+The goal is to enhance the existing **Goose** system by integrating memory management capabilities inspired by **MemGPT**. This will allow Goose to handle extended contexts by shuffling information in and out of the LLM's context window and storing/retrieving data from external memory. Below is a detailed plan outlining the steps and the corresponding components that need to be coded.
+
+---
+
+## 1. Analyze Existing Goose Architecture
+
+**Objective**: Understand the current structure of Goose to identify integration points for the new memory management features.
+
+**Actions**:
+
+- **Review Key Components**:
+  - **Exchange Mechanism**: How messages and context are managed.
+  - **Toolkit System**: How tools are defined, loaded, and used by the LLM.
+  - **Message Handling**: Storage and retrieval of conversation history.
+
+---
+
+## 2. Design the Memory Management System
+
+**Objective**: Architect a memory hierarchy within Goose to manage the LLM's context effectively.
+
+**Components to Design**:
+
+- **Memory Hierarchy**:
+  - **Main Context (RAM)**: Active messages within the LLM's context window.
+  - **External Memory (Disk/Database)**: Stored messages or data outside the context window.
+
+- **Memory Operations**:
+  - **Paging Mechanism**: Methods to move data between main context and external memory.
+  - **Context Summarization**: Summarize less relevant information to save context space.
+  - **Context Retrieval**: Efficiently load necessary information back into the context.
+
+---
+
+## 3. Implement the MemoryManager Class
+
+**Objective**: Create a central class to handle memory operations.
+
+**Files to Create/Modify**:
+
+- **`src/goose/memory_manager.py`**: New module for the `MemoryManager` class.
+
+**Responsibilities of MemoryManager**:
+
+- **Store and Retrieve Data**: Provide methods to read from and write to external memory.
+- **Manage Addresses**: Handle memory addresses or keys for stored data.
+- **Interface with External Storage**: Abstract storage details (e.g., file system, database).
+
+**Methods to Implement**:
+
+- `write(data: Any) -> str`: Stores data and returns a memory address.
+- `read(address: str) -> Any`: Retrieves data from a memory address.
+- `list_addresses() -> List[str]`: Lists all stored memory addresses.
+- `delete(address: str)`: Removes data from a memory address.
+
+---
+
+## 4. Develop New Tools for Memory Management
+
+**Objective**: Provide the LLM with tools to interact with the MemoryManager.
+
+**Files to Create/Modify**:
+
+- **`src/goose/toolkit/memory.py`**: New toolkit module for memory tools.
+
+**Tools to Implement**:
+
+1. **`read_memory(address: str) -> Any`**:
+   - Reads data from external memory.
+   - Returns the data to the LLM.
+
+2. **`write_memory(data: Any) -> str`**:
+   - Writes data to external memory.
+   - Returns the memory address.
+
+3. **`summarize_context() -> str`**:
+   - Summarizes current context/messages.
+   - Stores the summary in external memory.
+   - Returns the memory address of the summary.
+
+4. **`load_context(address: str)`**:
+   - Loads data from external memory into the main context.
+   - Updates the LLM's current context.
+
+5. **`list_memory() -> List[str]`**:
+   - Lists available memory addresses.
+   - Helps the LLM decide what data to retrieve.
+
+**Integration**:
+
+- Ensure these tools are registered in the toolkit system and accessible to the LLM.
+
+---
+
+## 5. Extend the Exchange Class to Support Dynamic Context
+
+**Objective**: Modify the Exchange class to handle context adjustments and interact with the MemoryManager.
+
+**Files to Modify**:
+
+- **`src/goose/exchange.py`** (or equivalent module):
+
+**Modifications**:
+
+- **Context Management Methods**:
+  - Implement methods to summarize, truncate, and restore context.
+  - Interact with MemoryManager to store and retrieve summarized context.
+
+- **Message Handling Adjustments**:
+  - Update message storage to allow for context swapping.
+  - Ensure message IDs and references remain consistent when context changes.
+
+- **Integration with Memory Tools**:
+  - Facilitate communication between the Exchange and the memory tools.
+  - Allow the LLM to invoke memory operations seamlessly during exchanges.
+
+---
+
+## 6. Implement Event-Driven Control Flow
+
+**Objective**: Adjust the system to process messages as events, enabling dynamic interaction without fixed user prompts.
+
+**Actions**:
+
+- **Rework Message Processing Loop**:
+  - Modify the main interaction loop to handle events/messages dynamically.
+  - Implement an event queue or dispatcher if necessary.
+
+- **Asynchronous Handling** (Optional):
+  - Consider using async programming to handle events concurrently.
+  - Ensure thread safety and data consistency.
+
+**Files to Modify**:
+
+- **`src/goose/cli/session.py`**:
+  - Update the session handling to support event-driven interactions.
+
+---
+
+## 7. Update System Prompts and Policies
+
+**Objective**: Guide the LLM to utilize the new memory management tools effectively.
+
+**Files to Modify**:
+
+- **System Prompt Templates**:
+  - **`prompts/system.jinja`** (or relevant prompt files).
+
+**Modifications**:
+
+- **Introduce Memory Operations**:
+  - Explain the available memory tools in the system prompt.
+  - Provide examples of when and how to use them.
+
+- **Encourage Efficient Memory Use**:
+  - Instruct the LLM to summarize and store less relevant information.
+  - Suggest strategies for retrieving necessary context.
+
+---
+
+## 8. Ensure Compliance with MemGPT Design Principles
+
+**Objective**: Align the implementation with the key features outlined in the MemGPT paper.
+
+**Actions**:
+
+- **Review MemGPT Features**:
+  - Memory hierarchy.
+  - Function calls for memory operations.
+  - Event-driven control flow.
+
+- **Compare Implementations**:
+  - Ensure all MemGPT capabilities are reflected in the Goose enhancements.
+  - Adjust designs where discrepancies are found.
+
+---
+
+## 9. Conduct Testing and Evaluation
+
+**Objective**: Validate the new features and assess their performance.
+
+**Files to Create**:
+
+- **Test Scripts and Cases**:
+  - **`tests/test_memory_management.py`**:
+    - Unit tests for MemoryManager methods.
+    - Integration tests for memory tools within the LLM interactions.
+
+**Testing Scenarios**:
+
+- **Long Conversations**:
+  - Test the LLM's ability to maintain context over extended dialogues.
+  - Verify that older context is correctly stored and retrieved.
+
+- **Document Analysis**:
+  - Assess the LLM's capability to summarize and analyze large documents.
+  - Evaluate the retrieval of relevant information from external memory.
+
+- **Stress Testing**:
+  - Push the limits of context size and observe memory management behavior.
+
+---
+
+## 10. Update Documentation and Examples
+
+**Objective**: Provide clear guidelines on the new features for users and developers.
+
+**Files to Create/Modify**:
+
+- **`README.md`**:
+  - Update with an overview of memory management features.
+
+- **`docs/memory_management.md`**:
+  - Detailed explanation of the memory hierarchy and tools.
+  - Usage examples and best practices.
+
+- **`examples/memory_management_example.py`**:
+  - Sample script demonstrating how to use the new memory tools.
+
+---
+
+# Summary of Components to Code
+
+1. **MemoryManager Class** (`src/goose/memory_manager.py`)
+   - Methods: `write`, `read`, `list_addresses`, `delete`
+
+2. **Memory Toolkit** (`src/goose/toolkit/memory.py`)
+   - Tools: `read_memory`, `write_memory`, `summarize_context`, `load_context`, `list_memory`
+
+3. **Exchange Class Modifications** (`src/goose/exchange.py`)
+   - Context management methods
+   - Adjustments to message handling
+   - Integration with MemoryManager
+
+4. **Event-Driven Control Flow Implementation** (`src/goose/cli/session.py`)
+   - Rework message processing loop
+
+5. **System Prompt Updates** (e.g., `prompts/system.jinja`)
+   - Instructions on memory management tools
+   - Encouragement for efficient memory usage
+
+6. **Testing Scripts** (`tests/test_memory_management.py`)
+   - Unit and integration tests for new features
+
+7. **Documentation Updates and Examples**
+   - Update `README.md`
+   - Create `docs/memory_management.md`
+   - Provide `examples/memory_management_example.py`
+
+---
+
+# Next Steps
+
+- **Begin Development**:
+  - Start coding the `MemoryManager` class and memory tools.
+  - Incrementally integrate and test each component.
+
+- **Continuous Testing**:
+  - Write tests alongside code to ensure reliability.
+
+- **Update Documentation**:
+  - Keep documentation up-to-date with code changes.
+
+- **Review and Iterate**:
+  - Regularly review implementation against the MemGPT paper.
+  - Make adjustments as necessary.
+
+---
+
+By following this plan, Goose will be enhanced with memory management capabilities akin to MemGPT, allowing it to handle extended contexts and improve its performance in tasks requiring long-term memory.

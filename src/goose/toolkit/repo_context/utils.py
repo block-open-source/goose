@@ -63,19 +63,25 @@ def get_files_and_directories(root_dir: str) -> Dict[str, list]:
 
 def goose_picks_files(root: str, exchange: Exchange, max_workers: int = 4) -> List[str]:
     """Lets goose pick files in a BFS manner"""
+    print("here")
     queue = deque([root])
 
     all_files = []
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-        while queue:
-            current_batch = [queue.popleft() for _ in range(min(max_workers, len(queue)))]
-            futures = {executor.submit(process_directory, dir, exchange): dir for dir in current_batch}
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            while queue:
+                current_batch = [queue.popleft() for _ in range(min(max_workers, len(queue)))]
+                futures = {executor.submit(process_directory, dir, exchange): dir for dir in current_batch}
 
-            for future in concurrent.futures.as_completed(futures):
-                files, next_dirs = future.result()
-                all_files.extend(files)
-                queue.extend(next_dirs)
+                for future in concurrent.futures.as_completed(futures):
+                    files, next_dirs = future.result()
+                    all_files.extend(files)
+                    queue.extend(next_dirs)
+    except Exception as e:
+        print(e)
+
+    print("completed")
 
     return all_files
 

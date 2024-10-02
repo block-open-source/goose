@@ -13,6 +13,7 @@ dependencies = [
     "prompt-toolkit>=3.0.47",
     "goose-plugins-block",
     "setuptools>=73.0.1",
+    "pypdf2>=3.0.1",
 ]
 author = [{ name = "Block", email = "ai-oss-tools@block.xyz" }]
 packages = [{ include = "goose", from = "src" }]
@@ -29,6 +30,7 @@ github = "goose.toolkit.github:Github"
 jira = "goose.toolkit.jira:Jira"
 screen = "goose.toolkit.screen:Screen"
 repo_context = "goose.toolkit.repo_context.repo_context:RepoContext"
+o1-plan = "goose.toolkit.o1_plan:O1Plan"
 
 [project.entry-points."goose.profile"]
 default = "goose.profile:default_profile"

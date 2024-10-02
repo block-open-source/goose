@@ -72,14 +72,18 @@ class RepoContext(Toolkit):
         return self.repo_size > 2000
 
     @tool
-    def summarize_current_project(self) -> Dict[str, str]:
+    def summarize_current_project(self, user_directives: str = None) -> Dict[str, str]:
         """Summarizes the current project based on repo root (if git repo) or current project_directory (if not)
+
+        Args:
+            user_directives (Optional[str]): User-given directives to guide the summarization process
 
         Returns:
             summary (Dict[str, str]): Keys are file paths and values are the summaries
         """
 
         self.notifier.log("Summarizing the most relevant files in the current project. This may take a while...")
+        self.notifier.log("Included these user directives: " + user_directives if user_directives else "None")
 
         if self.is_mono_repo:
             self.notifier.log("This might be a monorepo. Goose performs better on smaller projects. Using CWD.")
@@ -97,12 +101,21 @@ class RepoContext(Toolkit):
 
         # clear exchange and replace the system prompt with instructions on why and how to select files to summarize
         file_select_exchange = clear_exchange(self.exchange_view.accelerator, clear_tools=True)
-        system = Message.load("prompts/repo_context.jinja").text
-        file_select_exchange = replace_prompt(exchange=file_select_exchange, prompt=system)
-        files = goose_picks_files(root=project_directory, exchange=file_select_exchange)
+        if user_directives:
+            system = Message.load("prompts/repo_context.jinja", **{"user_directives": user_directives}).text
+        else:
+            system = Message.load("prompts/repo_context.jinja").text
 
+        self.notifier.log(f"Using the following system prompt: {system}")
+        file_select_exchange = replace_prompt(exchange=file_select_exchange, prompt=system)
+
+        self.notifier.log("letting goose pick")
+        files = goose_picks_files(root=project_directory, exchange=file_select_exchange)
+        self.notifier.log(f"picked files {files}")
+
+        # remove the 'write_file' tool temporarily to avoid weird side effects
         summary = summarize_files_concurrent(
-            exchange=self.exchange_view.accelerator, file_list=files, project_name=project_directory.split("/")[-1]
+            exchange=clear_exchange(self.exchange_view.accelerator, clear_tools=True), file_list=files, project_name=project_directory.split("/")[-1]
         )
 
         return summary

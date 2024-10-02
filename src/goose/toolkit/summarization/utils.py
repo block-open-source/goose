@@ -52,21 +52,28 @@ def summarize_file(filepath: str, exchange: Exchange, prompt: Optional[str] = No
         exchange (Exchange): Exchange object to use for summarization.
         prompt (Optional[str]): Defaults to "Please summarize this file."
     """
+    print("READING FILE", filepath)
     try:
+        print("Reading file")
         with open(filepath, "r") as f:
             file_text = f.read()
     except Exception as e:
         return filepath, f"Error reading file {filepath}: {str(e)}"
 
     if not file_text:
+        print("Empty file")
         return filepath, "Empty file"
 
     try:
+        print("Asking AI")
         reply = ask_an_ai(
             input=file_text, exchange=exchange, prompt=prompt if prompt else "Please summarize this file."
         )
     except InitialMessageTooLargeError:
+        print("File too large")
         return filepath, "File too large"
+    except Exception as e:
+        print("error", e)
 
     return filepath, reply.text
 
@@ -176,6 +183,7 @@ def summarize_files_concurrent(
     if summary_file:
         return summary_file
 
+    print("1")
     file_summaries = {}
     # compile the individual file summaries into a single summary dict
     # TODO: add progress bar as this step can take quite some time and it's nice to see something is happening
@@ -188,10 +196,12 @@ def summarize_files_concurrent(
             file_name, file_summary = future.result()
             file_summaries[file_name] = file_summary
 
+    print("2")
     # create summaries folder if it doesn't exist
     Path(SUMMARIES_FOLDER).mkdir(exist_ok=True, parents=True)
     summary_file_path = f"{SUMMARIES_FOLDER}/{project_name}-summary.json"
 
+    print("3")
     # Write the summaries into a json
     with open(summary_file_path, "w") as f:
         json.dump(file_summaries, f, indent=2)

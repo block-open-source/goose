@@ -15,14 +15,20 @@ from exchange.providers import Provider, Usage
 from exchange.tool import Tool
 from exchange.token_usage_collector import _token_usage_collector
 
+MAX_OUTPUT_CHARS = 2 ** 20
+MAX_OUTPUT_TOKENS = 16000
+
+
+class ToolOutputTooLargeError(Exception):
+    """Custom error when a tool returns an output that exceeds the maximum number of chars or tokens possible."""
+    pass
+
 
 def validate_tool_output(output: str) -> None:
     """Validate tool output for the given model"""
-    max_output_chars = 2**20
-    max_output_tokens = 16000
     encoder = get_encoding("cl100k_base")
-    if len(output) > max_output_chars or len(encoder.encode(output)) > max_output_tokens:
-        raise ValueError("This tool call created an output that was too long to handle!")
+    if len(output) > MAX_OUTPUT_CHARS or len(encoder.encode(output)) > MAX_OUTPUT_TOKENS:
+        raise ToolOutputTooLargeError("This tool call created an output that was too long to handle!")
 
 
 @define(frozen=True)
@@ -149,7 +155,8 @@ class Exchange:
                 output = json.dumps(tool.function(*tool_use.parameters))
             else:
                 raise ValueError(
-                    f"The provided tool parameters, {tool_use.parameters} could not be interpreted as a mapping of arguments."  # noqa: E501
+                    f"The provided tool parameters, {tool_use.parameters} could not be interpreted as a mapping of arguments."
+                    # noqa: E501
                 )
 
             validate_tool_output(output)
@@ -226,13 +233,13 @@ class Exchange:
     def pop_last_message(self) -> Message:
         """Pop the last message from the exchange, handling checkpoints correctly"""
         if (
-            len(self.checkpoint_data.checkpoints) > 0
-            and self.checkpoint_data.last_message_index > len(self.messages) - 1
+                len(self.checkpoint_data.checkpoints) > 0
+                and self.checkpoint_data.last_message_index > len(self.messages) - 1
         ):
             raise ValueError("Our checkpoint data is out of sync with our message data")
         if (
-            len(self.checkpoint_data.checkpoints) > 0
-            and self.checkpoint_data.last_message_index == len(self.messages) - 1
+                len(self.checkpoint_data.checkpoints) > 0
+                and self.checkpoint_data.last_message_index == len(self.messages) - 1
         ):
             # remove the last checkpoint, because we no longer know the token count of it's contents.
             # note that this is not the same as reverting to the last checkpoint, as we want to

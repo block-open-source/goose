@@ -2,7 +2,7 @@ import json
 from unittest.mock import MagicMock, patch
 
 import pytest
-from exchange import Exchange, Message, ToolUse, ToolResult
+from exchange import Exchange, Message, ToolResult, ToolUse
 from goose.cli.prompt.goose_prompt_session import GoosePromptSession
 from goose.cli.prompt.user_input import PromptAction, UserInput
 from goose.cli.session import Session
@@ -181,7 +181,7 @@ def test_set_generated_session_name(create_session_with_mock_configs, mock_sessi
 def test_existing_session_prompt(create_session_with_mock_configs):
     with (
         patch("goose.cli.session.is_existing_session", return_value=True) as mock_is_existing,
-        patch("goose.cli.session.Session.prompt_overwrite_session") as mock_prompt,
+        patch("goose.cli.session.Session._prompt_overwrite_session") as mock_prompt,
     ):
         session = create_session_with_mock_configs({"name": SESSION_NAME})
         mock_is_existing.return_value = True

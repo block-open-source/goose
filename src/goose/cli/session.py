@@ -140,40 +140,13 @@ class Session:
             return Message.user(text=user_input.text)
         return self.exchange.messages.pop()
 
-    def prompt_overwrite_session(self) -> None:
-        print(f"[yellow]session already exists at {self.session_file_path}.[/]\n")
-        print("would like to overwrite the existing session?")
-        while True:
-            print(" - y/yes: overwrite the existing session")
-            print(" - n/no: pick a new session name")
-            print(" - r/resume: resume the existing session")
-            print()
-            user_input = input("enter your choice: ")
-            input_value = user_input.strip().lower()
-            match input_value:
-                case "y" | "yes":
-                    print("overwriting existing session")
-                    break
-
-                case "n" | "no":
-                    new_session_name = input("enter a new session name: ")
-                    while is_existing_session(session_path(new_session_name)):
-                        print(f"[yellow]session '{new_session_name}' already exists[/]")
-                        new_session_name = input("enter a new session name: ")
-                    self.name = new_session_name
-                    break
-
-                case "r" | "resume":
-                    self.exchange.messages.extend(self.load_session())
-                    break
-
     def run(self) -> None:
         """
         Runs the main loop to handle user inputs and responses.
         Continues until an empty string is returned from the prompt.
         """
         if is_existing_session(self.session_file_path):
-            self.prompt_overwrite_session()
+            self._prompt_overwrite_session()
 
         print(
             f"[bold]starting session | name: [cyan]{self.name}[/]  profile: [cyan]{self.profile or 'default'}[/][/bold]"
@@ -204,15 +177,7 @@ class Session:
             user_input = self.prompt_session.get_user_input()
             message = Message.user(text=user_input.text) if user_input.to_continue() else None
 
-        # prevents cluttering the `sessions` with empty files, which
-        # can be confusing when resuming a session
-        if is_empty_session(self.session_file_path):
-            try:
-                self.session_file_path.unlink()
-            except FileNotFoundError:
-                pass
-            except Exception as e:
-                raise Exception(f"error deleting empty session file: {e}")
+        self._remove_empty_session()
         self._log_cost()
 
     def reply(self) -> None:
@@ -279,6 +244,55 @@ class Session:
     def _log_cost(self) -> None:
         get_logger().info(get_total_cost_message(self.exchange.get_token_usage()))
         print(f"[dim]you can view the cost and token usage in the log directory {LOG_PATH}")
+
+    def _prompt_overwrite_session(self) -> None:
+        print(f"[yellow]session already exists at {self.session_file_path}.[/]\n")
+        print("would like to overwrite the existing session?")
+        while True:
+            print(" - y/yes: overwrite the existing session")
+            print(" - n/no: pick a new session name")
+            print(" - r/resume: resume the existing session")
+            print()
+            user_input = input("enter your choice: ")
+            input_value = user_input.strip().lower()
+            match input_value:
+                case "y" | "yes":
+                    print("overwriting existing session")
+                    break
+
+                case "n" | "no":
+                    new_session_name = input("enter a new session name: ")
+                    while is_existing_session(session_path(new_session_name)):
+                        print(f"[yellow]session '{new_session_name}' already exists[/]")
+                        new_session_name = input("enter a new session name: ")
+                    self.name = new_session_name
+                    break
+
+                case "r" | "resume":
+                    self.exchange.messages.extend(self.load_session())
+                    break
+
+    def _remove_empty_session(self) -> bool:
+        """
+        Removes the session file only when it's empty.
+
+        Note: This is because a session file is created at the start of the run
+        loop. When a user aborts before their first message empty session files
+        will be created, causing confusion when resuming sessions (which
+        depends on most recent mtime and is non-empty).
+
+        Returns:
+            bool: True if the session file was removed, False otherwise.
+        """
+        logger = get_logger()
+        try:
+            if is_empty_session(self.session_file_path):
+                logger.debug(f"deleting empty session file: {self.session_file_path}")
+                self.session_file_path.unlink()
+                return True
+        except Exception as e:
+            logger.error(f"error deleting empty session file: {e}")
+        return False
 
 
 if __name__ == "__main__":

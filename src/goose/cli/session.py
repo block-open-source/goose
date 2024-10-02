@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from exchange import Message, ToolResult, ToolUse, Text, Exchange
 from exchange.providers.base import MissingProviderEnvVariableError
+from exchange.load_exchange_attribute_error import LoadExchangeAttributeError
 from rich import print
 from rich.console import RenderableType
 from rich.live import Live
@@ -13,7 +14,7 @@ from rich.panel import Panel
 from rich.status import Status
 
 from goose.build import build_exchange
-from goose.cli.config import ensure_config, session_path, LOG_PATH
+from goose.cli.config import PROFILES_CONFIG_PATH, ensure_config, session_path, LOG_PATH
 from goose._logger import get_logger, setup_logging
 from goose.cli.prompt.goose_prompt_session import GoosePromptSession
 from goose.notifier import Notifier
@@ -105,10 +106,15 @@ class Session:
         try:
             return build_exchange(profile=load_profile(self.profile), notifier=self.notifier)
         except MissingProviderEnvVariableError as e:
-            error_message = (
-                f"{e.message}. Please set the required environment variable to continue."
-            )
+            error_message = f"{e.message}. Please set the required environment variable to continue."
             print(Panel(error_message, style="red"))
+            sys.exit(1)
+        except LoadExchangeAttributeError as e:
+            error_message = (
+                f"[bold red]{e.message}[/bold red].\nPlease check your configuration file at {PROFILES_CONFIG_PATH}. "
+                + "Configuration doc: https://block-open-source.github.io/goose/configuration.html"
+            )
+            print(error_message)
             sys.exit(1)
 
     def _get_initial_messages(self) -> List[Message]:

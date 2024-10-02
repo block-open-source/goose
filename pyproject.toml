@@ -12,6 +12,7 @@ dependencies = [
     "click>=8.1.7",
     "prompt-toolkit>=3.0.47",
     "keyring>=25.4.1",
+    "langfuse>=2.38.2",
 ]
 author = [{ name = "Block", email = "ai-oss-tools@block.xyz" }]
 packages = [{ include = "goose", from = "src" }]

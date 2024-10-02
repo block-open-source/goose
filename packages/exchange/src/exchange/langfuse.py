@@ -10,14 +10,18 @@ logger = logging.getLogger(__name__)
 
 try:
     from langfuse.decorators import langfuse_context
-    if os.environ.get("LANGFUSE_HOST") and os.environ.get("LANGFUSE_SECRET_KEY") and os.environ.get("LANGFUSE_PUBLIC_KEY"):
+
+    if (
+        os.environ.get("LANGFUSE_HOST")
+        and os.environ.get("LANGFUSE_SECRET_KEY")
+        and os.environ.get("LANGFUSE_PUBLIC_KEY")
+    ):
         if langfuse_context.auth_check():
-            logger.info(
-                f"Langfuse credentials found. Find traces, if enabled, under {os.environ['LANGFUSE_HOST']}."
-            )
-            HAS_LANGFUSE_CREDENTIALS = True  
-except Exception as e:
+            logger.info(f"Langfuse credentials found. Find traces, if enabled, under {os.environ['LANGFUSE_HOST']}.")
+            HAS_LANGFUSE_CREDENTIALS = True
+except Exception:
     logger.info("Trouble finding Langfuse or Langfuse credentials.")
+
 
 def observe_wrapper(*args, **kwargs) -> Callable:
     """
@@ -33,6 +37,7 @@ def observe_wrapper(*args, **kwargs) -> Callable:
     Returns:
         Callable: The wrapped function if credentials are available, otherwise the original function.
     """
+
     def _wrapper(fn: Callable) -> Callable:
         if HAS_LANGFUSE_CREDENTIALS:
             return langfuse_context.observe(*args, **kwargs)(fn)

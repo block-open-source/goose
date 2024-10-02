@@ -16,6 +16,7 @@ from exchange.tool import Tool
 from exchange.token_usage_collector import _token_usage_collector
 from exchange.langfuse import observe_wrapper
 
+
 def validate_tool_output(output: str) -> None:
     """Validate tool output for the given model"""
     max_output_chars = 2**20

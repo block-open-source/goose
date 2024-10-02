@@ -232,22 +232,45 @@ def test_lex_document_ending_char_of_parameter_is_symbol():
     assert actual_tokens == expected_tokens
 
 
-def test_command_itself():
-    pattern = command_itself("file:")
-    matches = pattern.match("/file:example.txt")
+def assert_pattern_matches(pattern, text, expected_group):
+    matches = pattern.search(text)
     assert matches is not None
-    assert matches.group(1) == "/file:"
+    assert matches.group() == expected_group
+
+
+def test_command_itself():
+    pattern = command_itself("file")
+    assert_pattern_matches(pattern, "/file:example.txt", "/file:")
+    assert_pattern_matches(pattern, "/file asdf", "/file")
+    assert_pattern_matches(pattern, "some /file", "/file")
+    assert_pattern_matches(pattern, "some /file:", "/file:")
+    assert_pattern_matches(pattern, "/file /file", "/file")
+
+    assert pattern.search("file") is None
+    assert pattern.search("/anothercommand") is None
 
 
 def test_value_for_command():
-    pattern = value_for_command("file:")
-    matches = pattern.search("/file:example.txt")
-    assert matches is not None
-    assert matches.group(1) == "example.txt"
+    pattern = value_for_command("file")
+    assert_pattern_matches(pattern, "/file:example.txt", "example.txt")
+    assert_pattern_matches(pattern, '/file:"example space.txt"', '"example space.txt"')
+    assert_pattern_matches(pattern, '/file:"example.txt" some other string', '"example.txt"')
+    assert_pattern_matches(pattern, "something before /file:example.txt", "example.txt")
+
+    # assert no pattern matches when there is no value
+    assert pattern.search("/file:").group() == ""
+    assert pattern.search("/file: other").group() == ""
+    assert pattern.search("/file: ").group() == ""
+    assert pattern.search("/file other") is None
 
 
 def test_completion_for_command():
-    pattern = completion_for_command("file:")
-    matches = pattern.search("/file:")
-    assert matches is not None
-    assert matches.group(1) == "file:"
+    pattern = completion_for_command("file")
+    assert_pattern_matches(pattern, "/file", "/file")
+    assert_pattern_matches(pattern, "/fi", "/fi")
+    assert_pattern_matches(pattern, "before /fi", "/fi")
+    assert_pattern_matches(pattern, "some /f", "/f")
+
+    assert pattern.search("/file after") is None
+    assert pattern.search("/ file") is None
+    assert pattern.search("/file:") is None

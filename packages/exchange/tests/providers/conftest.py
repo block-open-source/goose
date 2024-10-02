@@ -109,7 +109,9 @@ def tools(provider_cls: Type[Provider], model: str, **kwargs) -> Tuple[Message, 
     provider = provider_cls.from_env()
     system = "You are a helpful assistant. Expect to need to read a file using read_file."
     messages = [Message.user("What are the contents of this file? test.txt")]
-    return provider.complete(model=model, system=system, messages=messages, tools=(Tool.from_function(read_file),), **kwargs)
+    return provider.complete(
+        model=model, system=system, messages=messages, tools=(Tool.from_function(read_file),), **kwargs
+    )
 
 
 def vision(provider_cls: Type[Provider], model: str, **kwargs) -> Tuple[Message, Usage]:

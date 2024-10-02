@@ -51,7 +51,7 @@ print(ex.messages)
 ## Plugins
 
 *exchange* has a plugin mechanism to add support for additional providers and moderators. If you need a 
-provider not supported here, we'd be happy to review [contributions][CONTRIBUTING]. But you
+provider not supported here, we'd be happy to review contributions. But you
 can also consider building and using your own plugin. 
 
 To create a `Provider` plugin, subclass `exchange.provider.Provider`. You will need to 
@@ -90,6 +90,5 @@ from exchange.providers import get_provider
 provider = get_provider('example').from_env()
 ```
 
-[CONTRIBUTING]: CONTRIBUTING.md
 [openaiprovider]: src/exchange/providers/openai.py
 [plugins]: https://packaging.python.org/en/latest/guides/creating-and-discovering-plugins/

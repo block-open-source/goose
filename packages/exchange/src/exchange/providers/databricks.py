@@ -12,7 +12,7 @@ from exchange.providers.utils import (
     tools_to_openai_spec,
 )
 from exchange.tool import Tool
-
+from exchange.langfuse import observe_wrapper
 
 retry_procedure = retry(
     wait=wait_fixed(2),
@@ -60,6 +60,7 @@ class DatabricksProvider(Provider):
             total_tokens=total_tokens,
         )
 
+    @observe_wrapper(as_type="generation")
     def complete(
         self,
         model: str,

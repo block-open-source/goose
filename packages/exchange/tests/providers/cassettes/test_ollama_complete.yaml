@@ -1,0 +1,68 @@
+interactions:
+- request:
+    body: ''
+    headers:
+      accept:
+      - '*/*'
+      accept-encoding:
+      - gzip, deflate
+      connection:
+      - keep-alive
+      host:
+      - localhost:11434
+      user-agent:
+      - python-httpx/0.27.2
+    method: GET
+    uri: http://localhost:11434/
+  response:
+    body:
+      string: Ollama is running
+    headers:
+      Content-Length:
+      - '17'
+      Content-Type:
+      - text/plain; charset=utf-8
+      Date:
+      - Sun, 22 Sep 2024 23:40:13 GMT
+      Set-Cookie: test_set_cookie
+      openai-organization: test_openai_org_key
+    status:
+      code: 200
+      message: OK
+- request:
+    body: '{"messages": [{"role": "system", "content": "You are a helpful assistant."},
+      {"role": "user", "content": "Hello"}], "model": "mistral-nemo"}'
+    headers:
+      accept:
+      - '*/*'
+      accept-encoding:
+      - gzip, deflate
+      connection:
+      - keep-alive
+      content-length:
+      - '140'
+      content-type:
+      - application/json
+      host:
+      - localhost:11434
+      user-agent:
+      - python-httpx/0.27.2
+    method: POST
+    uri: http://localhost:11434/v1/chat/completions
+  response:
+    body:
+      string: "{\"id\":\"chatcmpl-429\",\"object\":\"chat.completion\",\"created\":1727048416,\"model\":\"mistral-nemo\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"Hello!
+        I'm here to help. How can I assist you today? Let's chat. \U0001F60A\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":23,\"total_tokens\":33}}\n"
+    headers:
+      Content-Length:
+      - '356'
+      Content-Type:
+      - application/json
+      Date:
+      - Sun, 22 Sep 2024 23:40:16 GMT
+      Set-Cookie: test_set_cookie
+      openai-organization: test_openai_org_key
+    status:
+      code: 200
+      message: OK
+version: 1

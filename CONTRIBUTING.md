@@ -1,44 +1,43 @@
 # Contributing
 
-<p>
-<a href="#prerequisites">Prerequisites</a> •
-<a href="#developing-and-testing">Developing and testing</a> •
-<a href="#building-from-source">Building from source</a> •
-<a href="#developing-goose-plugins">Developing goose-plugins</a> •
-<a href="#running-ai-exchange-from-source">Running ai-exchange from source</a> •
-<a href="#evaluations">Evaluations</a> •
-<a href="#conventional-commits">Conventional Commits</a>
-</p>
-
 We welcome Pull Requests for general contributions. If you have a larger new feature or any questions on how to develop a fix, we recommend you open an [issue][issues] before starting.
 
 ## Prerequisites
 
+Goose uses [uv][uv] for dependency management, and formats with [ruff][ruff].
+Clone goose and make sure you have installed `uv` to get started. When you use
+`uv` below in your local goose directly, it will automatically setup the virtualenv 
+and install dependencies. 
+
 We provide a shortcut to standard commands using [just][just] in our `justfile`.
 
-Goose uses [uv][uv] for dependency management, and formats with [ruff][ruff] - install UV first: https://pypi.org/project/uv/ 
+## Development
 
-## Developing and testing
+Now that you have a local environment, you can make edits and run our tests!
 
-Now that you have a local environment, you can make edits and run our tests. 
+### Run Goose
 
-### Creating plugins
+If you've made edits and want to try them out, use
 
-Goose is highly configurable through plugins - it reads in modules that its dependencies install (e.g.`goose-plugins`) and uses those that start with certain prefixes (e.g. `goose.toolkit`) to inject their functionality. For example, you will note that Goose's CLI is actually merged with additional CLI methods that are exported from `goose-plugins`.
+```
+uv run goose session start
+```
 
-If you are building a net new feature, you should try to fit it inside a plugin. Goose and `goose-plugins` both support plugins, but there's an important difference in how contributions to each are reviewed. Use the guidelines below to decide where to contribute:
+or other `goose` commands.
 
-**When to Add to Goose**:
+If you want to run your local changes but in another directory, you can use the path in
+the virtualenv created by uv:
 
-Plugins added directly to Goose are subject to rigorous review. This is because they are part of the core system and need to meet higher standards for stability, performance, and maintainability, often being validated through benchmarking.
+```
+alias goosedev=`uv run which goose`
+```
 
-**When to Add to `goose-plugins`:**
+You can then run `goosedev` from another dir and it will use your current changes.
 
-Plugins in `goose-plugins` undergo less detailed reviews and are more modular or experimental. They can prove their value through usage or iteration over time and may be eventually moved over to Goose.
+### Run Tests
 
-To see how to add a toolkit, see the [toolkits documentation][adding-toolkit].
+To run the test suite against your edges, use `pytest`:
 
-### Running tests
 ```sh
 uv run pytest tests -m "not integration"
 ```
@@ -49,57 +48,16 @@ or, as a shortcut,
 just test
 ```
 
-## Building from source
+## Exchange
 
-If you want to develop features on `goose`:
+The lower level generation behind goose is powered by the [`exchange`][ai-exchange] package, also in this repo.
 
-1. Clone Goose:
- ```bash
- git clone git@github.com:block-open-source/goose.git ~/Development/goose
- ```
-2. Get `uv` with `brew install uv`
-3. Set up your Python virtualenv:
-```bash
-cd ~/Development/goose
-uv sync
-uv venv
-```
-4. Run the `source` command that follows the `uv venv` command to activate the virtualenv.
-5. Run Goose:
-```bash
-uv run goose session start  # or any of goose's commands (e.g. goose --help)
-```
-
-### Running from source
-
-When you build from source you may want to run it from elsewhere.
-
-1. Run `uv sync` as above
-2. Run ```export goose_dev=`uv run which goose` ```
-3. You can use that from anywhere in your system, for example `cd ~/ && $goose_dev session start`, or from your path if you like (advanced users only) to be running the latest.
-
-## Developing goose-plugins
-
-1. Clone the `goose-plugins` repo:
-```bash
- git clone git@github.com:block-open-source/goose-plugins.git ~/Development/goose-plugins
-```
-2. Follow the steps for creating a virtualenv in the `goose` section above
-3. Install `goose-plugins` in `goose`. This means any changes to `goose-plugins` in this folder will immediately be reflected in `goose`:
-```bash
-uv add --editable ~/Development/goose-plugins
-```
-4. Make your changes in `goose-plugins`, add the toolkit to the `profiles.yaml` file and run `uv run goose session --start` to see them in action.
-
-## Running ai-exchange from source
-
-goose depends heavily on the [`ai-exchange`][ai-exchange] project, you can clone that repo and then work on both by running: 
+Thanks to `uv` workspaces, any changes you make to `exchange` will be reflected in using your local goose. To run tests
+for exchange, head to `packages/exchange` and run tests just like above
 
 ```sh
-uv add --editable <path/to/cloned/exchange>
+uv run pytest tests -m "not integration"
 ```
-
-then when you run goose with `uv run goose session start` it will be running it all from source. 
 
 ## Evaluations
 

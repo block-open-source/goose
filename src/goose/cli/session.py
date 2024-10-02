@@ -1,9 +1,9 @@
 import traceback
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from langfuse.decorators import observe
 
 from exchange import Message, ToolResult, ToolUse, Text
+from exchange.langfuse import observe_wrapper
 from rich import print
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -157,7 +157,7 @@ class Session:
 
         self._log_cost()
 
-    @observe()
+    @observe_wrapper()
     def reply(self) -> None:
         """Reply to the last user message, calling tools as needed
 

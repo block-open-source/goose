@@ -39,7 +39,7 @@ def test_ollama_tools():
 
 @pytest.mark.integration
 def test_ollama_tools_integration():
-    reply = tools(OllamaProvider, OLLAMA_MODEL)
+    reply = tools(OllamaProvider, OLLAMA_MODEL, seed=3)
 
     tool_use = reply[0].content[0]
     assert isinstance(tool_use, ToolUse), f"Expected ToolUse, but was {type(tool_use).__name__}"

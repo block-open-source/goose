@@ -98,21 +98,21 @@ def scrub_response_headers(response):
     return response
 
 
-def complete(provider_cls: Type[Provider], model: str) -> Tuple[Message, Usage]:
+def complete(provider_cls: Type[Provider], model: str, **kwargs) -> Tuple[Message, Usage]:
     provider = provider_cls.from_env()
     system = "You are a helpful assistant."
     messages = [Message.user("Hello")]
-    return provider.complete(model=model, system=system, messages=messages, tools=None)
+    return provider.complete(model=model, system=system, messages=messages, tools=None, **kwargs)
 
 
-def tools(provider_cls: Type[Provider], model: str) -> Tuple[Message, Usage]:
+def tools(provider_cls: Type[Provider], model: str, **kwargs) -> Tuple[Message, Usage]:
     provider = provider_cls.from_env()
     system = "You are a helpful assistant. Expect to need to read a file using read_file."
     messages = [Message.user("What are the contents of this file? test.txt")]
-    return provider.complete(model=model, system=system, messages=messages, tools=(Tool.from_function(read_file),))
+    return provider.complete(model=model, system=system, messages=messages, tools=(Tool.from_function(read_file),), **kwargs)
 
 
-def vision(provider_cls: Type[Provider], model: str) -> Tuple[Message, Usage]:
+def vision(provider_cls: Type[Provider], model: str, **kwargs) -> Tuple[Message, Usage]:
     provider = provider_cls.from_env()
     system = "You are a helpful assistant."
     messages = [
@@ -126,4 +126,4 @@ def vision(provider_cls: Type[Provider], model: str) -> Tuple[Message, Usage]:
             content=[ToolResult(tool_use_id="xyz", output='"image:tests/test_image.png"')],
         ),
     ]
-    return provider.complete(model=model, system=system, messages=messages, tools=None)
+    return provider.complete(model=model, system=system, messages=messages, tools=None, **kwargs)

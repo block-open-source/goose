@@ -29,6 +29,7 @@ class Provider(ABC):
         """Generate the next message using the specified model"""
         pass
 
+
 class MissingProviderEnvVariableError(Exception):
     def __init__(self, env_variable: str, provider: str, instructions_url: Optional[str] = None) -> None:
         self.env_variable = env_variable

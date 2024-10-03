@@ -10,6 +10,7 @@ from .conftest import complete, vision, tools
 
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
+
 def test_from_env_throw_error_when_missing_api_key():
     with patch.dict(os.environ, {}, clear=True):
         with pytest.raises(MissingProviderEnvVariableError) as context:
@@ -18,6 +19,7 @@ def test_from_env_throw_error_when_missing_api_key():
         assert context.value.env_variable == "OPENAI_API_KEY"
         assert "Missing environment variable: OPENAI_API_KEY for provider openai" in context.value.message
         assert "https://platform.openai.com" in context.value.message
+
 
 @pytest.mark.vcr()
 def test_openai_complete(default_openai_env):

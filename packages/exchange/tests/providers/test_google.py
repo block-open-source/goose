@@ -19,6 +19,7 @@ def example_fn(param: str) -> None:
     """
     pass
 
+
 def test_from_env_throw_error_when_missing_api_key():
     with patch.dict(os.environ, {}, clear=True):
         with pytest.raises(MissingProviderEnvVariableError) as context:
@@ -27,6 +28,7 @@ def test_from_env_throw_error_when_missing_api_key():
         assert context.value.env_variable == "GOOGLE_API_KEY"
         assert "Missing environment variable: GOOGLE_API_KEY for provider google" in context.value.message
         assert "https://ai.google.dev/gemini-api/docs/api-key" in context.value.message
+
 
 @pytest.fixture
 @patch.dict(os.environ, {"GOOGLE_API_KEY": "test_api_key"})

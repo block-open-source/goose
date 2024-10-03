@@ -187,6 +187,7 @@ def get_provider_env_value(env_variable: str, provider: str, instructions_url: O
     except KeyError:
         raise MissingProviderEnvVariableError(env_variable, provider, instructions_url)
 
+
 class InitialMessageTooLargeError(Exception):
     """Custom error raised when the first input message in an exchange is too large."""
 

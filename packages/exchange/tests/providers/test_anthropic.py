@@ -25,6 +25,7 @@ def example_fn(param: str) -> None:
 def anthropic_provider():
     return AnthropicProvider.from_env()
 
+
 def test_from_env_throw_error_when_missing_api_key():
     with patch.dict(os.environ, {}, clear=True):
         with pytest.raises(MissingProviderEnvVariableError) as context:
@@ -32,6 +33,7 @@ def test_from_env_throw_error_when_missing_api_key():
         assert context.value.provider == "anthropic"
         assert context.value.env_variable == "ANTHROPIC_API_KEY"
         assert context.value.message == "Missing environment variable: ANTHROPIC_API_KEY for provider anthropic."
+
 
 def test_anthropic_response_to_text_message() -> None:
     response = {

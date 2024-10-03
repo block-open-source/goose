@@ -21,10 +21,11 @@ def mock_specified_session_name():
 
 @pytest.fixture
 def create_session_with_mock_configs(mock_sessions_path, exchange_factory, profile_factory):
-    with patch("goose.cli.session.build_exchange") as mock_exchange, patch(
-        "goose.cli.session.load_profile", return_value=profile_factory()
-    ), patch("goose.cli.session.SessionNotifier") as mock_session_notifier, patch(
-        "goose.cli.session.load_provider", return_value="provider"
+    with (
+        patch("goose.cli.session.build_exchange") as mock_exchange,
+        patch("goose.cli.session.load_profile", return_value=profile_factory()),
+        patch("goose.cli.session.SessionNotifier") as mock_session_notifier,
+        patch("goose.cli.session.load_provider", return_value="provider"),
     ):
         mock_session_notifier.return_value = MagicMock()
         mock_exchange.return_value = exchange_factory()
@@ -115,9 +116,11 @@ def test_log_log_cost(create_session_with_mock_configs):
     session = create_session_with_mock_configs()
     mock_logger = MagicMock()
     cost_message = "You have used 100 tokens"
-    with patch("exchange.Exchange.get_token_usage", return_value={}), patch(
-        "goose.cli.session.get_total_cost_message", return_value=cost_message
-    ), patch("goose.cli.session.get_logger", return_value=mock_logger):
+    with (
+        patch("exchange.Exchange.get_token_usage", return_value={}),
+        patch("goose.cli.session.get_total_cost_message", return_value=cost_message),
+        patch("goose.cli.session.get_logger", return_value=mock_logger),
+    ):
         session._log_cost()
         mock_logger.info.assert_called_once_with(cost_message)
 
@@ -135,9 +138,11 @@ def test_run_should_auto_save_session(create_session_with_mock_configs, mock_ses
     ]
 
     session = create_session_with_mock_configs({"name": SESSION_NAME})
-    with patch.object(GoosePromptSession, "get_user_input", side_effect=user_inputs), patch.object(
-        Exchange, "generate"
-    ) as mock_generate, patch("goose.cli.session.save_latest_session") as mock_save_latest_session:
+    with (
+        patch.object(GoosePromptSession, "get_user_input", side_effect=user_inputs),
+        patch.object(Exchange, "generate") as mock_generate,
+        patch("goose.cli.session.save_latest_session") as mock_save_latest_session,
+    ):
         mock_generate.side_effect = lambda *args, **kwargs: custom_exchange_generate(session.exchange, *args, **kwargs)
         session.run()
 
@@ -158,9 +163,11 @@ def test_set_generated_session_name(create_session_with_mock_configs, mock_sessi
 def test_create_exchange_exit_when_env_var_does_not_exist(create_session_with_mock_configs, mock_sessions_path):
     session = create_session_with_mock_configs()
     expected_error = MissingProviderEnvVariableError(env_variable="OPENAI_API_KEY", provider="openai")
-    with patch("goose.cli.session.build_exchange", side_effect=expected_error), patch(
-        "goose.cli.session.print"
-    ) as mock_print, patch("sys.exit") as mock_exit:
+    with (
+        patch("goose.cli.session.build_exchange", side_effect=expected_error),
+        patch("goose.cli.session.print") as mock_print,
+        patch("sys.exit") as mock_exit,
+    ):
         session._create_exchange()
         mock_print.call_args_list[0][0][0].renderable == (
             "Missing environment variable OPENAI_API_KEY for provider openai. ",
@@ -174,9 +181,11 @@ def test_create_exchange_exit_when_configuration_is_incorrect(create_session_wit
     expected_error = LoadExchangeAttributeError(
         attribute_name="provider", attribute_value="wrong_provider", available_values=["openai"]
     )
-    with patch("goose.cli.session.build_exchange", side_effect=expected_error), patch(
-        "goose.cli.session.print"
-    ) as mock_print, patch("sys.exit") as mock_exit:
+    with (
+        patch("goose.cli.session.build_exchange", side_effect=expected_error),
+        patch("goose.cli.session.print") as mock_print,
+        patch("sys.exit") as mock_exit,
+    ):
         session._create_exchange()
         assert "Unknown provider: wrong_provider. Available providers: openai" in mock_print.call_args_list[0][0][0]
         mock_exit.assert_called_once_with(1)

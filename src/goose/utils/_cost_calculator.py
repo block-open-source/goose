@@ -2,8 +2,9 @@ from typing import Optional
 from exchange.providers.base import Usage
 
 PRICES = {
-    "gpt-4o": (5.00, 15.00),
+    "gpt-4o": (2.50, 10.00),
     "gpt-4o-2024-08-06": (2.50, 10.00),
+    "gpt-4o-2024-05-13": (5.00, 15.00),
     "gpt-4o-mini": (0.150, 0.600),
     "gpt-4o-mini-2024-07-18": (0.150, 0.600),
     "o1-preview": (15.00, 60.00),

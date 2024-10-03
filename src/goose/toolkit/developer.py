@@ -16,6 +16,9 @@ from rich.table import Table
 from rich.text import Text
 from rich.rule import Rule
 
+RULESTYLE = "bold"
+RULEPREFIX = f"[{RULESTYLE}]───[/] "
+
 
 def keep_unsafe_command_prompt(command: str) -> bool:
     command_text = Text(command, style="bold red")
@@ -123,7 +126,7 @@ class Developer(Toolkit):
 {after}
 ```
 """
-        self.notifier.log(Rule(path, style="bold black"))
+        self.notifier.log(Rule(RULEPREFIX + path, style=RULESTYLE, align="left"))
         self.notifier.log(Markdown(output))
         return "Succesfully replaced before with after."
 
@@ -155,7 +158,7 @@ class Developer(Toolkit):
                 if you need to run more than one at a time
         """
         # Log the command being executed in a visually structured format (Markdown).
-        self.notifier.log(Rule("shell", style="bold black"))
+        self.notifier.log(Rule(RULEPREFIX + "shell", style=RULESTYLE, align="left"))
         self.notifier.log(Markdown(f"```bash\n{command}\n```"))
 
         if is_dangerous_command(command):
@@ -263,7 +266,7 @@ class Developer(Toolkit):
         # Log the content that will be written to the file
         # .log` method is used here to log the command execution in the application's UX
         # this method is dynamically attached to functions in the Goose framework
-        self.notifier.log(Rule(path, style="bold black"))
+        self.notifier.log(Rule(RULEPREFIX + path, style=RULESTYLE, align="left"))
         self.notifier.log(Markdown(md))
 
         _path = Path(path)

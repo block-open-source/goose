@@ -111,7 +111,7 @@ class Session:
             sys.exit(1)
         except LoadExchangeAttributeError as e:
             error_message = (
-                f"[bold red]{e.message}[/bold red].\nPlease check your configuration file at {PROFILES_CONFIG_PATH}. "
+                f"[bold red]{e.message}[/bold red].\nPlease check your configuration file at {PROFILES_CONFIG_PATH}.\n"
                 + "Configuration doc: https://block-open-source.github.io/goose/configuration.html"
             )
             print(error_message)

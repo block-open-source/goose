@@ -37,7 +37,7 @@ class OpenAiProvider(Provider):
     @classmethod
     def from_env(cls: Type["OpenAiProvider"]) -> "OpenAiProvider":
         url = os.environ.get("OPENAI_HOST", OPENAI_HOST)
-        api_key_instructions_url = "see https://platform.openai.com/docs/api-reference/api-keys"
+        api_key_instructions_url = "https://platform.openai.com/docs/api-reference/api-keys"
         key = get_provider_env_value("OPENAI_API_KEY", "openai", api_key_instructions_url)
         client = httpx.Client(
             base_url=url + "v1/",

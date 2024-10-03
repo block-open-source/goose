@@ -37,5 +37,5 @@ class MissingProviderEnvVariableError(Exception):
         self.instructions_url = instructions_url
         self.message = f"Missing environment variable: {env_variable} for provider {provider}."
         if instructions_url:
-            self.message += f"\n Please see {instructions_url} for instructions"
+            self.message += f"\nPlease see {instructions_url} for instructions"
         super().__init__(self.message)

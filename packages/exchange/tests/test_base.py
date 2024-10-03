@@ -23,5 +23,5 @@ def test_missing_provider_env_variable_error_with_instructions_url():
     assert error.instructions_url == instructions_url
     assert error.message == (
         "Missing environment variable: API_KEY for provider TestProvider.\n"
-        " Please see http://example.com/instructions for instructions"
+        "Please see http://example.com/instructions for instructions"
     )

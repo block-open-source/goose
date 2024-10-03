@@ -15,23 +15,23 @@ the actions you will need to take, such as writing files or executing shell comm
 
 For example, here's a plan to unstage all edited files in a git repo
 
-{"description": "Use the git status command to find edited files", "status": "pending"}
-{"description": "For each file with changes, call git restore on the file", "status": "pending"}
+{"description": "Use the git status command to find edited files", "status": "planned"}
+{"description": "For each file with changes, call git restore on the file", "status": "planned"}
 
 After running git status, you would update to
 
 {"description": "Use the git status command to find edited files", "status": "complete"}
-{"description": "For each file with changes, call git restore on the file", "status": "pending"}
+{"description": "For each file with changes, call git restore on the file", "status": "planned"}
 
 
 Here's another plan example to get the sum of the "payment" column in data.csv
 
-{"description": "Install pandas", "status": "pending"}
-{"description": "Write a python script in the file sum.py that loads the csv in pandas and sums the column", "status": "pending"}
-{"description": "Run the python script with bash", "status": "pending"}
+{"description": "Install pandas", "status": "planned"}
+{"description": "Write a python script in the file sum.py that loads the csv in pandas and sums the column", "status": "planned"}
+{"description": "Run the python script with bash", "status": "planned"}
 
 If you were to encounter an error along the way, you can update the plan to specify a new approach.
-Always call update_plan before any other tool calls! You should specify the whole plan upfront as pending,
+Always call update_plan before any other tool calls! You should specify the whole plan upfront as planned,
 and then update status at each step. **Do not describe the plan in your text response, only communicate
 the plan through the tool**
 

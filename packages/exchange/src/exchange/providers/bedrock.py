@@ -146,6 +146,9 @@ class AwsClient(httpx.Client):
         return headers
 
 
+PROVIDER_NAME = "bedrock"
+
+
 class BedrockProvider(Provider):
     def __init__(self, client: AwsClient) -> None:
         self.client = client
@@ -153,9 +156,9 @@ class BedrockProvider(Provider):
     @classmethod
     def from_env(cls: Type["BedrockProvider"]) -> "BedrockProvider":
         aws_region = os.environ.get("AWS_REGION", "us-east-1")
-        aws_access_key = cls._get_env_variable("AWS_ACCESS_KEY_ID")
-        aws_secret_key = cls._get_env_variable("AWS_SECRET_ACCESS_KEY")
-        aws_session_token = cls._get_env_variable("AWS_SESSION_TOKEN")
+        aws_access_key = get_provider_env_value("AWS_ACCESS_KEY_ID", PROVIDER_NAME)
+        aws_secret_key = get_provider_env_value("AWS_SECRET_ACCESS_KEY", PROVIDER_NAME)
+        aws_session_token = get_provider_env_value("AWS_SESSION_TOKEN", PROVIDER_NAME)
 
         client = AwsClient(
             aws_region=aws_region,
@@ -322,7 +325,3 @@ class BedrockProvider(Provider):
             tools_added.add(tool.name)
         tool_config = {"tools": tool_config_list}
         return tool_config
-
-    @classmethod
-    def _get_env_variable(cls: Type["BedrockProvider"], key: str) -> str:
-        return get_provider_env_value(key, "bedrock")

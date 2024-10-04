@@ -5,6 +5,8 @@ import httpx
 from exchange.providers import OpenAiProvider
 from exchange.providers.utils import get_provider_env_value
 
+PROVIDER_NAME = "azure"
+
 
 class AzureProvider(OpenAiProvider):
     """Provides chat completions for models hosted by the Azure OpenAI Service"""
@@ -14,11 +16,11 @@ class AzureProvider(OpenAiProvider):
 
     @classmethod
     def from_env(cls: Type["AzureProvider"]) -> "AzureProvider":
-        url = cls._get_env_variable("AZURE_CHAT_COMPLETIONS_HOST_NAME")
-        deployment_name = cls._get_env_variable("AZURE_CHAT_COMPLETIONS_DEPLOYMENT_NAME")
+        url = get_provider_env_value("AZURE_CHAT_COMPLETIONS_HOST_NAME", PROVIDER_NAME)
+        deployment_name = get_provider_env_value("AZURE_CHAT_COMPLETIONS_DEPLOYMENT_NAME", PROVIDER_NAME)
 
-        api_version = cls._get_env_variable("AZURE_CHAT_COMPLETIONS_DEPLOYMENT_API_VERSION")
-        key = cls._get_env_variable("AZURE_CHAT_COMPLETIONS_KEY")
+        api_version = get_provider_env_value("AZURE_CHAT_COMPLETIONS_DEPLOYMENT_API_VERSION", PROVIDER_NAME)
+        key = get_provider_env_value("AZURE_CHAT_COMPLETIONS_KEY", PROVIDER_NAME)
 
         # format the url host/"openai/deployments/" + deployment_name + "/?api-version=" + api_version
         url = f"{url}/openai/deployments/{deployment_name}/"
@@ -29,7 +31,3 @@ class AzureProvider(OpenAiProvider):
             timeout=httpx.Timeout(60 * 10),
         )
         return cls(client)
-
-    @classmethod
-    def _get_env_variable(cls: Type["AzureProvider"], key: str) -> str:
-        return get_provider_env_value(key, "azure")

@@ -1,12 +1,42 @@
 import os
+from unittest.mock import patch
 
 import pytest
 
 from exchange import Text, ToolUse
 from exchange.providers.azure import AzureProvider
+from exchange.providers.base import MissingProviderEnvVariableError
 from .conftest import complete, tools
 
 AZURE_MODEL = os.getenv("AZURE_MODEL", "gpt-4o-mini")
+
+
+@pytest.mark.parametrize(
+    "env_var_name",
+    [
+        ("AZURE_CHAT_COMPLETIONS_HOST_NAME"),
+        ("AZURE_CHAT_COMPLETIONS_DEPLOYMENT_NAME"),
+        ("AZURE_CHAT_COMPLETIONS_DEPLOYMENT_API_VERSION"),
+        ("AZURE_CHAT_COMPLETIONS_KEY"),
+    ],
+)
+def test_from_env_throw_error_when_missing_env_var(env_var_name):
+    with patch.dict(
+        os.environ,
+        {
+            "AZURE_CHAT_COMPLETIONS_HOST_NAME": "test_host_name",
+            "AZURE_CHAT_COMPLETIONS_DEPLOYMENT_NAME": "test_deployment_name",
+            "AZURE_CHAT_COMPLETIONS_DEPLOYMENT_API_VERSION": "test_api_version",
+            "AZURE_CHAT_COMPLETIONS_KEY": "test_api_key",
+        },
+        clear=True,
+    ):
+        os.environ.pop(env_var_name)
+        with pytest.raises(MissingProviderEnvVariableError) as context:
+            AzureProvider.from_env()
+        assert context.value.provider == "azure"
+        assert context.value.env_variable == env_var_name
+        assert context.value.message == f"Missing environment variable: {env_var_name} for provider azure."
 
 
 @pytest.mark.vcr()

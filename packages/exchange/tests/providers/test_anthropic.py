@@ -6,6 +6,7 @@ import pytest
 from exchange import Message, Text
 from exchange.content import ToolResult, ToolUse
 from exchange.providers.anthropic import AnthropicProvider
+from exchange.providers.base import MissingProviderEnvVariableError
 from exchange.tool import Tool
 
 
@@ -23,6 +24,15 @@ def example_fn(param: str) -> None:
 @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test_api_key"})
 def anthropic_provider():
     return AnthropicProvider.from_env()
+
+
+def test_from_env_throw_error_when_missing_api_key():
+    with patch.dict(os.environ, {}, clear=True):
+        with pytest.raises(MissingProviderEnvVariableError) as context:
+            AnthropicProvider.from_env()
+        assert context.value.provider == "anthropic"
+        assert context.value.env_variable == "ANTHROPIC_API_KEY"
+        assert context.value.message == "Missing environment variable: ANTHROPIC_API_KEY for provider anthropic."
 
 
 def test_anthropic_response_to_text_message() -> None:

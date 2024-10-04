@@ -35,7 +35,6 @@ class DatabricksProvider(Provider):
 
     """
 
-
     def __init__(self, client: httpx.Client) -> None:
         super().__init__()
         self.client = client

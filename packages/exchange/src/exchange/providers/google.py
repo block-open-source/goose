@@ -26,6 +26,7 @@ class GoogleProvider(Provider):
         GOOGLE_API_KEY
 
     """
+
     def __init__(self, client: httpx.Client) -> None:
         self.client = client
 

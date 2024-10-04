@@ -18,7 +18,6 @@ class AzureProvider(OpenAiProvider):
         AZURE_CHAT_COMPLETIONS_KEY
     """
 
-
     def __init__(self, client: httpx.Client) -> None:
         super().__init__(client)
 

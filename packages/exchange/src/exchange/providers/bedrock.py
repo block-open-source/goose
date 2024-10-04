@@ -157,7 +157,6 @@ class BedrockProvider(Provider):
         AWS_SECRET_ACCESS_KEY
     """
 
-
     def __init__(self, client: AwsClient) -> None:
         self.client = client
 

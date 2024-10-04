@@ -6,30 +6,37 @@ import keyring
 from prompt_toolkit import prompt
 from prompt_toolkit.shortcuts import confirm
 from rich import print
+from rich.panel import Panel
 
 from goose.build import build_exchange
+from goose.cli.config import PROFILES_CONFIG_PATH
 from goose.cli.session_notifier import SessionNotifier
 from goose.profile import Profile
 from exchange import Exchange
-from exchange.providers.base import InvalidChoiceError
-
+from exchange.invalid_choice_error import InvalidChoiceError
+from exchange.providers.base import MissingProviderEnvVariableError
 
 
 def create_exchange(profile: Profile, notifier: SessionNotifier) -> Exchange:
     try:
         return build_exchange(profile, notifier=notifier)
     except InvalidChoiceError as e:
+        error_message = (
+            f"[bold red]{e.message}[/bold red].\nPlease check your configuration file at {PROFILES_CONFIG_PATH}.\n"
+            + "Configuration doc: https://block-open-source.github.io/goose/configuration.html"
+        )
+        print(error_message)
+        sys.exit(1)
+    except MissingProviderEnvVariableError as e:
         api_key = _get_api_key_from_keychain(e.env_variable, e.provider)
         if api_key is None or api_key == "":
-            error_message = (
-                f"[bold red]{e.message}[/bold red].\nPlease check your configuration file at {PROFILES_CONFIG_PATH}.\n"
-                + "Configuration doc: https://block-open-source.github.io/goose/configuration.html"
-            )
-            print(error_message)
+            error_message = f"{e.message}. Please set the required environment variable to continue."
+            print(Panel(error_message, style="red"))
             sys.exit(1)
         else:
             os.environ[e.env_variable] = api_key
             return build_exchange(profile=profile, notifier=notifier)
+
 
 def _get_api_key_from_keychain(env_variable: str, provider: str) -> Optional[str]:
     api_key = keyring.get_password("goose", env_variable)

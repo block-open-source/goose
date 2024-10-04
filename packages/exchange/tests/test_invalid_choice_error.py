@@ -1,11 +1,11 @@
-from exchange.load_exchange_attribute_error import LoadExchangeAttributeError
+from exchange.invalid_choice_error import InvalidChoiceError
 
 
-def test_load_exchange_attribute_error():
+def test_load_invalid_choice_error():
     attribute_name = "moderator"
     attribute_value = "not_exist"
     available_values = ["truncate", "summarizer"]
-    error = LoadExchangeAttributeError(attribute_name, attribute_value, available_values)
+    error = InvalidChoiceError(attribute_name, attribute_value, available_values)
 
     assert error.attribute_name == attribute_name
     assert error.attribute_value == attribute_value

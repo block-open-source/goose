@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from exchange import Exchange, Message, ToolUse, ToolResult
 from exchange.providers.base import MissingProviderEnvVariableError
-from exchange.load_exchange_attribute_error import LoadExchangeAttributeError
+from exchange.invalid_choice_error import InvalidChoiceError
 from goose.cli.prompt.goose_prompt_session import GoosePromptSession
 from goose.cli.prompt.user_input import PromptAction, UserInput
 from goose.cli.session import Session
@@ -178,7 +178,7 @@ def test_create_exchange_exit_when_env_var_does_not_exist(create_session_with_mo
 
 def test_create_exchange_exit_when_configuration_is_incorrect(create_session_with_mock_configs, mock_sessions_path):
     session = create_session_with_mock_configs()
-    expected_error = LoadExchangeAttributeError(
+    expected_error = InvalidChoiceError(
         attribute_name="provider", attribute_value="wrong_provider", available_values=["openai"]
     )
     with (

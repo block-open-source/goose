@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from exchange import Message, ToolResult, ToolUse, Text, Exchange
 from exchange.providers.base import MissingProviderEnvVariableError
-from exchange.load_exchange_attribute_error import LoadExchangeAttributeError
+from exchange.invalid_choice_error import InvalidChoiceError
 from rich import print
 from rich.console import RenderableType
 from rich.live import Live
@@ -109,7 +109,7 @@ class Session:
             error_message = f"{e.message}. Please set the required environment variable to continue."
             print(Panel(error_message, style="red"))
             sys.exit(1)
-        except LoadExchangeAttributeError as e:
+        except InvalidChoiceError as e:
             error_message = (
                 f"[bold red]{e.message}[/bold red].\nPlease check your configuration file at {PROFILES_CONFIG_PATH}.\n"
                 + "Configuration doc: https://block-open-source.github.io/goose/configuration.html"

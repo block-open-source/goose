@@ -86,6 +86,3 @@ class GoosePromptSession:
             "Enter a name to save this session under. A name will be generated for you if empty: ",
             validator=DummyValidator(),
         ).strip(" ")
-
-    def get_text_prompt(self, prompt: str) -> str:
-        return self.text_prompt_session.prompt(prompt)

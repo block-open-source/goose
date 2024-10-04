@@ -13,8 +13,7 @@ from exchange.content import Text, ToolResult, ToolUse
 from exchange.message import Message
 from exchange.providers import Provider, Usage
 from tenacity import retry, wait_fixed, stop_after_attempt
-from exchange.providers.utils import retry_if_status
-from exchange.providers.utils import raise_for_status
+from exchange.providers.utils import get_provider_env_value, raise_for_status, retry_if_status
 from exchange.tool import Tool
 
 SERVICE = "bedrock-runtime"
@@ -147,6 +146,9 @@ class AwsClient(httpx.Client):
         return headers
 
 
+PROVIDER_NAME = "bedrock"
+
+
 class BedrockProvider(Provider):
     def __init__(self, client: AwsClient) -> None:
         self.client = client
@@ -154,12 +156,9 @@ class BedrockProvider(Provider):
     @classmethod
     def from_env(cls: Type["BedrockProvider"]) -> "BedrockProvider":
         aws_region = os.environ.get("AWS_REGION", "us-east-1")
-        try:
-            aws_access_key = os.environ["AWS_ACCESS_KEY_ID"]
-            aws_secret_key = os.environ["AWS_SECRET_ACCESS_KEY"]
-            aws_session_token = os.environ.get("AWS_SESSION_TOKEN")
-        except KeyError:
-            raise RuntimeError("Failed to get AWS_ACCESS_KEY_ID or AWS_SECRET_ACCESS_KEY from the environment")
+        aws_access_key = get_provider_env_value("AWS_ACCESS_KEY_ID", PROVIDER_NAME)
+        aws_secret_key = get_provider_env_value("AWS_SECRET_ACCESS_KEY", PROVIDER_NAME)
+        aws_session_token = get_provider_env_value("AWS_SESSION_TOKEN", PROVIDER_NAME)
 
         client = AwsClient(
             aws_region=aws_region,

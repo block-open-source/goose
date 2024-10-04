@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from attrs import define, field
-from typing import List, Tuple, Type
+from typing import List, Optional, Tuple, Type
 
 from exchange.message import Message
 from exchange.tool import Tool
@@ -28,3 +28,14 @@ class Provider(ABC):
     ) -> Tuple[Message, Usage]:
         """Generate the next message using the specified model"""
         pass
+
+
+class MissingProviderEnvVariableError(Exception):
+    def __init__(self, env_variable: str, provider: str, instructions_url: Optional[str] = None) -> None:
+        self.env_variable = env_variable
+        self.provider = provider
+        self.instructions_url = instructions_url
+        self.message = f"Missing environment variable: {env_variable} for provider {provider}."
+        if instructions_url:
+            self.message += f"\nPlease see {instructions_url} for instructions"
+        super().__init__(self.message)

@@ -6,6 +6,7 @@ import httpx
 from exchange.message import Message
 from exchange.providers.base import Provider, Usage
 from exchange.providers.utils import (
+    get_provider_env_value,
     messages_to_openai_spec,
     openai_response_to_message,
     openai_single_message_context_length_exceeded,
@@ -36,12 +37,8 @@ class OpenAiProvider(Provider):
     @classmethod
     def from_env(cls: Type["OpenAiProvider"]) -> "OpenAiProvider":
         url = os.environ.get("OPENAI_HOST", OPENAI_HOST)
-        try:
-            key = os.environ["OPENAI_API_KEY"]
-        except KeyError:
-            raise RuntimeError(
-                "Failed to get OPENAI_API_KEY from the environment, see https://platform.openai.com/docs/api-reference/api-keys"
-            )
+        api_key_instructions_url = "https://platform.openai.com/docs/api-reference/api-keys"
+        key = get_provider_env_value("OPENAI_API_KEY", "openai", api_key_instructions_url)
         client = httpx.Client(
             base_url=url + "v1/",
             auth=("Bearer", key),

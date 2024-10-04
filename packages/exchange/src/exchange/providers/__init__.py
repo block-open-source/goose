@@ -1,6 +1,7 @@
 from functools import cache
 from typing import Type
 
+from exchange.invalid_choice_error import InvalidChoiceError
 from exchange.providers.anthropic import AnthropicProvider  # noqa
 from exchange.providers.base import Provider, Usage  # noqa
 from exchange.providers.databricks import DatabricksProvider  # noqa
@@ -14,4 +15,7 @@ from exchange.utils import load_plugins
 
 @cache
 def get_provider(name: str) -> Type[Provider]:
-    return load_plugins(group="exchange.provider")[name]
+    providers = load_plugins(group="exchange.provider")
+    if name not in providers:
+        raise InvalidChoiceError("provider", name, providers.keys())
+    return providers[name]

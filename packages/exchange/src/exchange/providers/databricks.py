@@ -1,4 +1,3 @@
-import os
 from typing import Any, Dict, List, Tuple, Type
 
 import httpx
@@ -6,7 +5,7 @@ import httpx
 from exchange.message import Message
 from exchange.providers.base import Provider, Usage
 from tenacity import retry, wait_fixed, stop_after_attempt
-from exchange.providers.utils import raise_for_status, retry_if_status
+from exchange.providers.utils import get_provider_env_value, raise_for_status, retry_if_status
 from exchange.providers.utils import (
     messages_to_openai_spec,
     openai_response_to_message,
@@ -37,18 +36,8 @@ class DatabricksProvider(Provider):
 
     @classmethod
     def from_env(cls: Type["DatabricksProvider"]) -> "DatabricksProvider":
-        try:
-            url = os.environ["DATABRICKS_HOST"]
-        except KeyError:
-            raise RuntimeError(
-                "Failed to get DATABRICKS_HOST from the environment. See https://docs.databricks.com/en/dev-tools/auth/index.html#general-host-token-and-account-id-environment-variables-and-fields"
-            )
-        try:
-            key = os.environ["DATABRICKS_TOKEN"]
-        except KeyError:
-            raise RuntimeError(
-                "Failed to get DATABRICKS_TOKEN from the environment. See https://docs.databricks.com/en/dev-tools/auth/index.html#general-host-token-and-account-id-environment-variables-and-fields"
-            )
+        url = cls._get_env_variable("DATABRICKS_HOST")
+        key = cls._get_env_variable("DATABRICKS_TOKEN")
         client = httpx.Client(
             base_url=url,
             auth=("token", key),
@@ -100,3 +89,8 @@ class DatabricksProvider(Provider):
             json=payload,
         )
         return raise_for_status(response).json()
+
+    @classmethod
+    def _get_env_variable(cls: Type["DatabricksProvider"], key: str) -> str:
+        instruction = "https://docs.databricks.com/en/dev-tools/auth/index.html#general-host-token-and-account-id-environment-variables-and-fields"
+        return get_provider_env_value(key, "databricks", instruction)

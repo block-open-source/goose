@@ -5,6 +5,7 @@ import httpx
 import pytest
 from exchange import Message, Text
 from exchange.content import ToolResult, ToolUse
+from exchange.providers.base import MissingProviderEnvVariableError
 from exchange.providers.google import GoogleProvider
 from exchange.tool import Tool
 
@@ -17,6 +18,16 @@ def example_fn(param: str) -> None:
         param (str): Description of param1
     """
     pass
+
+
+def test_from_env_throw_error_when_missing_api_key():
+    with patch.dict(os.environ, {}, clear=True):
+        with pytest.raises(MissingProviderEnvVariableError) as context:
+            GoogleProvider.from_env()
+        assert context.value.provider == "google"
+        assert context.value.env_variable == "GOOGLE_API_KEY"
+        assert "Missing environment variable: GOOGLE_API_KEY for provider google" in context.value.message
+        assert "https://ai.google.dev/gemini-api/docs/api-key" in context.value.message
 
 
 @pytest.fixture

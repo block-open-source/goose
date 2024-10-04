@@ -1,12 +1,24 @@
 import os
+from unittest.mock import patch
 
 import pytest
 
 from exchange import Text, ToolUse
+from exchange.providers.base import MissingProviderEnvVariableError
 from exchange.providers.openai import OpenAiProvider
 from .conftest import complete, vision, tools
 
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+
+
+def test_from_env_throw_error_when_missing_api_key():
+    with patch.dict(os.environ, {}, clear=True):
+        with pytest.raises(MissingProviderEnvVariableError) as context:
+            OpenAiProvider.from_env()
+        assert context.value.provider == "openai"
+        assert context.value.env_variable == "OPENAI_API_KEY"
+        assert "Missing environment variable: OPENAI_API_KEY for provider openai" in context.value.message
+        assert "https://platform.openai.com" in context.value.message
 
 
 @pytest.mark.vcr()

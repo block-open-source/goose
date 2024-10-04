@@ -129,7 +129,7 @@ def list_providers() -> None:
         print(f" - [bold]{provider_name}[/bold]: {first_line_of_doc}")
         if env_lines:
             env_required = ", ".join(env_lines)
-            print(f" - [dim]env vars: {env_required}")
+            print(f"        [dim]env vars: {env_required}")
 
         print("\n")
 

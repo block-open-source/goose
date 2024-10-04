@@ -6,12 +6,13 @@ from exchange.invalid_choice_error import InvalidChoiceError
 from exchange.providers.base import MissingProviderEnvVariableError
 import pytest
 
+from goose.notifier import Notifier
 from goose.profile import Profile
 from goose.utils._create_exchange import create_exchange
 
 TEST_PROFILE = MagicMock(spec=Profile)
 TEST_EXCHANGE = MagicMock(spec=Exchange)
-TEST_NOTIFIER = MagicMock(spec=Exchange)
+TEST_NOTIFIER = MagicMock(spec=Notifier)
 
 
 @pytest.fixture
@@ -133,7 +134,7 @@ class TestWhenProviderEnvVarNotFound:
         self, mock_prompt, mock_confirm, mock_sys_exit, mock_keyring_get_password, mock_print
     ):
         self._clean_env()
-        with patch("goose.utils._create_exchange.build_exchange", side_effect=[self.EXPECTED_ERROR, TEST_EXCHANGE]):
+        with patch("goose.utils._create_exchange.build_exchange", side_effect=self.EXPECTED_ERROR):
             mock_keyring_get_password.return_value = None
             mock_prompt.return_value = None
             mock_confirm.return_value = False

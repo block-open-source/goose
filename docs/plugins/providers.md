@@ -11,4 +11,4 @@ Providers in Goose mean "LLM providers" that Goose can interact with. Providers 
 * Ollama
 * OpenAI
 
-[exchange-providers]: https://github.com/square/exchange/tree/main/src/exchange/providers
+[exchange-providers]: https://github.com/block-open-source/goose/tree/main/packages/exchange/src/exchange/providers

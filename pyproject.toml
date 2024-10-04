@@ -5,10 +5,10 @@ version = "0.9.3"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "ai-exchange",
     "attrs>=23.2.0",
     "rich>=13.7.1",
     "ruamel-yaml>=0.18.6",
-    "ai-exchange>=0.9.3",
     "click>=8.1.7",
     "prompt-toolkit>=3.0.47",
 ]
@@ -53,7 +53,6 @@ dev-dependencies = [
     "mkdocs-gen-files>=0.5.0",
     "mkdocs-git-authors-plugin>=0.9.0",
     "mkdocs-git-committers-plugin>=0.2.3",
-    "mkdocs-git-revision-date-localized-plugin",
     "mkdocs-git-revision-date-localized-plugin>=1.2.9",
     "mkdocs-glightbox>=0.4.0",
     "mkdocs-include-markdown-plugin>=6.2.2",
@@ -66,3 +65,9 @@ dev-dependencies = [
     "pytest-mock>=3.14.0",
     "pytest>=8.3.2"
 ]
+
+[tool.uv.sources]
+ai-exchange = { workspace = true }
+
+[tool.uv.workspace]
+members = ["packages/*"]

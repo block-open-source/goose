@@ -1,14 +1,18 @@
+import sys
 import traceback
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from exchange import Message, ToolResult, ToolUse, Text
+from exchange import Message, ToolResult, ToolUse, Text, Exchange
+from exchange.providers.base import MissingProviderEnvVariableError
+from exchange.invalid_choice_error import InvalidChoiceError
 from rich import print
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.status import Status
 
-from goose.cli.config import ensure_config, session_path, LOG_PATH
+from goose.build import build_exchange
+from goose.cli.config import PROFILES_CONFIG_PATH, ensure_config, session_path, LOG_PATH
 from goose._logger import get_logger, setup_logging
 from goose.cli.prompt.goose_prompt_session import GoosePromptSession
 from goose.cli.session_notifier import SessionNotifier
@@ -69,13 +73,16 @@ class Session:
         self.prompt_session = GoosePromptSession()
         self.status_indicator = Status("", spinner="dots")
         self.notifier = SessionNotifier(self.status_indicator)
-        self.exchange = create_exchange(profile=load_profile(profile), notifier=self.notifier)
+
+        self.exchange = build_exchange(profile=load_profile(profile), notifier=self.notifier)
         setup_logging(log_file_directory=LOG_PATH, log_level=log_level)
 
         self.exchange.messages.extend(self._get_initial_messages())
 
         if len(self.exchange.messages) == 0 and plan:
             self.setup_plan(plan=plan)
+
+        self.prompt_session = GoosePromptSession()
 
     def _get_initial_messages(self) -> List[Message]:
         messages = self.load_session()

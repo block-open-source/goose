@@ -23,12 +23,18 @@ retry_procedure = retry(
 
 
 class DatabricksProvider(Provider):
-    """Provides chat completions for models on Databricks serving endpoints
+    """Provides chat completions for models on Databricks serving endpoints.
 
     Models are expected to follow the llm/v1/chat "task". This includes support
     for foundation and external model endpoints
     https://docs.databricks.com/en/machine-learning/model-serving/create-foundation-model-endpoints.html#create-generative-ai-model-serving-endpoints
+
+    Required env vars:
+        DATABRICKS_HOST
+        DATABRICKS_TOKEN
+
     """
+
 
     def __init__(self, client: httpx.Client) -> None:
         super().__init__()

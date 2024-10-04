@@ -1,7 +1,7 @@
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 
 import click
 from rich import print
@@ -95,6 +95,43 @@ def list_toolkits() -> None:
     for toolkit_name, toolkit in load_plugins("goose.toolkit").items():
         first_line_of_doc = toolkit.__doc__.split("\n")[0]
         print(f" - [bold]{toolkit_name}[/bold]: {first_line_of_doc}")
+
+
+@goose_cli.group()
+def providers() -> None:
+    """Manage providers"""
+    pass
+
+
+@providers.command(name="list")
+def list_providers() -> None:
+    providers = load_plugins(group="exchange.provider")
+
+    def extract_envs_from_doc(lines: List[str]) -> List[str]:
+        required_envs = []
+        env_block = False
+        for line in lines:
+            if 'Required env vars:' in line:
+                env_block = True
+                continue
+            if env_block:
+                if line.strip():
+                    required_envs.append(line.strip())
+                else:
+                    break
+        return required_envs
+
+    for provider_name, provider in providers.items():
+        lines_doc = provider.__doc__.split("\n")
+        first_line_of_doc = lines_doc[0]
+        env_lines = extract_envs_from_doc(lines_doc)
+
+        print(f" - [bold]{provider_name}[/bold]: {first_line_of_doc}")
+        if env_lines:
+            env_required = ", ".join(env_lines)
+            print(f" - [dim]env vars: {env_required}")
+
+        print("\n")
 
 
 def autocomplete_session_files(ctx: click.Context, args: str, incomplete: str) -> None:

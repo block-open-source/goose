@@ -9,7 +9,15 @@ PROVIDER_NAME = "azure"
 
 
 class AzureProvider(OpenAiProvider):
-    """Provides chat completions for models hosted by the Azure OpenAI Service"""
+    """Provides chat completions for models hosted by the Azure OpenAI Service.
+
+    Required env vars:
+        AZURE_CHAT_COMPLETIONS_HOST_NAME
+        AZURE_CHAT_COMPLETIONS_DEPLOYMENT_NAME
+        AZURE_CHAT_COMPLETIONS_DEPLOYMENT_API_VERSION
+        AZURE_CHAT_COMPLETIONS_KEY
+    """
+
 
     def __init__(self, client: httpx.Client) -> None:
         super().__init__(client)

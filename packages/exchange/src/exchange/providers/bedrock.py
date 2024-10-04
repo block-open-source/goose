@@ -150,6 +150,14 @@ PROVIDER_NAME = "bedrock"
 
 
 class BedrockProvider(Provider):
+    """Provides chat completions for models hosted by the Amazon Bedrock Service
+
+    Required env vars:
+        AWS_ACCESS_KEY_ID
+        AWS_SECRET_ACCESS_KEY
+    """
+
+
     def __init__(self, client: AwsClient) -> None:
         self.client = client
 

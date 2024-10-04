@@ -28,7 +28,12 @@ retry_procedure = retry(
 
 
 class OpenAiProvider(Provider):
-    """Provides chat completions for models hosted directly by OpenAI"""
+    """Provides chat completions for models hosted directly by OpenAI.
+
+     Required env vars:
+        OPENAI_API_KEY
+    """
+
 
     def __init__(self, client: httpx.Client) -> None:
         super().__init__()

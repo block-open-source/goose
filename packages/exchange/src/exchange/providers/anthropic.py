@@ -20,6 +20,13 @@ retry_procedure = retry(
 
 
 class AnthropicProvider(Provider):
+    """Provides chat completions for models hosted directly by Anthropic.
+
+    Required env vars:
+        ANTHROPIC_API_KEY
+    """
+
+
     def __init__(self, client: httpx.Client) -> None:
         self.client = client
 

@@ -20,6 +20,12 @@ retry_procedure = retry(
 
 
 class GoogleProvider(Provider):
+    """Provides chat completions for models hosted by Google, including Gemini and other experimental models.
+
+    Required env vars:
+        GOOGLE_API_KEY
+
+    """
     def __init__(self, client: httpx.Client) -> None:
         self.client = client
 

@@ -111,7 +111,7 @@ def list_providers() -> None:
         required_envs = []
         env_block = False
         for line in lines:
-            if 'Required env vars:' in line:
+            if "Required env vars:" in line:
                 env_block = True
                 continue
             if env_block:

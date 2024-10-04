@@ -11,6 +11,7 @@ def lint_toolkits() -> None:
             0
         ].isupper(), f"`{toolkit_name}` toolkit docstring must start with a capital letter"
 
+
 def lint_providers() -> None:
     for provider_name, provider in load_plugins(group="exchange.provider").items():
         assert provider.__doc__ is not None, f"`{provider_name}` provider must have a docstring"

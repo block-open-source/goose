@@ -76,7 +76,7 @@ This project follows the [Conventional Commits](https://www.conventionalcommits.
 [issues]: https://github.com/block-open-source/goose/issues
 [goose-plugins]: https://github.com/block-open-source/goose-plugins
 [ai-exchange]: https://github.com/block-open-source/goose/tree/main/packages/exchange
-[developer]: src/goose/toolkit/developer.py
+[developer]: https://github.com/block-open-source/goose/blob/dfecf829a83021b697bf2ecc1dbdd57d31727ddd/src/goose/toolkit/developer.py
 [uv]: https://docs.astral.sh/uv/
 [ruff]: https://docs.astral.sh/ruff/
 [just]: https://github.com/casey/just

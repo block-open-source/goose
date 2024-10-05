@@ -6,8 +6,8 @@ We welcome Pull Requests for general contributions. If you have a larger new fea
 
 Goose uses [uv][uv] for dependency management, and formats with [ruff][ruff].
 Clone goose and make sure you have installed `uv` to get started. When you use
-`uv` below in your local goose directly, it will automatically setup the virtualenv 
-and install dependencies. 
+`uv` below in your local goose directly, it will automatically setup the virtualenv
+and install dependencies.
 
 We provide a shortcut to standard commands using [just][just] in our `justfile`.
 
@@ -42,7 +42,7 @@ To run the test suite against your edges, use `pytest`:
 uv run pytest tests -m "not integration"
 ```
 
-or, as a shortcut, 
+or, as a shortcut,
 
 ```sh
 just test

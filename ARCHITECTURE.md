@@ -163,4 +163,4 @@ def example_history(self):
     ...
 ```
 
-[exchange]: https://github.com/square/exchange
+[exchange]: https://github.com/block-open-source/goose/tree/main/packages/exchange

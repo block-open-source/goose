@@ -1,0 +1,48 @@
+[project]
+name = "ai-exchange"
+version = "0.9.3"
+description = "a uniform python SDK for message generation with LLMs"
+readme = "README.md"
+requires-python = ">=3.10"
+author = [{ name = "Block", email = "ai-oss-tools@block.xyz" }]
+packages = [{ include = "exchange", from = "src" }]
+dependencies = [
+    "griffe>=1.1.1",
+    "attrs>=24.2.0",
+    "jinja2>=3.1.4",
+    "tiktoken>=0.7.0",
+    "httpx>=0.27.0",
+    "tenacity>=9.0.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/exchange"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+dev-dependencies = ["pytest>=8.3.2", "pytest-vcr>=1.0.2", "codecov>=2.1.13"]
+
+[project.entry-points."exchange.provider"]
+openai = "exchange.providers.openai:OpenAiProvider"
+azure = "exchange.providers.azure:AzureProvider"
+databricks = "exchange.providers.databricks:DatabricksProvider"
+anthropic = "exchange.providers.anthropic:AnthropicProvider"
+bedrock = "exchange.providers.bedrock:BedrockProvider"
+ollama = "exchange.providers.ollama:OllamaProvider"
+google = "exchange.providers.google:GoogleProvider"
+
+[project.entry-points."exchange.moderator"]
+passive = "exchange.moderators.passive:PassiveModerator"
+truncate = "exchange.moderators.truncate:ContextTruncate"
+summarize = "exchange.moderators.summarizer:ContextSummarizer"
+
+[project.entry-points."metadata.plugins"]
+ai-exchange = "exchange:module_name"
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: marks tests that need to authenticate (deselect with '-m \"not integration\"')",
+]

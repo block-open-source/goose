@@ -1,0 +1,75 @@
+interactions:
+- request:
+    body: ''
+    headers:
+      accept:
+      - '*/*'
+      accept-encoding:
+      - gzip, deflate
+      connection:
+      - keep-alive
+      host:
+      - localhost:11434
+      user-agent:
+      - python-httpx/0.27.2
+    method: GET
+    uri: http://localhost:11434/
+  response:
+    body:
+      string: Ollama is running
+    headers:
+      Content-Length:
+      - '17'
+      Content-Type:
+      - text/plain; charset=utf-8
+      Date:
+      - Wed, 25 Sep 2024 09:23:08 GMT
+      Set-Cookie: test_set_cookie
+      openai-organization: test_openai_org_key
+    status:
+      code: 200
+      message: OK
+- request:
+    body: '{"messages": [{"role": "system", "content": "You are a helpful assistant.
+      Expect to need to read a file using read_file."}, {"role": "user", "content":
+      "What are the contents of this file? test.txt"}], "model": "mistral-nemo", "tools":
+      [{"type": "function", "function": {"name": "read_file", "description": "Read
+      the contents of the file.", "parameters": {"type": "object", "properties": {"filename":
+      {"type": "string", "description": "The path to the file, which can be relative
+      or\nabsolute. If it is a plain filename, it is assumed to be in the\ncurrent
+      working directory."}}, "required": ["filename"]}}}]}'
+    headers:
+      accept:
+      - '*/*'
+      accept-encoding:
+      - gzip, deflate
+      connection:
+      - keep-alive
+      content-length:
+      - '609'
+      content-type:
+      - application/json
+      host:
+      - localhost:11434
+      user-agent:
+      - python-httpx/0.27.2
+    method: POST
+    uri: http://localhost:11434/v1/chat/completions
+  response:
+    body:
+      string: '{"id":"chatcmpl-245","object":"chat.completion","created":1727256190,"model":"mistral-nemo","system_fingerprint":"fp_ollama","choices":[{"index":0,"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_z6fgu3z3","type":"function","function":{"name":"read_file","arguments":"{\"filename\":\"test.txt\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":112,"completion_tokens":21,"total_tokens":133}}
+
+        '
+    headers:
+      Content-Length:
+      - '425'
+      Content-Type:
+      - application/json
+      Date:
+      - Wed, 25 Sep 2024 09:23:10 GMT
+      Set-Cookie: test_set_cookie
+      openai-organization: test_openai_org_key
+    status:
+      code: 200
+      message: OK
+version: 1

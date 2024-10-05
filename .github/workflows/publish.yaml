@@ -1,0 +1,50 @@
+name: Publish
+
+# A release on goose will also publish exchange, if it has updated
+# This means in some cases we may need to make a bump in goose without other changes to release exchange
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    permissions:
+      id-token: write
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Get current version from pyproject.toml
+      id: get_version
+      run: |
+        echo "VERSION=$(grep -m 1 'version =' "pyproject.toml" | awk -F'"' '{print $2}')" >> $GITHUB_ENV
+
+    - name: Extract tag version
+      id: extract_tag
+      run: |
+        TAG_VERSION=$(echo "${{ github.event.release.tag_name }}" | sed -E 's/v(.*)/\1/')
+        echo "TAG_VERSION=$TAG_VERSION" >> $GITHUB_ENV
+
+    - name: Check if tag matches version from pyproject.toml
+      id: check_tag
+      run: |
+        if [ "${{ env.TAG_VERSION }}" != "${{ env.VERSION }}" ]; then
+          echo "::error::Tag version (${{ env.TAG_VERSION }}) does not match version in pyproject.toml (${{ env.VERSION }})."
+          exit 1
+        fi
+
+    - name: Install the latest version of uv
+      uses: astral-sh/setup-uv@v1
+      with:
+        version: "latest"
+
+    - name: Build Package
+      run: |
+        uv build -o dist --package goose-ai
+        uv build -o dist --package ai-exchange
+
+    - name: Publish package to PyPI
+      uses: pypa/gh-action-pypi-publish@release/v1
+      with:
+        skip-existing: true

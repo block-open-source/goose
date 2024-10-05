@@ -11,12 +11,14 @@ from rich.console import RenderableType
 from rich.live import Live
 from rich.markdown import Markdown
 from rich.panel import Panel
+from rich.prompt import Prompt
 from rich.status import Status
 
 from goose.build import build_exchange
 from goose.cli.config import PROFILES_CONFIG_PATH, ensure_config, session_path, LOG_PATH
 from goose._logger import get_logger, setup_logging
 from goose.cli.prompt.goose_prompt_session import GoosePromptSession
+from goose.cli.prompt.overwrite_session_prompt import OverwriteSessionPrompt
 from goose.notifier import Notifier
 from goose.profile import Profile
 from goose.utils import droid, load_plugins
@@ -263,31 +265,23 @@ class Session:
         print(f"[dim]you can view the cost and token usage in the log directory {LOG_PATH}")
 
     def _prompt_overwrite_session(self) -> None:
-        print(f"[yellow]session already exists at {self.session_file_path}.[/]\n")
-        print("would like to overwrite the existing session?")
-        while True:
-            print(" - y/yes: overwrite the existing session")
-            print(" - n/no: pick a new session name")
-            print(" - r/resume: resume the existing session")
-            print()
-            user_input = input("enter your choice: ")
-            input_value = user_input.strip().lower()
-            match input_value:
-                case "y" | "yes":
-                    print("overwriting existing session")
-                    break
+        print(f"[yellow]Session already exists at {self.session_file_path}.[/]")
 
-                case "n" | "no":
-                    new_session_name = input("enter a new session name: ")
-                    while is_existing_session(session_path(new_session_name)):
-                        print(f"[yellow]session '{new_session_name}' already exists[/]")
-                        new_session_name = input("enter a new session name: ")
-                    self.name = new_session_name
-                    break
+        choice = OverwriteSessionPrompt.ask("Enter your choice", show_choices=False)
+        match choice:
+            case "y" | "yes":
+                print("Overwriting existing session")
 
-                case "r" | "resume":
-                    self.exchange.messages.extend(self.load_session())
-                    break
+            case "n" | "no":
+                while True:
+                    new_session_name = Prompt.ask("Enter a new session name")
+                    if not is_existing_session(session_path(new_session_name)):
+                        self.name = new_session_name
+                        break
+                    print(f"[yellow]Session '{new_session_name}' already exists[/]")
+
+            case "r" | "resume":
+                self.exchange.messages.extend(self.load_session())
 
     def _remove_empty_session(self) -> bool:
         """

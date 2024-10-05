@@ -7,7 +7,11 @@ from pygments.util import ClassNotFound
 from jinja2 import Environment, FileSystemLoader
 
 
-def get_language(filename: Path) -> str:
+RULESTYLE = "bold"
+RULEPREFIX = f"[{RULESTYLE}]───[/] "
+
+
+def get_language(filename: str) -> str:
     """
     Determine the programming language of a file based on its filename extension.
 
@@ -19,7 +23,7 @@ def get_language(filename: Path) -> str:
     """
     try:
         lexer = get_lexer_for_filename(filename)
-        return lexer.name
+        return lexer.name.lower()
     except ClassNotFound:
         return ""
 

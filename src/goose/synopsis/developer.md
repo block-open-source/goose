@@ -18,7 +18,7 @@ rg 'class Example'
 ```
 
 
-If you need to manipulate files, use either the write_file tool or the patch tool.
+If you need to edit files, use either the write_file tool or the patch tool.
 Make sure to read existing content before attempting to edit.
 
 The write file tool will do a full overwrite of the existing file, while the patch tool

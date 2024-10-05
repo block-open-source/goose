@@ -17,11 +17,6 @@ def is_empty_session(path: Path) -> bool:
     return path.is_file() and path.stat().st_size == 0
 
 
-def write_to_file(file_path: Path, messages: List[Message]) -> None:
-    with open(file_path, "w") as f:
-        _write_messages_to_file(f, messages)
-
-
 def read_or_create_file(file_path: Path) -> List[Message]:
     if file_path.exists():
         return read_from_file(file_path)
@@ -55,15 +50,8 @@ def session_file_exists(session_files_directory: Path) -> bool:
     return any(list_session_files(session_files_directory))
 
 
-def save_latest_session(file_path: Path, messages: List[Message]) -> None:
-    with tempfile.NamedTemporaryFile("w", delete=False) as temp_file:
-        _write_messages_to_file(temp_file, messages)
-        temp_file_path = temp_file.name
-
-    os.replace(temp_file_path, file_path)
-
-
-def _write_messages_to_file(file: any, messages: List[Message]) -> None:
-    for m in messages:
-        json.dump(m.to_dict(), file)
-        file.write("\n")
+def log_messages(file_path: Path, messages: List[Message]) -> None:
+    with open(file_path, 'a') as f:
+        for message in messages:
+            json.dump(message.to_dict(), f)
+            f.write('\n')

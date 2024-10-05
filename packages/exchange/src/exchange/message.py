@@ -119,3 +119,7 @@ class Message:
     @classmethod
     def assistant(cls: Type["Message"], text: str) -> "Message":
         return cls(role="assistant", content=[Text(text)])
+
+    @property
+    def summary(self) -> str:
+        return f"message:{self.role}\n" + "\n".join(content.summary for content in self.content)

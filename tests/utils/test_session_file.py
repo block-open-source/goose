@@ -9,26 +9,13 @@ from goose.utils.session_file import (
     list_sorted_session_files,
     read_from_file,
     read_or_create_file,
-    save_latest_session,
     session_file_exists,
-    write_to_file,
 )
 
 
 @pytest.fixture
 def file_path(tmp_path):
     return tmp_path / "test_file.jsonl"
-
-
-def test_read_write_to_file(file_path):
-    messages = [
-        Message.user("prompt1"),
-        Message.user("prompt2"),
-    ]
-    write_to_file(file_path, messages)
-    assert file_path.exists()
-
-    assert read_from_file(file_path) == messages
 
 
 def test_read_from_file_non_existing_file(tmp_path):

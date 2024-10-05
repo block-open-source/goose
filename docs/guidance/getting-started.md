@@ -138,3 +138,4 @@ goose session start --plan plan.md --args dep=pytest,repo=github
 [configuration]: ../configuration.md
 [available-toolkits]: ../plugins/available-toolkits.md
 [providers]: ../plugins/providers.md
+[goose-plugins]:https://github.com/block-open-source/goose-plugins

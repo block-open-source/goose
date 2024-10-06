@@ -1,26 +1,21 @@
-import sys
 import traceback
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from exchange import Message, ToolResult, ToolUse, Text, Exchange
-from exchange.providers.base import MissingProviderEnvVariableError
-from exchange.invalid_choice_error import InvalidChoiceError
+from exchange import Message, ToolResult, ToolUse, Text
 from rich import print
-from rich.console import RenderableType
-from rich.live import Live
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.status import Status
 
-from goose.build import build_exchange
-from goose.cli.config import PROFILES_CONFIG_PATH, ensure_config, session_path, LOG_PATH
+from goose.cli.config import ensure_config, session_path, LOG_PATH
 from goose._logger import get_logger, setup_logging
 from goose.cli.prompt.goose_prompt_session import GoosePromptSession
-from goose.notifier import Notifier
+from goose.cli.session_notifier import SessionNotifier
 from goose.profile import Profile
 from goose.utils import droid, load_plugins
 from goose.utils._cost_calculator import get_total_cost_message
+from goose.utils._create_exchange import create_exchange
 from goose.utils.session_file import read_or_create_file, save_latest_session
 
 RESUME_MESSAGE = "I see we were interrupted. How can I help you?"
@@ -52,24 +47,6 @@ def load_profile(name: Optional[str]) -> Profile:
     return profile
 
 
-class SessionNotifier(Notifier):
-    def __init__(self, status_indicator: Status) -> None:
-        self.status_indicator = status_indicator
-        self.live = Live(self.status_indicator, refresh_per_second=8, transient=True)
-
-    def log(self, content: RenderableType) -> None:
-        print(content)
-
-    def status(self, status: str) -> None:
-        self.status_indicator.update(status)
-
-    def start(self) -> None:
-        self.live.start()
-
-    def stop(self) -> None:
-        self.live.stop()
-
-
 class Session:
     """A session handler for managing interactions between a user and the Goose exchange
 
@@ -89,10 +66,12 @@ class Session:
             self.name = droid()
         else:
             self.name = name
-        self.profile = profile
+        self.profile_name = profile
+        self.prompt_session = GoosePromptSession()
         self.status_indicator = Status("", spinner="dots")
         self.notifier = SessionNotifier(self.status_indicator)
-        self.exchange = self._create_exchange()
+
+        self.exchange = create_exchange(profile=load_profile(profile), notifier=self.notifier)
         setup_logging(log_file_directory=LOG_PATH, log_level=log_level)
 
         self.exchange.messages.extend(self._get_initial_messages())
@@ -101,21 +80,6 @@ class Session:
             self.setup_plan(plan=plan)
 
         self.prompt_session = GoosePromptSession()
-
-    def _create_exchange(self) -> Exchange:
-        try:
-            return build_exchange(profile=load_profile(self.profile), notifier=self.notifier)
-        except MissingProviderEnvVariableError as e:
-            error_message = f"{e.message}. Please set the required environment variable to continue."
-            print(Panel(error_message, style="red"))
-            sys.exit(1)
-        except InvalidChoiceError as e:
-            error_message = (
-                f"[bold red]{e.message}[/bold red].\nPlease check your configuration file at {PROFILES_CONFIG_PATH}.\n"
-                + "Configuration doc: https://block-open-source.github.io/goose/configuration.html"
-            )
-            print(error_message)
-            sys.exit(1)
 
     def _get_initial_messages(self) -> List[Message]:
         messages = self.load_session()
@@ -162,7 +126,7 @@ class Session:
         Runs the main loop to handle user inputs and responses.
         Continues until an empty string is returned from the prompt.
         """
-        print(f"[dim]starting session | name:[cyan]{self.name}[/]  profile:[cyan]{self.profile or 'default'}[/]")
+        print(f"[dim]starting session | name:[cyan]{self.name}[/]  profile:[cyan]{self.profile_name or 'default'}[/]")
         print(f"[dim]saving to {self.session_file_path}")
         print()
         message = self.process_first_message()

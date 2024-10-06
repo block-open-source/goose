@@ -121,6 +121,31 @@ class Session:
             return Message.user(text=user_input.text)
         return self.exchange.messages.pop()
 
+    def single_pass(self, initial_message: str) -> None:
+        """
+        Handles a single input message and processes a reply
+        without entering a loop for additional inputs.
+
+        Args:
+            initial_message (str): The initial user message to process.
+        """
+        profile = self.profile_name or "default"
+        print(f"[dim]starting session | name:[cyan]{self.name}[/]  profile:[cyan]{profile}[/]")
+        print(f"[dim]saving to {self.session_file_path}")
+        print()
+
+        # Process initial message
+        message = Message.user(initial_message)
+
+        self.exchange.add(message)
+        self.reply()  # Process the user message
+
+        save_latest_session(self.session_file_path, self.exchange.messages)
+        print()  # Print a newline for separation.
+
+        print(f"[dim]ended run | name:[cyan]{self.name}[/]  profile:[cyan]{profile}[/]")
+        print(f"[dim]to resume: [magenta]goose session resume {self.name} --profile {profile}[/][/]")
+
     def run(self) -> None:
         """
         Runs the main loop to handle user inputs and responses.

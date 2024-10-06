@@ -171,6 +171,22 @@ def session_resume(name: Optional[str], profile: str, log_level: str) -> None:
     session.run()
 
 
+@goose_cli.command(name="run")
+@click.argument("message_file", required=False, type=click.Path(exists=True))
+@click.option("--profile")
+@click.option("--log-level", type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]), default="INFO")
+def run(message_file: Optional[str], profile: str, log_level: str) -> None:
+    """Run a single-pass session with a message from a markdown input file"""
+    if message_file:
+        with open(message_file, "r") as f:
+            initial_message = f.read()
+    else:
+        initial_message = click.get_text_stream("stdin").read()
+
+    session = Session(profile=profile, log_level=log_level)
+    session.single_pass(initial_message=initial_message)
+
+
 @session.command(name="list")
 def session_list() -> None:
     """List goose sessions"""

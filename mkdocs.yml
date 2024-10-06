@@ -120,6 +120,7 @@ nav:
       - 'Getting Started': guidance/getting-started.md
       - 'Quick Tips': guidance/tips.md
       - 'Applications of Goose': guidance/applications.md
+      - 'Goose in Action': guidance/goose-in-action.md
   - Plugins:
     - 'Overview': plugins/plugins.md
     - Toolkits:

@@ -1,0 +1,90 @@
+interactions:
+- request:
+    body: '{"messages": [{"role": "system", "content": "You are a helpful assistant.
+      Expect to need to read a file using read_file."}, {"role": "user", "content":
+      "What are the contents of this file? test.txt"}], "model": "gpt-4o-mini", "tools":
+      [{"type": "function", "function": {"name": "read_file", "description": "Read
+      the contents of the file.", "parameters": {"type": "object", "properties": {"filename":
+      {"type": "string", "description": "The path to the file, which can be relative
+      or\nabsolute. If it is a plain filename, it is assumed to be in the\ncurrent
+      working directory."}}, "required": ["filename"]}}}]}'
+    headers:
+      accept:
+      - '*/*'
+      accept-encoding:
+      - gzip, deflate
+      authorization:
+      - Bearer test_openai_api_key
+      connection:
+      - keep-alive
+      content-length:
+      - '608'
+      content-type:
+      - application/json
+      host:
+      - api.openai.com
+      user-agent:
+      - python-httpx/0.27.2
+    method: POST
+    uri: https://api.openai.com/v1/chat/completions
+  response:
+    body:
+      string: "{\n  \"id\": \"chatcmpl-ABIV2aZWVKQ774RAQ8KHYdNwkI5N7\",\n  \"object\":
+        \"chat.completion\",\n  \"created\": 1727256084,\n  \"model\": \"gpt-4o-mini-2024-07-18\",\n
+        \ \"choices\": [\n    {\n      \"index\": 0,\n      \"message\": {\n        \"role\":
+        \"assistant\",\n        \"content\": null,\n        \"tool_calls\": [\n          {\n
+        \           \"id\": \"call_xXYlw4A7Ud1qtCopuK5gEJrP\",\n            \"type\":
+        \"function\",\n            \"function\": {\n              \"name\": \"read_file\",\n
+        \             \"arguments\": \"{\\\"filename\\\":\\\"test.txt\\\"}\"\n            }\n
+        \         }\n        ],\n        \"refusal\": null\n      },\n      \"logprobs\":
+        null,\n      \"finish_reason\": \"tool_calls\"\n    }\n  ],\n  \"usage\":
+        {\n    \"prompt_tokens\": 107,\n    \"completion_tokens\": 15,\n    \"total_tokens\":
+        122,\n    \"completion_tokens_details\": {\n      \"reasoning_tokens\": 0\n
+        \   }\n  },\n  \"system_fingerprint\": \"fp_1bb46167f9\"\n}\n"
+    headers:
+      CF-Cache-Status:
+      - DYNAMIC
+      CF-RAY:
+      - 8c89f19fed997e43-SYD
+      Connection:
+      - keep-alive
+      Content-Type:
+      - application/json
+      Date:
+      - Wed, 25 Sep 2024 09:21:25 GMT
+      Server:
+      - cloudflare
+      Set-Cookie: test_set_cookie
+      Transfer-Encoding:
+      - chunked
+      X-Content-Type-Options:
+      - nosniff
+      access-control-expose-headers:
+      - X-Request-ID
+      content-length:
+      - '844'
+      openai-organization: test_openai_org_key
+      openai-processing-ms:
+      - '266'
+      openai-version:
+      - '2020-10-01'
+      strict-transport-security:
+      - max-age=31536000; includeSubDomains; preload
+      x-ratelimit-limit-requests:
+      - '10000'
+      x-ratelimit-limit-tokens:
+      - '200000'
+      x-ratelimit-remaining-requests:
+      - '9991'
+      x-ratelimit-remaining-tokens:
+      - '199952'
+      x-ratelimit-reset-requests:
+      - 1m9.486s
+      x-ratelimit-reset-tokens:
+      - 14ms
+      x-request-id:
+      - req_ff6b5d65c24f40e1faaf049c175e718d
+    status:
+      code: 200
+      message: OK
+version: 1

@@ -1,0 +1,68 @@
+interactions:
+- request:
+    body: '{"messages": [{"role": "system", "content": "You are a helpful assistant."},
+      {"role": "user", "content": "Hello"}], "model": "gpt-4o-mini"}'
+    headers:
+      accept:
+      - '*/*'
+      accept-encoding:
+      - gzip, deflate
+      api-key:
+      - test_azure_api_key
+      connection:
+      - keep-alive
+      content-length:
+      - '139'
+      content-type:
+      - application/json
+      host:
+      - test.openai.azure.com
+      user-agent:
+      - python-httpx/0.27.2
+    method: POST
+    uri: https://test.openai.azure.com/openai/deployments/test-azure-deployment/chat/completions?api-version=2024-05-01-preview
+  response:
+    body:
+      string: '{"choices":[{"content_filter_results":{"hate":{"filtered":false,"severity":"safe"},"self_harm":{"filtered":false,"severity":"safe"},"sexual":{"filtered":false,"severity":"safe"},"violence":{"filtered":false,"severity":"safe"}},"finish_reason":"stop","index":0,"logprobs":null,"message":{"content":"Hello!
+        How can I assist you today?","role":"assistant"}}],"created":1727230065,"id":"chatcmpl-ABBjN3AoYlxkP7Vg2lBvUhYeA6j5K","model":"gpt-4-32k","object":"chat.completion","prompt_filter_results":[{"prompt_index":0,"content_filter_results":{"hate":{"filtered":false,"severity":"safe"},"self_harm":{"filtered":false,"severity":"safe"},"sexual":{"filtered":false,"severity":"safe"},"violence":{"filtered":false,"severity":"safe"}}}],"system_fingerprint":null,"usage":{"completion_tokens":9,"prompt_tokens":18,"total_tokens":27}}
+
+        '
+    headers:
+      Cache-Control:
+      - no-cache, must-revalidate
+      Content-Length:
+      - '825'
+      Content-Type:
+      - application/json
+      Date:
+      - Wed, 25 Sep 2024 02:07:45 GMT
+      Set-Cookie: test_set_cookie
+      Strict-Transport-Security:
+      - max-age=31536000; includeSubDomains; preload
+      access-control-allow-origin:
+      - '*'
+      apim-request-id:
+      - 82e66ef8-ac07-4a43-b60f-9aecec1d8c81
+      azureml-model-session:
+      - d145-20240919052126
+      openai-organization: test_openai_org_key
+      x-accel-buffering:
+      - 'no'
+      x-content-type-options:
+      - nosniff
+      x-ms-client-request-id:
+      - 82e66ef8-ac07-4a43-b60f-9aecec1d8c81
+      x-ms-rai-invoked:
+      - 'true'
+      x-ms-region:
+      - Switzerland North
+      x-ratelimit-remaining-requests:
+      - '79'
+      x-ratelimit-remaining-tokens:
+      - '79984'
+      x-request-id:
+      - 38db9001-8b16-4efe-84c9-620e10f18c3c
+    status:
+      code: 200
+      message: OK
+version: 1

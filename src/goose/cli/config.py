@@ -16,6 +16,7 @@ PROFILES_CONFIG_PATH = GOOSE_GLOBAL_PATH.joinpath("profiles.yaml")
 SESSIONS_PATH = GOOSE_GLOBAL_PATH.joinpath("sessions")
 SESSION_FILE_SUFFIX = ".jsonl"
 LOG_PATH = GOOSE_GLOBAL_PATH.joinpath("logs")
+RECOMMENDED_DEFAULT_PROVIDER = "openai"
 
 
 @cache
@@ -88,11 +89,7 @@ def default_model_configuration() -> Tuple[str, str, str]:
         except Exception:
             pass
     else:
-        raise ValueError(
-            "Could not detect an available provider,"
-            + " make sure to plugin a provider or set an env var such as OPENAI_API_KEY"
-        )
-
+        provider = RECOMMENDED_DEFAULT_PROVIDER
     recommended = {
         "ollama": (OLLAMA_MODEL, OLLAMA_MODEL),
         "openai": ("gpt-4o", "gpt-4o-mini"),

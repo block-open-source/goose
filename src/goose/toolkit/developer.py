@@ -10,12 +10,14 @@ from goose.toolkit.base import Toolkit, tool
 from goose.toolkit.utils import get_language, render_template
 from goose.utils.ask import ask_an_ai
 from goose.utils.check_shell_command import is_dangerous_command
-from rich import box
 from rich.markdown import Markdown
-from rich.panel import Panel
 from rich.prompt import Confirm
 from rich.table import Table
 from rich.text import Text
+from rich.rule import Rule
+
+RULESTYLE = "bold"
+RULEPREFIX = f"[{RULESTYLE}]───[/] "
 
 
 def keep_unsafe_command_prompt(command: str) -> bool:
@@ -124,7 +126,8 @@ class Developer(Toolkit):
 {after}
 ```
 """
-        self.notifier.log(Panel.fit(Markdown(output), title=path))
+        self.notifier.log(Rule(RULEPREFIX + path, style=RULESTYLE, align="left"))
+        self.notifier.log(Markdown(output))
         return "Succesfully replaced before with after."
 
     @tool
@@ -136,7 +139,7 @@ class Developer(Toolkit):
         """
         language = get_language(path)
         content = Path(path).expanduser().read_text()
-        self.notifier.log(Panel.fit(Markdown(f"```\ncat {path}\n```"), box=box.MINIMAL))
+        self.notifier.log(Markdown(f"```\ncat {path}\n```"))
         # Record the last read timestamp
         self.timestamps[path] = os.path.getmtime(path)
         return f"```{language}\n{content}\n```"
@@ -155,7 +158,8 @@ class Developer(Toolkit):
                 if you need to run more than one at a time
         """
         # Log the command being executed in a visually structured format (Markdown).
-        self.notifier.log(Panel.fit(Markdown(f"```bash\n{command}\n```"), title="shell"))
+        self.notifier.log(Rule(RULEPREFIX + "shell", style=RULESTYLE, align="left"))
+        self.notifier.log(Markdown(f"```bash\n{command}\n```"))
 
         if is_dangerous_command(command):
             # Stop the notifications so we can prompt
@@ -262,7 +266,8 @@ class Developer(Toolkit):
         # Log the content that will be written to the file
         # .log` method is used here to log the command execution in the application's UX
         # this method is dynamically attached to functions in the Goose framework
-        self.notifier.log(Panel.fit(Markdown(md), title=path))
+        self.notifier.log(Rule(RULEPREFIX + path, style=RULESTYLE, align="left"))
+        self.notifier.log(Markdown(md))
 
         _path = Path(path)
         if path in self.timestamps:

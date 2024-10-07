@@ -44,7 +44,7 @@ if langfuse_context.auth_check():
     HAS_LANGFUSE_CREDENTIALS = True
     logger.info("Langfuse context and credentials found.")
 else:
-    logger.warning("Langfuse context and credentials not found. Langfuse will not work.")
+    logger.warning("Langfuse context and/or credentials not found. Please ensure that your Langfuse server is running locally and that your credentials are available.")
 
 # Restore stderr
 sys.stderr = sys.__stderr__

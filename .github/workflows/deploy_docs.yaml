@@ -26,4 +26,4 @@ jobs:
       run: uv sync
 
     - name: Build the documentation
-      run: uv run mkdocs gh-deploy
+      run: uv run mkdocs build

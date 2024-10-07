@@ -5,11 +5,11 @@ This module provides integration with Langfuse, a tool for monitoring and tracin
 
 Usage:
     Import this module to enable Langfuse integration.
-    It will automatically check for Langfuse credentials in the .env.langfuse.local file and for a running Langfuse server.
+    It automatically checks for Langfuse credentials in the .env.langfuse.local file and for a running Langfuse server.
     If these are found, it will set up the necessary client and context for tracing.
 
 Note:
-    Run setup_langfuse.sh which automates the steps for running local Langfuse, a prerequisite for this Langfuse integration.
+    Run setup_langfuse.sh which automates the steps for running local Langfuse.
 """
 
 import os
@@ -44,7 +44,10 @@ if langfuse_context.auth_check():
     HAS_LANGFUSE_CREDENTIALS = True
     logger.info("Langfuse context and credentials found.")
 else:
-    logger.warning("Langfuse context and/or credentials not found. Please ensure that your Langfuse server is running locally and that your credentials are available if you wish to run Langfuse tracing locally.")
+    logger.warning(
+        "Langfuse context and/or credentials not found. Please ensure that your Langfuse server is running locally \
+            and that your credentials are available if you wish to run Langfuse tracing locally."
+    )
 
 # Restore stderr
 sys.stderr = sys.__stderr__

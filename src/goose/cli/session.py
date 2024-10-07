@@ -80,7 +80,7 @@ class Session:
 
         if len(self.exchange.messages) == 0 and plan:
             self.setup_plan(plan=plan)
-        
+
         self.prompt_session = GoosePromptSession()
 
     def _get_initial_messages(self) -> List[Message]:

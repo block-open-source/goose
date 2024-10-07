@@ -16,14 +16,14 @@ class OllamaProvider(OpenAiProvider):
 
 Here's an example profile configuration to try:
 
-    ollama:
-      provider: ollama
-      processor: {OLLAMA_MODEL}
-      accelerator: {OLLAMA_MODEL}
-      moderator: passive
-      toolkits:
-      - name: developer
-        requires: {{}}
+ollama:
+  provider: ollama
+  processor: qwen2
+  accelerator: qwen2
+  moderator: truncate
+  toolkits:
+  - name: developer
+    requires: {}
 """
 
     def __init__(self, client: httpx.Client) -> None:

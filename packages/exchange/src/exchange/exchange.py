@@ -130,7 +130,7 @@ class Exchange:
     def call_function(self, tool_use: ToolUse) -> ToolResult:
         """Call the function indicated by the tool use"""
         tool = self._toolmap.get(tool_use.name)
-        is_cancelled = False
+        user_decision = None
 
         if tool is None or tool_use.is_error:
             output = f"ERROR: Failed to use tool {tool_use.id}.\nDo NOT use the same tool name and parameters again - that will lead to the same error."  # noqa: E501
@@ -147,7 +147,7 @@ class Exchange:
             if isinstance(tool_use.parameters, dict) or isinstance(tool_use.parameters, list):
                 function_return_value = tool.function(**tool_use.parameters)
                 if isinstance(function_return_value, dict):
-                    is_cancelled = function_return_value['is_cancelled'] if 'is_cancelled' in function_return_value else False
+                    user_decision = function_return_value['user_decision'] if 'user_decision' in function_return_value else None
                 output = json.dumps(function_return_value)
             else:
                 raise ValueError(
@@ -160,7 +160,7 @@ class Exchange:
             output = str(tb) + "\n" + str(e)
             is_error = True
 
-        return ToolResult(tool_use_id=tool_use.id, output=output, is_error=is_error, is_cancelled=is_cancelled)
+        return ToolResult(tool_use_id=tool_use.id, output=output, is_error=is_error, user_decision=user_decision)
 
     def add_tool_use(self, tool_use: ToolUse) -> None:
         """Manually add a tool use and corresponding result

@@ -13,12 +13,13 @@ from rich.text import Text
 from rich.rule import Rule
 
 from goose.utils.execute_shell import execute_shell
+from goose.utils.path_file_output import show_diff
 from goose.utils.safe_mode import is_in_safe_mode
 
 RULESTYLE = "bold"
 RULEPREFIX = f"[{RULESTYLE}]───[/] "
 
-TASKS_WITH_EMOJI = {"planned": "⏳", "complete": "✅", "failed": "❌", "in-progress": "🕑", "cancelled": "🚫"}
+TASKS_WITH_EMOJI = {"planned": "⏳", "complete": "✅", "failed": "❌", "in-progress": "🕑", "cancelled": "🚫", "skipped": "⏩"}
 
 
 def keep_unsafe_command_prompt(command: str) -> bool:
@@ -63,13 +64,15 @@ class Developer(Toolkit):
         This can be used to update the status of a task. This update will be
         shown to the user directly, you do not need to reiterate it
         If any of the task is marked as cancelled, mark the subsequent tasks as cancelled as well.
+        If any of the task is marked as skipped, move to the next task
 
         Args:
             tasks (List(dict)): The list of tasks, where each task is a dictionary
                 with a key for the task "description" and the task "status". The status
-                MUST be one of "planned", "complete", "failed", "in-progress", or "cancelled".
+                MUST be one of "planned", "complete", "failed", "in-progress", "cancelled" or "skipped.
 
         """
+        print(f"======updating plan: {tasks}")
         # Validate the status of each task to ensure it is one of the accepted values.
         for task in tasks:
             if task["status"] not in TASKS_WITH_EMOJI.keys():
@@ -98,14 +101,19 @@ class Developer(Toolkit):
         Before **must** be present exactly once in the file, so that it can safely
         be replaced with after.
 
+        return a dictionary that with keys:
+        1) result: include the output and error concatenated into a single string, as
+        you would see from running on the command line
+        2) task_status: a string indicating if the user chose not to execute the command.
+        There will also be an indication of if the command succeeded, failed or skipped.
+
         Args:
             path (str): The path to the file, in the format "path/to/file.txt"
             before (str): The content that will be replaced
             after (str): The content it will be replaced with
         """
-        self.notifier.status(f"editing {path}")
+        print("======patching file")
         _path = Path(path)
-        language = get_language(path)
 
         content = _path.read_text()
 
@@ -114,21 +122,20 @@ class Developer(Toolkit):
         if content.count(before) < 1:
             raise ValueError("The before content was not found in file, be careful that you recreate it exactly.")
 
-        content = content.replace(before, after)
-        _path.write_text(content)
-
-        output = f"""
-```{language}
-{before}
-```
-->
-```{language}
-{after}
-```
-"""
         self.notifier.log(Rule(RULEPREFIX + path, style=RULESTYLE, align="left"))
-        self.notifier.log(Markdown(output))
-        return "Successfully replaced before with after."
+        show_diff(path, before, after)
+        to_path_file = True
+        if is_in_safe_mode():
+            self.notifier.stop()
+            to_path_file = confirm("Would like to continue to make change?")
+            self.notifier.start()
+        if to_path_file:
+            self.notifier.status(f"editing {path}")
+            content = content.replace(before, after)
+            _path.write_text(content)
+            return "Successfully replaced before with after."
+        else:
+            return {"result": "User chooses not to make the change on this file. skip the change", "task_status": "skipped"}
 
     @tool
     def read_file(self, path: str) -> str:
@@ -155,7 +162,7 @@ class Developer(Toolkit):
         return a dictionary that with keys:
         1) result: include the output and error concatenated into a single string, as
         you would see from running on the command line
-        2) is_cancelled: a boolean indicating if the user chose not to execute the command.
+        2) task_status: a string indicating if the user chose not to execute the command.
         There will also be an indication of if the command succeeded, failed or cancelled.
 
         Args:
@@ -179,7 +186,7 @@ class Developer(Toolkit):
         if to_execute:
             return execute_shell(command, notifier=self.notifier, exchange_view=self.exchange_view)
         else:
-            return {"result": "User chooses not to execution the command. Subsequent commands will be cancelled.", "is_cancelled": True}
+            return {"result": "User chooses not to execution the command. Subsequent commands will be cancelled.", "task_status": "cancelled"}
 
 
     @tool

@@ -141,6 +141,7 @@ def openai_response_to_message(response: dict) -> Message:
         for tool_call in tool_calls:
             try:
                 function_name = tool_call["function"]["name"]
+                print(f"==========Function name: {function_name}")
                 # We occasionally see the model generate an invalid function name
                 # sending this back to openai raises a validation error
                 if not re.match(r"^[a-zA-Z0-9_-]+$", function_name):

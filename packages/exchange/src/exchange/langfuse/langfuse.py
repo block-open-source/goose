@@ -128,5 +128,4 @@ def observe_wrapper(*args, **kwargs) -> Callable:
 
     return _wrapper
 
-
 setup_langfuse()

@@ -1,23 +1,24 @@
 import os
-import re
-import subprocess
-import time
 from pathlib import Path
 from typing import Dict, List
 
 from exchange import Message
 from goose.toolkit.base import Toolkit, tool
 from goose.toolkit.utils import get_language, render_template
-from goose.utils.ask import ask_an_ai
-from goose.utils.check_shell_command import is_dangerous_command
 from rich.markdown import Markdown
 from rich.prompt import Confirm
+from prompt_toolkit.shortcuts import confirm
 from rich.table import Table
 from rich.text import Text
 from rich.rule import Rule
 
+from goose.utils.execute_shell import execute_shell
+from goose.utils.safe_mode import is_in_safe_mode
+
 RULESTYLE = "bold"
 RULEPREFIX = f"[{RULESTYLE}]───[/] "
+
+TASKS_WITH_EMOJI = {"planned": "⏳", "complete": "✅", "failed": "❌", "in-progress": "🕑", "cancelled": "🚫"}
 
 
 def keep_unsafe_command_prompt(command: str) -> bool:
@@ -61,16 +62,17 @@ class Developer(Toolkit):
 
         This can be used to update the status of a task. This update will be
         shown to the user directly, you do not need to reiterate it
+        If any of the task is marked as cancelled, mark the subsequent tasks as cancelled as well.
 
         Args:
             tasks (List(dict)): The list of tasks, where each task is a dictionary
                 with a key for the task "description" and the task "status". The status
-                MUST be one of "planned", "complete", "failed", "in-progress".
+                MUST be one of "planned", "complete", "failed", "in-progress", or "cancelled".
 
         """
         # Validate the status of each task to ensure it is one of the accepted values.
         for task in tasks:
-            if task["status"] not in {"planned", "complete", "failed", "in-progress"}:
+            if task["status"] not in TASKS_WITH_EMOJI.keys():
                 raise ValueError(f"Invalid task status: {task['status']}")
 
         # Create a table with columns for the index, description, and status of each task.
@@ -79,10 +81,8 @@ class Developer(Toolkit):
         table.add_column("Task", justify="left")
         table.add_column("Status", justify="left")
 
-        # Mapping of statuses to emojis for better visual representation in the table.
-        emoji = {"planned": "⏳", "complete": "✅", "failed": "❌", "in-progress": "🕑"}
         for i, entry in enumerate(tasks):
-            table.add_row(str(i), entry["description"], emoji[entry["status"]])
+            table.add_row(str(i), entry["description"], TASKS_WITH_EMOJI[entry["status"]])
 
         # Log the table to display it directly to the user
         # `.log` method is used here to log the command execution in the application's UX
@@ -128,7 +128,7 @@ class Developer(Toolkit):
 """
         self.notifier.log(Rule(RULEPREFIX + path, style=RULESTYLE, align="left"))
         self.notifier.log(Markdown(output))
-        return "Succesfully replaced before with after."
+        return "Successfully replaced before with after."
 
     @tool
     def read_file(self, path: str) -> str:
@@ -145,108 +145,42 @@ class Developer(Toolkit):
         return f"```{language}\n{content}\n```"
 
     @tool
-    def shell(self, command: str) -> str:
+    def shell(self, command: str,  explanation: str, write: bool) -> str:
         """
-        Execute a command on the shell
-
-        This will return the output and error concatenated into a single string, as
-        you would see from running on the command line. There will also be an indication
-        of if the command succeeded or failed.
+        This will explain the user about the command to be executed.  If you are 100% sure the command won't change
+        any resources, states or environment on my computer, please set write to false,
+        otherwise set write to true. so that user can be asked whether they want to execute the command.
+        If the user agreed to execute the command, please make sure to execute the command in the correct directory. 
+        The function will
+        return a dictionary that with keys:
+        1) result: include the output and error concatenated into a single string, as
+        you would see from running on the command line
+        2) is_cancelled: a boolean indicating if the user chose not to execute the command.
+        There will also be an indication of if the command succeeded, failed or cancelled.
 
         Args:
             command (str): The shell command to run. It can support multiline statements
-                if you need to run more than one at a time
+                if you need to run more than one at a time.  Please also include the directory that the command will be run in.
+            explanation (str): A brief explanation of what the command does, the current state of the system
+                the directory where the command is going to be executed, and what the expected outcome is.
+            write (bool): If True, the user will be asked to confirm the command before it is executed
         """
         # Log the command being executed in a visually structured format (Markdown).
         self.notifier.log(Rule(RULEPREFIX + "shell", style=RULESTYLE, align="left"))
         self.notifier.log(Markdown(f"```bash\n{command}\n```"))
-
-        if is_dangerous_command(command):
-            # Stop the notifications so we can prompt
+        self.notifier.log(Markdown(f"**Explanation:** {explanation}"))
+        if not write:
+            return execute_shell(command, notifier=self.notifier, exchange_view=self.exchange_view)
+        to_execute = True
+        if is_in_safe_mode():
             self.notifier.stop()
-            if not keep_unsafe_command_prompt(command):
-                raise RuntimeError(
-                    f"The command {command} was rejected as dangerous by the user."
-                    " Do not proceed further, instead ask for instructions."
-                )
+            to_execute = confirm("Would like to continue to execute this command?")
             self.notifier.start()
-        self.notifier.status("running shell command")
-
-        # Define patterns that might indicate the process is waiting for input
-        interaction_patterns = [
-            r"Do you want to",  # Common prompt phrase
-            r"Enter password",  # Password prompt
-            r"Are you sure",  # Confirmation prompt
-            r"\(y/N\)",  # Yes/No prompt
-            r"Press any key to continue",  # Awaiting keypress
-            r"Waiting for input",  # General waiting message
-        ]
-        compiled_patterns = [re.compile(pattern, re.IGNORECASE) for pattern in interaction_patterns]
-
-        proc = subprocess.Popen(
-            command,
-            shell=True,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-        )
-        # this enables us to read lines without blocking
-        os.set_blocking(proc.stdout.fileno(), False)
-
-        # Accumulate the output logs while checking if it might be blocked
-        output_lines = []
-        last_output_time = time.time()
-        cutoff = 10
-        while proc.poll() is None:
-            self.notifier.status("running shell command")
-            line = proc.stdout.readline()
-            if line:
-                output_lines.append(line)
-                last_output_time = time.time()
-
-            # If we see a clear pattern match, we plan to abort
-            exit_criteria = any(pattern.search(line) for pattern in compiled_patterns)
-
-            # and if we haven't seen a new line in 10+s, check with AI to see if it may be stuck
-            if not exit_criteria and time.time() - last_output_time > cutoff:
-                self.notifier.status("checking on shell status")
-                response = ask_an_ai(
-                    input="\n".join([command] + output_lines),
-                    prompt=(
-                        "You will evaluate the output of shell commands to see if they may be stuck."
-                        " Look for commands that appear to be awaiting user input, or otherwise running indefinitely (such as a web service)."  # noqa
-                        " A command that will take a while, such as downloading resources is okay."  # noqa
-                        " return [Yes] if stuck, [No] otherwise."
-                    ),
-                    exchange=self.exchange_view.processor,
-                    with_tools=False,
-                )
-                exit_criteria = "[yes]" in response.content[0].text.lower()
-                # We add exponential backoff for how often we check for the command being stuck
-                cutoff *= 10
-
-            if exit_criteria:
-                proc.terminate()
-                raise ValueError(
-                    f"The command `{command}` looks like it will run indefinitely or is otherwise stuck."
-                    f"You may be able to specify inputs if it applies to this command."
-                    f"Otherwise to enable continued iteration, you'll need to ask the user to run this command in another terminal."  # noqa
-                )
-
-        # read any remaining lines
-        while line := proc.stdout.readline():
-            output_lines.append(line)
-        output = "".join(output_lines)
-
-        # Determine the result based on the return code
-        if proc.returncode == 0:
-            result = "Command succeeded"
+        if to_execute:
+            return execute_shell(command, notifier=self.notifier, exchange_view=self.exchange_view)
         else:
-            result = f"Command failed with returncode {proc.returncode}"
+            return {"result": "User chooses not to execution the command. Subsequent commands will be cancelled.", "is_cancelled": True}
 
-        # Return the combined result and outputs if we made it this far
-        return "\n".join([result, output])
 
     @tool
     def write_file(self, path: str, content: str) -> str:

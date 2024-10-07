@@ -130,6 +130,7 @@ class Exchange:
     def call_function(self, tool_use: ToolUse) -> ToolResult:
         """Call the function indicated by the tool use"""
         tool = self._toolmap.get(tool_use.name)
+        is_cancelled = False
 
         if tool is None or tool_use.is_error:
             output = f"ERROR: Failed to use tool {tool_use.id}.\nDo NOT use the same tool name and parameters again - that will lead to the same error."  # noqa: E501
@@ -143,24 +144,23 @@ class Exchange:
             return ToolResult(tool_use_id=tool_use.id, output=output, is_error=True)
 
         try:
-            if isinstance(tool_use.parameters, dict):
-                output = json.dumps(tool.function(**tool_use.parameters))
-            elif isinstance(tool_use.parameters, list):
-                output = json.dumps(tool.function(*tool_use.parameters))
+            if isinstance(tool_use.parameters, dict) or isinstance(tool_use.parameters, list):
+                function_return_value = tool.function(**tool_use.parameters)
+                if isinstance(function_return_value, dict):
+                    is_cancelled = function_return_value['is_cancelled'] if 'is_cancelled' in function_return_value else False
+                output = json.dumps(function_return_value)
             else:
                 raise ValueError(
                     f"The provided tool parameters, {tool_use.parameters} could not be interpreted as a mapping of arguments."  # noqa: E501
                 )
-
             validate_tool_output(output)
-
             is_error = False
         except Exception as e:
             tb = traceback.format_exc()
             output = str(tb) + "\n" + str(e)
             is_error = True
 
-        return ToolResult(tool_use_id=tool_use.id, output=output, is_error=is_error)
+        return ToolResult(tool_use_id=tool_use.id, output=output, is_error=is_error, is_cancelled=is_cancelled)
 
     def add_tool_use(self, tool_use: ToolUse) -> None:
         """Manually add a tool use and corresponding result

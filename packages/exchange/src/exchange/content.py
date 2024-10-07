@@ -36,3 +36,4 @@ class ToolResult(Content):
     tool_use_id: str
     output: str
     is_error: bool = False
+    is_cancelled: bool = False

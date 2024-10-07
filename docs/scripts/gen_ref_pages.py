@@ -2,6 +2,12 @@ from pathlib import Path
 
 import mkdocs_gen_files
 
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.INFO, filename='mkdocs_gen_debug.log', filemode='w', format='%(name)s - %(levelname)s - %(message)s')
+
+
 nav = mkdocs_gen_files.Nav()
 
 root = Path(__file__).parent.parent.parent
@@ -14,6 +20,10 @@ toolkit_modules = []
 utils_modules = []
 
 for path in sorted(src.rglob("*.py")):
+    logging.info("Processing file: {}".format(path))
+    module_path = path.relative_to(src).with_suffix("")
+    if module_path.parts[-1] == "diff":  # Specifically check for the 'diff' case
+        logging.info("Diff path found: {}".format(path))
     module_path = path.relative_to(src).with_suffix("")  # Removes the '.py' suffix
     doc_path = path.relative_to(src).with_suffix(".md")  # Creates .md path
 

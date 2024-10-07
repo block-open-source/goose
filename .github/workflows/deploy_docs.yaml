@@ -28,7 +28,7 @@ jobs:
       run: uv venv && uv sync
 
     - name: Build the documentation
-      run: uv run mkdocs build
+      run: uv run mkdocs gh-deploy
 
     - name: Deploy to GitHub Pages
       uses: peaceiris/actions-gh-pages@v3

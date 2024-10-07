@@ -10,7 +10,7 @@ from tenacity import retry, wait_fixed, stop_after_attempt
 from exchange.providers.utils import get_provider_env_value, raise_for_status, retry_if_status
 from exchange.providers.utils import retry_if_status
 from exchange.providers.utils import raise_for_status
-from exchange.langfuse import observe_wrapper
+from exchange.langfuse.langfuse import observe_wrapper
 
 GOOGLE_HOST = "https://generativelanguage.googleapis.com/v1beta"
 

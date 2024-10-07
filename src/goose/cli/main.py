@@ -14,6 +14,7 @@ from goose.utils import load_plugins
 from goose.utils.autocomplete import SUPPORTED_SHELLS, setup_autocomplete
 from goose.utils.session_file import list_sorted_session_files
 
+
 @click.group()
 def goose_cli() -> None:
     pass

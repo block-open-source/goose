@@ -72,6 +72,7 @@ class Developer(Toolkit):
                 MUST be one of "planned", "complete", "failed", "in-progress", "cancelled" or "skipped.
 
         """
+        print(f"======updating plan: {tasks}")
         # Validate the status of each task to ensure it is one of the accepted values.
         for task in tasks:
             if task["status"] not in TASKS_WITH_EMOJI.keys():

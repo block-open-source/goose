@@ -25,7 +25,7 @@ jobs:
       run: uv python install ${{ matrix.python-version }}
 
     - name: Install dependencies
-      run: uv install
+      run: uv venv && uv sync
 
     - name: Build the documentation
       run: uv run mkdocs build

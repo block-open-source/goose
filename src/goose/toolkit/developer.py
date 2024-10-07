@@ -72,7 +72,6 @@ class Developer(Toolkit):
                 MUST be one of "planned", "complete", "failed", "in-progress", "cancelled" or "skipped.
 
         """
-        print(f"======updating plan: {tasks}")
         # Validate the status of each task to ensure it is one of the accepted values.
         for task in tasks:
             if task["status"] not in TASKS_WITH_EMOJI.keys():
@@ -112,7 +111,6 @@ class Developer(Toolkit):
             before (str): The content that will be replaced
             after (str): The content it will be replaced with
         """
-        print("======patching file")
         _path = Path(path)
 
         content = _path.read_text()
@@ -127,7 +125,7 @@ class Developer(Toolkit):
         to_path_file = True
         if is_in_safe_mode():
             self.notifier.stop()
-            to_path_file = confirm("Would like to continue to make change?")
+            to_path_file = confirm("Would like to continue to make change?").strip()
             self.notifier.start()
         if to_path_file:
             self.notifier.status(f"editing {path}")
@@ -181,7 +179,7 @@ class Developer(Toolkit):
         to_execute = True
         if is_in_safe_mode():
             self.notifier.stop()
-            to_execute = confirm("Would like to continue to execute this command?")
+            to_execute = confirm("Would like to continue to execute this command?").strip()
             self.notifier.start()
         if to_execute:
             return execute_shell(command, notifier=self.notifier, exchange_view=self.exchange_view)
@@ -199,16 +197,23 @@ class Developer(Toolkit):
             path (str): The destination file path, in the format "path/to/file.txt"
             content (str): The raw file content.
         """  # noqa: E501
+        to_write_file = True
+        self.notifier.log(Rule(RULEPREFIX + path, style=RULESTYLE, align="left"))
+        before = ""
+        if Path(path).exists():
+            with open(path, 'r') as file:
+                before = file.read()
+        show_diff(path, before, content)
+        if is_in_safe_mode():
+            self.notifier.stop()
+            to_write_file = confirm("Would like to continue to make change?").strip()
+            self.notifier.start()
+        if not to_write_file:
+            return {"result": "User chooses not to write to this file. skip the change", "task_status": "skipped"}
         self.notifier.status("writing file")
-        # Get the programming language for syntax highlighting in logs
-        language = get_language(path)
-        md = f"```{language}\n{content}\n```"
-
         # Log the content that will be written to the file
         # .log` method is used here to log the command execution in the application's UX
         # this method is dynamically attached to functions in the Goose framework
-        self.notifier.log(Rule(RULEPREFIX + path, style=RULESTYLE, align="left"))
-        self.notifier.log(Markdown(md))
 
         _path = Path(path)
         if path in self.timestamps:

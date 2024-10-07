@@ -125,7 +125,7 @@ class Developer(Toolkit):
         to_path_file = True
         if is_in_safe_mode():
             self.notifier.stop()
-            to_path_file = confirm("Would like to continue to make change?").strip()
+            to_path_file = confirm("Would like to continue to make change?")
             self.notifier.start()
         if to_path_file:
             self.notifier.status(f"editing {path}")
@@ -179,7 +179,7 @@ class Developer(Toolkit):
         to_execute = True
         if is_in_safe_mode():
             self.notifier.stop()
-            to_execute = confirm("Would like to continue to execute this command?").strip()
+            to_execute = confirm("Would like to continue to execute this command?")
             self.notifier.start()
         if to_execute:
             return execute_shell(command, notifier=self.notifier, exchange_view=self.exchange_view)
@@ -206,7 +206,7 @@ class Developer(Toolkit):
         show_diff(path, before, content)
         if is_in_safe_mode():
             self.notifier.stop()
-            to_write_file = confirm("Would like to continue to make change?").strip()
+            to_write_file = confirm("Would like to continue to make change?")
             self.notifier.start()
         if not to_write_file:
             return {"result": "User chooses not to write to this file. skip the change", "task_status": "skipped"}

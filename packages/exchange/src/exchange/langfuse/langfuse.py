@@ -19,10 +19,12 @@ LANGFUSE_CLONE_DIR = os.path.join(SCRIPT_DIR, "langfuse_clone")
 LANGFUSE_LOCAL_ENV_FILE_NAME = ".env.langfuse.local"
 LANGFUSE_LOCAL_INIT_ENV_FILE = os.path.join(SCRIPT_DIR, LANGFUSE_LOCAL_ENV_FILE_NAME)
 
+
 def _run_command(command):
     """Run a shell command."""
     result = subprocess.run(command, shell=True, check=True, text=True)
     return result
+
 
 def _update_or_clone_repo():
     """Update or clone the Langfuse repository."""
@@ -30,6 +32,7 @@ def _update_or_clone_repo():
         _run_command(f"git -C {LANGFUSE_CLONE_DIR} pull --rebase")
     else:
         _run_command(f"git clone {LANGFUSE_REPO_URL} {LANGFUSE_CLONE_DIR}")
+
 
 def _copy_env_file():
     """Copy the environment file to the Langfuse clone directory."""
@@ -39,9 +42,11 @@ def _copy_env_file():
         logger.error("Environment file not found. Exiting.")
         exit(1)
 
+
 def _start_docker_compose():
     """Start Docker containers for Langfuse service and Postgres db."""
     _run_command(f"cd {LANGFUSE_CLONE_DIR} && docker compose --env-file ./{LANGFUSE_LOCAL_ENV_FILE_NAME} up --detach")
+
 
 def _wait_for_service():
     """Wait for the Langfuse service to be available on localhost:3000."""
@@ -52,17 +57,19 @@ def _wait_for_service():
         except OSError:
             time.sleep(1)
 
+
 def _launch_browser():
     """Launch the default web browser to open the Langfuse service URL."""
     system = platform.system().lower()
     url = "http://localhost:3000"
-    
+
     if "linux" in system:
         subprocess.run(["xdg-open", url])
     elif "darwin" in system:  # macOS
         subprocess.run(["open", url])
     else:
         logger.info("Please open http://localhost:3000 to view Langfuse traces.")
+
 
 def _print_login_variables():
     """Read and print the default email and password from the environment file."""
@@ -78,6 +85,7 @@ def _print_login_variables():
         print(f"Password: {env_vars.get('LANGFUSE_INIT_USER_PASSWORD', 'Not found')}")
     else:
         logger.warning("Langfuse environment file with local credentials required for local login not found.")
+
 
 def setup_langfuse():
     """Main function to set up and run the Langfuse service."""
@@ -95,6 +103,7 @@ def setup_langfuse():
             HAS_LANGFUSE_CREDENTIALS = True
     except Exception as e:
         logger.warning(f"Trouble finding Langfuse or Langfuse credentials: {e}")
+
 
 def observe_wrapper(*args, **kwargs) -> Callable:
     """
@@ -118,5 +127,6 @@ def observe_wrapper(*args, **kwargs) -> Callable:
             return fn
 
     return _wrapper
+
 
 setup_langfuse()

@@ -24,8 +24,8 @@ jobs:
     - name: Set up Python
       run: uv python install ${{ matrix.python-version }}
 
-    - name: Install dependencies
-      run: uv venv && uv sync
+#    - name: Install dependencies
+#      run: uv venv && uv sync
 
     - name: Build the documentation
       run: uv run mkdocs gh-deploy

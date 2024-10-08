@@ -41,7 +41,7 @@ temp_stderr = StringIO()
 sys.stderr = temp_stderr
 
 # Load environment variables
-load_dotenv(LANGFUSE_ENV_FILE)
+load_dotenv(LANGFUSE_ENV_FILE, override=True)
 
 if langfuse_context.auth_check():
     HAS_LANGFUSE_CREDENTIALS = True

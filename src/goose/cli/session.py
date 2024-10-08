@@ -181,11 +181,7 @@ class Session:
         self._log_cost()
 
     def reply(self) -> None:
-        """Reply to the last user message, calling tools as needed
-
-        Args:
-            text (str): The text input from the user.
-        """
+        """Reply to the last user message, calling tools as needed"""
         self.status_indicator.update("responding")
         response = self.exchange.generate()
 

@@ -12,18 +12,18 @@ OLLAMA_MODEL = "mistral-nemo"
 class OllamaProvider(OpenAiProvider):
     """Provides chat completions for models hosted by Ollama"""
 
-    __doc__ += f"""
+    __doc__ += """Here's an example profile configuration to try:
 
-Here's an example profile configuration to try:
+First run: ollama pull qwen2.5, then use this profile:
 
-    ollama:
-      provider: ollama
-      processor: {OLLAMA_MODEL}
-      accelerator: {OLLAMA_MODEL}
-      moderator: passive
-      toolkits:
-      - name: developer
-        requires: {{}}
+ollama:
+  provider: ollama
+  processor: qwen2.5
+  accelerator: qwen2.5
+  moderator: truncate
+  toolkits:
+  - name: developer
+    requires: {}
 """
 
     def __init__(self, client: httpx.Client) -> None:

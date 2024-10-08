@@ -4,7 +4,8 @@ on:
   push:
     branches:
       - main  # Trigger deployment on pushes to main
-      - damien/fix-docs  # TODO: remove
+      - ldelalande/fix-deploy-docs  # TODO: remove
+
     paths:
       - 'docs/**'
       - 'mkdocs.yml'
@@ -16,27 +17,10 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.x'
-
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install \
-          mkdocs \
-          mkdocs-callouts \
-          mkdocs-include-markdown-plugin \
-          mkdocs-material
+    - name: Install UV
+      run: curl -LsSf https://astral.sh/uv/install.sh | sh
 
     - name: Build the documentation
-      run: mkdocs build
-
-    - name: Deploy to GitHub Pages
-      uses: peaceiris/actions-gh-pages@v3
-      with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-        publish_dir: ./site
+      run: uv run mkdocs build

@@ -1,7 +1,7 @@
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional
 
 import click
 from rich import print

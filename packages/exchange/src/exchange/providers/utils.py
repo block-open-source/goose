@@ -1,13 +1,11 @@
 import base64
 import json
-import os
 import re
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import httpx
 from exchange.content import Text, ToolResult, ToolUse
 from exchange.message import Message
-from exchange.providers.base import MissingProviderEnvVariableError
 from exchange.tool import Tool
 from tenacity import retry_if_exception
 

@@ -1,4 +1,3 @@
-from sys import api_version
 from typing import Type
 
 import httpx

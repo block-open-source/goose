@@ -23,7 +23,7 @@ class Provider(ABC):
         return cls()
 
     @classmethod
-    def check_env_vars(cls: Type["Provider"], instructions_url: Optional[str]=None) -> None:
+    def check_env_vars(cls: Type["Provider"], instructions_url: Optional[str] = None) -> None:
         for env_var in cls.REQUIRED_ENV_VARS:
             if env_var not in os.environ:
                 raise MissingProviderEnvVariableError(env_var, cls.PROVIDER_NAME, instructions_url)

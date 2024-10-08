@@ -149,7 +149,7 @@ class AwsClient(httpx.Client):
 class BedrockProvider(Provider):
     """Provides chat completions for models hosted by the Amazon Bedrock Service"""
 
-    PROVIDER_NAME = "bedrock",
+    PROVIDER_NAME = ("bedrock",)
     REQUIRED_ENV_VARS = [
         "AWS_ACCESS_KEY_ID",
         "AWS_SECRET_ACCESS_KEY",

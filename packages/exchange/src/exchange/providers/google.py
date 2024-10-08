@@ -23,9 +23,7 @@ class GoogleProvider(Provider):
     """Provides chat completions for models hosted by Google, including Gemini and other experimental models."""
 
     PROVIDER_NAME = "google"
-    REQUIRED_ENV_VARS = [
-        "GOOGLE_API_KEY"
-    ]
+    REQUIRED_ENV_VARS = ["GOOGLE_API_KEY"]
     instructions_url = "https://ai.google.dev/gemini-api/docs/api-key"
 
     def __init__(self, client: httpx.Client) -> None:

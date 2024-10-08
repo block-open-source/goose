@@ -31,6 +31,7 @@ class DatabricksProvider(Provider):
     https://docs.databricks.com/en/machine-learning/model-serving/create-foundation-model-endpoints.html#create-generative-ai-model-serving-endpoints
 
     """
+
     PROVIDER_NAME = "databricks"
     REQUIRED_ENV_VARS = [
         "DATABRICKS_HOST",

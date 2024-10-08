@@ -30,9 +30,7 @@ class OpenAiProvider(Provider):
     """Provides chat completions for models hosted directly by OpenAI."""
 
     PROVIDER_NAME = "openai"
-    REQUIRED_ENV_VARS = [
-        "OPENAI_API_KEY"
-    ]
+    REQUIRED_ENV_VARS = ["OPENAI_API_KEY"]
     instructions_url = "https://platform.openai.com/docs/api-reference/api-keys"
 
     def __init__(self, client: httpx.Client) -> None:

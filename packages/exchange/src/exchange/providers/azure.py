@@ -7,13 +7,14 @@ from exchange.providers import OpenAiProvider
 
 
 class AzureProvider(OpenAiProvider):
-    """Provides chat completions for models hosted by the Azure OpenAI Service. """
+    """Provides chat completions for models hosted by the Azure OpenAI Service."""
+
     PROVIDER_NAME = "azure"
     REQUIRED_ENV_VARS = [
         "AZURE_CHAT_COMPLETIONS_HOST_NAME",
         "AZURE_CHAT_COMPLETIONS_DEPLOYMENT_NAME",
         "AZURE_CHAT_COMPLETIONS_DEPLOYMENT_API_VERSION",
-        "AZURE_CHAT_COMPLETIONS_KEY"
+        "AZURE_CHAT_COMPLETIONS_KEY",
     ]
 
     def __init__(self, client: httpx.Client) -> None:

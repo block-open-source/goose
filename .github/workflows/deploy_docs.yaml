@@ -4,12 +4,10 @@ on:
   push:
     branches:
       - main  # Trigger deployment on pushes to main
-      - ldelalande/fix-deploy-docs  # TODO: remove
 
     paths:
       - 'docs/**'
       - 'mkdocs.yml'
-      - 'README.md'
       - '.github/workflows/deploy_docs.yaml'
 
 jobs:

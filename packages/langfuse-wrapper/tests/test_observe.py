@@ -29,7 +29,7 @@ def test_observe_wrapper_with_credentials(mock_langfuse_context):
         assert result == 2
 
 
-def test_observe_wrapper_with_credentials(mock_langfuse_context):
+def test_observe_wrapper_missing_credentials(mock_langfuse_context):
     with patch("langfuse_wrapper.langfuse_wrapper.HAS_LANGFUSE_CREDENTIALS", False):
         # Create a mock that returns a function that will return our sample_function
         mock_observe = MagicMock(return_value=lambda f: sample_wrapped_function)

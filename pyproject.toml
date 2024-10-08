@@ -13,7 +13,6 @@ dependencies = [
     "prompt-toolkit>=3.0.47",
     "keyring>=25.4.1",
     "langfuse-wrapper",
-    "goose-plugins-block",
 ]
 
 author = [{ name = "Block", email = "ai-oss-tools@block.xyz" }]

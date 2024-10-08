@@ -2,6 +2,9 @@
 
 This package provides a wrapper for [Langfuse](https://langfuse.com/). The wrapper serves to initialize Langfuse appropriately if the Langfuse server is running locally and otherwise to skip applying the Langfuse observe descorators.
 
+**Note: This Langfuse integration is experimental and we don't currently have integration tests for it.**
+
+
 ## Usage
 
 ### Start your local Langfuse server

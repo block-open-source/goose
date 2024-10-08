@@ -167,8 +167,8 @@ Let us know what you think in our [Discussions][discussions] or the [**`#goose`*
 [goose-plugins]: https://github.com/block-open-source/goose-plugins
 
 [pipx]: https://github.com/pypa/pipx?tab=readme-ov-file#install-pipx
-[contributing]: CONTRIBUTING.md
-[license]: LICENSE.md
+[contributing]: https://github.com/block-open-source/goose/blob/main/CONTRIBUTING.md
+[license]: https://github.com/block-open-source/goose/blob/main/LICENSE
 
 [goose-docs]: https://block-open-source.github.io/goose/
 [toolkits]: https://block-open-source.github.io/goose/plugins/available-toolkits.html
@@ -183,4 +183,4 @@ Let us know what you think in our [Discussions][discussions] or the [**`#goose`*
 [van-code]: https://github.com/block-open-source/goose-plugins/blob/de98cd6c29f8e7cd3b6ace26535f24ac57c9effa/src/goose_plugins/toolkits/artify.py
 [discussions]: https://github.com/block-open-source/goose/discussions
 [goose-channel]: https://discord.com/channels/1287729918100246654/1287729920319033345
-[goose-ai-pypi]: https://pypi.org/project/goose-ai/
+[goose-ai-pypi]: https://pypi.org/project/goose-ai

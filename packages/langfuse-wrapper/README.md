@@ -1,6 +1,6 @@
 # Langfuse Wrapper
 
-This package provides a wrapper for Langfuse[https://langfuse.com/]. The wrapper serves to initialize Langfuse appropriately if the Langfuse server is running locally and otherwise to skip applying the Langfuse observe descorators.
+This package provides a wrapper for [Langfuse](https://langfuse.com/). The wrapper serves to initialize Langfuse appropriately if the Langfuse server is running locally and otherwise to skip applying the Langfuse observe descorators.
 
 ## Usage
 
@@ -8,13 +8,13 @@ This package provides a wrapper for Langfuse[https://langfuse.com/]. The wrapper
 
 Run `setup_langfuse.sh` to start your local Langfuse server. It requires Docker.
 
-Read more about local Langfuse deployments here[https://langfuse.com/docs/deployment/local].
+Read more about local Langfuse deployments [here](https://langfuse.com/docs/deployment/local).
 
 ### Exchange and Goose integration
 
 Import `from langfuse_wrapper.langfuse_wrapper import observe_wrapper` and use the `observe_wrapper()` decorator on functions you wish to enable tracing for. `observe_wrapper` functions the same way as Langfuse's observe decorator.
 
-Read more about Langfuse's decorator-based tracing here[https://langfuse.com/docs/sdk/python/decorators].
+Read more about Langfuse's decorator-based tracing [here](https://langfuse.com/docs/sdk/python/decorators).
 
 In Goose, initialization requires certain environment variables to be present:
 

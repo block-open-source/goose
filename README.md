@@ -13,7 +13,7 @@ Goose is your on-machine developer agent, automating engineering tasks seamlessl
   <a href="https://block-open-source.github.io/goose/">
     <img src="https://img.shields.io/badge/Documentation-goose_docs-teal">
   </a>
-  <a href=[goose-ai-pypi]>
+  <a href=https://pypi.org/project/goose-ai>
     <img src="https://img.shields.io/pypi/v/goose-ai?color=green">
   </a>
   <a href="https://opensource.org/licenses/Apache-2.0">
@@ -189,4 +189,3 @@ Let us know what you think in our [Discussions][discussions] or the [**`#goose`*
 [van-code]: https://github.com/block-open-source/goose-plugins/blob/de98cd6c29f8e7cd3b6ace26535f24ac57c9effa/src/goose_plugins/toolkits/artify.py
 [discussions]: https://github.com/block-open-source/goose/discussions
 [goose-channel]: https://discord.com/channels/1287729918100246654/1287729920319033345
-[goose-ai-pypi]: https://pypi.org/project/goose-ai

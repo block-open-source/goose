@@ -29,6 +29,7 @@ Goose is your on-machine developer agent, automating engineering tasks seamlessl
 <a href="#what-block-employees-have-to-say-about-goose"> Block Employees on Goose</a> <img src=assets/logo.png height="15", width="15" alt="Block Emoji"/> •
 <a href="#quick-start-guide">Quick start guide</a> 🚀 •
 <a href="#getting-involved">Getting involved!</a> 👋
+</p>
 
 >[!TIP]
 > **Quick install:**

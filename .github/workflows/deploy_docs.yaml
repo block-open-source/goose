@@ -4,9 +4,11 @@ on:
   push:
     branches:
       - main  # Trigger deployment on pushes to main
+      - damien/fix-docs  # TODO: remove
     paths:
       - 'docs/**'
       - 'mkdocs.yml'
+      - '.github/workflows/deploy_docs.yaml'
 
 jobs:
   deploy:

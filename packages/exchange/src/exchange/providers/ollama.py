@@ -12,7 +12,7 @@ OLLAMA_MODEL = "mistral-nemo"
 class OllamaProvider(OpenAiProvider):
     """Provides chat completions for models hosted by Ollama"""
 
-    __doc__ += f"""Here's an example profile configuration to try:
+    __doc__ += """Here's an example profile configuration to try:
 
 First run: ollama pull qwen2.5, then use this profile:
 

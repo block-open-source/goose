@@ -39,12 +39,6 @@ Goose is your on-machine developer agent, automating engineering tasks seamlessl
 
 **Goose** is a developer agent that supercharges your software development by automating an array of coding tasks directly within your terminal or IDE. Guided by you, it can intelligently assess your project's needs, generate the required code or modifications, and implement these changes on its own. Goose can **interact with a multitude of tools via external APIs** such as Jira, GitHub, Slack, infrastructure and data pipelines, and more -- if your task uses a **shell command or can be carried out by a Python script, Goose can do it for you too!** Like semi-autonomous driving, Goose handles the heavy lifting, allowing you to focus on other priorities. Simply set it on a task and return later to find it completed, boosting your productivity with less manual effort.
 
-<p align="center">
-  <video src="assets/goose-in-action.mp4" width="700" height="700"></video>
-</p>
-
-
-
 ## Unique features of Goose compared to other AI assistants
 
 - **Autonomy**: A copilot should be able to also fly the plane at times, which in the development world means running code, debugging tests, installing dependencies, not just providing text output and autocomplete or search. Goose moves beyond just generating code snippets by (1) **using the shell** and (2) by seeing what happens with the code it writes and starting a feedback loop to solve harder problems, **refining solutions iteratively like a human developer**. Your code's best wingman.

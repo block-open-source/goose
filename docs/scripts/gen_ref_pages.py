@@ -14,10 +14,7 @@ toolkit_modules = []
 utils_modules = []
 
 for path in sorted(src.rglob("*.py")):
-    logging.info("Processing file: {}".format(path))
     module_path = path.relative_to(src).with_suffix("")
-    if module_path.parts[-1] == "diff":  # Specifically check for the 'diff' case
-        logging.info("Diff path found: {}".format(path))
     module_path = path.relative_to(src).with_suffix("")  # Removes the '.py' suffix
     doc_path = path.relative_to(src).with_suffix(".md")  # Creates .md path
 

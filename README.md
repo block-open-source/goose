@@ -181,7 +181,7 @@ Let us know what you think in our [Discussions][discussions] or the [**`#goose`*
 [configuration]: https://block-open-source.github.io/goose/configuration.html
 [cli]: https://block-open-source.github.io/goose/plugins/cli.html
 [providers]: https://block-open-source.github.io/goose/providers.html
-[use-cases]: https://block-open-source.github.io/goose/guidance/applications
+[use-cases]: https://block-open-source.github.io/goose/guidance/applications.html
 [getting-started]: https://block-open-source.github.io/goose/guidance/getting-started.html
 
 [discord-invite]: https://discord.gg/7GaTvbDwga

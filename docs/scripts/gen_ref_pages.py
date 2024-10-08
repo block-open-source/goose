@@ -2,12 +2,6 @@ from pathlib import Path
 
 import mkdocs_gen_files
 
-import logging
-
-# Set up logging
-logging.basicConfig(level=logging.INFO, filename='mkdocs_gen_debug.log', filemode='w', format='%(name)s - %(levelname)s - %(message)s')
-
-
 nav = mkdocs_gen_files.Nav()
 
 root = Path(__file__).parent.parent.parent

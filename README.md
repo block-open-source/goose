@@ -181,4 +181,12 @@ Let us know what you think in our [Discussions][discussions] or the [**`#goose`*
 [configuration]: https://block-open-source.github.io/goose/configuration.html
 [cli]: https://block-open-source.github.io/goose/plugins/cli.html
 [providers]: https://block-open-source.github.io/goose/providers.html
-[use-cases]: https://block-open-source.github.io/goose/guidance/applications.
+[use-cases]: https://block-open-source.github.io/goose/guidance/applications
+[getting-started]: https://block-open-source.github.io/goose/guidance/getting-started.html
+
+[discord-invite]: https://discord.gg/7GaTvbDwga
+[gh-issues]: https://github.com/block-open-source/goose/issues
+[van-code]: https://github.com/block-open-source/goose-plugins/blob/de98cd6c29f8e7cd3b6ace26535f24ac57c9effa/src/goose_plugins/toolkits/artify.py
+[discussions]: https://github.com/block-open-source/goose/discussions
+[goose-channel]: https://discord.com/channels/1287729918100246654/1287729920319033345
+[goose-ai-pypi]: https://pypi.org/project/goose-ai/

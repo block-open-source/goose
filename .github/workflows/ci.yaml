@@ -28,7 +28,7 @@ jobs:
           uv run pytest tests -m 'not integration'
 
   goose:
-    runs-on: ubuntu-latestbut 
+    runs-on: ubuntu-latest 
 
     steps:
       - uses: actions/checkout@v4

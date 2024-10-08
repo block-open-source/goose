@@ -107,29 +107,14 @@ def providers() -> None:
 def list_providers() -> None:
     providers = load_plugins(group="exchange.provider")
 
-    def extract_envs_from_doc(lines: List[str]) -> List[str]:
-        required_envs = []
-        env_block = False
-        for line in lines:
-            if "Required env vars:" in line:
-                env_block = True
-                continue
-            if env_block:
-                if line.strip():
-                    required_envs.append(line.strip())
-                else:
-                    break
-        return required_envs
-
     for provider_name, provider in providers.items():
         lines_doc = provider.__doc__.split("\n")
         first_line_of_doc = lines_doc[0]
-        env_lines = extract_envs_from_doc(lines_doc)
-
         print(f" - [bold]{provider_name}[/bold]: {first_line_of_doc}")
-        if env_lines:
-            env_required = ", ".join(env_lines)
-            print(f"        [dim]env vars: {env_required}")
+        envs = provider.REQUIRED_ENV_VARS
+        if envs:
+            env_required_str = ", ".join(envs)
+            print(f"        [dim]env vars required: {env_required_str}")
 
         print("\n")
 

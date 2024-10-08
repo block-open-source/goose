@@ -2,11 +2,14 @@ import pytest
 from unittest.mock import patch, MagicMock
 from langfuse_wrapper.langfuse_wrapper import observe_wrapper
 
+
 def sample_function(x: int, y: int) -> int:
     return x + y
 
+
 def sample_wrapped_function(x: int, y: int) -> int:
     return x
+
 
 @pytest.fixture
 def mock_langfuse_context():

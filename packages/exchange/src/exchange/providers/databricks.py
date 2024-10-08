@@ -12,7 +12,7 @@ from exchange.providers.utils import (
     tools_to_openai_spec,
 )
 from exchange.tool import Tool
-from exchange.langfuse.langfuse import observe_wrapper
+from langfuse_wrapper.langfuse_wrapper import observe_wrapper
 
 retry_procedure = retry(
     wait=wait_fixed(2),

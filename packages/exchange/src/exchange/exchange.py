@@ -14,7 +14,7 @@ from exchange.moderators.truncate import ContextTruncate
 from exchange.providers import Provider, Usage
 from exchange.tool import Tool
 from exchange.token_usage_collector import _token_usage_collector
-from exchange.langfuse.langfuse import observe_wrapper
+from langfuse_wrapper.langfuse_wrapper import observe_wrapper
 
 
 def validate_tool_output(output: str) -> None:

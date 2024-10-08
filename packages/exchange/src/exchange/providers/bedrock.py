@@ -15,7 +15,7 @@ from exchange.providers import Provider, Usage
 from tenacity import retry, wait_fixed, stop_after_attempt
 from exchange.providers.utils import get_provider_env_value, raise_for_status, retry_if_status
 from exchange.tool import Tool
-from exchange.langfuse.langfuse import observe_wrapper
+from langfuse_wrapper.langfuse_wrapper import observe_wrapper
 
 SERVICE = "bedrock-runtime"
 UTC = timezone.utc

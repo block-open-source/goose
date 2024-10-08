@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional
 from langfuse.decorators import langfuse_context
 
 from exchange import Message, ToolResult, ToolUse, Text
-from exchange.langfuse.langfuse import observe_wrapper
+from langfuse_wrapper.langfuse_wrapper import observe_wrapper
 from rich import print
 from rich.markdown import Markdown
 from rich.panel import Panel

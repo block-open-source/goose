@@ -79,6 +79,7 @@ class RepoContext(Toolkit):
             summary (Dict[str, str]): Keys are file paths and values are the summaries
         """
 
+        # TODO: if the summary is too large, Goose may not be able to load it
         self.notifier.log("Summarizing the most relevant files in the current project. This may take a while...")
 
         if self.is_mono_repo:
@@ -92,6 +93,7 @@ class RepoContext(Toolkit):
         project_name = project_directory.split("/")[-1]
         summary = load_summary_file_if_exists(project_name=project_name)
         if summary:
+            # TODO: this may result in a 'stale' summary if the project has changed since the last summary
             self.notifier.log("Summary file for project exists already -- loading into the context")
             return summary
 
@@ -102,7 +104,7 @@ class RepoContext(Toolkit):
         files = goose_picks_files(root=project_directory, exchange=file_select_exchange)
 
         summary = summarize_files_concurrent(
-            exchange=self.exchange_view.accelerator, file_list=files, project_name=project_directory.split("/")[-1]
+            exchange=clear_exchange(self.exchange_view.accelerator, clear_tools=True), file_list=files, project_name=project_directory.split("/")[-1]
         )
 
         return summary

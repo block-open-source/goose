@@ -9,6 +9,7 @@ on:
     paths:
       - 'docs/**'
       - 'mkdocs.yml'
+      - 'README.md'
       - '.github/workflows/deploy_docs.yaml'
 
 jobs:

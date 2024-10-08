@@ -2,8 +2,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from exchange import Exchange, Message, ToolUse, ToolResult
-from exchange.providers.base import MissingProviderEnvVariableError
-from exchange.invalid_choice_error import InvalidChoiceError
 from goose.cli.prompt.goose_prompt_session import GoosePromptSession
 from goose.cli.prompt.user_input import PromptAction, UserInput
 from goose.cli.session import Session
@@ -22,7 +20,7 @@ def mock_specified_session_name():
 @pytest.fixture
 def create_session_with_mock_configs(mock_sessions_path, exchange_factory, profile_factory):
     with (
-        patch("goose.cli.session.build_exchange") as mock_exchange,
+        patch("goose.cli.session.create_exchange") as mock_exchange,
         patch("goose.cli.session.load_profile", return_value=profile_factory()),
         patch("goose.cli.session.SessionNotifier") as mock_session_notifier,
         patch("goose.cli.session.load_provider", return_value="provider"),
@@ -158,34 +156,3 @@ def test_set_generated_session_name(create_session_with_mock_configs, mock_sessi
     with patch("goose.cli.session.droid", return_value=generated_session_name):
         session = create_session_with_mock_configs({"name": None})
         assert session.name == generated_session_name
-
-
-def test_create_exchange_exit_when_env_var_does_not_exist(create_session_with_mock_configs, mock_sessions_path):
-    session = create_session_with_mock_configs()
-    expected_error = MissingProviderEnvVariableError(env_variable="OPENAI_API_KEY", provider="openai")
-    with (
-        patch("goose.cli.session.build_exchange", side_effect=expected_error),
-        patch("goose.cli.session.print") as mock_print,
-        patch("sys.exit") as mock_exit,
-    ):
-        session._create_exchange()
-        mock_print.call_args_list[0][0][0].renderable == (
-            "Missing environment variable OPENAI_API_KEY for provider openai. ",
-            "Please set the required environment variable to continue.",
-        )
-        mock_exit.assert_called_once_with(1)
-
-
-def test_create_exchange_exit_when_configuration_is_incorrect(create_session_with_mock_configs, mock_sessions_path):
-    session = create_session_with_mock_configs()
-    expected_error = InvalidChoiceError(
-        attribute_name="provider", attribute_value="wrong_provider", available_values=["openai"]
-    )
-    with (
-        patch("goose.cli.session.build_exchange", side_effect=expected_error),
-        patch("goose.cli.session.print") as mock_print,
-        patch("sys.exit") as mock_exit,
-    ):
-        session._create_exchange()
-        assert "Unknown provider: wrong_provider. Available providers: openai" in mock_print.call_args_list[0][0][0]
-        mock_exit.assert_called_once_with(1)

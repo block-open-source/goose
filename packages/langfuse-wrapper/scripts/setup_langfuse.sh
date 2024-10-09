@@ -15,7 +15,7 @@
 #   ./setup_langfuse.sh
 #
 # Requirements:
-#   - Docker and Docker Compose
+#   - Docker 
 #   - curl
 #   - A .env.langfuse.local file in the env directory
 #
@@ -23,13 +23,33 @@
 
 set -e
 
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+SCRIPT_DIR=$(realpath "$(dirname "${BASH_SOURCE[0]}")")
 LANGFUSE_DOCKER_COMPOSE_URL="https://raw.githubusercontent.com/langfuse/langfuse/main/docker-compose.yml"
-LANGFUSE_DOCKER_COMPOSE_FILE="$SCRIPT_DIR/docker-compose.yaml"
+LANGFUSE_DOCKER_COMPOSE_FILE="docker-compose.yaml"
 LANGFUSE_ENV_FILE="$SCRIPT_DIR/../env/.env.langfuse.local"
 
+check_dependencies() {
+    local dependencies=("curl" "docker")
+    local missing_dependencies=()
+
+    for cmd in "${dependencies[@]}"; do
+        if ! command -v "$cmd" &> /dev/null; then
+            missing_dependencies+=("$cmd")
+        fi
+    done
+
+    if [ ${#missing_dependencies[@]} -ne 0 ]; then
+        echo "Missing dependencies: ${missing_dependencies[*]}"
+        echo "You can install them with: apt install -y ${missing_dependencies[*]}"
+        exit 1  # Exit the script if dependencies are missing
+    fi
+}
+
 download_docker_compose() {
-    curl -o "$LANGFUSE_DOCKER_COMPOSE_FILE" "$LANGFUSE_DOCKER_COMPOSE_URL"
+    if ! curl --fail --location --output "$SCRIPT_DIR/docker-compose.yaml" "$LANGFUSE_DOCKER_COMPOSE_URL"; then
+        echo "Failed to download docker-compose file from $LANGFUSE_DOCKER_COMPOSE_URL"
+        exit 1
+    fi
 }
 
 start_docker_compose() {
@@ -38,7 +58,14 @@ start_docker_compose() {
 
 wait_for_service() {
     echo "Waiting for Langfuse to start..."
-    while ! nc -z localhost 3000; do   
+    local retries=10
+    local count=0
+    until curl -s http://localhost:3000 > /dev/null; do
+        ((count++))
+        if [ "$count" -ge "$retries" ]; then
+            echo "Max retries reached. Langfuse did not start in time."
+            exit 1 
+        fi
         sleep 1
     done
     echo "Langfuse is now available!"
@@ -56,15 +83,18 @@ launch_browser() {
 
 print_login_variables() {
     if [ -f "$LANGFUSE_ENV_FILE" ]; then
-        echo "Please log in with the following credentials:"
+        echo "If not already logged in use the following credentials to log in:"
         grep -E "LANGFUSE_INIT_USER_EMAIL|LANGFUSE_INIT_USER_PASSWORD" "$LANGFUSE_ENV_FILE"
     else
         echo "Langfuse environment file with local credentials not found."
     fi
 }
 
+check_dependencies
+pushd "$SCRIPT_DIR" > /dev/null
 download_docker_compose
 start_docker_compose
 wait_for_service
 print_login_variables
 launch_browser
+popd > /dev/null

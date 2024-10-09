@@ -19,6 +19,8 @@ packages = [{ include = "goose", from = "src" }]
 [tool.hatch.build.targets.wheel]
 packages = ["src/goose"]
 
+
+
 [project.entry-points."metadata.plugins"]
 goose-ai = "goose.module_name"
 

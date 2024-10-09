@@ -1,0 +1,25 @@
+name: Deploy MkDocs
+
+on:
+  push:
+    branches:
+      - main  # Trigger deployment on pushes to main
+
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - '.github/workflows/deploy_docs.yaml'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install UV
+      uses: astral-sh/setup-uv@v3
+
+    - name: Build the documentation
+      run: uv run mkdocs gh-deploy --force

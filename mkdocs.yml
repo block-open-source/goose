@@ -1,0 +1,133 @@
+site_name: Goose Documentation
+site_author: Block
+site_description: Documentation for Goose
+repo_url: https://github.com/block-open-source/goose
+repo_name: "block-open-source/goose"
+edit_uri: "https://github.com/block-open-source/goose/blob/main/docs/"
+site_url: "https://block-open-source.github.io/goose/"
+use_directory_urls: false
+# theme
+theme:
+  name: material
+  features:
+    - announce.dismiss
+    - content.action.edit
+    - content.action.view
+    - content.code.annotate
+    - content.code.copy
+    - content.tooltips
+    - content.tabs.link
+    - navigation.footer
+    - navigation.indexes
+    - navigation.instant
+    - navigation.sections
+    - navigation.top
+    - navigation.tracking
+    - navigation.expand
+    - search.share
+    - search.suggest
+    - toc.follow
+  palette:
+    - scheme: slate
+      primary: black
+      accent: indigo
+  logo: assets/logo.png
+  font:
+    text: Roboto
+    code: Roboto Mono
+  favicon: assets/logo.ico
+  icon:
+    logo: assets/logo.ico
+# plugins
+plugins:
+  - include-markdown
+  - callouts
+  - glightbox
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          setup_commands:
+            - "import sys; sys.path.append('src')" # Add src folder to Python path
+  - search:
+      separator: '[\s\u200b\-_,:!=\[\]()"`/]+|\.(?!\d)|&[lg]t;|(?!\b)(?=[A-Z][a-z])'
+  - redirects:
+      redirect_maps:
+  - git-committers: # Show git committers
+      branch: main
+      enabled: !ENV [ENV_PROD, false]
+      repository: block-open-source/goose
+  - git-revision-date-localized: # Show git revision date
+      enable_creation_date: true
+      enabled: !ENV [ENV_PROD, false]
+extra:
+  annotate:
+    json:
+      - .s2
+  social: []
+  analytics:
+    provider: google
+    property: !ENV GOOGLE_ANALYTICS_KEY
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - nl2br # Newline to <br> (like GitHub)
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.magiclink:
+      repo_url_shorthand: false
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+  - toc:
+      permalink: true
+nav:
+  - Home: index.md
+  - "Installation": installation.md
+  - "Contributing": contributing.md
+  - Guidance:
+      - "Getting Started": guidance/getting-started.md
+      - "Quick Tips": guidance/tips.md
+      - "Applications of Goose": guidance/applications.md
+      - "Goose in Action": guidance/goose-in-action.md
+  - Plugins:
+      - "Overview": plugins/plugins.md
+      - Toolkits:
+          - "Using Toolkits": plugins/using-toolkits.md
+          - "Creating a New Toolkit": plugins/creating-a-new-toolkit.md
+          - "Available Toolkits": plugins/available-toolkits.md
+      - CLI Commands:
+          - "Available CLI Commands": plugins/cli.md
+      - Providers:
+          - "Available Providers": plugins/providers.md
+  - Advanced:
+      - Configuration: configuration.md
+  - "Reference":
+      - "API Docs": reference/index.md

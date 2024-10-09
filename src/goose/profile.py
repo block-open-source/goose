@@ -39,6 +39,10 @@ class Profile:
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
 
+    def profile_info(self) -> str:
+        tookit_names = [toolkit.name for toolkit in self.toolkits]
+        return f"provider:{self.provider}, processor:{self.processor} toolkits: {', '.join(tookit_names)}"
+
 
 def default_profile(provider: str, processor: str, accelerator: str, **kwargs: Dict[str, Any]) -> Profile:
     """Get the default profile"""

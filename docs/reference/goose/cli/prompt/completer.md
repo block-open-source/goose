@@ -1,0 +1,1 @@
+::: goose.cli.prompt.completer

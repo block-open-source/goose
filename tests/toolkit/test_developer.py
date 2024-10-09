@@ -55,7 +55,50 @@ def test_system_prompt_with_goosehints(temp_dir, developer_toolkit):
         assert system_prompt.endswith(expected_end)
 
 
-def test_update_plan(developer_toolkit):
+def test_system_prompt_with_goosehints_only_from_home_dir(temp_dir, developer_toolkit):
+    readme_file_home = Path.home() / ".config/goose/README.md"
+    readme_file_home.parent.mkdir(parents=True, exist_ok=True)
+    readme_file_home.write_text("This is from the README.md file in home.")
+
+    home_hints_file = Path.home() / ".config/goose/.goosehints"
+    home_jinja_template_content = "Hints from home:\n\n{% include 'README.md' %}\nEnd."
+    home_hints_file.write_text(home_jinja_template_content)
+
+    try:
+        with change_dir(temp_dir):
+            system_prompt = developer_toolkit.system()
+            expected_content_home = "Hints from home:\n\nThis is from the README.md file in home.\nEnd."
+            expected_end = f"Hints:\n{expected_content_home}"
+            assert system_prompt.endswith(expected_end)
+    finally:
+        home_hints_file.unlink()
+        readme_file_home.unlink()
+
+    readme_file = temp_dir / "README.md"
+    readme_file.write_text("This is from the README.md file.")
+
+    hints_file = temp_dir / ".goosehints"
+    jinja_template_content = "Hints from local:\n\n{% include 'README.md' %}\nEnd."
+    hints_file.write_text(jinja_template_content)
+
+    home_hints_file = Path.home() / ".config/goose/.goosehints"
+    home_jinja_template_content = "Hints from home:\n\n{% include 'README.md' %}\nEnd."
+    home_hints_file.write_text(home_jinja_template_content)
+
+    home_readme_file = Path.home() / ".config/goose/README.md"
+    home_readme_file.write_text("This is from the README.md file in home.")
+
+    try:
+        with change_dir(temp_dir):
+            system_prompt = developer_toolkit.system()
+            expected_content_local = "Hints from local:\n\nThis is from the README.md file.\nEnd."
+            expected_content_home = "Hints from home:\n\nThis is from the README.md file in home.\nEnd."
+            expected_end = f"Hints:\n{expected_content_local}\n{expected_content_home}"
+            assert system_prompt.endswith(expected_end)
+    finally:
+        home_hints_file.unlink()
+        home_readme_file.unlink()
+
     tasks = [
         {"description": "Task 1", "status": "planned"},
         {"description": "Task 2", "status": "complete"},

@@ -3,26 +3,20 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from exchange import Message, ToolResult, ToolUse, Text
-from prompt_toolkit.shortcuts import confirm
 from rich import print
-from rich.console import RenderableType
-from rich.live import Live
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.status import Status
 
-from goose.build import build_exchange
-from goose.cli.config import (
-    default_profiles,
-    ensure_config,
-    read_config,
-    session_path,
-)
+from goose.cli.config import ensure_config, session_path, LOG_PATH
+from goose._logger import get_logger, setup_logging
 from goose.cli.prompt.goose_prompt_session import GoosePromptSession
-from goose.notifier import Notifier
+from goose.cli.session_notifier import SessionNotifier
 from goose.profile import Profile
 from goose.utils import droid, load_plugins
-from goose.utils.session_file import read_from_file, write_to_file
+from goose.utils._cost_calculator import get_total_cost_message
+from goose.utils._create_exchange import create_exchange
+from goose.utils.session_file import read_or_create_file, save_latest_session
 
 RESUME_MESSAGE = "I see we were interrupted. How can I help you?"
 
@@ -49,33 +43,8 @@ def load_provider() -> str:
 
 
 def load_profile(name: Optional[str]) -> Profile:
-    if name is None:
-        name = "default"
-
-    # If the name is one of the default values, we ensure a valid configuration
-    if name in default_profiles():
-        return ensure_config(name)
-
-    # Otherwise this is a custom config and we return it from the config file
-    return read_config()[name]
-
-
-class SessionNotifier(Notifier):
-    def __init__(self, status_indicator: Status) -> None:
-        self.status_indicator = status_indicator
-        self.live = Live(self.status_indicator, refresh_per_second=8, transient=True)
-
-    def log(self, content: RenderableType) -> None:
-        print(content)
-
-    def status(self, status: str) -> None:
-        self.status_indicator.update(status)
-
-    def start(self) -> None:
-        self.live.start()
-
-    def stop(self) -> None:
-        self.live.stop()
+    _, profile = ensure_config(name)
+    return profile
 
 
 class Session:
@@ -90,38 +59,47 @@ class Session:
         name: Optional[str] = None,
         profile: Optional[str] = None,
         plan: Optional[dict] = None,
+        log_level: Optional[str] = "INFO",
         **kwargs: Dict[str, Any],
     ) -> None:
-        self.name = name
+        if name is None:
+            self.name = droid()
+        else:
+            self.name = name
+        self.profile_name = profile
+        self.prompt_session = GoosePromptSession()
         self.status_indicator = Status("", spinner="dots")
         self.notifier = SessionNotifier(self.status_indicator)
 
-        self.exchange = build_exchange(profile=load_profile(profile), notifier=self.notifier)
+        self.exchange = create_exchange(profile=load_profile(profile), notifier=self.notifier)
+        setup_logging(log_file_directory=LOG_PATH, log_level=log_level)
 
-        if name is not None and self.session_file_path.exists():
-            messages = self.load_session()
-
-            if messages and messages[-1].role == "user":
-                if type(messages[-1].content[-1]) is Text:
-                    # remove the last user message
-                    messages.pop()
-                elif type(messages[-1].content[-1]) is ToolResult:
-                    # if we remove this message, we would need to remove
-                    # the previous assistant message as well. instead of doing
-                    # that, we just add a new assistant message to prompt the user
-                    messages.append(Message.assistant(RESUME_MESSAGE))
-            if messages and type(messages[-1].content[-1]) is ToolUse:
-                # remove the last request for a tool to be used
-                messages.pop()
-
-                # add a new assistant text message to prompt the user
-                messages.append(Message.assistant(RESUME_MESSAGE))
-            self.exchange.messages.extend(messages)
+        self.exchange.messages.extend(self._get_initial_messages())
 
         if len(self.exchange.messages) == 0 and plan:
             self.setup_plan(plan=plan)
 
         self.prompt_session = GoosePromptSession()
+
+    def _get_initial_messages(self) -> List[Message]:
+        messages = self.load_session()
+
+        if messages and messages[-1].role == "user":
+            if type(messages[-1].content[-1]) is Text:
+                # remove the last user message
+                messages.pop()
+            elif type(messages[-1].content[-1]) is ToolResult:
+                # if we remove this message, we would need to remove
+                # the previous assistant message as well. instead of doing
+                # that, we just add a new assistant message to prompt the user
+                messages.append(Message.assistant(RESUME_MESSAGE))
+        if messages and type(messages[-1].content[-1]) is ToolUse:
+            # remove the last request for a tool to be used
+            messages.pop()
+
+            # add a new assistant text message to prompt the user
+            messages.append(Message.assistant(RESUME_MESSAGE))
+        return messages
 
     def setup_plan(self, plan: dict) -> None:
         if len(self.exchange.messages):
@@ -143,11 +121,39 @@ class Session:
             return Message.user(text=user_input.text)
         return self.exchange.messages.pop()
 
+    def single_pass(self, initial_message: str) -> None:
+        """
+        Handles a single input message and processes a reply
+        without entering a loop for additional inputs.
+
+        Args:
+            initial_message (str): The initial user message to process.
+        """
+        profile = self.profile_name or "default"
+        print(f"[dim]starting session | name:[cyan]{self.name}[/]  profile:[cyan]{profile}[/]")
+        print(f"[dim]saving to {self.session_file_path}")
+        print()
+
+        # Process initial message
+        message = Message.user(initial_message)
+
+        self.exchange.add(message)
+        self.reply()  # Process the user message
+
+        save_latest_session(self.session_file_path, self.exchange.messages)
+        print()  # Print a newline for separation.
+
+        print(f"[dim]ended run | name:[cyan]{self.name}[/]  profile:[cyan]{profile}[/]")
+        print(f"[dim]to resume: [magenta]goose session resume {self.name} --profile {profile}[/][/]")
+
     def run(self) -> None:
         """
         Runs the main loop to handle user inputs and responses.
         Continues until an empty string is returned from the prompt.
         """
+        print(f"[dim]starting session | name:[cyan]{self.name}[/]  profile:[cyan]{self.profile_name or 'default'}[/]")
+        print(f"[dim]saving to {self.session_file_path}")
+        print()
         message = self.process_first_message()
         while message:  # Loop until no input (empty string).
             self.notifier.start()
@@ -167,19 +173,15 @@ class Session:
                     + " - [yellow]depending on the error you may be able to continue[/]"
                 )
             self.notifier.stop()
-
+            save_latest_session(self.session_file_path, self.exchange.messages)
             print()  # Print a newline for separation.
             user_input = self.prompt_session.get_user_input()
             message = Message.user(text=user_input.text) if user_input.to_continue() else None
 
-        self.save_session()
+        self._log_cost()
 
     def reply(self) -> None:
-        """Reply to the last user message, calling tools as needed
-
-        Args:
-            text (str): The text input from the user.
-        """
+        """Reply to the last user message, calling tools as needed"""
         self.status_indicator.update("responding")
         response = self.exchange.generate()
 
@@ -232,29 +234,12 @@ class Session:
     def session_file_path(self) -> Path:
         return session_path(self.name)
 
-    def save_session(self) -> None:
-        """Save the current session to a file in JSON format."""
-        if self.name is None:
-            self.generate_session_name()
-
-        try:
-            if self.session_file_path.exists():
-                if not confirm(f"Session {self.name} exists in {self.session_file_path}, overwrite?"):
-                    self.generate_session_name()
-            write_to_file(self.session_file_path, self.exchange.messages)
-        except PermissionError as e:
-            raise RuntimeError(f"Failed to save session due to permissions: {e}")
-        except (IOError, OSError) as e:
-            raise RuntimeError(f"Failed to save session due to I/O error: {e}")
-
     def load_session(self) -> List[Message]:
-        """Load a session from a JSON file."""
-        return read_from_file(self.session_file_path)
+        return read_or_create_file(self.session_file_path)
 
-    def generate_session_name(self) -> None:
-        user_entered_session_name = self.prompt_session.get_save_session_name()
-        self.name = user_entered_session_name if user_entered_session_name else droid()
-        print(f"Saving to [bold cyan]{self.session_file_path}[/bold cyan]")
+    def _log_cost(self) -> None:
+        get_logger().info(get_total_cost_message(self.exchange.get_token_usage()))
+        print(f"[dim]you can view the cost and token usage in the log directory {LOG_PATH}")
 
 
 if __name__ == "__main__":

@@ -31,16 +31,17 @@ if not logger.handlers:
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
-def find_package_root(start_path: Path, marker_file='pyproject.toml') -> Path: 
-    while start_path != start_path.parent:  
-        if (start_path / marker_file).exists():  
+
+def find_package_root(start_path: Path, marker_file="pyproject.toml") -> Path:
+    while start_path != start_path.parent:
+        if (start_path / marker_file).exists():
             return start_path
         start_path = start_path.parent
-    return None  
+    return None
 
 
-CURRENT_DIR = os.path.dirname(os.path.realpath(__file__))
-PACKAGE_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(CURRENT_DIR)))
+CURRENT_DIR = Path(__file__).parent
+PACKAGE_ROOT = find_package_root(CURRENT_DIR)
 
 LANGFUSE_ENV_FILE = os.path.join(PACKAGE_ROOT, "env", ".env.langfuse.local")
 print(LANGFUSE_ENV_FILE)
@@ -80,11 +81,14 @@ def observe_wrapper(*args, **kwargs) -> Callable:  # noqa
     Returns:
         Callable: The wrapped function if credentials are available, otherwise the original function.
     """
+
     def _wrapper(fn: Callable) -> Callable:
         if HAS_LANGFUSE_CREDENTIALS:
+
             @wraps(fn)
             def wrapped_fn(*fargs, **fkwargs):
                 return langfuse_context.observe(*args, **kwargs)(fn)(*fargs, **fkwargs)
+
             return wrapped_fn
         else:
             return fn

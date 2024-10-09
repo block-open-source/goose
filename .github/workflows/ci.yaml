@@ -55,9 +55,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install UV
-        uses: astral-sh/setup-uv@v3
-        with:
-          version: 'latest'
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
 
       - name: Source Cargo Environment
         run: source $HOME/.cargo/env

@@ -10,7 +10,7 @@ OLLAMA_MODEL = "mistral-nemo"
 
 
 class OllamaProvider(OpenAiProvider):
-    """Provides chat completions for models hosted by Ollama"""
+    """Provides chat completions for models hosted by Ollama."""
 
     __doc__ += """Here's an example profile configuration to try:
 

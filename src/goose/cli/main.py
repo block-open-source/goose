@@ -97,6 +97,28 @@ def list_toolkits() -> None:
         print(f" - [bold]{toolkit_name}[/bold]: {first_line_of_doc}")
 
 
+@goose_cli.group()
+def providers() -> None:
+    """Manage providers"""
+    pass
+
+
+@providers.command(name="list")
+def list_providers() -> None:
+    providers = load_plugins(group="exchange.provider")
+
+    for provider_name, provider in providers.items():
+        lines_doc = provider.__doc__.split("\n")
+        first_line_of_doc = lines_doc[0]
+        print(f" - [bold]{provider_name}[/bold]: {first_line_of_doc}")
+        envs = provider.REQUIRED_ENV_VARS
+        if envs:
+            env_required_str = ", ".join(envs)
+            print(f"        [dim]env vars required: {env_required_str}")
+
+        print("\n")
+
+
 def autocomplete_session_files(ctx: click.Context, args: str, incomplete: str) -> None:
     return [
         f"{session_name}"

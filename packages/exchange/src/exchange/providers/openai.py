@@ -6,7 +6,6 @@ import httpx
 from exchange.message import Message
 from exchange.providers.base import Provider, Usage
 from exchange.providers.utils import (
-    get_provider_env_value,
     messages_to_openai_spec,
     openai_response_to_message,
     openai_single_message_context_length_exceeded,
@@ -28,17 +27,21 @@ retry_procedure = retry(
 
 
 class OpenAiProvider(Provider):
-    """Provides chat completions for models hosted directly by OpenAI"""
+    """Provides chat completions for models hosted directly by OpenAI."""
+
+    PROVIDER_NAME = "openai"
+    REQUIRED_ENV_VARS = ["OPENAI_API_KEY"]
+    instructions_url = "https://platform.openai.com/docs/api-reference/api-keys"
 
     def __init__(self, client: httpx.Client) -> None:
-        super().__init__()
         self.client = client
 
     @classmethod
     def from_env(cls: Type["OpenAiProvider"]) -> "OpenAiProvider":
+        cls.check_env_vars(cls.instructions_url)
         url = os.environ.get("OPENAI_HOST", OPENAI_HOST)
-        api_key_instructions_url = "https://platform.openai.com/docs/api-reference/api-keys"
-        key = get_provider_env_value("OPENAI_API_KEY", "openai", api_key_instructions_url)
+        key = os.environ.get("OPENAI_API_KEY")
+
         client = httpx.Client(
             base_url=url + "v1/",
             auth=("Bearer", key),

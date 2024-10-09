@@ -1,11 +1,12 @@
 from typing import Any, Dict, List, Tuple, Type
 
 import httpx
+import os
 
 from exchange.message import Message
 from exchange.providers.base import Provider, Usage
 from tenacity import retry, wait_fixed, stop_after_attempt
-from exchange.providers.utils import get_provider_env_value, raise_for_status, retry_if_status
+from exchange.providers.utils import raise_for_status, retry_if_status
 from exchange.providers.utils import (
     messages_to_openai_spec,
     openai_response_to_message,
@@ -23,21 +24,29 @@ retry_procedure = retry(
 
 
 class DatabricksProvider(Provider):
-    """Provides chat completions for models on Databricks serving endpoints
+    """Provides chat completions for models on Databricks serving endpoints.
 
     Models are expected to follow the llm/v1/chat "task". This includes support
     for foundation and external model endpoints
     https://docs.databricks.com/en/machine-learning/model-serving/create-foundation-model-endpoints.html#create-generative-ai-model-serving-endpoints
+
     """
 
+    PROVIDER_NAME = "databricks"
+    REQUIRED_ENV_VARS = [
+        "DATABRICKS_HOST",
+        "DATABRICKS_TOKEN",
+    ]
+    instructions_url = "https://docs.databricks.com/en/dev-tools/auth/index.html#general-host-token-and-account-id-environment-variables-and-fields"
+
     def __init__(self, client: httpx.Client) -> None:
-        super().__init__()
         self.client = client
 
     @classmethod
     def from_env(cls: Type["DatabricksProvider"]) -> "DatabricksProvider":
-        url = cls._get_env_variable("DATABRICKS_HOST")
-        key = cls._get_env_variable("DATABRICKS_TOKEN")
+        cls.check_env_vars(cls.instructions_url)
+        url = os.environ.get("DATABRICKS_HOST")
+        key = os.environ.get("DATABRICKS_TOKEN")
         client = httpx.Client(
             base_url=url,
             auth=("token", key),
@@ -89,8 +98,3 @@ class DatabricksProvider(Provider):
             json=payload,
         )
         return raise_for_status(response).json()
-
-    @classmethod
-    def _get_env_variable(cls: Type["DatabricksProvider"], key: str) -> str:
-        instruction = "https://docs.databricks.com/en/dev-tools/auth/index.html#general-host-token-and-account-id-environment-variables-and-fields"
-        return get_provider_env_value(key, "databricks", instruction)

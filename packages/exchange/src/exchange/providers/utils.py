@@ -1,13 +1,11 @@
 import base64
 import json
-import os
 import re
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import httpx
 from exchange.content import Text, ToolResult, ToolUse
 from exchange.message import Message
-from exchange.providers.base import MissingProviderEnvVariableError
 from exchange.tool import Tool
 from tenacity import retry_if_exception
 
@@ -179,13 +177,6 @@ def openai_single_message_context_length_exceeded(error_dict: dict) -> None:
     code = error_dict.get("code")
     if code == "context_length_exceeded" or code == "string_above_max_length":
         raise InitialMessageTooLargeError(f"Input message too long. Message: {error_dict.get('message')}")
-
-
-def get_provider_env_value(env_variable: str, provider: str, instructions_url: Optional[str] = None) -> str:
-    try:
-        return os.environ[env_variable]
-    except KeyError:
-        raise MissingProviderEnvVariableError(env_variable, provider, instructions_url)
 
 
 class InitialMessageTooLargeError(Exception):

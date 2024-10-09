@@ -7,7 +7,7 @@ from exchange import Message, Tool
 from exchange.content import Text, ToolResult, ToolUse
 from exchange.providers.base import Provider, Usage
 from tenacity import retry, wait_fixed, stop_after_attempt
-from exchange.providers.utils import get_provider_env_value, raise_for_status, retry_if_status
+from exchange.providers.utils import raise_for_status, retry_if_status
 
 GOOGLE_HOST = "https://generativelanguage.googleapis.com/v1beta"
 
@@ -20,15 +20,20 @@ retry_procedure = retry(
 
 
 class GoogleProvider(Provider):
+    """Provides chat completions for models hosted by Google, including Gemini and other experimental models."""
+
+    PROVIDER_NAME = "google"
+    REQUIRED_ENV_VARS = ["GOOGLE_API_KEY"]
+    instructions_url = "https://ai.google.dev/gemini-api/docs/api-key"
+
     def __init__(self, client: httpx.Client) -> None:
         self.client = client
 
     @classmethod
     def from_env(cls: Type["GoogleProvider"]) -> "GoogleProvider":
+        cls.check_env_vars(cls.instructions_url)
         url = os.environ.get("GOOGLE_HOST", GOOGLE_HOST)
-        api_key_instructions_url = "https://ai.google.dev/gemini-api/docs/api-key"
-        key = get_provider_env_value("GOOGLE_API_KEY", "google", api_key_instructions_url)
-
+        key = os.environ.get("GOOGLE_API_KEY")
         client = httpx.Client(
             base_url=url,
             headers={

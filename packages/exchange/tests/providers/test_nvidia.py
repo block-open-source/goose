@@ -49,9 +49,9 @@ def test_nvidia_integration():
     provider = NVIDIAProvider.from_env()
     model = "meta/llama-3.1-8b-instruct"
     system = "You are a helpful assistant."
-    messages = [Message.user("Hello")]
+    messages = [Message.user("What is the capital of France?")]
 
-    reply = provider.complete(model=model, system=system, messages=messages, tools=None)
+    reply, _ = provider.complete(model=model, system=system, messages=messages, tools=None)
 
-    assert reply[0].content is not None
-    print("Completion content from NVIDIA:", reply[0].content)
+    assert reply.content is not None
+    assert "paris" in reply.content[0].text.lower()

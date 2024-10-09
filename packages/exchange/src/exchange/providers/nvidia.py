@@ -27,7 +27,7 @@ retry_procedure = retry(
 )
 
 class NVIDIAProvider(Provider):
-    """Provides chat completions for models hosted directly by OpenAI"""
+    """Provides chat completions for models exposed through NVIDIA Inference Microservice (NIM) """
 
     def __init__(self, client: httpx.Client) -> None:
         super().__init__()

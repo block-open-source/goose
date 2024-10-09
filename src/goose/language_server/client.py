@@ -1,7 +1,7 @@
 import asyncio
 from collections import defaultdict
 import threading
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 
 from goose.language_server.base import LanguageServer
 from goose.language_server.type_helpers import ensure_all_methods_implemented
@@ -91,16 +91,6 @@ class LanguageServerClient:
             loop.call_soon_threadsafe(loop.stop)
             self.loop_threads[language_name].join()
 
-    @contextmanager
-    def open_file(self, relative_file_path: str) -> Iterator[None]:
-        """
-        Open a file in the Language Server. This is required before making any requests to the Language Server.
-
-        :param relative_file_path: The relative path of the file to open.
-        """
-        with self.language_server.open_file(relative_file_path):
-            yield
-
     @language_server_request
     def request_definition(
         self, language_server: LanguageServer, file_path: str, line: int, column: int
@@ -161,3 +151,20 @@ class LanguageServerClient:
             (list) A list of document symbols.
         """
         return language_server.request_document_symbols(file_path)
+
+    @contextmanager
+    def open_file(self, file_path: str) -> Iterator[None]:
+        """
+        Open a file in the Language Server. This is required before making any requests to the Language Server.
+
+        Args:
+            file_path (str): The absolute path of the file to open.
+        """
+        language = Language.from_file_path(file_path)
+        language_servers = [language_server for language_server in self.language_servers[language]]
+        with ExitStack() as stack:
+            [stack.open_file(file_path) for ls in language_servers]
+            yield
+
+    def notify_file_changed(self, file_path: str) -> None:
+        pass

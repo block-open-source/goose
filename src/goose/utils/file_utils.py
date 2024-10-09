@@ -4,6 +4,8 @@ from collections import Counter
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from goose.utils.language import Language
+
 
 def create_extensions_list(project_root: str, max_n: int) -> list:
     """Get the top N file extensions in the current project
@@ -101,3 +103,15 @@ def create_file_list(dir_path: str, extensions: List[str]) -> List[str]:
         final_file_list += files
 
     return final_file_list
+
+
+def get_code_snippet(file_path: str, start_line: int, end_line: int, extra_padding: int = 0) -> str:
+    if start_line == end_line:
+        raise ValueError("Start line and end line cannot be the same")
+
+    with open(file_path, "r") as file:
+        content = file.readlines()
+
+    snippet_lines = content[max(0, start_line - extra_padding) : min(len(content), end_line + extra_padding)]
+    language = Language.from_file_path(file_path)
+    return f"```{language}\n{'\n'.join(snippet_lines).strip()}\n```"

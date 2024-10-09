@@ -186,6 +186,7 @@ class Session:
                 save_latest_session(self.session_file_path, self.exchange.messages)
 
                 print()  # Print a newline for separation.
+                # TODO: check time and notify on any diffed files that are currently open
                 user_input = self.prompt_session.get_user_input()
                 message = Message.user(text=user_input.text) if user_input.to_continue() else None
 

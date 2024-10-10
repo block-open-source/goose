@@ -1,9 +1,11 @@
 import os
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from exchange import Message
 from goose.utils.session_file import (
+    is_empty_session,
     list_sorted_session_files,
     read_from_file,
     read_or_create_file,
@@ -115,3 +117,22 @@ def create_session_file(file_path, file_name) -> Path:
     file = file_path / f"{file_name}.jsonl"
     file.touch()
     return file
+
+
+@patch("pathlib.Path.is_file", return_value=True, name="mock_is_file")
+@patch("pathlib.Path.stat", name="mock_stat")
+def test_is_empty_session(mock_stat, mock_is_file):
+    mock_stat.return_value.st_size = 0
+    assert is_empty_session(Path("empty_file.json"))
+
+
+@patch("pathlib.Path.is_file", return_value=True, name="mock_is_file")
+@patch("pathlib.Path.stat", name="mock_stat")
+def test_is_not_empty_session(mock_stat, mock_is_file):
+    mock_stat.return_value.st_size = 100
+    assert not is_empty_session(Path("non_empty_file.json"))
+
+
+@patch("pathlib.Path.is_file", return_value=False, name="mock_is_file")
+def test_is_not_empty_session_file_not_found(mock_is_file):
+    assert not is_empty_session(Path("file_not_found.json"))

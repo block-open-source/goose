@@ -170,7 +170,6 @@ class Session:
         print(
             f"[bold]starting session | name: [cyan]{self.name}[/]  profile: [cyan]{self.profile or 'default'}[/][/bold]"
         )
-        print(f"[bold]saving to {self.session_file_path}[/bold]")
         print()
         message = self.process_first_message()
         while message:  # Loop until no input (empty string).

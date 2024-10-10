@@ -1,2 +1,0 @@
-lint.select = ["E", "W", "F", "N"]
-line-length = 120

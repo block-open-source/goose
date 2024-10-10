@@ -14,7 +14,6 @@ from exchange.moderators.truncate import ContextTruncate
 from exchange.providers import Provider, Usage
 from exchange.tool import Tool
 from exchange.token_usage_collector import _token_usage_collector
-from langfuse_wrapper.langfuse_wrapper import observe_wrapper
 
 
 def validate_tool_output(output: str) -> None:
@@ -128,7 +127,6 @@ class Exchange:
 
         return response
 
-    @observe_wrapper()
     def call_function(self, tool_use: ToolUse) -> ToolResult:
         """Call the function indicated by the tool use"""
         tool = self._toolmap.get(tool_use.name)

@@ -1,7 +1,7 @@
 [project]
 name = "goose-ai"
 description = "a programming agent that runs on your machine"
-version = "0.9.3"
+version = "0.9.4"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

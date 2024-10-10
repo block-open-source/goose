@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.4] - 2024-10-10
+
+- revert: "feat: add local langfuse tracing option (#106)"
+- feat: add local langfuse tracing option (#106)
+- feat: add groq provider (#134)
+- feat: add a deep thinking reasoner model (o1-preview/mini) (#68)
+- fix: use concrete SessionNotifier (#135)
+- feat: add guards to session management (#101)
+- fix: Set default model configuration for the Google provider. (#131)
+- test: convert Google Gemini tests to VCR (#118)
+- chore: Add goose providers list command (#116)
+- docs: working ollama for desktop (#125)
+- docs: format and clean up warnings/errors (#120)
+- docs: update deploy workflow (#124)
+- feat: Implement a goose run command (#121)
+- feat: saved api_key to keychain for user (#104)
+- docs: add callout plugin (#119)
+- chore: add a page to docs for Goose application examples (#117)
+- fix: exit the goose and show the error message when provider environment variable is not set (#103)
+- fix: Update OpenAI pricing per https://openai.com/api/pricing/ (#110)
+- fix: update developer tool prompts to use plan task status to match allowable statuses update_plan tool call (#107)
+- fix: removed the panel in the output so that the user won't have unnecessary pane borders in the copied content (#109)
+- docs: update links to exchange to the new location (#108)
+- chore: setup workspace for exchange (#105)
+- fix: resolve uvx when using a git client or IDE (#98)
+- ci: add include-markdown for mkdocs (#100)
+- chore: fix broken badge on readme (#102)
+- feat: add global optional user goosehints file (#73)
+- docs: update docs (#99)
+
 ## [0.9.3] - 2024-09-25
 
 - feat: auto save sessions before next user input (#94)

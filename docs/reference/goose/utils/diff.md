@@ -1,1 +1,0 @@
-::: goose.utils.diff

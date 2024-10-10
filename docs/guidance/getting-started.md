@@ -6,7 +6,7 @@ This page contains two sections that will help you get started with Goose:
 2. [Working with Goose](#working-with-goose): how to guide Goose through a task, and how to provide context for Goose to work with.
 
 ## Configuring Goose with the `profiles.yaml` file
-On the first run, Goose will detect what LLMs are available from your environment, and generate a configuration file at `~/.config/goose/profiles.yaml`. You can edit those profiles to further configure goose. 
+On the first run, Goose will detect what LLMs are available from your environment, and generate a configuration file at `~/.config/goose/profiles.yaml`. You can edit those profiles to further configure goose.
 
 Here’s what the default `profiles.yaml` could look like if Goose detects an OpenAI API key:
 
@@ -61,7 +61,7 @@ Write all code comments in French
 
 ### Toolkits
 
-Toolkits expand Goose’s capabilities and tailor its functionality to specific development tasks. Toolkits provide Goose with additional contextual information and interactive abilities, allowing for a more comprehensive and efficient workflow. 
+Toolkits expand Goose’s capabilities and tailor its functionality to specific development tasks. Toolkits provide Goose with additional contextual information and interactive abilities, allowing for a more comprehensive and efficient workflow.
 
 Here are some out-of-the-box examples:
 
@@ -84,23 +84,23 @@ Here are some examples:
 #### Basic example plan
 
 ```md
-Your goal is to refactor this fastapi application to use a sqlite database. Use `pytest -s -v -x` to run the tests when needed. 
+Your goal is to refactor this fastapi application to use a sqlite database. Use `pytest -s -v -x` to run the tests when needed.
 
 - Use ripgrep to find the fastapi app and its tests in this directory
 - read the files you found
 - Add sqlalchemy and alembic as dependencies with poetry
 - Run alembic init to set up the basic configuration
 - Add sqlite dependency with Poetry
-- Create new module for database code and include sqlalchemy and alembic setup 
+- Create new module for database code and include sqlalchemy and alembic setup
 - Define an accounts table with SQLAlchemy
-- Implement CRUD operations for accounts table  
+- Implement CRUD operations for accounts table
 - Update main.py to integrate with SQLite database and use CRUD operation
 - Use alembic to create the table
 - Use conftest to set up a test database with a new DB URL
 - Run existing test suite and ensure all tests pass. Do not edit the test case behavior, instead use tests to find issues.
 ```
 
-The starting plan is specified with the tasks. Each list entry is a different step in the plan. This is a pretty detailed set of tasks, but is really just a break-down of the conversation we had in the previous section. 
+The starting plan is specified with the tasks. Each list entry is a different step in the plan. This is a pretty detailed set of tasks, but is really just a break-down of the conversation we had in the previous section.
 
 The kickoff message is what gets set as the first user message when goose starts running (with the plan). This message should contain the overall goal of the tasks and could also contain extra context you want to include for this problem. In our case, we are just mentioning the test command we want to use to run the tests.
 
@@ -138,3 +138,4 @@ goose session start --plan plan.md --args dep=pytest,repo=github
 [configuration]: ../configuration.md
 [available-toolkits]: ../plugins/available-toolkits.md
 [providers]: ../plugins/providers.md
+[goose-plugins]:https://github.com/block-open-source/goose-plugins

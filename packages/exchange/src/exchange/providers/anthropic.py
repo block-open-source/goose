@@ -7,7 +7,7 @@ from exchange import Message, Tool
 from exchange.content import Text, ToolResult, ToolUse
 from exchange.providers.base import Provider, Usage
 from tenacity import retry, wait_fixed, stop_after_attempt
-from exchange.providers.utils import get_provider_env_value, retry_if_status, raise_for_status
+from exchange.providers.utils import retry_if_status, raise_for_status
 
 ANTHROPIC_HOST = "https://api.anthropic.com/v1/messages"
 
@@ -20,13 +20,19 @@ retry_procedure = retry(
 
 
 class AnthropicProvider(Provider):
+    """Provides chat completions for models hosted directly by Anthropic."""
+
+    PROVIDER_NAME = "anthropic"
+    REQUIRED_ENV_VARS = ["ANTHROPIC_API_KEY"]
+
     def __init__(self, client: httpx.Client) -> None:
         self.client = client
 
     @classmethod
     def from_env(cls: Type["AnthropicProvider"]) -> "AnthropicProvider":
+        cls.check_env_vars()
         url = os.environ.get("ANTHROPIC_HOST", ANTHROPIC_HOST)
-        key = get_provider_env_value("ANTHROPIC_API_KEY", "anthropic")
+        key = os.environ.get("ANTHROPIC_API_KEY")
         client = httpx.Client(
             base_url=url,
             headers={

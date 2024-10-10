@@ -167,9 +167,8 @@ class Session:
         if is_existing_session(self.session_file_path):
             self._prompt_overwrite_session()
 
-        print(
-            f"[bold]starting session | name: [cyan]{self.name}[/]  profile: [cyan]{self.profile or 'default'}[/][/bold]"
-        )
+        profile_name = self.profile or "default"
+        print(f"[dim]starting session | name: [cyan]{self.name}[/cyan]  profile: [cyan]{profile_name}[/cyan][/dim]")
         print()
         message = self.process_first_message()
         while message:  # Loop until no input (empty string).
@@ -261,7 +260,7 @@ class Session:
 
     def _log_cost(self) -> None:
         get_logger().info(get_total_cost_message(self.exchange.get_token_usage()))
-        print(f"[dim]you can view the cost and token usage in the log directory {LOG_PATH}")
+        print(f"[dim]you can view the cost and token usage in the log directory {LOG_PATH}[/]")
 
     def _prompt_overwrite_session(self) -> None:
         print(f"[yellow]Session already exists at {self.session_file_path}.[/]")

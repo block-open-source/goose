@@ -22,8 +22,6 @@ from io import StringIO
 from pathlib import Path
 from functools import wraps  # Add this import
 
-logger = logging.getLogger(__name__)
-
 def find_package_root(start_path: Path, marker_file='pyproject.toml') -> Path: 
     while start_path != start_path.parent:  
         if (start_path / marker_file).exists():  

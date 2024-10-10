@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.9.4] - 2024-10-10
 
+- revert: "feat: add local langfuse tracing option (#106)"
 - feat: add local langfuse tracing option (#106)
 - feat: add groq provider (#134)
 - feat: add a deep thinking reasoner model (o1-preview/mini) (#68)

@@ -15,7 +15,6 @@ from exchange.providers import Provider, Usage
 from tenacity import retry, wait_fixed, stop_after_attempt
 from exchange.providers.utils import raise_for_status, retry_if_status
 from exchange.tool import Tool
-from langfuse_wrapper.langfuse_wrapper import observe_wrapper
 
 SERVICE = "bedrock-runtime"
 UTC = timezone.utc
@@ -176,7 +175,6 @@ class BedrockProvider(Provider):
         )
         return cls(client=client)
 
-    @observe_wrapper(as_type="generation")
     def complete(
         self,
         model: str,

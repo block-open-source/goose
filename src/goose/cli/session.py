@@ -3,9 +3,9 @@ import traceback
 from pathlib import Path
 from typing import Any, Optional
 
-from exchange import Message, ToolResult, ToolUse, Text, Exchange
-from exchange.providers.base import MissingProviderEnvVariableError
+from exchange import Exchange, Message, Text, ToolResult, ToolUse
 from exchange.invalid_choice_error import InvalidChoiceError
+from exchange.providers.base import MissingProviderEnvVariableError
 from rich import print
 from rich.console import RenderableType
 from rich.live import Live
@@ -14,9 +14,9 @@ from rich.panel import Panel
 from rich.prompt import Prompt
 from rich.status import Status
 
-from goose.build import build_exchange
-from goose.cli.config import PROFILES_CONFIG_PATH, ensure_config, session_path, LOG_PATH
 from goose._logger import get_logger, setup_logging
+from goose.build import build_exchange
+from goose.cli.config import LOG_PATH, PROFILES_CONFIG_PATH, ensure_config, session_path
 from goose.cli.prompt.goose_prompt_session import GoosePromptSession
 from goose.cli.prompt.overwrite_session_prompt import OverwriteSessionPrompt
 from goose.notifier import Notifier

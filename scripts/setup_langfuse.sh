@@ -26,7 +26,7 @@ set -e
 SCRIPT_DIR=$(realpath "$(dirname "${BASH_SOURCE[0]}")")
 LANGFUSE_DOCKER_COMPOSE_URL="https://raw.githubusercontent.com/langfuse/langfuse/main/docker-compose.yml"
 LANGFUSE_DOCKER_COMPOSE_FILE="langfuse-docker-compose.yaml"
-LANGFUSE_ENV_FILE="$SCRIPT_DIR/.env.langfuse.local"
+LANGFUSE_ENV_FILE="$SCRIPT_DIR/../packages/exchange/.env.langfuse.local"
 
 check_dependencies() {
     local dependencies=("curl" "docker")
@@ -45,7 +45,7 @@ check_dependencies() {
 }
 
 download_docker_compose() {
-    if ! curl --fail --location --output "$SCRIPT_DIR/docker-compose.yaml" "$LANGFUSE_DOCKER_COMPOSE_URL"; then
+    if ! curl --fail --location --output "$SCRIPT_DIR/langfuse-docker-compose.yaml" "$LANGFUSE_DOCKER_COMPOSE_URL"; then
         echo "Failed to download docker-compose file from $LANGFUSE_DOCKER_COMPOSE_URL"
         exit 1
     fi

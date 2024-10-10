@@ -5,11 +5,11 @@ from exchange.langfuse_wrapper import observe_wrapper
 
 @pytest.fixture
 def mock_langfuse_context():
-    with patch("langfuse_wrapper.langfuse_wrapper.langfuse_context") as mock:
+    with patch("exchange.langfuse_wrapper.langfuse_context") as mock:
         yield mock
 
 
-@patch("langfuse_wrapper.langfuse_wrapper.HAS_LANGFUSE_CREDENTIALS", True)
+@patch("exchange.langfuse_wrapper.HAS_LANGFUSE_CREDENTIALS", True)
 def test_function_is_wrapped(mock_langfuse_context):
     mock_observe = MagicMock(side_effect=lambda *args, **kwargs: lambda fn: fn)
     mock_langfuse_context.observe = mock_observe
@@ -31,7 +31,7 @@ def test_function_is_wrapped(mock_langfuse_context):
     mock_observe.assert_called_with("arg1", kwarg1="kwarg1")
 
 
-@patch("langfuse_wrapper.langfuse_wrapper.HAS_LANGFUSE_CREDENTIALS", False)
+@patch("exchange.langfuse_wrapper.HAS_LANGFUSE_CREDENTIALS", False)
 def test_function_is_not_wrapped(mock_langfuse_context):
     mock_observe = MagicMock(return_value=lambda f: f)
     mock_langfuse_context.observe = mock_observe

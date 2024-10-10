@@ -149,9 +149,9 @@ To see more documentation on the CLI commands currently available to Goose check
 
 ### Tracing with Langfuse
 
-The exchange package provides a [Langfuse](https://langfuse.com/) wrapper module. The wrapper serves to initialize Langfuse appropriately if the Langfuse server is running locally and otherwise to skip applying the Langfuse observe descorators.
-
 **Note: This Langfuse integration is experimental and we don't currently have integration tests for it.**
+
+The exchange package provides a [Langfuse](https://langfuse.com/) wrapper module. The wrapper serves to initialize Langfuse appropriately if the Langfuse server is running locally and otherwise to skip applying the Langfuse observe descorators.
 
 #### Start your local Langfuse server
 
@@ -161,7 +161,7 @@ Read more about local Langfuse deployments [here](https://langfuse.com/docs/depl
 
 #### Exchange and Goose integration
 
-Import `from langfuse_wrapper.langfuse_wrapper import observe_wrapper` and use the `observe_wrapper()` decorator on functions you wish to enable tracing for. `observe_wrapper` functions the same way as Langfuse's observe decorator.
+Import `from exchange.langfuse_wrapper import observe_wrapper` and use the `observe_wrapper()` decorator on functions you wish to enable tracing for. `observe_wrapper` functions the same way as Langfuse's observe decorator.
 
 Read more about Langfuse's decorator-based tracing [here](https://langfuse.com/docs/sdk/python/decorators).
 

@@ -44,9 +44,7 @@ class GroqProvider(Provider):
 
         client = httpx.Client(
             base_url=url + "v1/",
-            headers= {
-                "Authorization": "Bearer " + key
-            },
+            headers={"Authorization": "Bearer " + key},
             timeout=httpx.Timeout(60 * 10),
         )
         return cls(client)

@@ -1,12 +1,20 @@
 import json
 import os
-from pathlib import Path
 import tempfile
+from pathlib import Path
 from typing import Dict, Iterator, List
 
 from exchange import Message
 
 from goose.cli.config import SESSION_FILE_SUFFIX
+
+
+def is_existing_session(path: Path) -> bool:
+    return path.is_file() and path.stat().st_size > 0
+
+
+def is_empty_session(path: Path) -> bool:
+    return path.is_file() and path.stat().st_size == 0
 
 
 def write_to_file(file_path: Path, messages: List[Message]) -> None:

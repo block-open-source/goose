@@ -53,6 +53,23 @@ def default_azure_env(monkeypatch):
         monkeypatch.setenv("AZURE_CHAT_COMPLETIONS_KEY", AZURE_API_KEY)
 
 
+GOOGLE_API_KEY = "test_google_api_key"
+
+
+@pytest.fixture
+def default_google_env(monkeypatch):
+    """
+    This fixture prevents GoogleProvider.from_env() from erring on missing
+    environment variables.
+
+    When running VCR tests for the first time or after deleting a cassette
+    recording, set required environment variables, so that real requests don't
+    fail. Subsequent runs use the recorded data, so don't need them.
+    """
+    if "GOOGLE_API_KEY" not in os.environ:
+        monkeypatch.setenv("GOOGLE_API_KEY", GOOGLE_API_KEY)
+
+
 @pytest.fixture(scope="module")
 def vcr_config():
     """
@@ -85,6 +102,8 @@ def scrub_request_url(request):
         request.uri = re.sub(r"/deployments/[^/]+", f"/deployments/{AZURE_DEPLOYMENT_NAME}", request.uri)
         request.headers["host"] = AZURE_ENDPOINT.replace("https://", "")
         request.headers["api-key"] = AZURE_API_KEY
+    elif "generativelanguage.googleapis.com" in request.uri:
+        request.uri = re.sub(r"([?&])key=[^&]+", r"\1key=" + GOOGLE_API_KEY, request.uri)
 
     return request
 
@@ -93,8 +112,10 @@ def scrub_response_headers(response):
     """
     This scrubs sensitive response headers. Note they are case-sensitive!
     """
-    response["headers"]["openai-organization"] = OPENAI_ORG_ID
-    response["headers"]["Set-Cookie"] = "test_set_cookie"
+    if "openai-organization" in response["headers"]:
+        response["headers"]["openai-organization"] = OPENAI_ORG_ID
+    if "Set-Cookie" in response["headers"]:
+        response["headers"]["Set-Cookie"] = "test_set_cookie"
     return response
 
 
@@ -102,7 +123,7 @@ def complete(provider_cls: Type[Provider], model: str, **kwargs) -> Tuple[Messag
     provider = provider_cls.from_env()
     system = "You are a helpful assistant."
     messages = [Message.user("Hello")]
-    return provider.complete(model=model, system=system, messages=messages, tools=None, **kwargs)
+    return provider.complete(model=model, system=system, messages=messages, tools=(), **kwargs)
 
 
 def tools(provider_cls: Type[Provider], model: str, **kwargs) -> Tuple[Message, Usage]:
@@ -128,4 +149,4 @@ def vision(provider_cls: Type[Provider], model: str, **kwargs) -> Tuple[Message,
             content=[ToolResult(tool_use_id="xyz", output='"image:tests/test_image.png"')],
         ),
     ]
-    return provider.complete(model=model, system=system, messages=messages, tools=None, **kwargs)
+    return provider.complete(model=model, system=system, messages=messages, tools=(), **kwargs)

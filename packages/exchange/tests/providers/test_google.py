@@ -1,13 +1,15 @@
 import os
 from unittest.mock import patch
 
-import httpx
 import pytest
 from exchange import Message, Text
 from exchange.content import ToolResult, ToolUse
 from exchange.providers.base import MissingProviderEnvVariableError
 from exchange.providers.google import GoogleProvider
 from exchange.tool import Tool
+from .conftest import complete, tools
+
+GOOGLE_MODEL = os.getenv("GOOGLE_MODEL", "gemini-1.5-flash")
 
 
 def example_fn(param: str) -> None:
@@ -28,12 +30,6 @@ def test_from_env_throw_error_when_missing_api_key():
         assert context.value.env_variable == "GOOGLE_API_KEY"
         assert "Missing environment variable: GOOGLE_API_KEY for provider google" in context.value.message
         assert "https://ai.google.dev/gemini-api/docs/api-key" in context.value.message
-
-
-@pytest.fixture
-@patch.dict(os.environ, {"GOOGLE_API_KEY": "test_api_key"})
-def google_provider():
-    return GoogleProvider.from_env()
 
 
 def test_google_response_to_text_message() -> None:
@@ -105,54 +101,40 @@ def test_messages_to_google_spec() -> None:
     assert actual_spec == expected_spec
 
 
-@patch("httpx.Client.post")
-@patch("logging.warning")
-@patch("logging.error")
-def test_google_completion(mock_error, mock_warning, mock_post, google_provider):
-    mock_response = {
-        "candidates": [{"content": {"parts": [{"text": "Hello from Gemini!"}], "role": "model"}}],
-        "usageMetadata": {"promptTokenCount": 3, "candidatesTokenCount": 10, "totalTokenCount": 13},
-    }
+@pytest.mark.vcr()
+def test_google_complete(default_google_env):
+    reply_message, reply_usage = complete(GoogleProvider, GOOGLE_MODEL)
 
-    # First attempts fail with status code 429, 2nd succeeds
-    def create_response(status_code, json_data=None):
-        response = httpx.Response(status_code)
-        response._content = httpx._content.json_dumps(json_data or {}).encode()
-        response._request = httpx.Request("POST", "https://generativelanguage.googleapis.com/v1beta/")
-        return response
-
-    mock_post.side_effect = [
-        create_response(429),  # 1st attempt
-        create_response(200, mock_response),  # Final success
-    ]
-
-    model = "gemini-1.5-flash"
-    system = "You are a helpful assistant."
-    messages = [Message.user("Hello, Gemini")]
-
-    reply_message, reply_usage = google_provider.complete(model=model, system=system, messages=messages)
-
-    assert reply_message.content == [Text(text="Hello from Gemini!")]
-    assert reply_usage.total_tokens == 13
-    assert mock_post.call_count == 2
-    mock_post.assert_any_call(
-        "models/gemini-1.5-flash:generateContent",
-        json={
-            "system_instruction": {"parts": [{"text": "You are a helpful assistant."}]},
-            "contents": [{"role": "user", "parts": [{"text": "Hello, Gemini"}]}],
-        },
-    )
+    assert reply_message.content == [Text("Hello! 👋  How can I help you today? 😊 \n")]
+    assert reply_usage.total_tokens == 20
 
 
 @pytest.mark.integration
-def test_google_integration():
-    provider = GoogleProvider.from_env()
-    model = "gemini-1.5-flash"  # updated model to a known valid model
-    system = "You are a helpful assistant."
-    messages = [Message.user("Hello, Gemini")]
-
-    # Run the completion
-    reply = provider.complete(model=model, system=system, messages=messages)
+def test_google_complete_integration():
+    reply = complete(GoogleProvider, GOOGLE_MODEL)
 
     assert reply[0].content is not None
     print("Completion content from Google:", reply[0].content)
+
+
+@pytest.mark.vcr()
+def test_google_tools(default_google_env):
+    reply_message, reply_usage = tools(GoogleProvider, GOOGLE_MODEL)
+
+    tool_use = reply_message.content[0]
+    assert isinstance(tool_use, ToolUse), f"Expected ToolUse, but was {type(tool_use).__name__}"
+    assert tool_use.id == "read_file"
+    assert tool_use.name == "read_file"
+    assert tool_use.parameters == {"filename": "test.txt"}
+    assert reply_usage.total_tokens == 118
+
+
+@pytest.mark.integration
+def test_google_tools_integration():
+    reply = tools(GoogleProvider, GOOGLE_MODEL)
+
+    tool_use = reply[0].content[0]
+    assert isinstance(tool_use, ToolUse), f"Expected ToolUse, but was {type(tool_use).__name__}"
+    assert tool_use.id is not None
+    assert tool_use.name == "read_file"
+    assert tool_use.parameters == {"filename": "test.txt"}

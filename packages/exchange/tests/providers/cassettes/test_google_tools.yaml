@@ -1,0 +1,73 @@
+interactions:
+- request:
+    body: '{"system_instruction": {"parts": [{"text": "You are a helpful assistant.
+      Expect to need to read a file using read_file."}]}, "contents": [{"role": "user",
+      "parts": [{"text": "What are the contents of this file? test.txt"}]}], "tools":
+      {"functionDeclarations": [{"name": "read_file", "description": "Read the contents
+      of the file.", "parameters": {"type": "object", "properties": {"filename": {"type":
+      "string", "description": "The path to the file, which can be relative or\nabsolute.
+      If it is a plain filename, it is assumed to be in the\ncurrent working directory."}},
+      "required": ["filename"]}}]}}'
+    headers:
+      accept:
+      - '*/*'
+      accept-encoding:
+      - gzip, deflate
+      connection:
+      - keep-alive
+      content-length:
+      - '600'
+      content-type:
+      - application/json
+      host:
+      - generativelanguage.googleapis.com
+      user-agent:
+      - python-httpx/0.27.2
+    method: POST
+    uri: https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=test_google_api_key
+  response:
+    body:
+      string: "{\n  \"candidates\": [\n    {\n      \"content\": {\n        \"parts\":
+        [\n          {\n            \"functionCall\": {\n              \"name\": \"read_file\",\n
+        \             \"args\": {\n                \"filename\": \"test.txt\"\n              }\n
+        \           }\n          }\n        ],\n        \"role\": \"model\"\n      },\n
+        \     \"finishReason\": \"STOP\",\n      \"index\": 0,\n      \"safetyRatings\":
+        [\n        {\n          \"category\": \"HARM_CATEGORY_SEXUALLY_EXPLICIT\",\n
+        \         \"probability\": \"NEGLIGIBLE\"\n        },\n        {\n          \"category\":
+        \"HARM_CATEGORY_HATE_SPEECH\",\n          \"probability\": \"NEGLIGIBLE\"\n
+        \       },\n        {\n          \"category\": \"HARM_CATEGORY_HARASSMENT\",\n
+        \         \"probability\": \"NEGLIGIBLE\"\n        },\n        {\n          \"category\":
+        \"HARM_CATEGORY_DANGEROUS_CONTENT\",\n          \"probability\": \"NEGLIGIBLE\"\n
+        \       }\n      ]\n    }\n  ],\n  \"usageMetadata\": {\n    \"promptTokenCount\":
+        101,\n    \"candidatesTokenCount\": 17,\n    \"totalTokenCount\": 118\n  }\n}\n"
+    headers:
+      Alt-Svc:
+      - h3=":443"; ma=2592000,h3-29=":443"; ma=2592000
+      Cache-Control:
+      - private
+      Content-Type:
+      - application/json; charset=UTF-8
+      Date:
+      - Wed, 02 Oct 2024 01:06:51 GMT
+      Server:
+      - scaffolding on HTTPServer2
+      Server-Timing:
+      - gfet4t7; dur=449
+      Transfer-Encoding:
+      - chunked
+      Vary:
+      - Origin
+      - X-Origin
+      - Referer
+      X-Content-Type-Options:
+      - nosniff
+      X-Frame-Options:
+      - SAMEORIGIN
+      X-XSS-Protection:
+      - '0'
+      content-length:
+      - '947'
+    status:
+      code: 200
+      message: OK
+version: 1

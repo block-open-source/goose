@@ -97,6 +97,28 @@ def list_toolkits() -> None:
         print(f" - [bold]{toolkit_name}[/bold]: {first_line_of_doc}")
 
 
+@goose_cli.group()
+def providers() -> None:
+    """Manage providers"""
+    pass
+
+
+@providers.command(name="list")
+def list_providers() -> None:
+    providers = load_plugins(group="exchange.provider")
+
+    for provider_name, provider in providers.items():
+        lines_doc = provider.__doc__.split("\n")
+        first_line_of_doc = lines_doc[0]
+        print(f" - [bold]{provider_name}[/bold]: {first_line_of_doc}")
+        envs = provider.REQUIRED_ENV_VARS
+        if envs:
+            env_required_str = ", ".join(envs)
+            print(f"        [dim]env vars required: {env_required_str}")
+
+        print("\n")
+
+
 def autocomplete_session_files(ctx: click.Context, args: str, incomplete: str) -> None:
     return [
         f"{session_name}"
@@ -175,6 +197,22 @@ def session_resume(name: Optional[str], profile: str, log_level: str) -> None:
             print(f"Creating new session: {name}")
     session = Session(name=name, profile=profile, log_level=log_level)
     session.run()
+
+
+@goose_cli.command(name="run")
+@click.argument("message_file", required=False, type=click.Path(exists=True))
+@click.option("--profile")
+@click.option("--log-level", type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]), default="INFO")
+def run(message_file: Optional[str], profile: str, log_level: str) -> None:
+    """Run a single-pass session with a message from a markdown input file"""
+    if message_file:
+        with open(message_file, "r") as f:
+            initial_message = f.read()
+    else:
+        initial_message = click.get_text_stream("stdin").read()
+
+    session = Session(profile=profile, log_level=log_level)
+    session.single_pass(initial_message=initial_message)
 
 
 @session.command(name="list")

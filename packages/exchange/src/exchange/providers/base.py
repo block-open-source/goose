@@ -1,3 +1,4 @@
+import os
 from abc import ABC, abstractmethod
 from attrs import define, field
 from typing import List, Optional, Tuple, Type
@@ -14,9 +15,18 @@ class Usage:
 
 
 class Provider(ABC):
+    PROVIDER_NAME: str
+    REQUIRED_ENV_VARS: list[str] = []
+
     @classmethod
     def from_env(cls: Type["Provider"]) -> "Provider":
         return cls()
+
+    @classmethod
+    def check_env_vars(cls: Type["Provider"], instructions_url: Optional[str] = None) -> None:
+        for env_var in cls.REQUIRED_ENV_VARS:
+            if env_var not in os.environ:
+                raise MissingProviderEnvVariableError(env_var, cls.PROVIDER_NAME, instructions_url)
 
     @abstractmethod
     def complete(

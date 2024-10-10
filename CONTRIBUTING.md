@@ -6,8 +6,8 @@ We welcome Pull Requests for general contributions. If you have a larger new fea
 
 Goose uses [uv][uv] for dependency management, and formats with [ruff][ruff].
 Clone goose and make sure you have installed `uv` to get started. When you use
-`uv` below in your local goose directly, it will automatically setup the virtualenv 
-and install dependencies. 
+`uv` below in your local goose directly, it will automatically setup the virtualenv
+and install dependencies.
 
 We provide a shortcut to standard commands using [just][just] in our `justfile`.
 
@@ -42,7 +42,7 @@ To run the test suite against your edges, use `pytest`:
 uv run pytest tests -m "not integration"
 ```
 
-or, as a shortcut, 
+or, as a shortcut,
 
 ```sh
 just test
@@ -76,7 +76,7 @@ This project follows the [Conventional Commits](https://www.conventionalcommits.
 [issues]: https://github.com/block-open-source/goose/issues
 [goose-plugins]: https://github.com/block-open-source/goose-plugins
 [ai-exchange]: https://github.com/block-open-source/goose/tree/main/packages/exchange
-[developer]: src/goose/toolkit/developer.py
+[developer]: https://github.com/block-open-source/goose/blob/dfecf829a83021b697bf2ecc1dbdd57d31727ddd/src/goose/toolkit/developer.py
 [uv]: https://docs.astral.sh/uv/
 [ruff]: https://docs.astral.sh/ruff/
 [just]: https://github.com/casey/just

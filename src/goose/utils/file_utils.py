@@ -112,6 +112,12 @@ def get_code_snippet(file_path: str, start_line: int, end_line: int, extra_paddi
     with open(file_path, "r") as file:
         content = file.readlines()
 
+    line_description = (
+        f"Lines: {start_line + 1}-{end_line + 1}" if end_line - start_line > 1 else f"Line: {start_line + 1}"
+    )
     snippet_lines = content[max(0, start_line - extra_padding) : min(len(content), end_line + extra_padding)]
     language = Language.from_file_path(file_path)
-    return f"```{language}\n{'\n'.join(snippet_lines).strip()}\n```"
+    comment_char = language.comment_char()
+    return (
+        f"```{language}\n{comment_char} File: {file_path}, {line_description}\n{'\n'.join(snippet_lines).strip()}\n```"
+    )

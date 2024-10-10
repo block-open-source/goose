@@ -82,3 +82,51 @@ class Language(str, Enum):
                 return cls.OBJECTIVEC
             case _:
                 raise ValueError(f"Unsupported language for file {file_path}")
+
+    def comment_char(self) -> str:
+        """
+        Get the comment character for the language.
+        """
+        match self:
+            case Language.CSHARP:
+                return "//"
+            case Language.PYTHON:
+                return "#"
+            case Language.RUST:
+                return "//"
+            case Language.JAVA:
+                return "//"
+            case Language.JAVASCRIPT:
+                return "//"
+            case Language.TYPESCRIPT:
+                return "//"
+            case Language.CPLUSPLUS:
+                return "//"
+            case Language.C:
+                return "//"
+            case Language.RUBY:
+                return "#"
+            case Language.GO:
+                return "//"
+            case Language.PHP:
+                return "//"
+            case Language.HTML:
+                return "<!--"
+            case Language.CSS:
+                return "/*"
+            case Language.SHELL:
+                return "#"
+            case Language.PERL:
+                return "#"
+            case Language.SWIFT:
+                return "//"
+            case Language.KOTLIN:
+                return "//"
+            case Language.DART:
+                return "//"
+            case Language.R:
+                return "#"
+            case Language.OBJECTIVEC:
+                return "//"
+            case _:
+                raise ValueError("Unsupported language")

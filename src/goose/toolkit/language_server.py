@@ -2,8 +2,7 @@ import functools
 import math
 from typing import Callable, List, Optional, Tuple, Type
 
-from markdown import Markdown
-
+from rich.markdown import Markdown
 from goose.language_server.client import LanguageServerClient
 from goose.language_server.config import LanguageServerConfig
 from goose.language_server.language_server_types import Location
@@ -41,23 +40,16 @@ class LanguageServerCoordinator(Toolkit):
             file_path = result["absolutePath"]
             start_line = result["range"]["start"]["line"]
             end_line = result["range"]["end"]["line"] + 1  # because end is exclusive
-            line_description = (
-                f"Lines: {start_line + 1}-{end_line + 1}" if end_line - start_line > 1 else f"Line: {start_line + 1}"
-            )
             human_readable_results.append(
-                f"File: {file_path}, {line_description}\n"
-                + get_code_snippet(
+                get_code_snippet(
                     file_path=file_path,
                     start_line=start_line,
                     end_line=end_line,
                 )
-                + "\n"
             )
 
         all_results = "\n".join(human_readable_results)
-        print(all_results)
-        print(Markdown(all_results))
-        self.notifier.log(Markdown(f"### Results (Page {current_page + 1} of {total_pages})\n{all_results}"))
+        self.notifier.log(Markdown(f"## Results (Page {current_page + 1} of {total_pages})\n{all_results}"))
         return human_readable_results
 
     def __init__(self, notifier: Notifier, requires: Optional[Requirements] = None) -> None:

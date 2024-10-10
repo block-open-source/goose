@@ -7,9 +7,8 @@ from exchange import Message, Tool
 from exchange.content import Text, ToolResult, ToolUse
 from exchange.providers.base import Provider, Usage
 from tenacity import retry, wait_fixed, stop_after_attempt
-from exchange.providers.utils import get_provider_env_value, raise_for_status, retry_if_status
-from langfuse_wrapper.langfuse_wrapper import observe_wrapper
 from exchange.providers.utils import raise_for_status, retry_if_status
+from langfuse_wrapper.langfuse_wrapper import observe_wrapper
 
 GOOGLE_HOST = "https://generativelanguage.googleapis.com/v1beta"
 

@@ -13,7 +13,6 @@ Note:
 """
 
 import os
-import logging
 from typing import Callable
 from dotenv import load_dotenv
 from langfuse.decorators import langfuse_context
@@ -22,12 +21,14 @@ from io import StringIO
 from pathlib import Path
 from functools import wraps  # Add this import
 
-def find_package_root(start_path: Path, marker_file='pyproject.toml') -> Path: 
-    while start_path != start_path.parent:  
-        if (start_path / marker_file).exists():  
+
+def find_package_root(start_path: Path, marker_file="pyproject.toml") -> Path:
+    while start_path != start_path.parent:
+        if (start_path / marker_file).exists():
             return start_path
         start_path = start_path.parent
-    return None  
+    return None
+
 
 def auth_check() -> bool:
     # Temporarily redirect stdout and stderr to suppress print statements from Langfuse
@@ -53,6 +54,7 @@ load_dotenv(LANGFUSE_ENV_FILE, override=True)
 
 HAS_LANGFUSE_CREDENTIALS = auth_check()
 
+
 def observe_wrapper(*args, **kwargs) -> Callable:  # noqa
     """
     A decorator that wraps a function with Langfuse context observation if credentials are available.
@@ -67,11 +69,14 @@ def observe_wrapper(*args, **kwargs) -> Callable:  # noqa
     Returns:
         Callable: The wrapped function if credentials are available, otherwise the original function.
     """
+
     def _wrapper(fn: Callable) -> Callable:
         if HAS_LANGFUSE_CREDENTIALS:
+
             @wraps(fn)
             def wrapped_fn(*fargs, **fkwargs):
                 return langfuse_context.observe(*args, **kwargs)(fn)(*fargs, **fkwargs)
+
             return wrapped_fn
         else:
             return fn

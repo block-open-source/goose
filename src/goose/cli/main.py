@@ -125,9 +125,12 @@ def session_start(
             _plan = yaml.load(f)
     else:
         _plan = None
-    session = Session(name=name, profile=profile, plan=_plan, log_level=log_level, tracing=tracing)
-    session.run()
 
+    try:
+        session = Session(name=name, profile=profile, plan=_plan, log_level=log_level, tracing=tracing)
+        session.run()
+    except RuntimeError as e:
+        print(f"[red]Error: {e}")
 
 def parse_args(ctx: click.Context, param: click.Parameter, value: str) -> dict[str, str]:
     if not value:

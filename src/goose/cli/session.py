@@ -81,7 +81,7 @@ class Session:
             if langfuse_auth:
                 print("Local Langfuse initialized. View your traces at http://localhost:3000")
             else:
-                print("No Langfuse object found in current context so tracing will not work. Please initialize local Langfuse server.")
+                raise RuntimeError("You passed --tracing, but a Langfuse object was not found in the current context. Please initialize the local Langfuse server and restart Goose.")
         langfuse_context.configure(enabled=tracing)
         self.exchange = create_exchange(profile=load_profile(profile), notifier=self.notifier)
         setup_logging(log_file_directory=LOG_PATH, log_level=log_level)

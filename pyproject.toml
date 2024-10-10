@@ -12,7 +12,7 @@ dependencies = [
     "click>=8.1.7",
     "prompt-toolkit>=3.0.47",
     "keyring>=25.4.1",
-    "langfuse-wrapper",
+    "langfuse>=2.38.2"
 ]
 
 author = [{ name = "Block", email = "ai-oss-tools@block.xyz" }]
@@ -72,7 +72,6 @@ dev-dependencies = [
 
 [tool.uv.sources]
 ai-exchange = { workspace = true }
-langfuse-wrapper = { workspace = true }
 
 [tool.uv.workspace]
 members = ["packages/*"]

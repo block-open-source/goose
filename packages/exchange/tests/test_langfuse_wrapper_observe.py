@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import patch, MagicMock
-from langfuse_wrapper.langfuse_wrapper import observe_wrapper
+from exchange.langfuse_wrapper import observe_wrapper
 
 
 @pytest.fixture

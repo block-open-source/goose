@@ -70,3 +70,7 @@ tag:
 tag-push:
   just tag
   git push origin tag v$(just tag_version)
+
+
+langfuse-server:
+  ./scripts/setup_langfuse.sh

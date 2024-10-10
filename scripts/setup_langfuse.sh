@@ -15,7 +15,7 @@
 #   ./setup_langfuse.sh
 #
 # Requirements:
-#   - Docker 
+#   - Docker
 #   - curl
 #   - A .env.langfuse.local file in the env directory
 #
@@ -25,8 +25,8 @@ set -e
 
 SCRIPT_DIR=$(realpath "$(dirname "${BASH_SOURCE[0]}")")
 LANGFUSE_DOCKER_COMPOSE_URL="https://raw.githubusercontent.com/langfuse/langfuse/main/docker-compose.yml"
-LANGFUSE_DOCKER_COMPOSE_FILE="docker-compose.yaml"
-LANGFUSE_ENV_FILE="$SCRIPT_DIR/../env/.env.langfuse.local"
+LANGFUSE_DOCKER_COMPOSE_FILE="langfuse-docker-compose.yaml"
+LANGFUSE_ENV_FILE="$SCRIPT_DIR/.env.langfuse.local"
 
 check_dependencies() {
     local dependencies=("curl" "docker")
@@ -40,7 +40,7 @@ check_dependencies() {
 
     if [ ${#missing_dependencies[@]} -ne 0 ]; then
         echo "Missing dependencies: ${missing_dependencies[*]}"
-        exit 1 
+        exit 1
     fi
 }
 
@@ -63,7 +63,7 @@ wait_for_service() {
         ((count++))
         if [ "$count" -ge "$retries" ]; then
             echo "Max retries reached. Langfuse did not start in time."
-            exit 1 
+            exit 1
         fi
         sleep 1
     done

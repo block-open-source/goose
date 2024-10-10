@@ -48,7 +48,7 @@ def auth_check() -> bool:
 CURRENT_DIR = Path(__file__).parent
 PACKAGE_ROOT = find_package_root(CURRENT_DIR)
 
-LANGFUSE_ENV_FILE = os.path.join(PACKAGE_ROOT, "env", ".env.langfuse.local")
+LANGFUSE_ENV_FILE = os.path.join(PACKAGE_ROOT, ".env.langfuse.local")
 HAS_LANGFUSE_CREDENTIALS = False
 load_dotenv(LANGFUSE_ENV_FILE, override=True)
 

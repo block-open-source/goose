@@ -5,7 +5,7 @@ import logging
 from langfuse.decorators import langfuse_context
 
 from exchange import Message, ToolResult, ToolUse, Text
-from exchange.langfuse_wrapper import observe_wrapper
+from exchange.langfuse_wrapper import observe_wrapper, auth_check
 
 from rich import print
 from rich.markdown import Markdown

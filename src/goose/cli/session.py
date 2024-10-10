@@ -1,8 +1,11 @@
 import traceback
 from pathlib import Path
 from typing import Any, Optional
+import logging
+from langfuse.decorators import langfuse_context
 
-from exchange import Message, Text, ToolResult, ToolUse
+from exchange import Message, ToolResult, ToolUse, Text
+from langfuse_wrapper.langfuse_wrapper import observe_wrapper, auth_check
 from rich import print
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -62,6 +65,7 @@ class Session:
         profile: Optional[str] = None,
         plan: Optional[dict] = None,
         log_level: Optional[str] = "INFO",
+        tracing: bool = False,
         **kwargs: dict[str, Any],
     ) -> None:
         if name is None:
@@ -72,10 +76,20 @@ class Session:
         self.prompt_session = GoosePromptSession()
         self.status_indicator = Status("", spinner="dots")
         self.notifier = SessionNotifier(self.status_indicator)
-
+        if not tracing:
+            logging.getLogger("langfuse").setLevel(logging.ERROR)
+        else:
+            langfuse_auth = auth_check()
+            if langfuse_auth:
+                print("Local Langfuse initialized. View your traces at http://localhost:3000")
+            else:
+                raise RuntimeError(
+                    "You passed --tracing, but a Langfuse object was not found in the current context. "
+                    "Please initialize the local Langfuse server and restart Goose."
+                )
+        langfuse_context.configure(enabled=tracing)
         self.exchange = create_exchange(profile=load_profile(profile), notifier=self.notifier)
         setup_logging(log_file_directory=LOG_PATH, log_level=log_level)
-
         self.exchange.messages.extend(self._get_initial_messages())
 
         if len(self.exchange.messages) == 0 and plan:
@@ -186,6 +200,7 @@ class Session:
         self._remove_empty_session()
         self._log_cost()
 
+    @observe_wrapper()
     def reply(self) -> None:
         """Reply to the last user message, calling tools as needed"""
         self.status_indicator.update("responding")

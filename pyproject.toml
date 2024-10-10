@@ -12,7 +12,9 @@ dependencies = [
     "click>=8.1.7",
     "prompt-toolkit>=3.0.47",
     "keyring>=25.4.1",
+    "langfuse-wrapper",
 ]
+
 author = [{ name = "Block", email = "ai-oss-tools@block.xyz" }]
 packages = [{ include = "goose", from = "src" }]
 
@@ -65,11 +67,12 @@ dev-dependencies = [
     "mkdocstrings-python>=1.11.1",
     "mkdocstrings>=0.26.1",
     "pytest-mock>=3.14.0",
-    "pytest>=8.3.2"
+    "pytest>=8.3.2",
 ]
 
 [tool.uv.sources]
 ai-exchange = { workspace = true }
+langfuse-wrapper = { workspace = true }
 
 [tool.uv.workspace]
 members = ["packages/*"]

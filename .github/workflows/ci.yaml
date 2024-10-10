@@ -28,7 +28,7 @@ jobs:
           uv run pytest tests -m 'not integration'
 
   goose:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest 
 
     steps:
       - uses: actions/checkout@v4
@@ -48,6 +48,27 @@ jobs:
         run: |
           uv run pytest tests -m 'not integration'
 
+  langfuse-wrapper:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install UV
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - name: Source Cargo Environment
+        run: source $HOME/.cargo/env
+
+      - name: Ruff
+        run: |
+          uvx ruff check packages/langfuse-wrapper
+          uvx ruff format packages/langfuse-wrapper --check
+
+      - name: Run tests
+        working-directory: ./packages/langfuse-wrapper
+        run: |
+          uv run pytest tests -m 'not integration'
 
   # This runs integration tests of the OpenAI API, using Ollama to host models.
   # This lets us test PRs from forks which can't access secrets like API keys.

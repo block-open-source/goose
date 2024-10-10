@@ -1,6 +1,7 @@
 import os
 from typing import Any, Dict, List, Tuple, Type
 
+from exchange.langfuse_wrapper import observe_wrapper
 import httpx
 
 from exchange.message import Message
@@ -65,6 +66,7 @@ class GroqProvider(Provider):
             total_tokens=total_tokens,
         )
 
+    @observe_wrapper(as_type="generation")
     def complete(
         self,
         model: str,

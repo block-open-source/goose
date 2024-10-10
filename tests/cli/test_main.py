@@ -34,9 +34,7 @@ def test_session_start_command_with_session_name(mock_session):
     mock_session_class, mock_session_instance = mock_session
     runner = CliRunner()
     runner.invoke(goose_cli, ["session", "start", "session1", "--profile", "default"])
-    mock_session_class.assert_called_once_with(
-        name="session1", profile="default", plan=None, log_level="INFO", tracing=False
-    )
+    mock_session_class.assert_called_once_with(name="session1", profile="default", plan=None, log_level="INFO")
     mock_session_instance.run.assert_called_once()
 
 

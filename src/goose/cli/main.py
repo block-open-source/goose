@@ -154,6 +154,7 @@ def session_start(
     except RuntimeError as e:
         print(f"[red]Error: {e}")
 
+
 def parse_args(ctx: click.Context, param: click.Parameter, value: str) -> dict[str, str]:
     if not value:
         return {}

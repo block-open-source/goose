@@ -27,6 +27,7 @@ developer = "goose.toolkit.developer:Developer"
 github = "goose.toolkit.github:Github"
 jira = "goose.toolkit.jira:Jira"
 screen = "goose.toolkit.screen:Screen"
+reasoner = "goose.toolkit.reasoner:Reasoner"
 repo_context = "goose.toolkit.repo_context.repo_context:RepoContext"
 
 [project.entry-points."goose.profile"]

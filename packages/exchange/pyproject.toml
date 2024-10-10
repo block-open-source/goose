@@ -33,6 +33,7 @@ anthropic = "exchange.providers.anthropic:AnthropicProvider"
 bedrock = "exchange.providers.bedrock:BedrockProvider"
 ollama = "exchange.providers.ollama:OllamaProvider"
 google = "exchange.providers.google:GoogleProvider"
+groq = "exchange.providers.groq:GroqProvider"
 
 [project.entry-points."exchange.moderator"]
 passive = "exchange.moderators.passive:PassiveModerator"

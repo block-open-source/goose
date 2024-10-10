@@ -136,7 +136,8 @@ def get_session_files() -> dict[str, Path]:
 @click.option("--profile")
 @click.option("--plan", type=click.Path(exists=True))
 @click.option("--log-level", type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]), default="INFO")
-def session_start(name: Optional[str], profile: str, log_level: str, plan: Optional[str] = None) -> None:
+@click.option("--safe-mode", is_flag=True, help="Prompt before executing potentially unsafe commands", default=False)
+def session_start(name: Optional[str], profile: str, log_level: str, safe_mode: bool, plan: Optional[str] = None) -> None:
     """Start a new goose session"""
     if plan:
         yaml = YAML()
@@ -144,7 +145,7 @@ def session_start(name: Optional[str], profile: str, log_level: str, plan: Optio
             _plan = yaml.load(f)
     else:
         _plan = None
-    session = Session(name=name, profile=profile, plan=_plan, log_level=log_level)
+    session = Session(name=name, profile=profile, plan=_plan, log_level=log_level, safe_mode=safe_mode)
     session.run()
 
 

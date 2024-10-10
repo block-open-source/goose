@@ -16,10 +16,10 @@ from goose.profile import Profile
 from goose.utils import droid, load_plugins
 from goose.utils._cost_calculator import get_total_cost_message
 from goose.utils._create_exchange import create_exchange
+from goose.utils.safe_mode import set_safe_mode
 from goose.utils.session_file import read_or_create_file, save_latest_session
 
 RESUME_MESSAGE = "I see we were interrupted. How can I help you?"
-
 
 def load_provider() -> str:
     # We try to infer a provider, by going in order of what will auth
@@ -60,6 +60,7 @@ class Session:
         profile: Optional[str] = None,
         plan: Optional[dict] = None,
         log_level: Optional[str] = "INFO",
+        safe_mode: bool = False,
         **kwargs: Dict[str, Any],
     ) -> None:
         if name is None:
@@ -67,10 +68,11 @@ class Session:
         else:
             self.name = name
         self.profile_name = profile
+        if safe_mode:
+            set_safe_mode()
         self.prompt_session = GoosePromptSession()
         self.status_indicator = Status("", spinner="dots")
         self.notifier = SessionNotifier(self.status_indicator)
-
         self.exchange = create_exchange(profile=load_profile(profile), notifier=self.notifier)
         setup_logging(log_file_directory=LOG_PATH, log_level=log_level)
 
@@ -184,10 +186,8 @@ class Session:
         """Reply to the last user message, calling tools as needed"""
         self.status_indicator.update("responding")
         response = self.exchange.generate()
-
         if response.text:
             print(Markdown(response.text))
-
         while response.tool_use:
             content = []
             for tool_use in response.tool_use:

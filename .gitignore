@@ -125,3 +125,6 @@ docs/docs/reference
 
 # uv lock file
 uv.lock
+
+# langfuse docker file
+**/packages/langfuse-wrapper/scripts/docker-compose.yaml

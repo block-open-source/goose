@@ -136,7 +136,10 @@ def get_session_files() -> dict[str, Path]:
 @click.option("--profile")
 @click.option("--plan", type=click.Path(exists=True))
 @click.option("--log-level", type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]), default="INFO")
-def session_start(name: Optional[str], profile: str, log_level: str, plan: Optional[str] = None) -> None:
+@click.option("--tracing", is_flag=True, required=False)
+def session_start(
+    name: Optional[str], profile: str, log_level: str, plan: Optional[str] = None, tracing: bool = False
+) -> None:
     """Start a new goose session"""
     if plan:
         yaml = YAML()
@@ -144,8 +147,12 @@ def session_start(name: Optional[str], profile: str, log_level: str, plan: Optio
             _plan = yaml.load(f)
     else:
         _plan = None
-    session = Session(name=name, profile=profile, plan=_plan, log_level=log_level)
-    session.run()
+
+    try:
+        session = Session(name=name, profile=profile, plan=_plan, log_level=log_level, tracing=tracing)
+        session.run()
+    except RuntimeError as e:
+        print(f"[red]Error: {e}")
 
 
 def parse_args(ctx: click.Context, param: click.Parameter, value: str) -> dict[str, str]:

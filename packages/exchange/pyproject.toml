@@ -13,6 +13,8 @@ dependencies = [
     "tiktoken>=0.7.0",
     "httpx>=0.27.0",
     "tenacity>=9.0.0",
+    "python-dotenv>=1.0.1",
+    "langfuse-wrapper"   
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -47,3 +49,10 @@ ai-exchange = "exchange:module_name"
 markers = [
     "integration: marks tests that need to authenticate (deselect with '-m \"not integration\"')",
 ]
+
+[tool.uv.sources]
+langfuse-wrapper = { workspace = true}
+
+[tool.uv.workspace]
+members = ["../langfuse-wrapper"]
+

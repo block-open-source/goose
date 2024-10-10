@@ -122,7 +122,7 @@ class LanguageServerCoordinator(Toolkit):
 
         total_pages = math.ceil(len(results) / page_size)
         return dict(
-            self.get_readable_lsp_results(
+            results=self.get_readable_lsp_results(
                 results,  # replace with paginated results
                 current_page=page_number,
                 total_pages=total_pages,
@@ -156,7 +156,7 @@ class LanguageServerCoordinator(Toolkit):
 
         total_pages = math.ceil(len(results) / page_size)
         return dict(
-            self.get_readable_lsp_results(
+            results=self.get_readable_lsp_results(
                 results,  # replace with paginated results
                 current_page=page_number,
                 total_pages=total_pages,

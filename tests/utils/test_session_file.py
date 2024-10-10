@@ -119,24 +119,20 @@ def create_session_file(file_path, file_name) -> Path:
     return file
 
 
-def test_is_empty_session():
-    with (
-        patch("pathlib.Path.is_file", return_value=True),
-        patch("pathlib.Path.stat") as mock_stat,
-    ):
-        mock_stat.return_value.st_size = 0
-        assert is_empty_session(Path("empty_file.json"))
+@patch("pathlib.Path.is_file", return_value=True)
+@patch("pathlib.Path.stat")
+def test_is_empty_session(mock_stat, mock_is_file):
+    mock_stat.return_value.st_size = 0
+    assert is_empty_session(Path("empty_file.json"))
 
 
-def test_is_not_empty_session():
-    with (
-        patch("pathlib.Path.is_file", return_value=True),
-        patch("pathlib.Path.stat") as mock_stat,
-    ):
-        mock_stat.return_value.st_size = 100
-        assert not is_empty_session(Path("non_empty_file.json"))
+@patch("pathlib.Path.is_file", return_value=True)
+@patch("pathlib.Path.stat")
+def test_is_not_empty_session(mock_stat, mock_is_file):
+    mock_stat.return_value.st_size = 100
+    assert not is_empty_session(Path("non_empty_file.json"))
 
 
-def test_is_not_empty_session_file_not_found():
-    with patch("pathlib.Path.is_file", return_value=False):
-        assert not is_empty_session(Path("non_existent_file.json"))
+@patch("pathlib.Path.is_file", return_value=False)
+def test_is_not_empty_session_file_not_found(mock_is_file):
+    assert not is_empty_session(Path("file_not_found.json"))

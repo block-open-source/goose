@@ -136,6 +136,7 @@ def get_session_files() -> dict[str, Path]:
 @click.option("--profile")
 @click.option("--plan", type=click.Path(exists=True))
 @click.option("--log-level", type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]), default="INFO")
+@click.option("--tracing", is_flag=True, required=False)
 def session_start(
     name: Optional[str], profile: str, log_level: str, plan: Optional[str] = None, tracing: bool = False
 ) -> None:

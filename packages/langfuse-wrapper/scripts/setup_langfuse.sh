@@ -40,7 +40,6 @@ check_dependencies() {
 
     if [ ${#missing_dependencies[@]} -ne 0 ]; then
         echo "Missing dependencies: ${missing_dependencies[*]}"
-        echo "You can install them with: apt install -y ${missing_dependencies[*]}"
         exit 1 
     fi
 }

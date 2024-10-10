@@ -124,9 +124,9 @@ def test_log_log_cost(create_session_with_mock_configs):
         mock_logger.info.assert_called_once_with(cost_message)
 
 
-@patch.object(GoosePromptSession, "get_user_input")
-@patch.object(Exchange, "generate")
-@patch("goose.cli.session.save_latest_session")
+@patch.object(GoosePromptSession, "get_user_input", name="get_user_input")
+@patch.object(Exchange, "generate", name="mock_generate")
+@patch("goose.cli.session.save_latest_session", name="mock_save_latest_session")
 def test_run_should_auto_save_session(
     mock_save_latest_session,
     mock_generate,
@@ -181,14 +181,14 @@ def test_run_should_auto_save_session(
         assert saved["content"][0]["text"] == expected.text
 
 
-@patch("goose.cli.session.droid", return_value="generated_session_name")
+@patch("goose.cli.session.droid", return_value="generated_session_name", name="mock_droid")
 def test_set_generated_session_name(mock_droid, create_session_with_mock_configs, mock_sessions_path):
     session = create_session_with_mock_configs({"name": None})
     assert session.name == "generated_session_name"
 
 
-@patch("goose.cli.session.is_existing_session")
-@patch("goose.cli.session.Session._prompt_overwrite_session")
+@patch("goose.cli.session.is_existing_session", name="mock_is_existing")
+@patch("goose.cli.session.Session._prompt_overwrite_session", name="mock_prompt")
 def test_existing_session_prompt(mock_prompt, mock_is_existing, create_session_with_mock_configs):
     session = create_session_with_mock_configs({"name": SESSION_NAME})
 

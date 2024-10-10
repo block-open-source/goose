@@ -41,7 +41,7 @@ check_dependencies() {
     if [ ${#missing_dependencies[@]} -ne 0 ]; then
         echo "Missing dependencies: ${missing_dependencies[*]}"
         echo "You can install them with: apt install -y ${missing_dependencies[*]}"
-        exit 1  # Exit the script if dependencies are missing
+        exit 1 
     fi
 }
 
@@ -60,7 +60,7 @@ wait_for_service() {
     echo "Waiting for Langfuse to start..."
     local retries=10
     local count=0
-    until curl -s http://localhost:3000 > /dev/null; do
+    until curl --silent http://localhost:3000 > /dev/null; do
         ((count++))
         if [ "$count" -ge "$retries" ]; then
             echo "Max retries reached. Langfuse did not start in time."

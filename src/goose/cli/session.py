@@ -1,7 +1,7 @@
 import sys
 import traceback
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from exchange import Message, ToolResult, ToolUse, Text, Exchange
 from exchange.providers.base import MissingProviderEnvVariableError
@@ -85,7 +85,7 @@ class Session:
         profile: Optional[str] = None,
         plan: Optional[dict] = None,
         log_level: Optional[str] = "INFO",
-        **kwargs: Dict[str, Any],
+        **kwargs: dict[str, Any],
     ) -> None:
         if name is None:
             self.name = droid()
@@ -119,7 +119,7 @@ class Session:
             print(error_message)
             sys.exit(1)
 
-    def _get_initial_messages(self) -> List[Message]:
+    def _get_initial_messages(self) -> list[Message]:
         messages = self.load_session()
 
         if messages and messages[-1].role == "user":
@@ -257,7 +257,7 @@ class Session:
     def session_file_path(self) -> Path:
         return session_path(self.name)
 
-    def load_session(self) -> List[Message]:
+    def load_session(self) -> list[Message]:
         return read_or_create_file(self.session_file_path)
 
     def _log_cost(self) -> None:

@@ -34,7 +34,7 @@ class LanguageServerCoordinator(Toolkit):
         # TODO: ensure the system prompt only gets added if there are language servers enabled
         return ""
 
-    def get_readable_lsp_results(self, results: List[Location], current_page: int, total_pages: int) -> None:
+    def get_readable_lsp_results(self, results: List[Location], current_page: int, total_pages: int) -> List[str]:
         human_readable_results = []
         for result in results:
             file_path = result["absolutePath"]
@@ -100,7 +100,7 @@ class LanguageServerCoordinator(Toolkit):
     @tool
     def request_definition(
         self, file_path: str, line: int, column: int, page_number: int = 0, page_size: int = 50
-    ) -> List[Tuple[str, int]]:
+    ) -> dict:
         """
         Requests the definition of a symbol at a given position in a file.
 
@@ -120,14 +120,21 @@ class LanguageServerCoordinator(Toolkit):
         if not results:
             return "No definition found."
 
-        return self.get_readable_lsp_results(
-            results,  # replace with paginated results
-            current_page=page_number,
-            total_pages=math.ceil(len(results) / page_size),
+        total_pages = math.ceil(len(results) / page_size)
+        return dict(
+            self.get_readable_lsp_results(
+                results,  # replace with paginated results
+                current_page=page_number,
+                total_pages=total_pages,
+            ),
+            current_page_number=page_number,
+            total_pages=total_pages,
         )
 
     @tool
-    def request_references(self, file_path: str, line: int, column: int) -> List[Tuple[str, int]]:
+    def request_references(
+        self, file_path: str, line: int, column: int, page_number: int = 0, page_size: int = 50
+    ) -> dict:
         """
         Requests the references of a symbol at a given position in a file.
 
@@ -135,11 +142,28 @@ class LanguageServerCoordinator(Toolkit):
             file_path (str): The path to the file.
             line (int): The line number of the symbol.
             column (int): The column number of the symbol.
+            page_number (int, optional): The requested page number of the results.
+            page_size (int, optional): The number of results per page
         """
         if not self.language_server_client:
             NotImplementedError("No language server is available.")
         results = self.language_server_client.request_references(file_path, line, column)
-        return results
+
+        # TODO: paginate results
+
+        if not results:
+            return "No definition found."
+
+        total_pages = math.ceil(len(results) / page_size)
+        return dict(
+            self.get_readable_lsp_results(
+                results,  # replace with paginated results
+                current_page=page_number,
+                total_pages=total_pages,
+            ),
+            current_page_number=page_number,
+            total_pages=total_pages,
+        )
 
     @tool
     def request_hover(self, file_path: str, line: int, column: int) -> str | None:

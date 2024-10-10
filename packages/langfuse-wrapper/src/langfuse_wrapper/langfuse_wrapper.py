@@ -31,27 +31,29 @@ def find_package_root(start_path: Path, marker_file='pyproject.toml') -> Path:
         start_path = start_path.parent
     return None  
 
+def auth_check() -> bool:
+    # Temporarily redirect stdout and stderr to suppress print statements from Langfuse
+    temp_stderr = StringIO()
+    sys.stderr = temp_stderr
+
+    # Load environment variables
+    load_dotenv(LANGFUSE_ENV_FILE, override=True)
+
+    auth_val = langfuse_context.auth_check()
+
+    # Restore stderr
+    sys.stderr = sys.__stderr__
+    return auth_val
+
 
 CURRENT_DIR = Path(__file__).parent
 PACKAGE_ROOT = find_package_root(CURRENT_DIR)
 
 LANGFUSE_ENV_FILE = os.path.join(PACKAGE_ROOT, "env", ".env.langfuse.local")
 HAS_LANGFUSE_CREDENTIALS = False
-
-# Temporarily redirect stdout and stderr to suppress print statements from Langfuse
-temp_stderr = StringIO()
-sys.stderr = temp_stderr
-
-# Load environment variables
 load_dotenv(LANGFUSE_ENV_FILE, override=True)
 
-if langfuse_context.auth_check():
-    HAS_LANGFUSE_CREDENTIALS = True
-    logger.info("Langfuse context and credentials found.")
-
-# Restore stderr
-sys.stderr = sys.__stderr__
-
+HAS_LANGFUSE_CREDENTIALS = auth_check()
 
 def observe_wrapper(*args, **kwargs) -> Callable:  # noqa
     """

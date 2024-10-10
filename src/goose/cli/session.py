@@ -1,10 +1,11 @@
 import traceback
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+import logging
 from langfuse.decorators import langfuse_context
 
 from exchange import Message, ToolResult, ToolUse, Text
-from langfuse_wrapper.langfuse_wrapper import observe_wrapper
+from langfuse_wrapper.langfuse_wrapper import observe_wrapper, auth_check
 from rich import print
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -73,6 +74,14 @@ class Session:
         self.prompt_session = GoosePromptSession()
         self.status_indicator = Status("", spinner="dots")
         self.notifier = SessionNotifier(self.status_indicator)
+        if not tracing:
+            logging.getLogger("langfuse").setLevel(logging.ERROR)
+        else:
+            langfuse_auth = auth_check()
+            if langfuse_auth:
+                print("Local Langfuse initialized. View your traces at http://localhost:3000")
+            else:
+                print("No Langfuse object found in current context so tracing will not work. Please initialize local Langfuse server.")
         langfuse_context.configure(enabled=tracing)
         self.exchange = create_exchange(profile=load_profile(profile), notifier=self.notifier)
         setup_logging(log_file_directory=LOG_PATH, log_level=log_level)

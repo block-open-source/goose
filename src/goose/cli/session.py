@@ -13,7 +13,7 @@ from goose._logger import get_logger, setup_logging
 from goose.cli.config import LOG_PATH, ensure_config, session_path
 from goose.cli.prompt.goose_prompt_session import GoosePromptSession
 from goose.cli.prompt.overwrite_session_prompt import OverwriteSessionPrompt
-from goose.notifier import Notifier
+from goose.cli.session_notifier import SessionNotifier
 from goose.profile import Profile
 from goose.utils import droid, load_plugins
 from goose.utils._cost_calculator import get_total_cost_message
@@ -71,7 +71,7 @@ class Session:
         self.profile_name = profile
         self.prompt_session = GoosePromptSession()
         self.status_indicator = Status("", spinner="dots")
-        self.notifier = Notifier(self.status_indicator)
+        self.notifier = SessionNotifier(self.status_indicator)
 
         self.exchange = create_exchange(profile=load_profile(profile), notifier=self.notifier)
         setup_logging(log_file_directory=LOG_PATH, log_level=log_level)

@@ -23,7 +23,7 @@ def create_session_with_mock_configs(mock_sessions_path, exchange_factory, profi
     with (
         patch("goose.cli.session.create_exchange") as mock_exchange,
         patch("goose.cli.session.load_profile", return_value=profile_factory()),
-        patch("goose.cli.session.Notifier") as mock_session_notifier,
+        patch("goose.cli.session.SessionNotifier") as mock_session_notifier,
         patch("goose.cli.session.load_provider", return_value="provider"),
     ):
         mock_session_notifier.return_value = MagicMock()

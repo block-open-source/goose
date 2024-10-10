@@ -2,42 +2,42 @@ import pytest
 from unittest.mock import patch, MagicMock
 from langfuse_wrapper.langfuse_wrapper import observe_wrapper
 
-
-def sample_function(x: int, y: int) -> int:
-    return x + y
-
-
-def sample_wrapped_function(x: int, y: int) -> int:
-    return x
-
-
 @pytest.fixture
 def mock_langfuse_context():
     with patch("langfuse_wrapper.langfuse_wrapper.langfuse_context") as mock:
         yield mock
 
+@patch("langfuse_wrapper.langfuse_wrapper.HAS_LANGFUSE_CREDENTIALS", True)
+def test_function_is_wrapped(mock_langfuse_context):
+    mock_observe = MagicMock(side_effect=lambda *args, **kwargs: lambda fn: fn)
+    mock_langfuse_context.observe = mock_observe
+    
+    def original_function(x: int, y: int) -> int:
+        return x + y
 
-def test_observe_wrapper_with_credentials(mock_langfuse_context):
-    with patch("langfuse_wrapper.langfuse_wrapper.HAS_LANGFUSE_CREDENTIALS", True):
-        mock_observe = MagicMock(return_value=lambda f: sample_wrapped_function)
-        mock_langfuse_context.observe = mock_observe
+    # test function before we decorate it with
+    # @observe_wrapper("arg1", kwarg1="kwarg1")
+    assert not hasattr(original_function, "__wrapped__")
 
-        decorated_function = observe_wrapper()(sample_function)
-        result = decorated_function(2, 3)
+    # ensure we args get passed along (e.g. @observe(capture_input=False, capture_output=False))
+    decorated_function = observe_wrapper("arg1", kwarg1="kwarg1")(original_function)
+    assert hasattr(decorated_function, "__wrapped__")
+    assert decorated_function.__wrapped__ is original_function, "Function is not properly wrapped"
 
-        mock_observe.assert_called_once()
-        assert result == 2
+    assert decorated_function(2, 3) == 5
+    mock_observe.assert_called_once()
+    mock_observe.assert_called_with("arg1", kwarg1="kwarg1")
 
+@patch("langfuse_wrapper.langfuse_wrapper.HAS_LANGFUSE_CREDENTIALS", False)
+def test_function_is_not_wrapped(mock_langfuse_context):
+    mock_observe = MagicMock(return_value=lambda f: f)
+    mock_langfuse_context.observe = mock_observe
 
-def test_observe_wrapper_missing_credentials(mock_langfuse_context):
-    with patch("langfuse_wrapper.langfuse_wrapper.HAS_LANGFUSE_CREDENTIALS", False):
-        # Create a mock that returns a function that will return our sample_function
-        mock_observe = MagicMock(return_value=lambda f: sample_wrapped_function)
-        mock_langfuse_context.observe = mock_observe
+    @observe_wrapper("arg1", kwarg1="kwarg1")
+    def hello() -> str:
+        return "Hello"
 
-        decorated_function = observe_wrapper()(sample_function)
-        result = decorated_function(2, 3)
+    assert not hasattr(hello, "__wrapped__")
+    assert hello() == "Hello"
 
-        #  test that if HAS_LANGFUSE_CREDENTIALS is false, the original function is returned
-        mock_observe.assert_not_called()
-        assert result == 5
+    mock_observe.assert_not_called()

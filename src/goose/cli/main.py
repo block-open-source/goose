@@ -190,7 +190,7 @@ def session_resume(name: Optional[str], profile: str, log_level: str) -> None:
         else:
             print(f"Creating new session: {name}")
     session = Session(name=name, profile=profile, log_level=log_level)
-    session.run()
+    session.run(new_session=False)
 
 
 @goose_cli.command(name="run")

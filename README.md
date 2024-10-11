@@ -107,7 +107,6 @@ To install Goose, use `pipx`. First ensure [pipx][pipx] is installed:
 brew install pipx
 pipx ensurepath
 ```
-You can also place `.goosehints` in `~/.config/goose/.goosehints` if you like for always loaded hints personal to you.
 
 Then install Goose:
 
@@ -131,7 +130,11 @@ You will see the Goose prompt `G❯`:
 G❯ type your instructions here exactly as you would tell a developer.
 ```
 
-Now you are interacting with Goose in conversational sessions - something like a natural language driven code interpreter. The default toolkit allows Goose to take actions through shell commands and file edits. You can interrupt Goose with `CTRL+D` or `ESC+Enter` at any time to help redirect its efforts.
+Now you are interacting with Goose in conversational sessions - think of it as like giving direction to a junior developer. The default toolkit allows Goose to take actions through shell commands and file edits. You can interrupt Goose with `CTRL+D` or `ESC+Enter` at any time to help redirect its efforts.
+
+> [!TIP]
+> You can place a `.goosehints` text file in any directory you launch goose from to give it some background info for new sessions in plain language (eg how to test, what instructions to read to get started or just tell it to read the README!) You can also put a global one `~/.config/goose/.goosehints` if you like for always loaded hints personal to you.
+
 
 #### Exit the session
 

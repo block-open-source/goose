@@ -114,14 +114,13 @@ class GoogleProvider(Provider):
                     if content.output.startswith('"image:'):
                         image_path = content.output.replace('"image:', "").replace('"', "")
                         converted["parts"].append(
-                        {
-                            "inline_data":
-                                {
-                                    "mime_type":"image/png",
+                            {
+                                "inline_data": {
+                                    "mime_type": "image/png",
                                     "data": f"{encode_image(image_path)}",
                                 }
-                        }
-                    )
+                            }
+                        )
                     else:
                         converted["parts"].append(
                             {"functionResponse": {"name": content.tool_use_id, "response": {"content": content.output}}}

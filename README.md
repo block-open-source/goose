@@ -154,11 +154,18 @@ To see more documentation on the CLI commands currently available to Goose check
 
 Learn how to modify your Goose profiles.yaml file to add and remove functionality (toolkits) and providing context to get the most out of Goose in our [Getting Started Guide][getting-started].
 
+## Other ways to run goose
+
 **Want to move out of the terminal and into an IDE?**
 
 We have some experimental IDE integrations for VSCode and JetBrains IDEs:
 * https://github.com/square/goose-vscode
 * https://github.com/Kvadratni/goose-intellij
+
+There is also an experimental github action to run goose as part of your workflow (for example if you ask it to fix an issue): 
+https://github.com/marketplace/actions/goose-ai-developer-agent
+
+There is also a `Dockerfile` in the root of this project you can use if you want to run goose in a sandboxed fashion.
 
 ## Getting involved!
 

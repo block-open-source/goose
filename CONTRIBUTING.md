@@ -75,7 +75,7 @@ This project follows the [Conventional Commits](https://www.conventionalcommits.
 
 ## Release
 
-In order to release a new version of sq goose, you need to do the following:
+In order to release a new version of goose, you need to do the following:
 1. Update CHANGELOG.md. To get the commit messages since last release, run: `just release-notes`
 2. Update version in `pyproject.toml` for `goose` and package dependencies such as `exchange`
 3. Create a PR and merge it into main branch

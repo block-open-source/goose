@@ -4,7 +4,8 @@
 
 """
 This file provides the Python types corresponding to the Typescript types defined in the language server protocol.
-This file is obtained from https://github.com/predragnikolic/OLSP under the MIT License with the following terms:
+This file is obtained from https://github.com/microsoft/multilspy, which itself took it
+from https://github.com/predragnikolic/OLSP under the MIT License with the following terms:
 
 MIT License
 

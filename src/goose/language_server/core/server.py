@@ -2,8 +2,8 @@
 This file provides the implementation of the JSON-RPC client, that launches and
 communicates with the language server.
 
-The initial implementation of this file was obtained from
-https://github.com/predragnikolic/OLSP under the MIT License with the following terms:
+This file is obtained from https://github.com/microsoft/multilspy, which itself took an initial implementation from
+from https://github.com/predragnikolic/OLSP under the MIT License with the following terms:
 
 MIT License
 

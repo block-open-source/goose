@@ -3,8 +3,9 @@
 # TODO: Look into use of https://pypi.org/project/ts2python/ to generate the types for https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/
 
 """
-This file provides the python interface corresponding to the requests and notifications defined in Typescript in the language server protocol.
-This file is obtained from https://github.com/predragnikolic/OLSP under the MIT License with the following terms:
+This file provides the python interface corresponding to the requests and notifications defined in Typescript in the
+language server protocol. This file is obtained from https://github.com/microsoft/multilspy, which itself took it
+from https://github.com/predragnikolic/OLSP under the MIT License with the following terms:
 
 MIT License
 

@@ -2,6 +2,7 @@ import functools
 import math
 from typing import Callable, List, Optional, Tuple, Type
 
+from exchange.message import Message
 from rich.markdown import Markdown
 from goose.language_server.client import LanguageServerClient
 from goose.language_server.config import LanguageServerConfig
@@ -29,28 +30,6 @@ class LanguageServerCoordinator(Toolkit):
         if not cls._instance:
             raise ValueError("LanguageServerCoordinator has not been initialized.")
         return cls._instance
-
-    def system(self) -> str:
-        # TODO: ensure the system prompt only gets added if there are language servers enabled
-        return ""
-
-    def get_readable_lsp_results(self, results: List[Location], current_page: int, total_pages: int) -> List[str]:
-        human_readable_results = []
-        for result in results:
-            file_path = result["absolutePath"]
-            start_line = result["range"]["start"]["line"]
-            end_line = result["range"]["end"]["line"] + 1  # because end is exclusive
-            human_readable_results.append(
-                get_code_snippet(
-                    file_path=file_path,
-                    start_line=start_line,
-                    end_line=end_line,
-                )
-            )
-
-        all_results = "\n".join(human_readable_results)
-        self.notifier.log(Markdown(f"## Results (Page {current_page + 1} of {total_pages})\n{all_results}"))
-        return human_readable_results
 
     def __init__(self, notifier: Notifier, requires: Optional[Requirements] = None) -> None:
         super().__init__(notifier=notifier, requires=requires)
@@ -96,6 +75,29 @@ class LanguageServerCoordinator(Toolkit):
                 method,
                 decorated_method,
             )
+
+    def system(self) -> str:
+        if not self.language_server_client:
+            return ""
+        return Message.load("prompts/language_server.jinja").text
+
+    def get_readable_lsp_results(self, results: List[Location], current_page: int, total_pages: int) -> List[str]:
+        human_readable_results = []
+        for result in results:
+            file_path = result["absolutePath"]
+            start_line = result["range"]["start"]["line"]
+            end_line = result["range"]["end"]["line"] + 1  # because end is exclusive
+            human_readable_results.append(
+                get_code_snippet(
+                    file_path=file_path,
+                    start_line=start_line,
+                    end_line=end_line,
+                )
+            )
+
+        all_results = "\n".join(human_readable_results)
+        self.notifier.log(Markdown(f"## Results (Page {current_page + 1} of {total_pages})\n{all_results}"))
+        return human_readable_results
 
     @tool
     def request_definition(
@@ -164,18 +166,3 @@ class LanguageServerCoordinator(Toolkit):
             current_page_number=page_number,
             total_pages=total_pages,
         )
-
-    @tool
-    def request_hover(self, file_path: str, line: int, column: int) -> str | None:
-        """
-        Requests hover information for a symbol at a given position in a file.
-
-        Args:
-            file_path (str): The path to the file.
-            line (int): The line number of the symbol.
-            column (int): The column number of the symbol.
-        """
-        if not self.language_server_client:
-            NotImplementedError("No language server is available.")
-        result = self.language_server_client.request_hover(file_path, line, column).value
-        return result.value if result is not None else None

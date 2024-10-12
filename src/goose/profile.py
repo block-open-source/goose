@@ -53,6 +53,6 @@ def default_profile(provider: str, processor: str, accelerator: str, **kwargs: D
         provider=provider,
         processor=processor,
         accelerator=accelerator,
-        moderator="truncate",
+        moderator="summarize",
         toolkits=[ToolkitSpec("developer")],
     )

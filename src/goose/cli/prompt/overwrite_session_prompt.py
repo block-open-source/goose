@@ -14,9 +14,11 @@ class OverwriteSessionPrompt(Prompt):
         self.default = "resume"
 
     def check_choice(self, choice: str) -> bool:
+        normalized_choice = choice.lower()
         for key in self.choices:
-            normalized_choice = choice.lower()
-            if normalized_choice == key or normalized_choice[0] == key[0]:
+            is_key = normalized_choice == key
+            is_first_letter = normalized_choice and normalized_choice[0] == key[0]
+            if is_key or is_first_letter:
                 return True
         return False
 

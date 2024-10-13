@@ -26,6 +26,14 @@ def anthropic_provider():
     return AnthropicProvider.from_env()
 
 
+def test_from_env_throw_error_when_invalid_host(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_HOST", "localhost:1234")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test_api_key")
+
+    with pytest.raises(ValueError, match="expected ANTHROPIC_HOST to be a 'http' or 'https' url: localhost:1234"):
+        AnthropicProvider.from_env()
+
+
 def test_from_env_throw_error_when_missing_api_key():
     with patch.dict(os.environ, {}, clear=True):
         with pytest.raises(MissingProviderEnvVariableError) as context:

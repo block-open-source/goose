@@ -11,6 +11,7 @@ from exchange.providers.utils import (
     openai_single_message_context_length_exceeded,
     raise_for_status,
     tools_to_openai_spec,
+    get_env_url,
 )
 from exchange.tool import Tool
 from tenacity import retry, wait_fixed, stop_after_attempt
@@ -39,7 +40,7 @@ class GroqProvider(Provider):
     @classmethod
     def from_env(cls: Type["GroqProvider"]) -> "GroqProvider":
         cls.check_env_vars(cls.instructions_url)
-        url = os.environ.get("GROQ_HOST", GROQ_HOST)
+        url = get_env_url("GROQ_HOST", GROQ_HOST)
         key = os.environ.get("GROQ_API_KEY")
 
         client = httpx.Client(

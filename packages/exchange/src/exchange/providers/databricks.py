@@ -6,7 +6,7 @@ import os
 from exchange.message import Message
 from exchange.providers.base import Provider, Usage
 from tenacity import retry, wait_fixed, stop_after_attempt
-from exchange.providers.utils import raise_for_status, retry_if_status
+from exchange.providers.utils import raise_for_status, retry_if_status, get_env_url
 from exchange.providers.utils import (
     messages_to_openai_spec,
     openai_response_to_message,
@@ -45,7 +45,7 @@ class DatabricksProvider(Provider):
     @classmethod
     def from_env(cls: Type["DatabricksProvider"]) -> "DatabricksProvider":
         cls.check_env_vars(cls.instructions_url)
-        url = os.environ.get("DATABRICKS_HOST")
+        url = get_env_url("DATABRICKS_HOST")
         key = os.environ.get("DATABRICKS_TOKEN")
         client = httpx.Client(
             base_url=url,

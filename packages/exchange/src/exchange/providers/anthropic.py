@@ -6,6 +6,7 @@ import httpx
 from exchange import Message, Tool
 from exchange.content import Text, ToolResult, ToolUse
 from exchange.providers.base import Provider, Usage
+from exchange.providers.utils import get_env_url
 from tenacity import retry, wait_fixed, stop_after_attempt
 from exchange.providers.utils import retry_if_status, raise_for_status
 
@@ -31,7 +32,7 @@ class AnthropicProvider(Provider):
     @classmethod
     def from_env(cls: Type["AnthropicProvider"]) -> "AnthropicProvider":
         cls.check_env_vars()
-        url = os.environ.get("ANTHROPIC_HOST", ANTHROPIC_HOST)
+        url = get_env_url("ANTHROPIC_HOST", ANTHROPIC_HOST)
         key = os.environ.get("ANTHROPIC_API_KEY")
         client = httpx.Client(
             base_url=url,

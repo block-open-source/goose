@@ -9,6 +9,13 @@ from .conftest import complete, tools
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", OLLAMA_MODEL)
 
 
+def test_from_env_throw_error_when_invalid_host(monkeypatch):
+    monkeypatch.setenv("OLLAMA_HOST", "localhost:1234")
+
+    with pytest.raises(ValueError, match="expected OLLAMA_HOST to be a 'http' or 'https' url: localhost:1234"):
+        OllamaProvider.from_env()
+
+
 @pytest.mark.vcr()
 def test_ollama_complete():
     reply_message, reply_usage = complete(OllamaProvider, OLLAMA_MODEL)

@@ -11,6 +11,18 @@ from .conftest import complete, tools
 AZURE_MODEL = os.getenv("AZURE_MODEL", "gpt-4o-mini")
 
 
+def test_from_env_throw_error_when_invalid_host(monkeypatch):
+    monkeypatch.setenv("AZURE_CHAT_COMPLETIONS_HOST_NAME", "localhost:1234")
+    monkeypatch.setenv("AZURE_CHAT_COMPLETIONS_DEPLOYMENT_NAME", "test_deployment_name")
+    monkeypatch.setenv("AZURE_CHAT_COMPLETIONS_DEPLOYMENT_API_VERSION", "test_api_version")
+    monkeypatch.setenv("AZURE_CHAT_COMPLETIONS_KEY", "test_api_key")
+
+    with pytest.raises(
+        ValueError, match="expected AZURE_CHAT_COMPLETIONS_HOST_NAME to be a 'http' or 'https' url: localhost:1234"
+    ):
+        AzureProvider.from_env()
+
+
 @pytest.mark.parametrize(
     "env_var_name",
     [

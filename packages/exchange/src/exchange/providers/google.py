@@ -7,7 +7,7 @@ from exchange import Message, Tool
 from exchange.content import Text, ToolResult, ToolUse
 from exchange.providers.base import Provider, Usage
 from tenacity import retry, wait_fixed, stop_after_attempt
-from exchange.providers.utils import raise_for_status, retry_if_status
+from exchange.providers.utils import raise_for_status, retry_if_status, encode_image
 
 GOOGLE_HOST = "https://generativelanguage.googleapis.com/v1beta"
 
@@ -111,9 +111,20 @@ class GoogleProvider(Provider):
                 elif isinstance(content, ToolUse):
                     converted["parts"].append({"functionCall": {"name": content.name, "args": content.parameters}})
                 elif isinstance(content, ToolResult):
-                    converted["parts"].append(
-                        {"functionResponse": {"name": content.tool_use_id, "response": {"content": content.output}}}
-                    )
+                    if content.output.startswith('"image:'):
+                        image_path = content.output.replace('"image:', "").replace('"', "")
+                        converted["parts"].append(
+                            {
+                                "inline_data": {
+                                    "mime_type": "image/png",
+                                    "data": f"{encode_image(image_path)}",
+                                }
+                            }
+                        )
+                    else:
+                        converted["parts"].append(
+                            {"functionResponse": {"name": content.tool_use_id, "response": {"content": content.output}}}
+                        )
             messages_spec.append(converted)
 
         if not messages_spec:

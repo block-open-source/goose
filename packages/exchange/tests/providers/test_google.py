@@ -83,7 +83,7 @@ def test_message_text_to_google_spec() -> None:
 
 def test_messages_to_google_spec() -> None:
     messages = [
-        Message(role="user", content=[Text(text="Hello, Gemini")]),
+        Message(role="user", content=[Text("Hello, Gemini")]),
         Message(
             role="assistant",
             content=[ToolUse(id="1", name="example_fn", parameters={"param": "value"})],

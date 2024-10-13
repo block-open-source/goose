@@ -43,7 +43,7 @@ def test_from_env_throw_error_when_missing_env_var(env_var_name):
 def test_azure_complete(default_azure_env):
     reply_message, reply_usage = complete(AzureProvider, AZURE_MODEL)
 
-    assert reply_message.content == [Text(text="Hello! How can I assist you today?\n")]
+    assert reply_message.content == [Text("Hello! How can I assist you today?\n")]
     assert reply_usage.total_tokens == 27
 
 

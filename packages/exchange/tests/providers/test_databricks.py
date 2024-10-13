@@ -61,7 +61,7 @@ def test_databricks_completion(mock_error, mock_warning, mock_sleep, mock_post, 
         model=model, system=system, messages=messages, tools=tools
     )
 
-    assert reply_message.content == [Text(text="Hello!")]
+    assert reply_message.content == [Text("Hello!")]
     assert reply_usage.total_tokens == 35
     assert mock_post.call_count == 1
     mock_post.assert_called_once_with(

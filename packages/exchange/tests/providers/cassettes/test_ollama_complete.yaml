@@ -23,7 +23,7 @@ interactions:
       Content-Type:
       - text/plain; charset=utf-8
       Date:
-      - Sun, 13 Oct 2024 02:51:56 GMT
+      - Sun, 13 Oct 2024 04:53:22 GMT
     status:
       code: 200
       message: OK
@@ -63,9 +63,9 @@ interactions:
     body:
       string: |-
         {
-          "id": "chatcmpl-646",
+          "id": "chatcmpl-565",
           "object": "chat.completion",
-          "created": 1728787919,
+          "created": 1728795204,
           "model": "mistral-nemo",
           "system_fingerprint": "fp_ollama",
           "choices": [
@@ -73,24 +73,24 @@ interactions:
               "index": 0,
               "message": {
                 "role": "assistant",
-                "content": "Hello! I'm here to assist you in any way I can. Whether you have a question, need advice, or just want someone to talk to, feel free to ask away. How can I help you today?"
+                "content": "Hello! I'm here to help. How can I assist you today? \ud83d\ude0a"
               },
               "finish_reason": "stop"
             }
           ],
           "usage": {
             "prompt_tokens": 10,
-            "completion_tokens": 45,
-            "total_tokens": 55
+            "completion_tokens": 19,
+            "total_tokens": 29
           }
         }
     headers:
       Content-Length:
-      - '458'
+      - '344'
       Content-Type:
       - application/json
       Date:
-      - Sun, 13 Oct 2024 02:51:59 GMT
+      - Sun, 13 Oct 2024 04:53:24 GMT
     status:
       code: 200
       message: OK

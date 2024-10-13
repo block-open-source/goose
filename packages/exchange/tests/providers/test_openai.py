@@ -25,7 +25,7 @@ def test_from_env_throw_error_when_missing_api_key():
 def test_openai_complete(default_openai_env):
     reply_message, reply_usage = complete(OpenAiProvider, OPENAI_MODEL)
 
-    assert reply_message.content == [Text(text="Hello! How can I assist you today?")]
+    assert reply_message.content == [Text("Hello! How can I assist you today?")]
     assert reply_usage.total_tokens == 27
 
 
@@ -64,7 +64,7 @@ def test_openai_tools_integration():
 def test_openai_vision(default_openai_env):
     reply_message, reply_usage = vision(OpenAiProvider, OPENAI_MODEL)
 
-    assert reply_message.content == [Text(text='The first entry in the menu says "Ask Goose."')]
+    assert reply_message.content == [Text('The first entry in the menu says "Ask Goose."')]
     assert reply_usage.total_tokens == 14241
 
 

@@ -73,26 +73,29 @@ def default_google_env(monkeypatch):
         monkeypatch.setenv("GOOGLE_API_KEY", GOOGLE_API_KEY)
 
 
-# Use a literal string for long or multi-line strings
-class LiteralString(str):
+class LiteralBlockScalar(str):
+    """Formats the string as a literal block scalar, preserving whitespace and
+    without interpreting escape characters"""
+
     pass
 
 
-def literal_presenter(dumper, data):
+def literal_block_scalar_presenter(dumper, data):
+    """Represents a scalar string as a literal block, via '|' syntax"""
     return dumper.represent_scalar("tag:yaml.org,2002:str", data, style="|")
 
 
-yaml.add_representer(LiteralString, literal_presenter)
+yaml.add_representer(LiteralBlockScalar, literal_block_scalar_presenter)
 
 
 def process_string_value(string_value):
     """Pretty-prints JSON or returns long strings as a LiteralString"""
     try:
         json_data = json.loads(string_value)
-        return LiteralString(json.dumps(json_data, indent=2))
+        return LiteralBlockScalar(json.dumps(json_data, indent=2))
     except (ValueError, TypeError):
         if len(string_value) > 80:
-            return LiteralString(string_value)
+            return LiteralBlockScalar(string_value)
     return string_value
 
 

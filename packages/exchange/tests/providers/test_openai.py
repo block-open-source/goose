@@ -43,7 +43,7 @@ def test_openai_tools(default_openai_env):
 
     tool_use = reply_message.content[0]
     assert isinstance(tool_use, ToolUse), f"Expected ToolUse, but was {type(tool_use).__name__}"
-    assert tool_use.id == "call_xXYlw4A7Ud1qtCopuK5gEJrP"
+    assert tool_use.id == "call_Z43oz2RtLmNHw9xvFgxA1SC5"
     assert tool_use.name == "read_file"
     assert tool_use.parameters == {"filename": "test.txt"}
     assert reply_usage.total_tokens == 122

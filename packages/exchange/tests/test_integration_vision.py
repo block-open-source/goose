@@ -9,6 +9,7 @@ from exchange.providers import get_provider
 
 cases = [
     (get_provider("openai"), os.getenv("OPENAI_MODEL", "gpt-4o-mini")),
+    (get_provider("google"), os.getenv("GOOGLE_MODEL", "gemini-1.5-flash")),
 ]
 
 

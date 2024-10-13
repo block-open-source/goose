@@ -148,12 +148,15 @@ class Session:
         print(f"[dim]ended run | name:[cyan]{self.name}[/]  profile:[cyan]{profile}[/]")
         print(f"[dim]to resume: [magenta]goose session resume {self.name} --profile {profile}[/][/]")
 
-    def run(self) -> None:
+    def run(self, new_session: bool = True) -> None:
         """
         Runs the main loop to handle user inputs and responses.
         Continues until an empty string is returned from the prompt.
+
+        Args:
+            new_session (bool): True when starting a new session, False when resuming.
         """
-        if is_existing_session(self.session_file_path):
+        if is_existing_session(self.session_file_path) and new_session:
             self._prompt_overwrite_session()
 
         profile_name = self.profile_name or "default"

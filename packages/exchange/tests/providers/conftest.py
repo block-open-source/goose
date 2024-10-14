@@ -1,6 +1,5 @@
 import os
 import re
-from typing import Type, Tuple
 
 import pytest
 
@@ -119,14 +118,14 @@ def scrub_response_headers(response):
     return response
 
 
-def complete(provider_cls: Type[Provider], model: str, **kwargs) -> Tuple[Message, Usage]:
+def complete(provider_cls: type[Provider], model: str, **kwargs) -> tuple[Message, Usage]:
     provider = provider_cls.from_env()
     system = "You are a helpful assistant."
     messages = [Message.user("Hello")]
     return provider.complete(model=model, system=system, messages=messages, tools=(), **kwargs)
 
 
-def tools(provider_cls: Type[Provider], model: str, **kwargs) -> Tuple[Message, Usage]:
+def tools(provider_cls: type[Provider], model: str, **kwargs) -> tuple[Message, Usage]:
     provider = provider_cls.from_env()
     system = "You are a helpful assistant. Expect to need to read a file using read_file."
     messages = [Message.user("What are the contents of this file? test.txt")]
@@ -135,7 +134,7 @@ def tools(provider_cls: Type[Provider], model: str, **kwargs) -> Tuple[Message, 
     )
 
 
-def vision(provider_cls: Type[Provider], model: str, **kwargs) -> Tuple[Message, Usage]:
+def vision(provider_cls: type[Provider], model: str, **kwargs) -> tuple[Message, Usage]:
     provider = provider_cls.from_env()
     system = "You are a helpful assistant."
     messages = [

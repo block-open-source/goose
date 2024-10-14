@@ -1,5 +1,4 @@
 import os
-from typing import Any, Dict, List, Tuple, Type
 
 import httpx
 
@@ -29,7 +28,7 @@ class AnthropicProvider(Provider):
         self.client = client
 
     @classmethod
-    def from_env(cls: Type["AnthropicProvider"]) -> "AnthropicProvider":
+    def from_env(cls: type["AnthropicProvider"]) -> "AnthropicProvider":
         cls.check_env_vars()
         url = os.environ.get("ANTHROPIC_HOST", ANTHROPIC_HOST)
         key = os.environ.get("ANTHROPIC_API_KEY")
@@ -45,7 +44,7 @@ class AnthropicProvider(Provider):
         return cls(client)
 
     @staticmethod
-    def get_usage(data: Dict) -> Usage:  # noqa: ANN401
+    def get_usage(data: dict) -> Usage:  # noqa: ANN401
         usage = data.get("usage")
         input_tokens = usage.get("input_tokens")
         output_tokens = usage.get("output_tokens")
@@ -61,7 +60,7 @@ class AnthropicProvider(Provider):
         )
 
     @staticmethod
-    def anthropic_response_to_message(response: Dict) -> Message:
+    def anthropic_response_to_message(response: dict) -> Message:
         content_blocks = response.get("content", [])
         content = []
         for block in content_blocks:
@@ -78,7 +77,7 @@ class AnthropicProvider(Provider):
         return Message(role="assistant", content=content)
 
     @staticmethod
-    def tools_to_anthropic_spec(tools: Tuple[Tool]) -> List[Dict[str, Any]]:
+    def tools_to_anthropic_spec(tools: tuple[Tool, ...]) -> list[dict[str, any]]:
         return [
             {
                 "name": tool.name,
@@ -89,7 +88,7 @@ class AnthropicProvider(Provider):
         ]
 
     @staticmethod
-    def messages_to_anthropic_spec(messages: List[Message]) -> List[Dict[str, Any]]:
+    def messages_to_anthropic_spec(messages: list[Message]) -> list[dict[str, any]]:
         messages_spec = []
         # if messages is empty - just make a default
         for message in messages:
@@ -127,10 +126,12 @@ class AnthropicProvider(Provider):
         self,
         model: str,
         system: str,
-        messages: List[Message],
-        tools: List[Tool] = [],
-        **kwargs: Dict[str, Any],
-    ) -> Tuple[Message, Usage]:
+        messages: list[Message],
+        tools: list[Tool] = None,
+        **kwargs: dict[str, any],
+    ) -> tuple[Message, Usage]:
+        if tools is None:
+            tools = []
         tools_set = set()
         unique_tools = []
         for tool in tools:

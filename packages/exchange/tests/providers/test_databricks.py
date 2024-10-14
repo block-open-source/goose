@@ -10,8 +10,8 @@ from exchange.providers.databricks import DatabricksProvider
 @pytest.mark.parametrize(
     "env_var_name",
     [
-        ("DATABRICKS_HOST"),
-        ("DATABRICKS_TOKEN"),
+        "DATABRICKS_HOST",
+        "DATABRICKS_TOKEN",
     ],
 )
 def test_from_env_throw_error_when_missing_env_var(env_var_name):

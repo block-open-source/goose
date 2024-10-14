@@ -1,7 +1,7 @@
 import base64
 import json
 import re
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Optional
 
 import httpx
 from exchange.content import Text, ToolResult, ToolUse
@@ -10,10 +10,10 @@ from exchange.tool import Tool
 from tenacity import retry_if_exception
 
 
-def retry_if_status(codes: Optional[List[int]] = None, above: Optional[int] = None) -> Callable:
+def retry_if_status(codes: Optional[list[int]] = None, above: Optional[int] = None) -> callable:
     codes = codes or []
 
-    def predicate(exc: Exception) -> bool:
+    def predicate(exc: BaseException) -> bool:
         if isinstance(exc, httpx.HTTPStatusError):
             if exc.response.status_code in codes:
                 return True
@@ -42,7 +42,7 @@ def encode_image(image_path: str) -> str:
         return base64.b64encode(image_file.read()).decode("utf-8")
 
 
-def messages_to_openai_spec(messages: List[Message]) -> List[Dict[str, Any]]:
+def messages_to_openai_spec(messages: list[Message]) -> list[dict[str, any]]:
     messages_spec = []
     for message in messages:
         converted = {"role": message.role}
@@ -106,7 +106,7 @@ def messages_to_openai_spec(messages: List[Message]) -> List[Dict[str, Any]]:
     return messages_spec
 
 
-def tools_to_openai_spec(tools: Tuple[Tool]) -> Dict[str, Any]:
+def tools_to_openai_spec(tools: tuple[Tool, ...]) -> dict[str, any]:
     tools_names = set()
     result = []
     for tool in tools:

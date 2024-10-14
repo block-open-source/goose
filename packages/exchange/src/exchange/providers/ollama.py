@@ -1,5 +1,4 @@
 import os
-from typing import Type
 
 import httpx
 
@@ -31,7 +30,7 @@ ollama:
         super().__init__(client)
 
     @classmethod
-    def from_env(cls: Type["OllamaProvider"]) -> "OllamaProvider":
+    def from_env(cls: type["OllamaProvider"]) -> "OllamaProvider":
         ollama_url = os.environ.get("OLLAMA_HOST", OLLAMA_HOST)
         timeout = httpx.Timeout(60 * 10)
 

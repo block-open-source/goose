@@ -1,5 +1,5 @@
 from abc import ABC
-from typing import List, Optional
+from typing import Optional
 
 from prompt_toolkit.completion import Completion
 
@@ -7,7 +7,7 @@ from prompt_toolkit.completion import Completion
 class Command(ABC):
     """A command that can be executed by the CLI."""
 
-    def get_completions(self, query: str) -> List[Completion]:
+    def get_completions(self, query: str) -> list[Completion]:
         """
         Get completions for the command.
 

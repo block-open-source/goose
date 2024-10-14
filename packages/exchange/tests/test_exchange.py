@@ -1,5 +1,3 @@
-from typing import List, Tuple
-
 import pytest
 
 from exchange.checkpoint import Checkpoint, CheckpointData
@@ -29,12 +27,12 @@ def no_overlapping_checkpoints(exchange: Exchange) -> bool:
     return True
 
 
-def checkpoint_to_index_pairs(checkpoints: List[Checkpoint]) -> List[Tuple[int, int]]:
+def checkpoint_to_index_pairs(checkpoints: list[Checkpoint]) -> list[tuple[int, int]]:
     return [(checkpoint.start_index, checkpoint.end_index) for checkpoint in checkpoints]
 
 
 class MockProvider(Provider):
-    def __init__(self, sequence: List[Message], usage_dicts: List[dict]):
+    def __init__(self, sequence: list[Message], usage_dicts: list[dict]):
         # We'll use init to provide a preplanned reply sequence
         self.sequence = sequence
         self.call_count = 0
@@ -56,11 +54,18 @@ class MockProvider(Provider):
             total_tokens=total_tokens,
         )
 
-    def complete(self, model: str, system: str, messages: List[Message], tools: List[Tool]) -> Message:
+    def complete(
+        self,
+        model: str,
+        system: str,
+        messages: list[Message],
+        tools: tuple[Tool, ...],
+        **kwargs: dict[str, any],
+    ) -> tuple[Message, Usage]:
         output = self.sequence[self.call_count]
         usage = self.get_usage(self.usage_dicts[self.call_count])
         self.call_count += 1
-        return (output, usage)
+        return output, usage
 
 
 def test_reply_with_unsupported_tool():
@@ -116,7 +121,7 @@ def test_invalid_tool_parameters():
         ),
         model="gpt-4o-2024-05-13",
         system="You are a helpful assistant.",
-        tools=[Tool.from_function(dummy_tool)],
+        tools=(Tool.from_function(dummy_tool),),
         moderator=PassiveModerator(),
     )
 
@@ -154,7 +159,7 @@ def test_max_tool_use_when_limit_reached():
         ),
         model="gpt-4o-2024-05-13",
         system="You are a helpful assistant.",
-        tools=[Tool.from_function(dummy_tool)],
+        tools=(Tool.from_function(dummy_tool),),
         moderator=PassiveModerator(),
     )
 
@@ -195,7 +200,7 @@ def test_tool_output_too_long_character_error():
         ),
         model="gpt-4o-2024-05-13",
         system="You are a helpful assistant.",
-        tools=[Tool.from_function(long_output_tool_char)],
+        tools=(Tool.from_function(long_output_tool_char),),
         moderator=PassiveModerator(),
     )
 
@@ -236,7 +241,7 @@ def test_tool_output_too_long_token_error():
         ),
         model="gpt-4o-2024-05-13",
         system="You are a helpful assistant.",
-        tools=[Tool.from_function(long_output_tool_token)],
+        tools=(Tool.from_function(long_output_tool_token),),
         moderator=PassiveModerator(),
     )
 
@@ -301,7 +306,7 @@ def resumed_exchange() -> Exchange:
     ex = Exchange(
         provider=provider,
         messages=messages,
-        tools=[],
+        tools=(),
         model="gpt-4o-2024-05-13",
         system="You are a helpful assistant.",
         checkpoint_data=CheckpointData(),
@@ -399,7 +404,7 @@ def test_pop_first_message_no_messages():
         provider=MockProvider(sequence=[], usage_dicts=[]),
         model="gpt-4o-2024-05-13",
         system="You are a helpful assistant.",
-        tools=[Tool.from_function(dummy_tool)],
+        tools=(Tool.from_function(dummy_tool),),
         moderator=PassiveModerator(),
     )
 
@@ -741,7 +746,7 @@ def test_rewind_with_tool_usage():
         ),
         model="gpt-4o-2024-05-13",
         system="You are a helpful assistant.",
-        tools=[Tool.from_function(dummy_tool)],
+        tools=(Tool.from_function(dummy_tool),),
         moderator=PassiveModerator(),
     )
     ex.add(Message(role="user", content=[Text(text="test")]))

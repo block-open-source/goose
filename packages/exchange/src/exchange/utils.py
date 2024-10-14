@@ -1,7 +1,7 @@
 import inspect
 import uuid
 from importlib.metadata import entry_points
-from typing import Any, Callable, Dict, List, Type, get_args, get_origin
+from typing import get_args, get_origin
 
 from griffe import (
     Docstring,
@@ -20,7 +20,7 @@ def compact(content: str) -> str:
     return " ".join(content.split())
 
 
-def parse_docstring(func: Callable) -> tuple[str, List[Dict]]:
+def parse_docstring(func: callable) -> tuple[str, list[dict]]:
     """Get description and parameters from function docstring"""
     function_args = list(inspect.signature(func).parameters.keys())
     text = str(func.__doc__)
@@ -71,7 +71,7 @@ def parse_docstring(func: Callable) -> tuple[str, List[Dict]]:
 
 
 def _check_section_is_present(
-    parsed_docstring: List[DocstringSection], section_type: Type[DocstringSectionText]
+    parsed_docstring: list[DocstringSection], section_type: type[DocstringSectionText]
 ) -> bool:
     for section in parsed_docstring:
         if isinstance(section, section_type):
@@ -79,7 +79,7 @@ def _check_section_is_present(
     return False
 
 
-def json_schema(func: Any) -> dict[str, Any]:  # noqa: ANN401
+def json_schema(func: any) -> dict[str, any]:  # noqa: ANN401
     """Get the json schema for a function"""
     signature = inspect.signature(func)
     parameters = signature.parameters
@@ -107,16 +107,16 @@ def json_schema(func: Any) -> dict[str, Any]:  # noqa: ANN401
     return schema
 
 
-def _map_type_to_schema(py_type: Type) -> Dict[str, Any]:  # noqa: ANN401
+def _map_type_to_schema(py_type: type) -> dict[str, any]:  # noqa: ANN401
     origin = get_origin(py_type)
     args = get_args(py_type)
 
     if origin is list or origin is tuple:
-        return {"type": "array", "items": _map_type_to_schema(args[0] if args else Any)}
+        return {"type": "array", "items": _map_type_to_schema(args[0] if args else any)}
     elif origin is dict:
         return {
             "type": "object",
-            "additionalProperties": _map_type_to_schema(args[1] if len(args) > 1 else Any),
+            "additionalProperties": _map_type_to_schema(args[1] if len(args) > 1 else any),
         }
     elif py_type is int:
         return {"type": "integer"}

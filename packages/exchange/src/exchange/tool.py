@@ -1,5 +1,4 @@
 import inspect
-from typing import Any, Callable, Type
 
 from attrs import define
 
@@ -13,17 +12,17 @@ class Tool:
     Attributes:
         name (str): The name of the tool
         description (str): A description of what the tool does
-        parameters dict[str, Any]: A json schema of the function signature
+        parameters dict[str, any]: A json schema of the function signature
         function (Callable): The python function that powers the tool
     """
 
     name: str
     description: str
-    parameters: dict[str, Any]
-    function: Callable
+    parameters: dict[str, any]
+    function: callable
 
     @classmethod
-    def from_function(cls: Type["Tool"], func: Any) -> "Tool":  # noqa: ANN401
+    def from_function(cls: type["Tool"], func: any) -> "Tool":  # noqa: ANN401
         """Create a tool instance from a function and its docstring
 
         The function must have a docstring - we require it to load the description

@@ -1,5 +1,3 @@
-from typing import Any, Dict, List, Tuple, Type
-
 import httpx
 import os
 
@@ -43,7 +41,7 @@ class DatabricksProvider(Provider):
         self.client = client
 
     @classmethod
-    def from_env(cls: Type["DatabricksProvider"]) -> "DatabricksProvider":
+    def from_env(cls: type["DatabricksProvider"]) -> "DatabricksProvider":
         cls.check_env_vars(cls.instructions_url)
         url = os.environ.get("DATABRICKS_HOST")
         key = os.environ.get("DATABRICKS_TOKEN")
@@ -73,10 +71,10 @@ class DatabricksProvider(Provider):
         self,
         model: str,
         system: str,
-        messages: List[Message],
-        tools: Tuple[Tool],
-        **kwargs: Dict[str, Any],
-    ) -> Tuple[Message, Usage]:
+        messages: list[Message],
+        tools: tuple[Tool, ...],
+        **kwargs: dict[str, any],
+    ) -> tuple[Message, Usage]:
         payload = dict(
             messages=[
                 {"role": "system", "content": system},

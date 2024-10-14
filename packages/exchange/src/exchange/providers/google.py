@@ -1,5 +1,4 @@
 import os
-from typing import Any, Dict, List, Tuple, Type
 
 import httpx
 
@@ -30,7 +29,7 @@ class GoogleProvider(Provider):
         self.client = client
 
     @classmethod
-    def from_env(cls: Type["GoogleProvider"]) -> "GoogleProvider":
+    def from_env(cls: type["GoogleProvider"]) -> "GoogleProvider":
         cls.check_env_vars(cls.instructions_url)
         url = os.environ.get("GOOGLE_HOST", GOOGLE_HOST)
         key = os.environ.get("GOOGLE_API_KEY")
@@ -45,7 +44,7 @@ class GoogleProvider(Provider):
         return cls(client)
 
     @staticmethod
-    def get_usage(data: Dict) -> Usage:  # noqa: ANN401
+    def get_usage(data: dict) -> Usage:  # noqa: ANN401
         usage = data.get("usageMetadata")
         input_tokens = usage.get("promptTokenCount")
         output_tokens = usage.get("candidatesTokenCount")
@@ -61,7 +60,7 @@ class GoogleProvider(Provider):
         )
 
     @staticmethod
-    def google_response_to_message(response: Dict) -> Message:
+    def google_response_to_message(response: dict) -> Message:
         candidates = response.get("candidates", [])
         if candidates:
             # Only use first candidate for now
@@ -85,12 +84,12 @@ class GoogleProvider(Provider):
         return Message(role="assistant", content=[])
 
     @staticmethod
-    def tools_to_google_spec(tools: Tuple[Tool]) -> Dict[str, List[Dict[str, Any]]]:
+    def tools_to_google_spec(tools: tuple[Tool, ...]) -> dict[str, list[dict[str, any]]]:
         if not tools:
             return {}
         converted_tools = []
         for tool in tools:
-            converted_tool: Dict[str, Any] = {
+            converted_tool: dict[str, any] = {
                 "name": tool.name,
                 "description": tool.description or "",
             }
@@ -100,7 +99,7 @@ class GoogleProvider(Provider):
         return {"functionDeclarations": converted_tools}
 
     @staticmethod
-    def messages_to_google_spec(messages: List[Message]) -> List[Dict[str, Any]]:
+    def messages_to_google_spec(messages: list[Message]) -> list[dict[str, any]]:
         messages_spec = []
         for message in messages:
             role = "user" if message.role == "user" else "model"
@@ -136,10 +135,10 @@ class GoogleProvider(Provider):
         self,
         model: str,
         system: str,
-        messages: List[Message],
-        tools: List[Tool] = [],
-        **kwargs: Dict[str, Any],
-    ) -> Tuple[Message, Usage]:
+        messages: list[Message],
+        tools: list[Tool] = None,
+        **kwargs: dict[str, any],
+    ) -> tuple[Message, Usage]:
         tools_set = set()
         unique_tools = []
         for tool in tools:

@@ -1,7 +1,7 @@
 import random
 import string
 from importlib.metadata import entry_points
-from typing import Any, Callable, Dict, List, Type, TypeVar
+from typing import TypeVar, Callable
 
 T = TypeVar("T")
 
@@ -31,10 +31,10 @@ def load_plugins(group: str) -> dict:
     return plugins
 
 
-def ensure(cls: Type[T]) -> Callable[[Any], T]:
+def ensure(cls: type[T]) -> Callable[[any], T]:
     """Convert dictionary to a class instance"""
 
-    def converter(val: Any) -> T:  # noqa: ANN401
+    def converter(val: any) -> T:  # noqa: ANN401
         if isinstance(val, cls):
             return val
         elif isinstance(val, dict):
@@ -47,10 +47,10 @@ def ensure(cls: Type[T]) -> Callable[[Any], T]:
     return converter
 
 
-def ensure_list(cls: Type[T]) -> Callable[[List[Dict[str, Any]]], Type[T]]:
+def ensure_list(cls: type[T]) -> Callable[[list[dict[str, any]]], type[T]]:
     """Convert a list of dictionaries to class instances"""
 
-    def converter(val: List[Dict[str, Any]]) -> List[T]:
+    def converter(val: list[dict[str, any]]) -> list[T]:
         output = []
         for entry in val:
             output.append(ensure(cls)(entry))

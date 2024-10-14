@@ -1,5 +1,5 @@
 <h1 align="center">
-Goose is your on-machine developer agent, automating engineering tasks seamlessly within your IDE or terminal
+Goose is your on-machine developer agent, working for you on your terms
 </h1>
 
 <p align="center">
@@ -37,7 +37,21 @@ Goose is your on-machine developer agent, automating engineering tasks seamlessl
 > pipx install goose-ai
 > ```
 
-**Goose** is a developer agent that supercharges your software development by automating an array of coding tasks directly within your terminal or IDE. Guided by you, it can intelligently assess your project's needs, generate the required code or modifications, and implement these changes on its own. Goose can **interact with a multitude of tools via external APIs** such as Jira, GitHub, Slack, infrastructure and data pipelines, and more -- if your task uses a **shell command or can be carried out by a Python script, Goose can do it for you too!** Like semi-autonomous driving, Goose handles the heavy lifting, allowing you to focus on other priorities. Simply set it on a task and return later to find it completed, boosting your productivity with less manual effort.
+Each day, we have tasks that stretch our days. Maybe it is completing that half-complete change started by someone now
+on holiday, or figuring out the tl;dr; of that 50 comment pull request. Wouldn't it be grand if someone else can do
+this, or at least start the work for us?
+
+**Goose** is your on-machine developer agent, working for you, on your terms. Guided by you, Goose intelligently
+assesses what you need, generates required code or modifications. You are in charge: if you want Goose to make a draft
+or complete the change, it is up to you. It is also up to you to choose if you prefer to work in a terminal or in your
+IDE.
+
+Doing our work requires a lot of tools, like Jira, GitHub, Slack, as well APIs for infrastructure and data pipelines.
+Goose handles all of these, and is extensible. You can run anything invokable by a shell command, Python or a plugin.
+
+Like semi-autonomous driving, Goose handles the heavy lifting, allowing you to focus on other priorities. Simply set it
+on a task and return later to find it completed, boosting your productivity with less manual effort. Read on to get
+started!
 
 <p align="center">
   <video src="https://github.com/user-attachments/assets/63ee7910-cb02-45c0-9982-351cbce83925" width="700" height="700" />

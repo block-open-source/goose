@@ -42,9 +42,8 @@ on holiday, or figuring out the tl;dr; of that 50 comment pull request. Wouldn't
 this, or at least start the work for us?
 
 **Goose** is your on-machine developer agent, working for you, on your terms. Guided by you, Goose intelligently
-assesses what you need, generates required code or modifications. You are in charge: if you want Goose to make a draft
-or complete the change, it is up to you. It is also up to you to choose if you prefer to work in a terminal or in your
-IDE.
+assesses what you need and generates required code or modifications. You are in charge: Do you prefer Goose to make a
+draft, or complete the change entirely? Do you prefer to work in a terminal or in your IDE?
 
 Doing our work requires a lot of tools, like Jira, GitHub, Slack, as well APIs for infrastructure and data pipelines.
 Goose handles all of these, and is extensible. You can run anything invokable by a shell command, Python or a plugin.

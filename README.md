@@ -46,7 +46,7 @@ assesses what you need and generates required code or modifications. You are in 
 draft, or complete the change entirely? Do you prefer to work in a terminal or in your IDE?
 
 Doing our work requires a lot of tools, like Jira, GitHub, Slack, as well APIs for infrastructure and data pipelines.
-Goose handles all of these, and is extensible. You can run anything invokable by a shell command, Python or a plugin.
+Goose handles all of these, and is extensible. Goose can run anything invokable by a shell command, Python or a plugin.
 
 Like semi-autonomous driving, Goose handles the heavy lifting, allowing you to focus on other priorities. Simply set it
 on a task and return later to find it completed, boosting your productivity with less manual effort. Read on to get

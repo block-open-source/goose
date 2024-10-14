@@ -1,5 +1,5 @@
 <h1 align="center">
-Goose is your on-machine developer agent, working for you on your terms
+Goose is your on-machine developer agent, working for you, on your terms
 </h1>
 
 <p align="center">

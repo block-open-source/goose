@@ -1,7 +1,19 @@
 interactions:
 - request:
-    body: '{"messages": [{"role": "system", "content": "You are a helpful assistant."},
-      {"role": "user", "content": "Hello"}], "model": "gpt-4o-mini"}'
+    body: |-
+      {
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are a helpful assistant."
+          },
+          {
+            "role": "user",
+            "content": "Hello"
+          }
+        ],
+        "model": "gpt-4o-mini"
+      }
     headers:
       accept:
       - '*/*'
@@ -23,35 +35,94 @@ interactions:
     uri: https://test.openai.azure.com/openai/deployments/test-azure-deployment/chat/completions?api-version=2024-05-01-preview
   response:
     body:
-      string: '{"choices":[{"content_filter_results":{"hate":{"filtered":false,"severity":"safe"},"self_harm":{"filtered":false,"severity":"safe"},"sexual":{"filtered":false,"severity":"safe"},"violence":{"filtered":false,"severity":"safe"}},"finish_reason":"stop","index":0,"logprobs":null,"message":{"content":"Hello!
-        How can I assist you today?","role":"assistant"}}],"created":1727230065,"id":"chatcmpl-ABBjN3AoYlxkP7Vg2lBvUhYeA6j5K","model":"gpt-4-32k","object":"chat.completion","prompt_filter_results":[{"prompt_index":0,"content_filter_results":{"hate":{"filtered":false,"severity":"safe"},"self_harm":{"filtered":false,"severity":"safe"},"sexual":{"filtered":false,"severity":"safe"},"violence":{"filtered":false,"severity":"safe"}}}],"system_fingerprint":null,"usage":{"completion_tokens":9,"prompt_tokens":18,"total_tokens":27}}
-
-        '
+      string: |-
+        {
+          "choices": [
+            {
+              "content_filter_results": {
+                "hate": {
+                  "filtered": false,
+                  "severity": "safe"
+                },
+                "self_harm": {
+                  "filtered": false,
+                  "severity": "safe"
+                },
+                "sexual": {
+                  "filtered": false,
+                  "severity": "safe"
+                },
+                "violence": {
+                  "filtered": false,
+                  "severity": "safe"
+                }
+              },
+              "finish_reason": "stop",
+              "index": 0,
+              "logprobs": null,
+              "message": {
+                "content": "Hello! How can I assist you today?\n",
+                "role": "assistant"
+              }
+            }
+          ],
+          "created": 1728788170,
+          "id": "chatcmpl-AHj469gGa9bQaCSikrZYDejfGDx2x",
+          "model": "gpt-4-32k",
+          "object": "chat.completion",
+          "prompt_filter_results": [
+            {
+              "prompt_index": 0,
+              "content_filter_results": {
+                "hate": {
+                  "filtered": false,
+                  "severity": "safe"
+                },
+                "self_harm": {
+                  "filtered": false,
+                  "severity": "safe"
+                },
+                "sexual": {
+                  "filtered": false,
+                  "severity": "safe"
+                },
+                "violence": {
+                  "filtered": false,
+                  "severity": "safe"
+                }
+              }
+            }
+          ],
+          "system_fingerprint": null,
+          "usage": {
+            "completion_tokens": 9,
+            "prompt_tokens": 18,
+            "total_tokens": 27
+          }
+        }
     headers:
       Cache-Control:
       - no-cache, must-revalidate
       Content-Length:
-      - '825'
+      - '827'
       Content-Type:
       - application/json
       Date:
-      - Wed, 25 Sep 2024 02:07:45 GMT
-      Set-Cookie: test_set_cookie
+      - Sun, 13 Oct 2024 02:56:10 GMT
       Strict-Transport-Security:
       - max-age=31536000; includeSubDomains; preload
       access-control-allow-origin:
       - '*'
       apim-request-id:
-      - 82e66ef8-ac07-4a43-b60f-9aecec1d8c81
+      - b203f657-e7aa-40ea-8969-ba0b83dae854
       azureml-model-session:
-      - d145-20240919052126
-      openai-organization: test_openai_org_key
+      - d156-20241010120317
       x-accel-buffering:
       - 'no'
       x-content-type-options:
       - nosniff
       x-ms-client-request-id:
-      - 82e66ef8-ac07-4a43-b60f-9aecec1d8c81
+      - b203f657-e7aa-40ea-8969-ba0b83dae854
       x-ms-rai-invoked:
       - 'true'
       x-ms-region:
@@ -61,7 +132,7 @@ interactions:
       x-ratelimit-remaining-tokens:
       - '79984'
       x-request-id:
-      - 38db9001-8b16-4efe-84c9-620e10f18c3c
+      - 0c6dc92f-a017-4879-b82e-be937533c76e
     status:
       code: 200
       message: OK

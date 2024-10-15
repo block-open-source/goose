@@ -109,7 +109,7 @@ class Developer(Toolkit):
                 page.goto(url)
                 content = page.content()
                 browser.close()
-                with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.txt', dir=os.getcwd()) as tmp_file:
+                with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.txt') as tmp_file:
                     tmp_file.write(content)
                     return tmp_file.name
         except Exception as e:
@@ -124,7 +124,7 @@ class Developer(Toolkit):
         for command in fetch_commands:
             try:
                 result = subprocess.check_output(command, shell=True, text=True)
-                with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.txt', dir=os.getcwd()) as tmp_file:
+                with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.txt') as tmp_file:
                     tmp_file.write(result)
                     return tmp_file.name
             except subprocess.CalledProcessError:

@@ -103,7 +103,9 @@ class RepoContext(Toolkit):
 
         # summarize the selected files using a blank exchange with no tools
         summary = summarize_files_concurrent(
-            exchange=clear_exchange(self.exchange_view.accelerator, clear_tools=True), file_list=files, project_name=project_directory.split("/")[-1]
+            exchange=clear_exchange(self.exchange_view.accelerator, clear_tools=True),
+            file_list=files,
+            project_name=project_directory.split("/")[-1]
         )
 
         return summary

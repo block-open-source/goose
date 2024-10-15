@@ -92,6 +92,42 @@ class Developer(Toolkit):
         return tasks
 
     @tool
+    def fetch_web_content(self, url: str) -> str:
+        """
+        Fetch content from a URL using available tools. Attempts to use Playwright first, then falls back to wget, curl, or httpx.
+
+        Args:
+            url (str): The URL to fetch content from.
+        """
+        try:
+            from playwright.sync_api import sync_playwright
+            with sync_playwright() as p:
+                browser = p.chromium.launch()
+                page = browser.new_page()
+                page.goto(url)
+                content = page.content()
+                browser.close()
+                return content
+        except ImportError:
+            self.notifier.log("Playwright not installed, trying other methods.")
+
+        fetch_commands = [
+            f"curl {url}",
+            f"wget -q -O- {url}",
+            f"python -c 'import httpx; print(httpx.get(\"{url}\").text)'"
+        ]
+
+        for command in fetch_commands:
+            try:
+                result = subprocess.check_output(command, shell=True, text=True)
+                return result
+            except subprocess.CalledProcessError:
+                self.notifier.log(f"Failed fetching with: {command}")
+
+        raise RuntimeError(f"All methods failed to fetch content from {url}.")
+
+
+    @tool
     def patch_file(self, path: str, before: str, after: str) -> str:
         """Patch the file at the specified by replacing before with after
 

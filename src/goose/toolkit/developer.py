@@ -115,7 +115,7 @@ class Developer(Toolkit):
         except Exception as e:
             self.notifier.log(
                 "unable to use playwright so will try other things:",
-                "you can try installing it: playwright install --with-deps chromium"
+                "you can try installing it: playwright install --with-deps chromium",
             )
             raise e
         fetch_commands = [

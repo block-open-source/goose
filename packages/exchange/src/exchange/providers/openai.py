@@ -11,6 +11,7 @@ from exchange.providers.utils import (
     openai_single_message_context_length_exceeded,
     raise_for_status,
     tools_to_openai_spec,
+    get_env_url,
 )
 from exchange.tool import Tool
 from tenacity import retry, wait_fixed, stop_after_attempt
@@ -39,11 +40,11 @@ class OpenAiProvider(Provider):
     @classmethod
     def from_env(cls: Type["OpenAiProvider"]) -> "OpenAiProvider":
         cls.check_env_vars(cls.instructions_url)
-        url = os.environ.get("OPENAI_HOST", OPENAI_HOST)
+        url = get_env_url("OPENAI_HOST", OPENAI_HOST)
         key = os.environ.get("OPENAI_API_KEY")
 
         client = httpx.Client(
-            base_url=url + "v1/",
+            base_url=url.join("v1/"),
             auth=("Bearer", key),
             timeout=httpx.Timeout(60 * 10),
         )

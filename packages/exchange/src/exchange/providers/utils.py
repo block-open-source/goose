@@ -1,5 +1,6 @@
 import base64
 import json
+import os
 import re
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -8,6 +9,27 @@ from exchange.content import Text, ToolResult, ToolUse
 from exchange.message import Message
 from exchange.tool import Tool
 from tenacity import retry_if_exception
+
+
+def get_env_url(key: str, default: str = "") -> httpx.URL:
+    """
+    Returns a valid 'http' or 'https' URL.
+
+    :param key: The environment key
+    :param default: The URL default value
+    :raises ValueError: If the URL scheme is not 'http' or 'https'
+    """
+
+    val = os.environ.get(key, default)
+    if val == "":
+        raise ValueError(f"{key} was empty")
+
+    url = httpx.URL(val)
+
+    if url.scheme not in ["http", "https"]:
+        raise ValueError(f"expected {key} to be a 'http' or 'https' url: {val}")
+
+    return url
 
 
 def retry_if_status(codes: Optional[List[int]] = None, above: Optional[int] = None) -> Callable:

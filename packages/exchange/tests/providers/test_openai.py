@@ -11,6 +11,14 @@ from .conftest import complete, vision, tools
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
 
+def test_from_env_throw_error_when_invalid_host(monkeypatch):
+    monkeypatch.setenv("OPENAI_HOST", "localhost:1234")
+    monkeypatch.setenv("OPENAI_API_KEY", "test_api_key")
+
+    with pytest.raises(ValueError, match="expected OPENAI_HOST to be a 'http' or 'https' url: localhost:1234"):
+        OpenAiProvider.from_env()
+
+
 def test_from_env_throw_error_when_missing_api_key():
     with patch.dict(os.environ, {}, clear=True):
         with pytest.raises(MissingProviderEnvVariableError) as context:

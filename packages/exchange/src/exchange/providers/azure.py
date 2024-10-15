@@ -4,6 +4,7 @@ import httpx
 import os
 
 from exchange.providers import OpenAiProvider
+from exchange.providers.utils import get_env_url
 
 
 class AzureProvider(OpenAiProvider):
@@ -23,13 +24,13 @@ class AzureProvider(OpenAiProvider):
     @classmethod
     def from_env(cls: Type["AzureProvider"]) -> "AzureProvider":
         cls.check_env_vars()
-        url = os.environ.get("AZURE_CHAT_COMPLETIONS_HOST_NAME")
+        url = get_env_url("AZURE_CHAT_COMPLETIONS_HOST_NAME")
         deployment_name = os.environ.get("AZURE_CHAT_COMPLETIONS_DEPLOYMENT_NAME")
         api_version = os.environ.get("AZURE_CHAT_COMPLETIONS_DEPLOYMENT_API_VERSION")
         key = os.environ.get("AZURE_CHAT_COMPLETIONS_KEY")
 
         # format the url host/"openai/deployments/" + deployment_name + "/?api-version=" + api_version
-        url = f"{url}/openai/deployments/{deployment_name}/"
+        url = url.join(f"/openai/deployments/{deployment_name}/")
         client = httpx.Client(
             base_url=url,
             headers={"api-key": key, "Content-Type": "application/json"},

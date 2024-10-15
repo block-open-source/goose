@@ -41,11 +41,9 @@ class LanguageServerCoordinator(Toolkit):
         for name, language_server_cls in load_plugins("goose.language_server").items():
             try:
                 ls = language_server_cls.from_env(config=language_server_config, logger=language_server_logger)
-                is_enabled = True
-                # TODO: undo
-                # is_enabled = Confirm.ask(
-                #     f"Would you like to enable the [blue bold]{name}[/] language server?", default=True
-                # )
+                is_enabled = Confirm.ask(
+                    f"Would you like to enable the [blue bold]{name}[/] language server?", default=True
+                )
                 if is_enabled:
                     self.language_server_client.register_language_server(ls)
             except Exception:

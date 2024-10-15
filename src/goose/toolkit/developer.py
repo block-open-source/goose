@@ -112,12 +112,11 @@ class Developer(Toolkit):
                 with tempfile.NamedTemporaryFile(delete=False, mode="w", suffix=".txt") as tmp_file:
                     tmp_file.write(content)
                     return tmp_file.name
-        except Exception as e:
+        except Exception:
             self.notifier.log(
                 "unable to use playwright so will try other things:",
                 "you can try installing it: playwright install --with-deps chromium",
             )
-            raise e
         fetch_commands = [
             f"curl {url}",
             f"wget -q -O- {url}",

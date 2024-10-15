@@ -200,7 +200,8 @@ def session_resume(name: Optional[str], profile: str, log_level: str) -> None:
 @click.argument("message_file", required=False, type=click.Path(exists=True))
 @click.option("--profile")
 @click.option("--log-level", type=LOG_CHOICE, default="INFO")
-def run(message_file: Optional[str], profile: str, log_level: str) -> None:
+@click.option('--resume-session', is_flag=True, help='Resume the last session if available')
+def run(message_file: Optional[str], profile: str, log_level: str, resume_session: bool = False) -> None:
     """Run a single-pass session with a message from a markdown input file"""
     if message_file:
         with open(message_file, "r") as f:
@@ -209,6 +210,11 @@ def run(message_file: Optional[str], profile: str, log_level: str) -> None:
         initial_message = click.get_text_stream("stdin").read()
 
     session = Session(profile=profile, log_level=log_level)
+    if resume_session:
+        session_files = get_session_files()
+        if session_files:
+            name = list(session_files.keys())[0]
+            session = Session(name=name, profile=profile, log_level=log_level)
     session.single_pass(initial_message=initial_message)
 
 

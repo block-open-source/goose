@@ -151,9 +151,7 @@ goose session resume
 To see more documentation on the CLI commands currently available to Goose check out the documentation [here][cli]. If you’d like to develop your own CLI commands for Goose, check out the [Contributing document][contributing].
 
 ### Tracing with Langfuse
-> [!NOTE]
-> This Langfuse integration is experimental and we don't currently have integration tests for it.
-> 
+> [!NOTE] This Langfuse integration is experimental and we don't currently have integration tests for it.
 
 The exchange package provides a [Langfuse](https://langfuse.com/) wrapper module. The wrapper serves to initialize Langfuse appropriately if the Langfuse server is running locally and otherwise to skip applying the Langfuse observe descorators.
 

@@ -73,6 +73,16 @@ Additions to the [developer toolkit][developer] change the core performance, and
 
 This project follows the [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) specification for PR titles. Conventional Commits make it easier to understand the history of a project and facilitate automation around versioning and changelog generation.
 
+## Release
+
+In order to release a new version of goose, you need to do the following:
+1. Update CHANGELOG.md. To get the commit messages since last release, run: `just release-notes`
+2. Update version in `pyproject.toml` for `goose` and package dependencies such as `exchange`
+3. Create a PR and merge it into main branch
+4. Tag the HEAD commit in main branch. To do this, switch to main branch and run: `just tag-push`
+5. Publish a new release from the [Github Release UI](https://github.com/block-open-source/goose/releases)
+
+
 [issues]: https://github.com/block-open-source/goose/issues
 [goose-plugins]: https://github.com/block-open-source/goose-plugins
 [ai-exchange]: https://github.com/block-open-source/goose/tree/main/packages/exchange

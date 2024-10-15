@@ -107,7 +107,6 @@ To install Goose, use `pipx`. First ensure [pipx][pipx] is installed:
 brew install pipx
 pipx ensurepath
 ```
-You can also place `.goosehints` in `~/.config/goose/.goosehints` if you like for always loaded hints personal to you.
 
 Then install Goose:
 
@@ -131,7 +130,11 @@ You will see the Goose prompt `G❯`:
 G❯ type your instructions here exactly as you would tell a developer.
 ```
 
-Now you are interacting with Goose in conversational sessions - something like a natural language driven code interpreter. The default toolkit allows Goose to take actions through shell commands and file edits. You can interrupt Goose with `CTRL+D` or `ESC+Enter` at any time to help redirect its efforts.
+Now you are interacting with Goose in conversational sessions - think of it as like giving direction to a junior developer. The default toolkit allows Goose to take actions through shell commands and file edits. You can interrupt Goose with `CTRL+D` or `ESC+Enter` at any time to help redirect its efforts.
+
+> [!TIP]
+> You can place a `.goosehints` text file in any directory you launch goose from to give it some background info for new sessions in plain language (eg how to test, what instructions to read to get started or just tell it to read the README!) You can also put a global one `~/.config/goose/.goosehints` if you like for always loaded hints personal to you.
+
 
 #### Exit the session
 
@@ -179,11 +182,18 @@ By default your local deployment and Goose will use the values in `.env.langfuse
 
 Learn how to modify your Goose profiles.yaml file to add and remove functionality (toolkits) and providing context to get the most out of Goose in our [Getting Started Guide][getting-started].
 
+## Other ways to run goose
+
 **Want to move out of the terminal and into an IDE?**
 
 We have some experimental IDE integrations for VSCode and JetBrains IDEs:
 * https://github.com/square/goose-vscode
 * https://github.com/Kvadratni/goose-intellij
+
+There is also an experimental github action to run goose as part of your workflow (for example if you ask it to fix an issue): 
+https://github.com/marketplace/actions/goose-ai-developer-agent
+
+There is also a `Dockerfile` in the root of this project you can use if you want to run goose in a sandboxed fashion.
 
 ## Getting involved!
 

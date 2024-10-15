@@ -192,11 +192,20 @@ def test_set_generated_session_name(mock_droid, create_session_with_mock_configs
 def test_existing_session_prompt(mock_prompt, mock_is_existing, create_session_with_mock_configs):
     session = create_session_with_mock_configs({"name": SESSION_NAME})
 
-    mock_is_existing.return_value = True
-    session.run()
-    mock_prompt.assert_called_once()
+    def check_prompt_behavior(is_existing, new_session, should_prompt):
+        mock_is_existing.return_value = is_existing
+        if new_session is None:
+            session.run()
+        else:
+            session.run(new_session=new_session)
 
-    mock_prompt.reset_mock()
-    mock_is_existing.return_value = False
-    session.run()
-    mock_prompt.assert_not_called()
+        if should_prompt:
+            mock_prompt.assert_called_once()
+        else:
+            mock_prompt.assert_not_called()
+        mock_prompt.reset_mock()
+
+    check_prompt_behavior(is_existing=True, new_session=None, should_prompt=True)
+    check_prompt_behavior(is_existing=False, new_session=None, should_prompt=False)
+    check_prompt_behavior(is_existing=True, new_session=True, should_prompt=True)
+    check_prompt_behavior(is_existing=False, new_session=False, should_prompt=False)

@@ -22,7 +22,7 @@ from pathlib import Path
 from functools import wraps  # Add this import
 
 
-def find_package_root(start_path: Path, marker_file="pyproject.toml") -> Path:
+def find_package_root(start_path: Path, marker_file: str = "pyproject.toml") -> Path:
     while start_path != start_path.parent:
         if (start_path / marker_file).exists():
             return start_path
@@ -74,7 +74,7 @@ def observe_wrapper(*args, **kwargs) -> Callable:  # noqa
         if HAS_LANGFUSE_CREDENTIALS:
 
             @wraps(fn)
-            def wrapped_fn(*fargs, **fkwargs):
+            def wrapped_fn(*fargs, **fkwargs):  # noqa
                 return langfuse_context.observe(*args, **kwargs)(fn)(*fargs, **fkwargs)
 
             return wrapped_fn

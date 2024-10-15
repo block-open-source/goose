@@ -24,7 +24,7 @@ Lists the version of Goose and any associated plugins.
 
 Starts a new Goose session.
 
-If you want to enable locally hosted Langfuse tracing, pass the --tracing flag after starting your local Langfuse server as outlined in the [Contributing Guide]'s [contributing] Development guidelines.
+If you want to enable locally hosted Langfuse tracing, pass the --tracing flag after starting your local Langfuse server as outlined in the [Contributing Guide's][contributing] Development guidelines.
 
 #### `resume`
 

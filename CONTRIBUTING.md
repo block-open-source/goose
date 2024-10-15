@@ -49,9 +49,10 @@ just test
 ```
 
 ### Enable traces in Goose with [locally hosted Langfuse](https://langfuse.com/docs/deployment/self-host)
+> [!NOTE]
+> This integration is experimental and we don't currently have integration tests for it.
+> 
 Developers can use locally hosted Langfuse tracing by applying the custom `observe_wrapper` decorator defined in `packages/exchange/src/langfuse_wrapper.py` to functions for automatic integration with Langfuse. 
-
-Note: This integration is experimental and we don't currently have integration tests for it.
 
 - Run `just langfuse-server` to start your local Langfuse server. It requires Docker.
 - Go to http://localhost:3000 and log in with the default email/password output by the shell script (values can also be found in the `.env.langfuse.local` file).

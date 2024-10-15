@@ -105,7 +105,7 @@ class RepoContext(Toolkit):
         summary = summarize_files_concurrent(
             exchange=clear_exchange(self.exchange_view.accelerator, clear_tools=True),
             file_list=files,
-            project_name=project_directory.split("/")[-1]
+            project_name=project_directory.split("/")[-1],
         )
 
         return summary

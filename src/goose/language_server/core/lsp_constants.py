@@ -1,6 +1,6 @@
 """
-This file defines wrapper objects around the types returned by LSP to ensure decoupling between LSP versions and multilspy.
-This file is obtained from https://github.com/microsoft/multilspy, which itself took it
+This file defines wrapper objects around the types returned by LSP to ensure decoupling between LSP versions and
+multilspy. This file is obtained from https://github.com/microsoft/multilspy, which itself took it
 from https://github.com/predragnikolic/OLSP under the MIT License with the following terms:
 
 

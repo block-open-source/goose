@@ -79,7 +79,8 @@ class LanguageServerCoordinator(Toolkit):
     def system(self) -> str:
         if not self.language_server_client:
             return ""
-        return Message.load("prompts/language_server.jinja").text
+        languages = list(self.language_server_client.language_servers.keys())
+        return Message.load("prompts/language_server.jinja", dict(languages=", ".join(languages))).text
 
     def get_readable_lsp_results(self, results: List[Location], current_page: int, total_pages: int) -> List[str]:
         human_readable_results = []
@@ -126,10 +127,10 @@ class LanguageServerCoordinator(Toolkit):
         return dict(
             results=self.get_readable_lsp_results(
                 results,  # replace with paginated results
-                current_page=page_number,
+                current_page=page_number + 1,  # because page_number is 0-indexed
                 total_pages=total_pages,
             ),
-            current_page_number=page_number,
+            current_page_number=page_number + 1,  # because page_number is 0-indexed
             total_pages=total_pages,
         )
 

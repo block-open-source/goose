@@ -6,24 +6,24 @@ import httpx
 from exchange.providers.openai import OpenAiProvider
 
 OLLAMA_HOST = "http://localhost:11434/"
-OLLAMA_MODEL = "mistral-nemo"
+OLLAMA_MODEL = "qwen2.5"
 
 
 class OllamaProvider(OpenAiProvider):
     """Provides chat completions for models hosted by Ollama."""
 
-    __doc__ += """Here's an example profile configuration to try:
+    __doc__ += f"""Here's an example profile configuration to try:
 
 First run: ollama pull qwen2.5, then use this profile:
 
 ollama:
   provider: ollama
-  processor: qwen2.5
-  accelerator: qwen2.5
+  processor: {OLLAMA_MODEL}
+  accelerator: {OLLAMA_MODEL}
   moderator: truncate
   toolkits:
   - name: developer
-    requires: {}
+    requires: {{}}
 """
 
     def __init__(self, client: httpx.Client) -> None:

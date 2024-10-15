@@ -209,12 +209,13 @@ def run(message_file: Optional[str], profile: str, log_level: str, resume_sessio
     else:
         initial_message = click.get_text_stream("stdin").read()
 
-    session = Session(profile=profile, log_level=log_level)
     if resume_session:
         session_files = get_session_files()
         if session_files:
             name = list(session_files.keys())[0]
             session = Session(name=name, profile=profile, log_level=log_level)
+    else:
+        session = Session(profile=profile, log_level=log_level)
     session.single_pass(initial_message=initial_message)
 
 

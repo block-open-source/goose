@@ -2,6 +2,8 @@ import os
 import re
 import subprocess
 import time
+import tempfile
+
 from pathlib import Path
 from typing import Dict, List
 
@@ -15,6 +17,7 @@ from rich.prompt import Confirm
 from rich.table import Table
 from rich.text import Text
 from rich.rule import Rule
+from playwright.sync_api import sync_playwright
 
 RULESTYLE = "bold"
 RULEPREFIX = f"[{RULESTYLE}]───[/] "
@@ -94,23 +97,24 @@ class Developer(Toolkit):
     @tool
     def fetch_web_content(self, url: str) -> str:
         """
-        Fetch content from a URL using available tools. Attempts to use Playwright first, then falls back to wget, curl, or httpx.
+        Fetch content from a URL using available tools. Attempts to use playwright first, then falls back to wget, curl, or httpx.
 
         Args:
-            url (str): The URL to fetch content from.
-        """
+            url (str): a name of a file with the url/page content. This may be large so you can use search tools to find content. It may also contain other links which can be browsed.
+        """ #noqa
         try:
-            from playwright.sync_api import sync_playwright
             with sync_playwright() as p:
                 browser = p.chromium.launch()
                 page = browser.new_page()
                 page.goto(url)
                 content = page.content()
                 browser.close()
-                return content
-        except ImportError:
-            self.notifier.log("Playwright not installed, trying other methods.")
-
+                with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.txt', dir=os.getcwd()) as tmp_file:
+                    tmp_file.write(content)
+                    return tmp_file.name
+        except Exception as e:
+            self.notifier.log("unable to use playwright so will try other things: you can try installing it: playwright install --with-deps chromium") # noqa
+            raise e
         fetch_commands = [
             f"curl {url}",
             f"wget -q -O- {url}",
@@ -120,7 +124,9 @@ class Developer(Toolkit):
         for command in fetch_commands:
             try:
                 result = subprocess.check_output(command, shell=True, text=True)
-                return result
+                with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.txt', dir=os.getcwd()) as tmp_file:
+                    tmp_file.write(result)
+                    return tmp_file.name
             except subprocess.CalledProcessError:
                 self.notifier.log(f"Failed fetching with: {command}")
 

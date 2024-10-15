@@ -20,6 +20,7 @@ Lists the version of Goose and any associated plugins.
 **Usage:**
 ```sh
   goose session start [--profile PROFILE] [--plan PLAN] [--log-level [DEBUG|INFO|WARNING|ERROR|CRITICAL]] [--tracing]
+```
 
 Starts a new Goose session.
 

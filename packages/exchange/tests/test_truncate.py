@@ -73,7 +73,7 @@ class TruncateLinearProvider(Provider):
         self.summarize_next = False
         self.summarized_count = 0
 
-    def complete(self, model, system, messages, tools):
+    def complete(self, model, system, messages, tools, **kwargs):
         input_token_count = SYSTEM_PROMPT_TOKENS
 
         message = self.sequence[self.current_index]

@@ -14,10 +14,10 @@ AZURE_MODEL = os.getenv("AZURE_MODEL", "gpt-4o-mini")
 @pytest.mark.parametrize(
     "env_var_name",
     [
-        ("AZURE_CHAT_COMPLETIONS_HOST_NAME"),
-        ("AZURE_CHAT_COMPLETIONS_DEPLOYMENT_NAME"),
-        ("AZURE_CHAT_COMPLETIONS_DEPLOYMENT_API_VERSION"),
-        ("AZURE_CHAT_COMPLETIONS_KEY"),
+        "AZURE_CHAT_COMPLETIONS_HOST_NAME",
+        "AZURE_CHAT_COMPLETIONS_DEPLOYMENT_NAME",
+        "AZURE_CHAT_COMPLETIONS_DEPLOYMENT_API_VERSION",
+        "AZURE_CHAT_COMPLETIONS_KEY",
     ],
 )
 def test_from_env_throw_error_when_missing_env_var(env_var_name):

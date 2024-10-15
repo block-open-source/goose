@@ -15,9 +15,9 @@ logger = logging.getLogger(__name__)
 @pytest.mark.parametrize(
     "env_var_name",
     [
-        ("AWS_ACCESS_KEY_ID"),
-        ("AWS_SECRET_ACCESS_KEY"),
-        ("AWS_SESSION_TOKEN"),
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        "AWS_SESSION_TOKEN",
     ],
 )
 def test_from_env_throw_error_when_missing_env_var(env_var_name):

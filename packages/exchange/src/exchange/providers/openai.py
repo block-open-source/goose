@@ -1,5 +1,4 @@
 import os
-from typing import Any, Dict, List, Tuple, Type
 
 import httpx
 
@@ -37,7 +36,7 @@ class OpenAiProvider(Provider):
         self.client = client
 
     @classmethod
-    def from_env(cls: Type["OpenAiProvider"]) -> "OpenAiProvider":
+    def from_env(cls: type["OpenAiProvider"]) -> "OpenAiProvider":
         cls.check_env_vars(cls.instructions_url)
         url = os.environ.get("OPENAI_HOST", OPENAI_HOST)
         key = os.environ.get("OPENAI_API_KEY")
@@ -69,10 +68,10 @@ class OpenAiProvider(Provider):
         self,
         model: str,
         system: str,
-        messages: List[Message],
-        tools: Tuple[Tool],
-        **kwargs: Dict[str, Any],
-    ) -> Tuple[Message, Usage]:
+        messages: list[Message],
+        tools: tuple[Tool, ...],
+        **kwargs: dict[str, any],
+    ) -> tuple[Message, Usage]:
         system_message = [] if model.startswith("o1") else [{"role": "system", "content": system}]
         payload = dict(
             messages=system_message + messages_to_openai_spec(messages),

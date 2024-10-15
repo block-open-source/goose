@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Mapping, Type
+from typing import Mapping
 
 from attrs import asdict, define, field
 
@@ -21,10 +21,10 @@ class Profile:
     processor: str
     accelerator: str
     moderator: str
-    toolkits: List[ToolkitSpec] = field(factory=list, converter=ensure_list(ToolkitSpec))
+    toolkits: list[ToolkitSpec] = field(factory=list, converter=ensure_list(ToolkitSpec))
 
     @toolkits.validator
-    def check_toolkit_requirements(self, _: Type["ToolkitSpec"], toolkits: List[ToolkitSpec]) -> None:
+    def check_toolkit_requirements(self, _: type["ToolkitSpec"], toolkits: list[ToolkitSpec]) -> None:
         # checks that the list of toolkits in the profile have their requirements
         installed_toolkits = set([toolkit.name for toolkit in toolkits])
 
@@ -36,7 +36,7 @@ class Profile:
                     msg = f"Toolkit {toolkit_name} requires {req} but it is not present"
                     raise ValueError(msg)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, any]:
         return asdict(self)
 
     def profile_info(self) -> str:
@@ -44,7 +44,7 @@ class Profile:
         return f"provider:{self.provider}, processor:{self.processor} toolkits: {', '.join(tookit_names)}"
 
 
-def default_profile(provider: str, processor: str, accelerator: str, **kwargs: Dict[str, Any]) -> Profile:
+def default_profile(provider: str, processor: str, accelerator: str, **kwargs: dict[str, any]) -> Profile:
     """Get the default profile"""
 
     # TODO consider if the providers should have recommended models

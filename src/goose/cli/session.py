@@ -1,6 +1,6 @@
 import traceback
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 from exchange import Message, Text, ToolResult, ToolUse
 from rich import print
@@ -62,7 +62,7 @@ class Session:
         profile: Optional[str] = None,
         plan: Optional[dict] = None,
         log_level: Optional[str] = "INFO",
-        **kwargs: dict[str, Any],
+        **kwargs: dict[str, any],
     ) -> None:
         if name is None:
             self.name = droid()

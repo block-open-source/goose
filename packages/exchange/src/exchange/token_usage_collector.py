@@ -1,5 +1,4 @@
 from collections import defaultdict
-from typing import Dict
 
 from exchange.providers.base import Usage
 
@@ -11,7 +10,7 @@ class _TokenUsageCollector:
     def collect(self, model: str, usage: Usage) -> None:
         self.usage_data.append((model, usage))
 
-    def get_token_usage_group_by_model(self) -> Dict[str, Usage]:
+    def get_token_usage_group_by_model(self) -> dict[str, Usage]:
         usage_group_by_model = defaultdict(lambda: Usage(0, 0, 0))
         for model, usage in self.usage_data:
             usage_by_model = usage_group_by_model[model]

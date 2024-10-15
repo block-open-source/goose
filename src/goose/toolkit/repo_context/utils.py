@@ -2,7 +2,6 @@ import ast
 import concurrent.futures
 import os
 from collections import deque
-from typing import Dict, List, Tuple
 
 from exchange import Exchange
 
@@ -26,7 +25,7 @@ def get_repo_size(repo_path: str) -> int:
     return get_directory_size(git_dir) / (1024**2)
 
 
-def get_files_and_directories(root_dir: str) -> Dict[str, list]:
+def get_files_and_directories(root_dir: str) -> dict[str, list]:
     """Gets file names and directory names. Checks that goose has correctly typed the file and directory names and that
     the files actually exist (to avoid downstream file read errors).
 
@@ -61,7 +60,7 @@ def get_files_and_directories(root_dir: str) -> Dict[str, list]:
     return {"files": files, "directories": dirs}
 
 
-def goose_picks_files(root: str, exchange: Exchange, max_workers: int = 4) -> List[str]:
+def goose_picks_files(root: str, exchange: Exchange, max_workers: int = 4) -> list[str]:
     """Lets goose pick files in a BFS manner"""
     queue = deque([root])
 
@@ -80,7 +79,7 @@ def goose_picks_files(root: str, exchange: Exchange, max_workers: int = 4) -> Li
     return all_files
 
 
-def process_directory(current_dir: str, exchange: Exchange) -> Tuple[List[str], List[str]]:
+def process_directory(current_dir: str, exchange: Exchange) -> tuple[list[str], list[str]]:
     """Allows goose to pick files and subdirectories contained in a given directory (current_dir). Get the list of file
     and directory names in the current folder, then ask Goose to pick which ones to keep.
 

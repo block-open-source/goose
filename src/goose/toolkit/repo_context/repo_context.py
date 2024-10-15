@@ -100,8 +100,11 @@ class RepoContext(Toolkit):
         file_select_exchange = replace_prompt(exchange=file_select_exchange, prompt=system)
         files = goose_picks_files(root=project_directory, exchange=file_select_exchange)
 
+        # summarize the selected files using a blank exchange with no tools
         summary = summarize_files_concurrent(
-            exchange=self.exchange_view.accelerator, file_list=files, project_name=project_directory.split("/")[-1]
+            exchange=clear_exchange(self.exchange_view.accelerator, clear_tools=True),
+            file_list=files,
+            project_name=project_directory.split("/")[-1],
         )
 
         return summary

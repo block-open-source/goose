@@ -101,7 +101,7 @@ class Developer(Toolkit):
 
         Args:
             url (str): a name of a file with the url/page content. This may be large so you can use search tools to find content. It may also contain other links which can be browsed.
-        """ #noqa
+        """  # noqa
         try:
             with sync_playwright() as p:
                 browser = p.chromium.launch()
@@ -109,29 +109,31 @@ class Developer(Toolkit):
                 page.goto(url)
                 content = page.content()
                 browser.close()
-                with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.txt') as tmp_file:
+                with tempfile.NamedTemporaryFile(delete=False, mode="w", suffix=".txt") as tmp_file:
                     tmp_file.write(content)
                     return tmp_file.name
         except Exception as e:
-            self.notifier.log("unable to use playwright so will try other things: you can try installing it: playwright install --with-deps chromium") # noqa
+            self.notifier.log(
+                "unable to use playwright so will try other things:",
+                "you can try installing it: playwright install --with-deps chromium"
+            )
             raise e
         fetch_commands = [
             f"curl {url}",
             f"wget -q -O- {url}",
-            f"python -c 'import httpx; print(httpx.get(\"{url}\").text)'"
+            f"python -c 'import httpx; print(httpx.get(\"{url}\").text)'",
         ]
 
         for command in fetch_commands:
             try:
                 result = subprocess.check_output(command, shell=True, text=True)
-                with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.txt') as tmp_file:
+                with tempfile.NamedTemporaryFile(delete=False, mode="w", suffix=".txt") as tmp_file:
                     tmp_file.write(result)
                     return tmp_file.name
             except subprocess.CalledProcessError:
                 self.notifier.log(f"Failed fetching with: {command}")
 
         raise RuntimeError(f"All methods failed to fetch content from {url}.")
-
 
     @tool
     def patch_file(self, path: str, before: str, after: str) -> str:

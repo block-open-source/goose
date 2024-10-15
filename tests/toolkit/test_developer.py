@@ -42,16 +42,17 @@ def developer_toolkit():
 
 
 def test_fetch_web_content(developer_toolkit):
-    url = 'http://example.com'
+    url = "http://example.com"
 
     content_path = developer_toolkit.fetch_web_content(url)
 
-    assert content_path.endswith('.txt')
+    assert content_path.endswith(".txt")
 
-    with open(content_path, 'r') as file:
+    with open(content_path, "r") as file:
         fetched_content = file.read()
 
-    assert 'Example Domain' in fetched_content
+    assert "Example Domain" in fetched_content
+
 
 def test_system_prompt_with_goosehints(temp_dir, developer_toolkit):
     readme_file = temp_dir / "README.md"

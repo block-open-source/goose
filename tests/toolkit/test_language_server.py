@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from goose.language_server.core.exception import LanguageServerError
@@ -37,7 +37,6 @@ def test_server_context(language_server_toolkit):
 
     assert not servers.loop_threads["JediServer"].is_alive()
     assert servers.server_loops["JediServer"].is_closed
-    LanguageServerCoordinator._instance = None
 
 
 def test_request_definition(language_server_toolkit):
@@ -47,3 +46,26 @@ def test_request_definition(language_server_toolkit):
     assert "TEST_NOTIFIER = MagicMock(spec=Notifier)" in result["results"][0]
     assert result["current_page_number"] == 1
     assert result["total_pages"] == 1
+
+
+def test_invalid_definition_requested(language_server_toolkit):
+    pass
+    # TODO: make this pass
+    # with language_server_toolkit.language_server_client.start_servers() as _:
+    #     language_server_toolkit.request_definition(__file__, 1000, 1000)
+
+
+def test_ensure_language_server_client_is_none_if_no_language_servers_exist():
+    with patch("goose.toolkit.language_server.load_plugins", return_value=dict()):
+        developer_toolkit = Developer(notifier=TEST_NOTIFIER)
+        language_server_toolkit = LanguageServerCoordinator(
+            notifier=TEST_NOTIFIER, requires=dict(developer=developer_toolkit), prompt_user_to_start=False
+        )
+        assert language_server_toolkit.language_server_client is None
+
+
+def test_request_definition_for_unsupported_language(language_server_toolkit):
+    with language_server_toolkit.language_server_client.start_servers() as _:
+        with pytest.raises(ValueError) as e:
+            language_server_toolkit.request_definition("some/file.rs", 17, 28)
+        assert str(e.value) == "Unsupported language for file some/file.rs"

@@ -2,6 +2,8 @@ import asyncio
 from collections import defaultdict
 import threading
 from contextlib import ExitStack, asynccontextmanager, contextmanager
+import concurrent.futures
+
 
 from goose.language_server.base import LanguageServer
 from goose.language_server.type_helpers import ensure_all_methods_implemented
@@ -15,14 +17,23 @@ T = TypeVar("T")
 def language_server_request(func: Callable[[T, Any], Any]) -> Callable[[T, Any], Any]:
     def wrapper(self: "SyncLanguageServerClient", file_path: str, line: int, column: int) -> List[T]:
         language = Language.from_file_path(file_path)
+        if language not in self.language_servers.keys():
+            raise ValueError(f"Unsupported language for file {file_path}")
         for language_server in self.language_servers[language]:
             language_server_name = language_server.__class__.__name__
             loop = self.server_loops[language_server_name]
-            result = asyncio.run_coroutine_threadsafe(
-                func(self, language_server, file_path, line, column), loop
-            ).result(timeout=5)
-            if result:
-                return result
+            try:
+                result = asyncio.run_coroutine_threadsafe(
+                    func(self, language_server, file_path, line, column), loop
+                ).result(timeout=5)
+                if result:
+                    return result
+            except asyncio.TimeoutError:
+                print("The coroutine took too long to complete and timed out.")
+            except concurrent.futures.TimeoutError:
+                print("The result retrieval timed out.")
+            except Exception as e:
+                print(f"An error occurred: {e}")
 
     return wrapper
 

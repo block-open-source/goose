@@ -68,7 +68,8 @@ dev-dependencies = [
     "mkdocstrings-python>=1.11.1",
     "mkdocstrings>=0.26.1",
     "pytest-mock>=3.14.0",
-    "pytest>=8.3.2"
+    "pytest>=8.3.2",
+    "pytest-asyncio>=0.24.0",
 ]
 
 [tool.uv.sources]

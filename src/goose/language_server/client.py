@@ -1,19 +1,19 @@
 import asyncio
 from collections import defaultdict
 import threading
-from contextlib import ExitStack, contextmanager
+from contextlib import ExitStack, asynccontextmanager, contextmanager
 
 from goose.language_server.base import LanguageServer
 from goose.language_server.type_helpers import ensure_all_methods_implemented
 from goose.language_server import language_server_types
 from goose.utils.language import Language
-from typing import Any, Callable, Iterator, List, Tuple, TypeVar, Union
+from typing import Any, AsyncIterator, Callable, Iterator, List, Tuple, TypeVar, Union
 
 T = TypeVar("T")
 
 
 def language_server_request(func: Callable[[T, Any], Any]) -> Callable[[T, Any], Any]:
-    def wrapper(self: "LanguageServerClient", file_path: str, line: int, column: int) -> List[T]:
+    def wrapper(self: "SyncLanguageServerClient", file_path: str, line: int, column: int) -> List[T]:
         language = Language.from_file_path(file_path)
         for language_server in self.language_servers[language]:
             language_server_name = language_server.__class__.__name__
@@ -28,16 +28,16 @@ def language_server_request(func: Callable[[T, Any], Any]) -> Callable[[T, Any],
 
 
 @ensure_all_methods_implemented(LanguageServer)
-class LanguageServerClient:
+class SyncLanguageServerClient:
     """
-    The LanguageServerClient class provides a language-agnostic interface to locally runnin
+    The SyncLanguageServerClient class provides a language-agnostic interface to locally runnin
     Language Servers for different programming languages. It is implemented as a singleton,
     as we only support running one instance of each programming language.
     """
 
     def __init__(self) -> None:
         """
-        Initialize SyncLanguageServer with a dictionary of language servers.
+        Initialize SyncLanguageServerClient with a dictionary of language servers.
         Each language server is run on its own daemon thread.
         """
         self.language_servers = defaultdict(list)
@@ -61,12 +61,12 @@ class LanguageServerClient:
         thread.start()
 
     @contextmanager
-    def start_servers(self) -> Iterator["LanguageServerClient"]:
+    def start_servers(self) -> Iterator["SyncLanguageServerClient"]:
         """
         Starts all language server processes and connects to them.
         Each server is run on its own thread and event loop.
 
-        :yield: The SyncLanguageServer instance with all servers started.
+        :yield: The LanguageServerClient instance with all servers started.
         """
         ctxs = {}
         # Start all language servers
@@ -76,7 +76,7 @@ class LanguageServerClient:
                 loop = self.server_loops[language_server_name]
                 ctx = language_server.start_server()
                 ctxs[language_server_name] = ctx
-                asyncio.run_coroutine_threadsafe(ctx.__aenter__(), loop=loop).result()
+                asyncio.run_coroutine_threadsafe(ctx.__aenter__(), loop=loop).result()  # enter the context
 
         # Yield the context for using the servers
         yield self
@@ -85,7 +85,7 @@ class LanguageServerClient:
         for language_name, _ in ctxs.items():
             loop = self.server_loops[language_name]
             ctx = ctxs[language_name]
-            asyncio.run_coroutine_threadsafe(ctx.__aexit__(None, None, None), loop=loop).result()
+            asyncio.run_coroutine_threadsafe(ctx.__aexit__(None, None, None), loop=loop).result()  # exit the context
 
             # Stop the event loop and join the thread
             loop.call_soon_threadsafe(loop.stop)

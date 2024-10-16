@@ -4,7 +4,7 @@ from typing import Callable, List, Optional, Tuple, Type
 
 from exchange.message import Message
 from rich.markdown import Markdown
-from goose.language_server.client import LanguageServerClient
+from goose.language_server.client import SyncLanguageServerClient
 from goose.language_server.config import LanguageServerConfig
 from goose.language_server.language_server_types import Location
 from goose.language_server.logger import LanguageServerLogger
@@ -31,18 +31,22 @@ class LanguageServerCoordinator(Toolkit):
             raise ValueError("LanguageServerCoordinator has not been initialized.")
         return cls._instance
 
-    def __init__(self, notifier: Notifier, requires: Optional[Requirements] = None) -> None:
+    def __init__(
+        self, notifier: Notifier, requires: Optional[Requirements] = None, prompt_user_to_start: bool = True
+    ) -> None:
         super().__init__(notifier=notifier, requires=requires)
 
         language_server_logger = LanguageServerLogger()
         language_server_config = LanguageServerConfig(trace_lsp_communication=False)
-        self.language_server_client = LanguageServerClient()
+        self.language_server_client = SyncLanguageServerClient()
 
         for name, language_server_cls in load_plugins("goose.language_server").items():
             try:
                 ls = language_server_cls.from_env(config=language_server_config, logger=language_server_logger)
-                is_enabled = Confirm.ask(
-                    f"Would you like to enable the [blue bold]{name}[/] language server?", default=True
+                is_enabled = (
+                    prompt_user_to_start
+                    and Confirm.ask(f"Would you like to enable the [blue bold]{name}[/] language server?", default=True)
+                    or True
                 )
                 if is_enabled:
                     self.language_server_client.register_language_server(ls)

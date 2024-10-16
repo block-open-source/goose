@@ -48,6 +48,21 @@ or, as a shortcut,
 just test
 ```
 
+### Enable traces in Goose with [locally hosted Langfuse](https://langfuse.com/docs/deployment/self-host)
+> [!NOTE]
+> This integration is experimental and we don't currently have integration tests for it.
+ 
+Developers can use locally hosted Langfuse tracing by applying the custom `observe_wrapper` decorator defined in `packages/exchange/src/langfuse_wrapper.py` to functions for automatic integration with Langfuse. 
+
+- Run `just langfuse-server` to start your local Langfuse server. It requires Docker.
+- Go to http://localhost:3000 and log in with the default email/password output by the shell script (values can also be found in the `.env.langfuse.local` file).
+- Run Goose with the --tracing flag enabled i.e., `goose session start --tracing`
+- View your traces at http://localhost:3000
+
+To extend tracing to additional functions, import `from exchange.langfuse_wrapper import observe_wrapper` and use the `observe_wrapper()` decorator on functions you wish to enable tracing for. `observe_wrapper` functions the same way as Langfuse's observe decorator. 
+
+Read more about Langfuse's decorator-based tracing [here](https://langfuse.com/docs/sdk/python/decorators).
+
 ## Exchange
 
 The lower level generation behind goose is powered by the [`exchange`][ai-exchange] package, also in this repo.

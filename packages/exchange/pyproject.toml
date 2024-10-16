@@ -13,6 +13,8 @@ dependencies = [
     "tiktoken>=0.7.0",
     "httpx>=0.27.0",
     "tenacity>=9.0.0",
+    "python-dotenv>=1.0.1",
+    "langfuse>=2.38.2"
 ]
 
 [tool.hatch.build.targets.wheel]

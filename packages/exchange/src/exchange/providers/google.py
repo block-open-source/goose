@@ -7,6 +7,8 @@ from exchange.content import Text, ToolResult, ToolUse
 from exchange.providers.base import Provider, Usage
 from tenacity import retry, wait_fixed, stop_after_attempt
 from exchange.providers.utils import raise_for_status, retry_if_status, encode_image
+from exchange.langfuse_wrapper import observe_wrapper
+
 
 GOOGLE_HOST = "https://generativelanguage.googleapis.com/v1beta"
 
@@ -131,6 +133,7 @@ class GoogleProvider(Provider):
 
         return messages_spec
 
+    @observe_wrapper(as_type="generation")
     def complete(
         self,
         model: str,

@@ -135,6 +135,16 @@ Now you are interacting with Goose in conversational sessions - think of it as l
 > [!TIP]
 > You can place a `.goosehints` text file in any directory you launch goose from to give it some background info for new sessions in plain language (eg how to test, what instructions to read to get started or just tell it to read the README!) You can also put a global one `~/.config/goose/.goosehints` if you like for always loaded hints personal to you.
 
+### Running a goose tasks (one off)
+
+You can run goose to do things just as a one off, such as tidying up, and then exiting: 
+
+```sh
+goose run instructions.md
+```
+
+This will run until completion as best it can. You can also pass `--resume-session` and it will re-use the first session it finds for context
+
 
 #### Exit the session
 

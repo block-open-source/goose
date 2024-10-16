@@ -1,7 +1,7 @@
 import logging
 import traceback
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 from langfuse.decorators import langfuse_context
 from exchange import Message, Text, ToolResult, ToolUse
@@ -66,7 +66,7 @@ class Session:
         plan: Optional[dict] = None,
         log_level: Optional[str] = "INFO",
         tracing: bool = False,
-        **kwargs: dict[str, Any],
+        **kwargs: dict[str, any],
     ) -> None:
         if name is None:
             self.name = droid()

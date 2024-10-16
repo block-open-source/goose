@@ -2,7 +2,7 @@ import glob
 import os
 from collections import Counter
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Optional
 
 
 def create_extensions_list(project_root: str, max_n: int) -> list:
@@ -11,7 +11,7 @@ def create_extensions_list(project_root: str, max_n: int) -> list:
         project_root (str): Root of the project to analyze
         max_n (int): The number of file extensions to return
     Returns:
-        extensions (List[str]): A list of the top N file extensions
+        extensions (list[str]): A list of the top N file extensions
     """
     if max_n == 0:
         raise (ValueError("Number of file extensions must be greater than 0"))
@@ -31,14 +31,14 @@ def create_extensions_list(project_root: str, max_n: int) -> list:
     return extensions
 
 
-def create_language_weighting(files_in_directory: List[str]) -> Dict[str, float]:
+def create_language_weighting(files_in_directory: list[str]) -> dict[str, float]:
     """Calculate language weighting by file size to match GitHub's methodology.
 
     Args:
-        files_in_directory (List[str]): Paths to files in the project directory
+        files_in_directory (list[str]): Paths to files in the project directory
 
     Returns:
-        Dict[str, float]: A dictionary with languages as keys and their percentage of the total codebase as values
+        dict[str, float]: A dictionary with languages as keys and their percentage of the total codebase as values
     """
 
     # Initialize counters for sizes
@@ -59,7 +59,7 @@ def create_language_weighting(files_in_directory: List[str]) -> Dict[str, float]
     return dict(sorted(language_percentages.items(), key=lambda item: item[1], reverse=True))
 
 
-def list_files_with_extension(dir_path: str, extension: Optional[str] = "") -> List[str]:
+def list_files_with_extension(dir_path: str, extension: Optional[str] = "") -> list[str]:
     """List all files in a directory with a given extension. Set extension to '' to return all files.
 
     Args:
@@ -67,7 +67,7 @@ def list_files_with_extension(dir_path: str, extension: Optional[str] = "") -> L
         extension (Optional[str]): extension to lookup. Defaults to '' which will return all files.
 
     Returns:
-        files (List[str]): List of file paths
+        files (list[str]): list of file paths
     """
     # add a leading '.' to extension if needed
     if extension and not extension.startswith("."):
@@ -77,15 +77,15 @@ def list_files_with_extension(dir_path: str, extension: Optional[str] = "") -> L
     return files
 
 
-def create_file_list(dir_path: str, extensions: List[str]) -> List[str]:
+def create_file_list(dir_path: str, extensions: list[str]) -> list[str]:
     """Creates a list of files with certain extensions
 
     Args:
         dir_path (str): Directory to list files of. Will include files recursively in sub-directories.
-        extensions (List[str]): List of file extensions to select for. If empty list, return all files
+        extensions (list[str]): list of file extensions to select for. If empty list, return all files
 
     Returns:
-        final_file_list (List[str]): List of file paths with specified extensions.
+        final_file_list (list[str]): list of file paths with specified extensions.
     """
     # if extensions is empty list, return all files
     if not extensions:

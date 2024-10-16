@@ -83,7 +83,7 @@ def test_message_text_to_google_spec() -> None:
 
 def test_messages_to_google_spec() -> None:
     messages = [
-        Message(role="user", content=[Text(text="Hello, Gemini")]),
+        Message(role="user", content=[Text("Hello, Gemini")]),
         Message(
             role="assistant",
             content=[ToolUse(id="1", name="example_fn", parameters={"param": "value"})],
@@ -105,8 +105,8 @@ def test_messages_to_google_spec() -> None:
 def test_google_complete(default_google_env):
     reply_message, reply_usage = complete(GoogleProvider, GOOGLE_MODEL)
 
-    assert reply_message.content == [Text("Hello! 👋  How can I help you today? 😊 \n")]
-    assert reply_usage.total_tokens == 20
+    assert reply_message.content == [Text("Hello! 👋  What can I do for you today? 😊 \n")]
+    assert reply_usage.total_tokens == 21
 
 
 @pytest.mark.integration

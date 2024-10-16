@@ -1,6 +1,6 @@
 from functools import cache
 from pathlib import Path
-from typing import Callable, Dict, Mapping, Optional, Tuple
+from typing import Mapping, Optional
 
 from rich import print
 from rich.panel import Panel
@@ -20,7 +20,7 @@ RECOMMENDED_DEFAULT_PROVIDER = "openai"
 
 
 @cache
-def default_profiles() -> Mapping[str, Callable]:
+def default_profiles() -> Mapping[str, callable]:
     return load_plugins(group="goose.profile")
 
 
@@ -29,7 +29,7 @@ def session_path(name: str) -> Path:
     return SESSIONS_PATH.joinpath(f"{name}{SESSION_FILE_SUFFIX}")
 
 
-def write_config(profiles: Dict[str, Profile]) -> None:
+def write_config(profiles: dict[str, Profile]) -> None:
     """Overwrite the config with the passed profiles"""
     PROFILES_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     converted = {name: profile.to_dict() for name, profile in profiles.items()}
@@ -38,7 +38,7 @@ def write_config(profiles: Dict[str, Profile]) -> None:
         yaml.dump(converted, f)
 
 
-def ensure_config(name: Optional[str]) -> Tuple[str, Profile]:
+def ensure_config(name: Optional[str]) -> tuple[str, Profile]:
     """Ensure that the config exists and has the default section"""
     # TODO we should copy a templated default config in to better document
     # but this is complicated a bit by autodetecting the provider
@@ -70,7 +70,7 @@ def ensure_config(name: Optional[str]) -> Tuple[str, Profile]:
     return (name, default_profile)
 
 
-def read_config() -> Dict[str, Profile]:
+def read_config() -> dict[str, Profile]:
     """Return config from the configuration file and validates its contents"""
 
     yaml = YAML()
@@ -80,7 +80,7 @@ def read_config() -> Dict[str, Profile]:
     return {name: Profile(**profile) for name, profile in data.items()}
 
 
-def default_model_configuration() -> Tuple[str, str, str]:
+def default_model_configuration() -> tuple[str, str, str]:
     providers = load_plugins(group="exchange.provider")
     for provider, cls in providers.items():
         try:

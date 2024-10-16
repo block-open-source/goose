@@ -9,7 +9,7 @@ from exchange.tool import Tool
 
 
 class MockProvider(Provider):
-    def complete(self, model, system, messages, tools=None):
+    def complete(self, model, system, messages, tools, **kwargs):
         return Message(role="assistant", content=[Text(text="This is a mock response.")]), Usage.from_dict(
             {"total_tokens": 35}
         )

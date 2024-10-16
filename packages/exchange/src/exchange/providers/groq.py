@@ -1,5 +1,4 @@
 import os
-from typing import Any, Dict, List, Tuple, Type
 
 from exchange.langfuse_wrapper import observe_wrapper
 import httpx
@@ -38,7 +37,7 @@ class GroqProvider(Provider):
         self.client = client
 
     @classmethod
-    def from_env(cls: Type["GroqProvider"]) -> "GroqProvider":
+    def from_env(cls: type["GroqProvider"]) -> "GroqProvider":
         cls.check_env_vars(cls.instructions_url)
         url = os.environ.get("GROQ_HOST", GROQ_HOST)
         key = os.environ.get("GROQ_API_KEY")
@@ -71,10 +70,10 @@ class GroqProvider(Provider):
         self,
         model: str,
         system: str,
-        messages: List[Message],
-        tools: Tuple[Tool],
-        **kwargs: Dict[str, Any],
-    ) -> Tuple[Message, Usage]:
+        messages: list[Message],
+        tools: tuple[Tool, ...],
+        **kwargs: dict[str, any],
+    ) -> tuple[Message, Usage]:
         system_message = [{"role": "system", "content": system}]
         payload = dict(
             messages=system_message + messages_to_openai_spec(messages),

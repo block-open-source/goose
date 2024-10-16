@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional
+from typing import Optional
 
 from attrs import define, asdict
 
@@ -7,11 +7,11 @@ CONTENT_TYPES = {}
 
 
 class Content:
-    def __init_subclass__(cls, **kwargs: Dict[str, Any]) -> None:
+    def __init_subclass__(cls, **kwargs: dict[str, any]) -> None:
         super().__init_subclass__(**kwargs)
         CONTENT_TYPES[cls.__name__] = cls
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, any]:
         data = asdict(self, recurse=True)
         data["type"] = self.__class__.__name__
         return data
@@ -26,7 +26,7 @@ class Text(Content):
 class ToolUse(Content):
     id: str
     name: str
-    parameters: Any
+    parameters: any
     is_error: bool = False
     error_message: Optional[str] = None
 

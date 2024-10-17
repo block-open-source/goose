@@ -1,8 +1,6 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-from goose.language_server.core.exception import LanguageServerError
-from goose.language_server.core.server import Error
 from goose.notifier import Notifier
 from goose.toolkit.developer import Developer
 from goose.toolkit.language_server import LanguageServerCoordinator
@@ -41,7 +39,7 @@ def test_server_context(language_server_toolkit):
 
 def test_request_definition(language_server_toolkit):
     with language_server_toolkit.language_server_client.start_servers() as _:
-        result = language_server_toolkit.request_definition(__file__, 17, 28)
+        result = language_server_toolkit.request_definition(__file__, 15, 28)
     assert "goose/tests/toolkit/test_language_server.py" in result["results"][0]
     assert "TEST_NOTIFIER = MagicMock(spec=Notifier)" in result["results"][0]
     assert result["current_page_number"] == 1

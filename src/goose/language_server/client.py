@@ -1,15 +1,14 @@
 import asyncio
 from collections import defaultdict
 import threading
-from contextlib import ExitStack, asynccontextmanager, contextmanager
-import concurrent.futures
+from contextlib import ExitStack, contextmanager
 
 
 from goose.language_server.base import LanguageServer
 from goose.language_server.type_helpers import ensure_all_methods_implemented
 from goose.language_server import language_server_types
 from goose.utils.language import Language
-from typing import Any, AsyncIterator, Callable, Iterator, List, Tuple, TypeVar, Union
+from typing import Any, Callable, Iterator, List, Tuple, TypeVar, Union
 
 T = TypeVar("T")
 

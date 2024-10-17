@@ -81,13 +81,13 @@ tag_version:
 
 # create tag from pyproject.toml
 tag:
-    git tag v$(just tag_version)
+    #!/usr/bin/env bash
+    git tag v$(just get-tag-version)
 
 # this will kick of ci for release
 
 # use this when release branch is merged to main
-tag-push:
-    just tag
+tag-push: tag
     git push origin tag v$(just tag_version)
 
 # create release notes latest tag..HEAD

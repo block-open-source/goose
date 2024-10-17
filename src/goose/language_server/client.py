@@ -21,7 +21,7 @@ def language_server_request(func: Callable[[T, Any], Any]) -> Callable[[T, Any],
             raise ValueError(f"Unsupported language for file {file_path}")
         for language_server in self.language_servers[language]:
             language_server_name = language_server.__class__.__name__
-            loop = self.server_loops[language_server_name]
+            loop = self.client_loops[language_server_name]
             result = asyncio.run_coroutine_threadsafe(
                 func(self, language_server, file_path, line, column), loop
             ).result(timeout=5)
@@ -44,9 +44,11 @@ class SyncLanguageServerClient:
         Initialize SyncLanguageServerClient with a dictionary of language servers.
         Each language server is run on its own daemon thread.
         """
-        self.language_servers = defaultdict(list)
-        self.server_loops = {}
-        self.loop_threads = {}
+        self.language_servers = defaultdict(
+            list
+        )  # e.g. { language (Language.PYTHON): servers[JediServer, PyrightServer, etc.]}
+        self.client_loops = {}  # e.g. { "JediServer": loop, "PyrightServer": loop, etc.}
+        self.server_threads = {}  # e.g. { "JediServer": thread, "PyrightServer": thread, etc.}
 
     def register_language_server(self, language_server: LanguageServer) -> None:
         # assert that lang servers doesnt contain an instance of this language server
@@ -60,8 +62,8 @@ class SyncLanguageServerClient:
 
         loop = asyncio.new_event_loop()
         thread = threading.Thread(target=loop.run_forever, daemon=True)
-        self.server_loops[language_server.__class__.__name__] = loop
-        self.loop_threads[language_server.__class__.__name__] = thread
+        self.client_loops[language_server.__class__.__name__] = loop
+        self.server_threads[language_server.__class__.__name__] = thread
         thread.start()
 
     @contextmanager
@@ -77,7 +79,7 @@ class SyncLanguageServerClient:
         for _, language_servers in self.language_servers.items():
             for language_server in language_servers:
                 language_server_name = language_server.__class__.__name__
-                loop = self.server_loops[language_server_name]
+                loop = self.client_loops[language_server_name]
                 ctx = language_server.start_server()
                 ctxs[language_server_name] = ctx
                 asyncio.run_coroutine_threadsafe(ctx.__aenter__(), loop=loop).result()  # enter the context
@@ -87,13 +89,13 @@ class SyncLanguageServerClient:
 
         # Stop all language servers and shut down their loops
         for language_name, _ in ctxs.items():
-            loop = self.server_loops[language_name]
+            loop = self.client_loops[language_name]
             ctx = ctxs[language_name]
             asyncio.run_coroutine_threadsafe(ctx.__aexit__(None, None, None), loop=loop).result()  # exit the context
 
             # Stop the event loop and join the thread
             loop.call_soon_threadsafe(loop.stop)
-            self.loop_threads[language_name].join()
+            self.server_threads[language_name].join()
 
     @language_server_request
     def request_definition(

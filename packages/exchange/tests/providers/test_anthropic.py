@@ -91,7 +91,7 @@ def test_message_text_to_anthropic_spec() -> None:
 
 def test_messages_to_anthropic_spec() -> None:
     messages = [
-        Message(role="user", content=[Text(text="Hello, Claude")]),
+        Message(role="user", content=[Text("Hello, Claude")]),
         Message(
             role="assistant",
             content=[ToolUse(id="1", name="example_fn", parameters={"param": "value"})],
@@ -148,7 +148,7 @@ def test_anthropic_completion(mock_error, mock_warning, mock_post, anthropic_pro
 
     reply_message, reply_usage = anthropic_provider.complete(model=model, system=system, messages=messages)
 
-    assert reply_message.content == [Text(text="Hello from Claude!")]
+    assert reply_message.content == [Text("Hello from Claude!")]
     assert reply_usage.total_tokens == 35
     assert mock_post.call_count == 2
     mock_post.assert_any_call(

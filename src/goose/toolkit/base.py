@@ -1,6 +1,6 @@
 import inspect
 from abc import ABC
-from typing import Callable, Mapping, Optional, Tuple, TypeVar
+from typing import Mapping, Optional, TypeVar
 
 from attrs import define, field
 from exchange import Tool
@@ -8,7 +8,7 @@ from exchange import Tool
 from goose.notifier import Notifier
 
 # Create a type variable that can represent any function signature
-F = TypeVar("F", bound=Callable)
+F = TypeVar("F", bound=callable)
 
 
 def tool(func: F) -> F:
@@ -55,7 +55,7 @@ class Toolkit(ABC):
         """Get the addition to the system prompt for this toolkit."""
         return ""
 
-    def tools(self) -> Tuple[Tool, ...]:
+    def tools(self) -> tuple[Tool, ...]:
         """Get the tools for this toolkit
 
         This default method looks for functions on the toolkit annotated

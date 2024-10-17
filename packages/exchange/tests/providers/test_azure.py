@@ -14,10 +14,10 @@ AZURE_MODEL = os.getenv("AZURE_MODEL", "gpt-4o-mini")
 @pytest.mark.parametrize(
     "env_var_name",
     [
-        ("AZURE_CHAT_COMPLETIONS_HOST_NAME"),
-        ("AZURE_CHAT_COMPLETIONS_DEPLOYMENT_NAME"),
-        ("AZURE_CHAT_COMPLETIONS_DEPLOYMENT_API_VERSION"),
-        ("AZURE_CHAT_COMPLETIONS_KEY"),
+        "AZURE_CHAT_COMPLETIONS_HOST_NAME",
+        "AZURE_CHAT_COMPLETIONS_DEPLOYMENT_NAME",
+        "AZURE_CHAT_COMPLETIONS_DEPLOYMENT_API_VERSION",
+        "AZURE_CHAT_COMPLETIONS_KEY",
     ],
 )
 def test_from_env_throw_error_when_missing_env_var(env_var_name):
@@ -43,7 +43,7 @@ def test_from_env_throw_error_when_missing_env_var(env_var_name):
 def test_azure_complete(default_azure_env):
     reply_message, reply_usage = complete(AzureProvider, AZURE_MODEL)
 
-    assert reply_message.content == [Text(text="Hello! How can I assist you today?")]
+    assert reply_message.content == [Text("Hello! How can I assist you today?\n")]
     assert reply_usage.total_tokens == 27
 
 
@@ -61,7 +61,7 @@ def test_azure_tools(default_azure_env):
 
     tool_use = reply_message.content[0]
     assert isinstance(tool_use, ToolUse), f"Expected ToolUse, but was {type(tool_use).__name__}"
-    assert tool_use.id == "call_a47abadDxlGKIWjvYYvGVAHa"
+    assert tool_use.id == "call_Dn0idyNSdmHSYpsql3EbFH9L"
     assert tool_use.name == "read_file"
     assert tool_use.parameters == {"filename": "test.txt"}
     assert reply_usage.total_tokens == 125

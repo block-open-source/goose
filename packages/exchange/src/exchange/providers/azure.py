@@ -1,5 +1,3 @@
-from typing import Type
-
 import httpx
 import os
 
@@ -21,7 +19,7 @@ class AzureProvider(OpenAiProvider):
         super().__init__(client)
 
     @classmethod
-    def from_env(cls: Type["AzureProvider"]) -> "AzureProvider":
+    def from_env(cls: type["AzureProvider"]) -> "AzureProvider":
         cls.check_env_vars()
         url = os.environ.get("AZURE_CHAT_COMPLETIONS_HOST_NAME")
         deployment_name = os.environ.get("AZURE_CHAT_COMPLETIONS_DEPLOYMENT_NAME")

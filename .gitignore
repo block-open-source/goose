@@ -103,6 +103,9 @@ celerybeat.pid
 .env.*
 .venv
 
+# exception for local langfuse init vars
+!**/packages/exchange/.env.langfuse.local 
+
 # Spyder project settings
 .spyderproject
 .spyproject

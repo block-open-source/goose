@@ -135,6 +135,16 @@ Now you are interacting with Goose in conversational sessions - think of it as l
 > [!TIP]
 > You can place a `.goosehints` text file in any directory you launch goose from to give it some background info for new sessions in plain language (eg how to test, what instructions to read to get started or just tell it to read the README!) You can also put a global one `~/.config/goose/.goosehints` if you like for always loaded hints personal to you.
 
+### Running a goose tasks (one off)
+
+You can run goose to do things just as a one off, such as tidying up, and then exiting: 
+
+```sh
+goose run instructions.md
+```
+
+This will run until completion as best it can. You can also pass `--resume-session` and it will re-use the first session it finds for context
+
 
 #### Exit the session
 
@@ -150,6 +160,34 @@ goose session resume
 
 To see more documentation on the CLI commands currently available to Goose check out the documentation [here][cli]. If you’d like to develop your own CLI commands for Goose, check out the [Contributing document][contributing].
 
+### Tracing with Langfuse
+> [!NOTE]
+> This Langfuse integration is experimental and we don't currently have integration tests for it.
+
+The exchange package provides a [Langfuse](https://langfuse.com/) wrapper module. The wrapper serves to initialize Langfuse appropriately if the Langfuse server is running locally and otherwise to skip applying the Langfuse observe descorators.
+
+#### Start your local Langfuse server
+
+Run `just langfuse-server` to start your local Langfuse server. It requires Docker.
+
+Read more about local Langfuse deployments [here](https://langfuse.com/docs/deployment/local).
+
+#### Exchange and Goose integration
+
+Import `from exchange.langfuse_wrapper import observe_wrapper` and use the `observe_wrapper()` decorator on functions you wish to enable tracing for. `observe_wrapper` functions the same way as Langfuse's observe decorator.
+
+Read more about Langfuse's decorator-based tracing [here](https://langfuse.com/docs/sdk/python/decorators).
+
+In Goose, initialization requires certain environment variables to be present:
+
+- `LANGFUSE_PUBLIC_KEY`: Your Langfuse public key
+- `LANGFUSE_SECRET_KEY`: Your Langfuse secret key
+- `LANGFUSE_BASE_URL`: The base URL of your Langfuse instance
+
+By default your local deployment and Goose will use the values in `.env.langfuse.local`.
+
+
+
 ### Next steps
 
 Learn how to modify your Goose profiles.yaml file to add and remove functionality (toolkits) and providing context to get the most out of Goose in our [Getting Started Guide][getting-started].
@@ -162,8 +200,12 @@ We have some experimental IDE integrations for VSCode and JetBrains IDEs:
 * https://github.com/square/goose-vscode
 * https://github.com/Kvadratni/goose-intellij
 
-There is also an experimental github action to run goose as part of your workflow (for example if you ask it to fix an issue): 
+**Goose as a Github Action**
+
+There is also an experimental Github action to run goose as part of your workflow (for example if you ask it to fix an issue): 
 https://github.com/marketplace/actions/goose-ai-developer-agent
+
+**With Docker**
 
 There is also a `Dockerfile` in the root of this project you can use if you want to run goose in a sandboxed fashion.
 

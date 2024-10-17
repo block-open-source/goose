@@ -1,8 +1,11 @@
+import logging
 import traceback
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
+from langfuse.decorators import langfuse_context
 from exchange import Message, Text, ToolResult, ToolUse
+from exchange.langfuse_wrapper import observe_wrapper, auth_check
 from rich import print
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -62,7 +65,8 @@ class Session:
         profile: Optional[str] = None,
         plan: Optional[dict] = None,
         log_level: Optional[str] = "INFO",
-        **kwargs: dict[str, Any],
+        tracing: bool = False,
+        **kwargs: dict[str, any],
     ) -> None:
         if name is None:
             self.name = droid()
@@ -72,6 +76,18 @@ class Session:
         self.prompt_session = GoosePromptSession()
         self.status_indicator = Status("", spinner="dots")
         self.notifier = SessionNotifier(self.status_indicator)
+        if not tracing:
+            logging.getLogger("langfuse").setLevel(logging.ERROR)
+        else:
+            langfuse_auth = auth_check()
+            if langfuse_auth:
+                print("Local Langfuse initialized. View your traces at http://localhost:3000")
+            else:
+                raise RuntimeError(
+                    "You passed --tracing, but a Langfuse object was not found in the current context. "
+                    "Please initialize the local Langfuse server and restart Goose."
+                )
+        langfuse_context.configure(enabled=tracing)
 
         self.exchange = create_exchange(profile=load_profile(profile), notifier=self.notifier)
         setup_logging(log_file_directory=LOG_PATH, log_level=log_level)
@@ -148,12 +164,15 @@ class Session:
         print(f"[dim]ended run | name:[cyan]{self.name}[/]  profile:[cyan]{profile}[/]")
         print(f"[dim]to resume: [magenta]goose session resume {self.name} --profile {profile}[/][/]")
 
-    def run(self) -> None:
+    def run(self, new_session: bool = True) -> None:
         """
         Runs the main loop to handle user inputs and responses.
         Continues until an empty string is returned from the prompt.
+
+        Args:
+            new_session (bool): True when starting a new session, False when resuming.
         """
-        if is_existing_session(self.session_file_path):
+        if is_existing_session(self.session_file_path) and new_session:
             self._prompt_overwrite_session()
 
         profile_name = self.profile_name or "default"
@@ -186,6 +205,7 @@ class Session:
         self._remove_empty_session()
         self._log_cost()
 
+    @observe_wrapper()
     def reply(self) -> None:
         """Reply to the last user message, calling tools as needed"""
         self.status_indicator.update("responding")

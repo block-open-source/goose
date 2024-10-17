@@ -4,7 +4,7 @@ import json
 import logging
 import os
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple, Type
+from typing import Optional
 from urllib.parse import quote, urlparse
 
 import httpx
@@ -15,6 +15,7 @@ from exchange.providers import Provider, Usage
 from tenacity import retry, wait_fixed, stop_after_attempt
 from exchange.providers.utils import raise_for_status, retry_if_status
 from exchange.tool import Tool
+from exchange.langfuse_wrapper import observe_wrapper
 
 SERVICE = "bedrock-runtime"
 UTC = timezone.utc
@@ -36,7 +37,7 @@ class AwsClient(httpx.Client):
         aws_access_key: str,
         aws_secret_key: str,
         aws_session_token: Optional[str] = None,
-        **kwargs: Dict[str, Any],
+        **kwargs: dict[str, any],
     ) -> None:
         self.region = aws_region
         self.host = f"https://{SERVICE}.{aws_region}.amazonaws.com/"
@@ -45,7 +46,7 @@ class AwsClient(httpx.Client):
         self.session_token = aws_session_token
         super().__init__(base_url=self.host, timeout=600, **kwargs)
 
-    def post(self, path: str, json: Dict, **kwargs: Dict[str, Any]) -> httpx.Response:
+    def post(self, path: str, json: dict, **kwargs: dict[str, any]) -> httpx.Response:
         signed_headers = self.sign_and_get_headers(
             method="POST",
             url=path,
@@ -60,7 +61,7 @@ class AwsClient(httpx.Client):
         url: str,
         payload: dict,
         service: str,
-    ) -> Dict[str, str]:
+    ) -> dict[str, str]:
         """
         Sign the request and generate the necessary headers for AWS authentication.
 
@@ -72,10 +73,10 @@ class AwsClient(httpx.Client):
             region (str): The AWS region.
             access_key (str): The AWS access key.
             secret_key (str): The AWS secret key.
-            session_token (Optional[str]): The AWS session token, if any.
+            session_token (optional[str]): The AWS session token, if any.
 
         Returns:
-            Dict[str, str]: The headers required for the request.
+            dict[str, str]: The headers required for the request.
         """
 
         def sign(key: bytes, msg: str) -> bytes:
@@ -160,7 +161,7 @@ class BedrockProvider(Provider):
         self.client = client
 
     @classmethod
-    def from_env(cls: Type["BedrockProvider"]) -> "BedrockProvider":
+    def from_env(cls: type["BedrockProvider"]) -> "BedrockProvider":
         cls.check_env_vars()
         aws_region = os.environ.get("AWS_REGION", "us-east-1")
         aws_access_key = os.environ.get("AWS_ACCESS_KEY_ID")
@@ -175,26 +176,27 @@ class BedrockProvider(Provider):
         )
         return cls(client=client)
 
+    @observe_wrapper(as_type="generation")
     def complete(
         self,
         model: str,
         system: str,
-        messages: List[Message],
-        tools: Tuple[Tool],
-        **kwargs: Dict[str, Any],
-    ) -> Tuple[Message, Usage]:
+        messages: list[Message],
+        tools: tuple[Tool, ...],
+        **kwargs: dict[str, any],
+    ) -> tuple[Message, Usage]:
         """
         Generate a completion response from the Bedrock gateway.
 
         Args:
             model (str): The model identifier.
             system (str): The system prompt or configuration.
-            messages (List[Message]): A list of messages to be processed by the model.
-            tools (Tuple[Tool]): A tuple of tools to be used in the completion process.
+            messages (list[Message]): A list of messages to be processed by the model.
+            tools (tuple[Tool]): A tuple of tools to be used in the completion process.
             **kwargs: Additional keyword arguments for inference configuration.
 
         Returns:
-            Tuple[Message, Usage]: A tuple containing the response message and usage data.
+            tuple[Message, Usage]: A tuple containing the response message and usage data.
         """
 
         inference_config = dict(
@@ -231,7 +233,7 @@ class BedrockProvider(Provider):
         return self.response_to_message(response_message), usage
 
     @retry_procedure
-    def _post(self, payload: Any, path: str) -> dict:  # noqa: ANN401
+    def _post(self, payload: any, path: str) -> dict:  # noqa: ANN401
         response = self.client.post(path, json=payload)
         return raise_for_status(response).json()
 
@@ -311,7 +313,7 @@ class BedrockProvider(Provider):
         raise Exception("Invalid response")
 
     @staticmethod
-    def tools_to_bedrock_spec(tools: Tuple[Tool]) -> Optional[dict]:
+    def tools_to_bedrock_spec(tools: tuple[Tool, ...]) -> Optional[dict]:
         if len(tools) == 0:
             return None  # API requires a non-empty tool config or None
         tools_added = set()

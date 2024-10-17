@@ -1,7 +1,6 @@
 import os
 from functools import cache
 from subprocess import CompletedProcess, run
-from typing import Dict, Tuple
 
 from exchange import Message
 
@@ -21,7 +20,7 @@ class RepoContext(Toolkit):
 
         self.repo_project_root, self.is_git_repo, self.goose_session_root = self.determine_git_proj()
 
-    def determine_git_proj(self) -> Tuple[str, bool, str]:
+    def determine_git_proj(self) -> tuple[str, bool, str]:
         """Determines the root as well as where Goose is currently running
 
         If the project is not part of a Github repo, the root of the project will be defined as the current working
@@ -72,11 +71,11 @@ class RepoContext(Toolkit):
         return self.repo_size > 2000
 
     @tool
-    def summarize_current_project(self) -> Dict[str, str]:
+    def summarize_current_project(self) -> dict[str, str]:
         """Summarizes the current project based on repo root (if git repo) or current project_directory (if not)
 
         Returns:
-            summary (Dict[str, str]): Keys are file paths and values are the summaries
+            summary (dict[str, str]): Keys are file paths and values are the summaries
         """
 
         self.notifier.log("Summarizing the most relevant files in the current project. This may take a while...")
@@ -101,8 +100,11 @@ class RepoContext(Toolkit):
         file_select_exchange = replace_prompt(exchange=file_select_exchange, prompt=system)
         files = goose_picks_files(root=project_directory, exchange=file_select_exchange)
 
+        # summarize the selected files using a blank exchange with no tools
         summary = summarize_files_concurrent(
-            exchange=self.exchange_view.accelerator, file_list=files, project_name=project_directory.split("/")[-1]
+            exchange=clear_exchange(self.exchange_view.accelerator, clear_tools=True),
+            file_list=files,
+            project_name=project_directory.split("/")[-1],
         )
 
         return summary

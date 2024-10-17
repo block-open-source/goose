@@ -1,5 +1,4 @@
 import os
-from typing import List
 
 from prompt_toolkit.completion import Completion
 
@@ -7,7 +6,7 @@ from goose.command.base import Command
 
 
 class FileCommand(Command):
-    def get_completions(self, query: str) -> List[Completion]:
+    def get_completions(self, query: str) -> list[Completion]:
         if query.startswith("/"):
             directory = os.path.dirname(query)
             search_term = os.path.basename(query)

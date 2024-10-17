@@ -19,10 +19,12 @@ Lists the version of Goose and any associated plugins.
 
 **Usage:**
 ```sh
-  goose session start [--profile PROFILE] [--plan PLAN]
+  goose session start [--profile PROFILE] [--plan PLAN] [--log-level [DEBUG|INFO|WARNING|ERROR|CRITICAL]] [--tracing]
 ```
 
 Starts a new Goose session.
+
+If you want to enable locally hosted Langfuse tracing, pass the --tracing flag after starting your local Langfuse server as outlined in the [Contributing Guide's][contributing] Development guidelines.
 
 #### `resume`
 

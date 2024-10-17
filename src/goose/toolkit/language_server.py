@@ -110,7 +110,7 @@ class LanguageServerCoordinator(Toolkit):
             )
 
         all_results = "\n".join(human_readable_results)
-        self.notifier.log(Markdown(f"## Results (Page {current_page + 1} of {total_pages})\n{all_results}"))
+        self.notifier.log(Markdown(f"## Results (Page {current_page} of {total_pages})\n{all_results}"))
         return human_readable_results
 
     @tool

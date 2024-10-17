@@ -1,7 +1,25 @@
 interactions:
 - request:
-    body: '{"system_instruction": {"parts": [{"text": "You are a helpful assistant."}]},
-      "contents": [{"role": "user", "parts": [{"text": "Hello"}]}]}'
+    body: |-
+      {
+        "system_instruction": {
+          "parts": [
+            {
+              "text": "You are a helpful assistant."
+            }
+          ]
+        },
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello"
+              }
+            ]
+          }
+        ]
+      }
     headers:
       accept:
       - '*/*'
@@ -21,18 +39,46 @@ interactions:
     uri: https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=test_google_api_key
   response:
     body:
-      string: "{\n  \"candidates\": [\n    {\n      \"content\": {\n        \"parts\":
-        [\n          {\n            \"text\": \"Hello! \U0001F44B  How can I help
-        you today? \U0001F60A \\n\"\n          }\n        ],\n        \"role\": \"model\"\n
-        \     },\n      \"finishReason\": \"STOP\",\n      \"index\": 0,\n      \"safetyRatings\":
-        [\n        {\n          \"category\": \"HARM_CATEGORY_SEXUALLY_EXPLICIT\",\n
-        \         \"probability\": \"NEGLIGIBLE\"\n        },\n        {\n          \"category\":
-        \"HARM_CATEGORY_HATE_SPEECH\",\n          \"probability\": \"NEGLIGIBLE\"\n
-        \       },\n        {\n          \"category\": \"HARM_CATEGORY_HARASSMENT\",\n
-        \         \"probability\": \"NEGLIGIBLE\"\n        },\n        {\n          \"category\":
-        \"HARM_CATEGORY_DANGEROUS_CONTENT\",\n          \"probability\": \"NEGLIGIBLE\"\n
-        \       }\n      ]\n    }\n  ],\n  \"usageMetadata\": {\n    \"promptTokenCount\":
-        8,\n    \"candidatesTokenCount\": 12,\n    \"totalTokenCount\": 20\n  }\n}\n"
+      string: |-
+        {
+          "candidates": [
+            {
+              "content": {
+                "parts": [
+                  {
+                    "text": "Hello! \ud83d\udc4b  What can I do for you today? \ud83d\ude0a \n"
+                  }
+                ],
+                "role": "model"
+              },
+              "finishReason": "STOP",
+              "index": 0,
+              "safetyRatings": [
+                {
+                  "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                  "probability": "NEGLIGIBLE"
+                },
+                {
+                  "category": "HARM_CATEGORY_HATE_SPEECH",
+                  "probability": "NEGLIGIBLE"
+                },
+                {
+                  "category": "HARM_CATEGORY_HARASSMENT",
+                  "probability": "NEGLIGIBLE"
+                },
+                {
+                  "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+                  "probability": "NEGLIGIBLE"
+                }
+              ]
+            }
+          ],
+          "usageMetadata": {
+            "promptTokenCount": 8,
+            "candidatesTokenCount": 13,
+            "totalTokenCount": 21
+          }
+        }
     headers:
       Alt-Svc:
       - h3=":443"; ma=2592000,h3-29=":443"; ma=2592000
@@ -41,11 +87,11 @@ interactions:
       Content-Type:
       - application/json; charset=UTF-8
       Date:
-      - Wed, 02 Oct 2024 01:06:50 GMT
+      - Sun, 13 Oct 2024 02:54:58 GMT
       Server:
       - scaffolding on HTTPServer2
       Server-Timing:
-      - gfet4t7; dur=426
+      - gfet4t7; dur=1201
       Transfer-Encoding:
       - chunked
       Vary:
@@ -59,7 +105,7 @@ interactions:
       X-XSS-Protection:
       - '0'
       content-length:
-      - '855'
+      - '858'
     status:
       code: 200
       message: OK

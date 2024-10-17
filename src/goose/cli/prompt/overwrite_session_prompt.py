@@ -1,10 +1,8 @@
-from typing import Any
-
 from rich.prompt import Prompt
 
 
 class OverwriteSessionPrompt(Prompt):
-    def __init__(self, *args: tuple[Any], **kwargs: dict[str, Any]) -> None:
+    def __init__(self, *args: tuple[any], **kwargs: dict[str, any]) -> None:
         super().__init__(*args, **kwargs)
         self.choices = {
             "yes": "Overwrite the existing session",

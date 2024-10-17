@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.5] - 2024-10-15
+- chore: updates ollama default model from mistral-nemo to qwen2.5 (#150)
+- feat: add vision support for Google (#141)
+- fix: session resume with arg handled incorrectly (#145)
+- docs: add release instructions to CONTRIBUTING.md (#143)
+- docs: add link to action, IDE words (#140)
+- docs: goosehints doc fix only (#142)
+
 ## [0.9.4] - 2024-10-10
 
 - revert: "feat: add local langfuse tracing option (#106)"

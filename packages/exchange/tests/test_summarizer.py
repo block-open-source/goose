@@ -3,11 +3,11 @@ from exchange import Exchange, Message
 from exchange.content import ToolResult, ToolUse
 from exchange.moderators.passive import PassiveModerator
 from exchange.moderators.summarizer import ContextSummarizer
-from exchange.providers import Usage
+from exchange.providers import Usage, Provider
 
 
-class MockProvider:
-    def complete(self, model, system, messages, tools):
+class MockProvider(Provider):
+    def complete(self, model, system, messages, tools, **kwargs):
         assistant_message_text = "Summarized content here."
         output_tokens = len(assistant_message_text)
         total_input_tokens = sum(len(msg.text) for msg in messages)
@@ -138,14 +138,14 @@ MESSAGE_SEQUENCE = [
 ]
 
 
-class AnotherMockProvider:
+class AnotherMockProvider(Provider):
     def __init__(self):
         self.sequence = MESSAGE_SEQUENCE
         self.current_index = 1
         self.summarize_next = False
         self.summarized_count = 0
 
-    def complete(self, model, system, messages, tools):
+    def complete(self, model, system, messages, tools, **kwargs):
         system_prompt_tokens = 100
         input_token_count = system_prompt_tokens
 

@@ -1,7 +1,7 @@
 [project]
 name = "goose-ai"
 description = "a programming agent that runs on your machine"
-version = "0.9.4"
+version = "0.9.5"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -13,6 +13,7 @@ dependencies = [
     "prompt-toolkit>=3.0.47",
     "keyring>=25.4.1",
     "playwright>=1.44.0"
+    "langfuse>=2.38.2",
 ]
 author = [{ name = "Block", email = "ai-oss-tools@block.xyz" }]
 packages = [{ include = "goose", from = "src" }]

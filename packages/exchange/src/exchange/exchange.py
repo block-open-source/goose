@@ -1,9 +1,9 @@
 import json
 import traceback
 from copy import deepcopy
-from typing import Any, Dict, List, Mapping, Tuple
-
+from typing import Mapping
 from attrs import define, evolve, field, Factory
+from exchange.langfuse_wrapper import observe_wrapper
 from tiktoken import get_encoding
 
 from exchange.checkpoint import Checkpoint, CheckpointData
@@ -41,8 +41,8 @@ class Exchange:
     model: str
     system: str
     moderator: Moderator = field(default=ContextTruncate())
-    tools: Tuple[Tool] = field(factory=tuple, converter=tuple)
-    messages: List[Message] = field(factory=list)
+    tools: tuple[Tool, ...] = field(factory=tuple, converter=tuple)
+    messages: list[Message] = field(factory=list)
     checkpoint_data: CheckpointData = field(factory=CheckpointData)
     generation_args: dict = field(default=Factory(dict))
 
@@ -50,7 +50,7 @@ class Exchange:
     def _toolmap(self) -> Mapping[str, Tool]:
         return {tool.name: tool for tool in self.tools}
 
-    def replace(self, **kwargs: Dict[str, Any]) -> "Exchange":
+    def replace(self, **kwargs: dict[str, any]) -> "Exchange":
         """Make a copy of the exchange, replacing any passed arguments"""
         # TODO: ensure that the checkpoint data is updated correctly. aka,
         # if we replace the messages, we need to update the checkpoint data
@@ -127,6 +127,7 @@ class Exchange:
 
         return response
 
+    @observe_wrapper()
     def call_function(self, tool_use: ToolUse) -> ToolResult:
         """Call the function indicated by the tool use"""
         tool = self._toolmap.get(tool_use.name)
@@ -264,7 +265,7 @@ class Exchange:
             # we've removed all the checkpoints, so we need to reset the message index offset
             self.checkpoint_data.message_index_offset = 0
 
-    def pop_last_checkpoint(self) -> Tuple[Checkpoint, List[Message]]:
+    def pop_last_checkpoint(self) -> tuple[Checkpoint, list[Message]]:
         """
         Reverts the exchange back to the last checkpoint, removing associated messages
         """
@@ -275,7 +276,7 @@ class Exchange:
             messages.append(self.messages.pop())
         return removed_checkpoint, messages
 
-    def pop_first_checkpoint(self) -> Tuple[Checkpoint, List[Message]]:
+    def pop_first_checkpoint(self) -> tuple[Checkpoint, list[Message]]:
         """
         Pop the first checkpoint from the exchange, removing associated messages
         """
@@ -332,5 +333,6 @@ class Exchange:
         # this to be a required method of the provider instead.
         return len(self.messages) > 0 and self.messages[-1].role == "user"
 
-    def get_token_usage(self) -> Dict[str, Usage]:
+    @staticmethod
+    def get_token_usage() -> dict[str, Usage]:
         return _token_usage_collector.get_token_usage_group_by_model()

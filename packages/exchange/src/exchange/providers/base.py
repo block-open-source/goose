@@ -1,7 +1,7 @@
 import os
 from abc import ABC, abstractmethod
 from attrs import define, field
-from typing import List, Optional, Tuple, Type
+from typing import Optional
 
 from exchange.message import Message
 from exchange.tool import Tool
@@ -19,11 +19,11 @@ class Provider(ABC):
     REQUIRED_ENV_VARS: list[str] = []
 
     @classmethod
-    def from_env(cls: Type["Provider"]) -> "Provider":
+    def from_env(cls: type["Provider"]) -> "Provider":
         return cls()
 
     @classmethod
-    def check_env_vars(cls: Type["Provider"], instructions_url: Optional[str] = None) -> None:
+    def check_env_vars(cls: type["Provider"], instructions_url: Optional[str] = None) -> None:
         for env_var in cls.REQUIRED_ENV_VARS:
             if env_var not in os.environ:
                 raise MissingProviderEnvVariableError(env_var, cls.PROVIDER_NAME, instructions_url)
@@ -33,9 +33,10 @@ class Provider(ABC):
         self,
         model: str,
         system: str,
-        messages: List[Message],
-        tools: Tuple[Tool],
-    ) -> Tuple[Message, Usage]:
+        messages: list[Message],
+        tools: tuple[Tool, ...],
+        **kwargs: dict[str, any],
+    ) -> tuple[Message, Usage]:
         """Generate the next message using the specified model"""
         pass
 

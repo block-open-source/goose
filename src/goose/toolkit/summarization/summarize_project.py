@@ -1,5 +1,5 @@
 import os
-from typing import List, Optional
+from typing import Optional
 
 from goose.toolkit import Toolkit
 from goose.toolkit.base import tool
@@ -11,7 +11,7 @@ class SummarizeProject(Toolkit):
     def get_project_summary(
         self,
         project_dir_path: Optional[str] = os.getcwd(),
-        extensions: Optional[List[str]] = None,
+        extensions: Optional[list[str]] = None,
         summary_instructions_prompt: Optional[str] = None,
     ) -> dict:
         """Generates or retrieves a project summary based on specified file extensions.
@@ -19,7 +19,7 @@ class SummarizeProject(Toolkit):
         Args:
             project_dir_path (Optional[Path]): Path to the project directory. Defaults to the current working directory
                 if None
-            extensions (Optional[List[str]]): Specific file extensions to summarize.
+            extensions (Optional[list[str]]): Specific file extensions to summarize.
             summary_instructions_prompt (Optional[str]): Instructions to give to the LLM about how to summarize each file. E.g.
                 "Summarize the file in two sentences.". The default instruction is "Please summarize this file."
 

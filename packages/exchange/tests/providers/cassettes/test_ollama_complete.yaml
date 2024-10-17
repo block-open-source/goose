@@ -23,15 +23,25 @@ interactions:
       Content-Type:
       - text/plain; charset=utf-8
       Date:
-      - Sun, 22 Sep 2024 23:40:13 GMT
-      Set-Cookie: test_set_cookie
-      openai-organization: test_openai_org_key
+      - Sun, 13 Oct 2024 04:53:22 GMT
     status:
       code: 200
       message: OK
 - request:
-    body: '{"messages": [{"role": "system", "content": "You are a helpful assistant."},
-      {"role": "user", "content": "Hello"}], "model": "mistral-nemo"}'
+    body: |-
+      {
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are a helpful assistant."
+          },
+          {
+            "role": "user",
+            "content": "Hello"
+          }
+        ],
+        "model": "mistral-nemo"
+      }
     headers:
       accept:
       - '*/*'
@@ -51,17 +61,36 @@ interactions:
     uri: http://localhost:11434/v1/chat/completions
   response:
     body:
-      string: "{\"id\":\"chatcmpl-429\",\"object\":\"chat.completion\",\"created\":1727048416,\"model\":\"mistral-nemo\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"Hello!
-        I'm here to help. How can I assist you today? Let's chat. \U0001F60A\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":23,\"total_tokens\":33}}\n"
+      string: |-
+        {
+          "id": "chatcmpl-565",
+          "object": "chat.completion",
+          "created": 1728795204,
+          "model": "mistral-nemo",
+          "system_fingerprint": "fp_ollama",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "Hello! I'm here to help. How can I assist you today? \ud83d\ude0a"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 10,
+            "completion_tokens": 19,
+            "total_tokens": 29
+          }
+        }
     headers:
       Content-Length:
-      - '356'
+      - '344'
       Content-Type:
       - application/json
       Date:
-      - Sun, 22 Sep 2024 23:40:16 GMT
-      Set-Cookie: test_set_cookie
-      openai-organization: test_openai_org_key
+      - Sun, 13 Oct 2024 04:53:24 GMT
     status:
       code: 200
       message: OK

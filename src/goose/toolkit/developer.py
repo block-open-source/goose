@@ -5,7 +5,6 @@ import time
 import tempfile
 
 from pathlib import Path
-from typing import Dict, List
 
 from exchange import Message
 from goose.toolkit.base import Toolkit, tool
@@ -38,9 +37,9 @@ class Developer(Toolkit):
     We also include some default shell strategies in the prompt, such as using ripgrep
     """
 
-    def __init__(self, *args: object, **kwargs: Dict[str, object]) -> None:
+    def __init__(self, *args: object, **kwargs: dict[str, object]) -> None:
         super().__init__(*args, **kwargs)
-        self.timestamps: Dict[str, float] = {}
+        self.timestamps: dict[str, float] = {}
 
     def system(self) -> str:
         """Retrieve system configuration details for developer"""
@@ -58,7 +57,7 @@ class Developer(Toolkit):
         return system_prompt
 
     @tool
-    def update_plan(self, tasks: List[dict]) -> List[dict]:
+    def update_plan(self, tasks: list[dict]) -> list[dict]:
         """
         Update the plan by overwriting all current tasks
 
@@ -66,7 +65,7 @@ class Developer(Toolkit):
         shown to the user directly, you do not need to reiterate it
 
         Args:
-            tasks (List(dict)): The list of tasks, where each task is a dictionary
+            tasks (list(dict)): The list of tasks, where each task is a dictionary
                 with a key for the task "description" and the task "status". The status
                 MUST be one of "planned", "complete", "failed", "in-progress".
 

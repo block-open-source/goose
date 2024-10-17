@@ -28,6 +28,7 @@ developer = "goose.toolkit.developer:Developer"
 github = "goose.toolkit.github:Github"
 jira = "goose.toolkit.jira:Jira"
 screen = "goose.toolkit.screen:Screen"
+language_server = "goose.toolkit.language_server:LanguageServerCoordinator"
 reasoner = "goose.toolkit.reasoner:Reasoner"
 repo_context = "goose.toolkit.repo_context.repo_context:RepoContext"
 
@@ -41,6 +42,9 @@ file = "goose.command.file:FileCommand"
 goose = "goose.cli.main:goose_cli"
 
 [project.entry-points."goose.cli.group_option"]
+
+[project.entry-points."goose.language_server"]
+jedi = "goose.language_server.implementations.jedi:JediServer"
 
 [project.scripts]
 goose = "goose.cli.main:cli"
@@ -66,7 +70,8 @@ dev-dependencies = [
     "mkdocstrings-python>=1.11.1",
     "mkdocstrings>=0.26.1",
     "pytest-mock>=3.14.0",
-    "pytest>=8.3.2"
+    "pytest>=8.3.2",
+    "pytest-asyncio>=0.24.0",
 ]
 
 [tool.uv.sources]

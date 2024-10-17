@@ -47,7 +47,7 @@ class GoosePromptSession:
                         command_value = ""
 
                     # execute the command with the given argument, expecting a return value
-                    value_after_execution = self.commands[command_name].execute(command_value, message)
+                    value_after_execution = self.commands[command_name].execute(command_value)
 
                     # if the command returns None, raise an error - this should never happen
                     # since the command should always return a string

@@ -89,7 +89,9 @@ tag-push: tag
 
 # create release notes latest tag..HEAD
 release-notes:
+    #!/usr/bin/env bash
     git log --pretty=format:"- %s" v$(just get-tag-version)..HEAD
 
 langfuse-server:
+    #!/usr/bin/env bash
     ./scripts/setup_langfuse.sh

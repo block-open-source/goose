@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 import logging
 import traceback
 from pathlib import Path
@@ -18,6 +19,7 @@ from goose.cli.prompt.goose_prompt_session import GoosePromptSession
 from goose.cli.prompt.overwrite_session_prompt import OverwriteSessionPrompt
 from goose.cli.session_notifier import SessionNotifier
 from goose.profile import Profile
+from goose.toolkit.language_server import LanguageServerCoordinator
 from goose.utils import droid, load_plugins
 from goose.utils._cost_calculator import get_total_cost_message
 from goose.utils._create_exchange import create_exchange
@@ -76,6 +78,7 @@ class Session:
         self.prompt_session = GoosePromptSession()
         self.status_indicator = Status("", spinner="dots")
         self.notifier = SessionNotifier(self.status_indicator)
+        self.profile = load_profile(profile)
         if not tracing:
             logging.getLogger("langfuse").setLevel(logging.ERROR)
         else:
@@ -89,7 +92,7 @@ class Session:
                 )
         langfuse_context.configure(enabled=tracing)
 
-        self.exchange = create_exchange(profile=load_profile(profile), notifier=self.notifier)
+        self.exchange = create_exchange(profile=self.profile, notifier=self.notifier)
         setup_logging(log_file_directory=LOG_PATH, log_level=log_level)
 
         self.exchange.messages.extend(self._get_initial_messages())
@@ -129,6 +132,12 @@ class Session:
 
         plan_tool_use = ToolUse(id="initialplan", name="update_plan", parameters=dict(tasks=tasks))
         self.exchange.add_tool_use(plan_tool_use)
+
+    def setup_language_server(self) -> None:
+        if "language_server" not in [t.name for t in self.profile.toolkits]:
+            return nullcontext
+
+        return LanguageServerCoordinator.get_instance().language_server_client.start_servers
 
     def process_first_message(self) -> Optional[Message]:
         # Get a first input unless it has been specified, such as by a plan
@@ -179,28 +188,32 @@ class Session:
         print(f"[dim]starting session | name: [cyan]{self.name}[/cyan]  profile: [cyan]{profile_name}[/cyan][/dim]")
         print()
         message = self.process_first_message()
-        while message:  # Loop until no input (empty string).
-            self.notifier.start()
-            try:
-                self.exchange.add(message)
-                self.reply()  # Process the user message.
-            except KeyboardInterrupt:
-                self.interrupt_reply()
-            except Exception:
-                # rewind to right before the last user message
-                self.exchange.rewind()
-                print(traceback.format_exc())
-                print(
-                    "\n[red]The error above was an exception we were not able to handle.\n\n[/]"
-                    + "These errors are often related to connection or authentication\n"
-                    + "We've removed the conversation up to the most recent user message"
-                    + " - [yellow]depending on the error you may be able to continue[/]"
-                )
-            self.notifier.stop()
-            save_latest_session(self.session_file_path, self.exchange.messages)
-            print()  # Print a newline for separation.
-            user_input = self.prompt_session.get_user_input()
-            message = Message.user(text=user_input.text) if user_input.to_continue() else None
+        with self.setup_language_server()() as _:
+            while message:  # Loop until no input (empty string).
+                self.notifier.start()
+                try:
+                    self.exchange.add(message)
+                    self.reply()  # Process the user message.
+                except KeyboardInterrupt:
+                    self.interrupt_reply()
+                except Exception:
+                    # rewind to right before the last user message
+                    self.exchange.rewind()
+                    print(traceback.format_exc())
+                    print(
+                        "\n[red]The error above was an exception we were not able to handle.\n\n[/]"
+                        + "These errors are often related to connection or authentication\n"
+                        + "We've removed the conversation up to the most recent user message"
+                        + " - [yellow]depending on the error you may be able to continue[/]"
+                    )
+                self.notifier.stop()
+                save_latest_session(self.session_file_path, self.exchange.messages)
+
+                print()  # Print a newline for separation.
+                # TODO: check time and notify on any diffed files that are in the opened file list.
+                # this is becuause the user may have edited files outside of the goose session.
+                user_input = self.prompt_session.get_user_input()
+                message = Message.user(text=user_input.text) if user_input.to_continue() else None
 
         self._remove_empty_session()
         self._log_cost()

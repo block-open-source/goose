@@ -61,5 +61,9 @@ class Toolkit(ABC):
         This default method looks for functions on the toolkit annotated
         with @tool.
         """
-        candidates = inspect.getmembers(self, predicate=inspect.ismethod)
+
+        def predicate(obj: object) -> bool:
+            return inspect.ismethod(obj) or (hasattr(obj, "_is_method") and obj._is_method)
+
+        candidates = inspect.getmembers(self, predicate=predicate)
         return (Tool.from_function(candidate) for _, candidate in candidates if getattr(candidate, "_is_tool", None))

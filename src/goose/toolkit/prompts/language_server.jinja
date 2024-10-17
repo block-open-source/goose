@@ -1,0 +1,7 @@
+You can interact with the codebase you are in via the currently running language server, which support {{ languages }}. This language server gives you access to the following tools:
+
+- request_definition: Fetches the location(s) of a symbol's definition in the code. It’s typically used when you want to navigate to the place where a function, variable, or class is defined.
+
+- request_references: This method provides all references to a symbol within the codebase. It is useful for finding where a variable, function, or class is used across different files or within the same file.
+
+If you are working on a file for one of these supported languages, always use the language server to interact with the codebase over using something like ripgrep. It will help you navigate and refactor your code more efficiently and accurately.

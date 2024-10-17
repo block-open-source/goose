@@ -73,7 +73,7 @@ release version:
     ai_exchange_version=$(just ai-exchange-version) && sed -i '' 's/ai-exchange>=.*/ai-exchange>='"${ai_exchange_version}"'\",/' pyproject.toml
     git checkout -b release-version-{{ version }}
     git add pyproject.toml
-    git commit -m "chore(release): release version {{ version }}"
+    git commit --message "chore(release): release version {{ version }}"
 
 # extract tag from pyproject.toml
 tag_version:

@@ -35,7 +35,7 @@ class Provider(ABC):
         missing_vars = [x for x in cls.REQUIRED_ENV_VARS if x not in os.environ]
 
         if missing_vars:
-            env_vars = ', '.join(missing_vars)
+            env_vars = ", ".join(missing_vars)
             raise MissingProviderEnvVariableError(env_vars, cls.PROVIDER_NAME, instructions_url)
 
     @abstractmethod

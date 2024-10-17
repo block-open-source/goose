@@ -99,23 +99,33 @@ class Developer(Toolkit):
         Fetch content from a URL using available tools. Attempts to use playwright first, then falls back to wget, curl, or httpx.
 
         Args:
-            url (str): a name of a file with the url/page content. This may be large so you can use search tools to find content. It may also contain other links which can be browsed.
+            url (str): url of the site to visit.
+        Returns:
+            (str) Path to a file which has the content of the page. This may be large so you can use search tools to find content.
         """  # noqa
         try:
             with sync_playwright() as p:
-                browser = p.chromium.launch()
+
+                # Ensure WebKit is ready by installing each time
+                self.notifier.status('checking browser')
+                subprocess.run(["playwright", "install", "webkit"], check=True)
+
+                # Launch WebKit browser
+                self.notifier.status(f'browsing {url}')
+                browser = p.webkit.launch()
+
                 page = browser.new_page()
                 page.goto(url)
-                content = page.content()
+
+                content = page.evaluate("document.body.innerText")
                 browser.close()
+
                 with tempfile.NamedTemporaryFile(delete=False, mode="w", suffix=".txt") as tmp_file:
                     tmp_file.write(content)
                     return tmp_file.name
+
         except Exception:
-            self.notifier.log(
-                "unable to use playwright so will try other things:",
-                "you can try installing it: playwright install --with-deps chromium",
-            )
+            self.notifier.log("unable to use playwright so will try other things: you can try installing it: playwright install") #noqa
         fetch_commands = [
             f"curl {url}",
             f"wget -q -O- {url}",

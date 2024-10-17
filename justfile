@@ -58,7 +58,9 @@ install-hooks:
 
 # get latest a-exchange version from pypi
 ai-exchange-version:
-    curl -s https://pypi.org/pypi/ai-exchange/json | jq -r .info.version
+    #!/usr/bin/env bash
+    curl --silent https://pypi.org/pypi/ai-exchange/json |
+      jq --raw-output ".info.version"
 
 # bump goose and ai-exchange version
 release version:

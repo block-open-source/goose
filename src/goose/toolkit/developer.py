@@ -134,10 +134,8 @@ class Developer(Toolkit):
 
                 return {"file_path": tmp_file.name, "links": links}
 
-        except Exception as e:
-            self.notifier.log(
-                e + "unable to use playwright so will try other things: you can try installing it: playwright install"
-            )  # noqa
+        except Exception:
+            self.notifier.log("unable to use playwright so will try other things: you can try installing it: playwright install")  # noqa
         fetch_commands = [
             f"curl {url}",
             f"wget -q -O- {url}",

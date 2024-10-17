@@ -1,6 +1,6 @@
 import functools
 import math
-from typing import Callable, List, Optional, Tuple, Type
+from typing import Callable, List, Optional, Type
 
 from exchange.message import Message
 from rich.markdown import Markdown
@@ -60,6 +60,12 @@ class LanguageServerCoordinator(Toolkit):
         developer_toolkit_instance = requires.get("developer")
 
         def method_changes_file(func: Callable) -> Callable:
+            """
+            This decorator modifies the method to open the file before executing its core logic. This is
+            important because the language server needs to know which file is being modified, so it can
+            then update its internal state.
+            """
+
             @functools.wraps(func)
             def wrap_method(*args: list, **kwargs: dict) -> Callable:
                 with self.language_server_client.open_file(kwargs.get("file_path")):
@@ -67,6 +73,11 @@ class LanguageServerCoordinator(Toolkit):
                     self.language_server_client
                 return result
 
+            # This is a flag to indicate that this method is a wrapper around another method,
+            # and is used at the time of attaching tools to the exchange. Why?
+            # - If we label it explicitly as a method using MethodType, then we actually end up losing the self
+            #   reference
+            # - If we don't label it as a method, then the exchange will not be able to attach it to the toolkit
             wrap_method._is_method = True
             return wrap_method
 
@@ -119,8 +130,6 @@ class LanguageServerCoordinator(Toolkit):
         if not self.language_server_client:
             NotImplementedError("No language server is available.")
         results = self.language_server_client.request_definition(file_path, line, column)
-
-        # TODO: paginate results
 
         if not results:
             return "No definition found."

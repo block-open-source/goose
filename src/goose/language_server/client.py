@@ -22,18 +22,11 @@ def language_server_request(func: Callable[[T, Any], Any]) -> Callable[[T, Any],
         for language_server in self.language_servers[language]:
             language_server_name = language_server.__class__.__name__
             loop = self.server_loops[language_server_name]
-            try:
-                result = asyncio.run_coroutine_threadsafe(
-                    func(self, language_server, file_path, line, column), loop
-                ).result(timeout=5)
-                if result:
-                    return result
-            except asyncio.TimeoutError:
-                print("The coroutine took too long to complete and timed out.")
-            except concurrent.futures.TimeoutError:
-                print("The result retrieval timed out.")
-            except Exception as e:
-                print(f"An error occurred: {e}")
+            result = asyncio.run_coroutine_threadsafe(
+                func(self, language_server, file_path, line, column), loop
+            ).result(timeout=5)
+            if result:
+                return result
 
     return wrapper
 

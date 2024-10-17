@@ -49,10 +49,11 @@ def test_request_definition(language_server_toolkit):
 
 
 def test_invalid_definition_requested(language_server_toolkit):
-    pass
-    # TODO: make this pass
-    # with language_server_toolkit.language_server_client.start_servers() as _:
-    #     language_server_toolkit.request_definition(__file__, 1000, 1000)
+    try:
+        with language_server_toolkit.language_server_client.start_servers() as _:
+            language_server_toolkit.request_definition(__file__, 1000, 1000)
+    except Exception as e:
+        assert e.args[0] == "ValueError: `line` parameter is not in a valid range."
 
 
 def test_ensure_language_server_client_is_none_if_no_language_servers_exist():

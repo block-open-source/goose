@@ -103,6 +103,7 @@ class Developer(Toolkit):
         Returns:
             (str) Path to a file which has the content of the page. This may be large so you can use search tools to find content.
         """  # noqa
+        friendly_name = re.sub(r'[^a-zA-Z0-9]', '_', url)[:50]  # Limit length to prevent filenames from being too long
         try:
             with sync_playwright() as p:
 
@@ -120,7 +121,7 @@ class Developer(Toolkit):
                 content = page.evaluate("document.body.innerText")
                 browser.close()
 
-                with tempfile.NamedTemporaryFile(delete=False, mode="w", suffix=".txt") as tmp_file:
+                with tempfile.NamedTemporaryFile(delete=False, mode="w", suffix=f"_{friendly_name}.txt") as tmp_file:
                     tmp_file.write(content)
                     return tmp_file.name
 
@@ -135,7 +136,7 @@ class Developer(Toolkit):
         for command in fetch_commands:
             try:
                 result = subprocess.check_output(command, shell=True, text=True)
-                with tempfile.NamedTemporaryFile(delete=False, mode="w", suffix=".txt") as tmp_file:
+                with tempfile.NamedTemporaryFile(delete=False, mode="w", suffix=f"_{friendly_name}.html") as tmp_file:
                     tmp_file.write(result)
                     return tmp_file.name
             except subprocess.CalledProcessError:

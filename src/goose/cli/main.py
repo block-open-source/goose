@@ -14,6 +14,9 @@ from goose.utils import load_plugins
 from goose.utils.autocomplete import SUPPORTED_SHELLS, setup_autocomplete
 from goose.utils.session_file import list_sorted_session_files
 
+LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+LOG_CHOICE = click.Choice(LOG_LEVELS)
+
 
 @click.group()
 def goose_cli() -> None:
@@ -136,7 +139,10 @@ def get_session_files() -> dict[str, Path]:
 @click.option("--profile")
 @click.option("--plan", type=click.Path(exists=True))
 @click.option("--log-level", type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]), default="INFO")
-def session_start(name: Optional[str], profile: str, log_level: str, plan: Optional[str] = None) -> None:
+@click.option("--tracing", is_flag=True, required=False)
+def session_start(
+    name: Optional[str], profile: str, log_level: str, plan: Optional[str] = None, tracing: bool = False
+) -> None:
     """Start a new goose session"""
     if plan:
         yaml = YAML()
@@ -144,8 +150,12 @@ def session_start(name: Optional[str], profile: str, log_level: str, plan: Optio
             _plan = yaml.load(f)
     else:
         _plan = None
-    session = Session(name=name, profile=profile, plan=_plan, log_level=log_level)
-    session.run()
+
+    try:
+        session = Session(name=name, profile=profile, plan=_plan, log_level=log_level, tracing=tracing)
+        session.run()
+    except RuntimeError as e:
+        print(f"[red]Error: {e}")
 
 
 def parse_args(ctx: click.Context, param: click.Parameter, value: str) -> dict[str, str]:
@@ -161,7 +171,7 @@ def parse_args(ctx: click.Context, param: click.Parameter, value: str) -> dict[s
 
 @session.command(name="planned")
 @click.option("--plan", type=click.Path(exists=True))
-@click.option("--log-level", type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]), default="INFO")
+@click.option("--log-level", type=LOG_CHOICE, default="INFO")
 @click.option("-a", "--args", callback=parse_args, help="Args in the format arg1:value1,arg2:value2")
 def session_planned(plan: str, log_level: str, args: Optional[dict[str, str]]) -> None:
     plan_templated = render_template(Path(plan), context=args)
@@ -173,7 +183,7 @@ def session_planned(plan: str, log_level: str, args: Optional[dict[str, str]]) -
 @session.command(name="resume")
 @click.argument("name", required=False, shell_complete=autocomplete_session_files)
 @click.option("--profile")
-@click.option("--log-level", type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]), default="INFO")
+@click.option("--log-level", type=LOG_CHOICE, default="INFO")
 def session_resume(name: Optional[str], profile: str, log_level: str) -> None:
     """Resume an existing goose session"""
     session_files = get_session_files()
@@ -190,14 +200,15 @@ def session_resume(name: Optional[str], profile: str, log_level: str) -> None:
         else:
             print(f"Creating new session: {name}")
     session = Session(name=name, profile=profile, log_level=log_level)
-    session.run()
+    session.run(new_session=False)
 
 
 @goose_cli.command(name="run")
 @click.argument("message_file", required=False, type=click.Path(exists=True))
 @click.option("--profile")
-@click.option("--log-level", type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]), default="INFO")
-def run(message_file: Optional[str], profile: str, log_level: str) -> None:
+@click.option("--log-level", type=LOG_CHOICE, default="INFO")
+@click.option("--resume-session", is_flag=True, help="Resume the last session if available")
+def run(message_file: Optional[str], profile: str, log_level: str, resume_session: bool = False) -> None:
     """Run a single-pass session with a message from a markdown input file"""
     if message_file:
         with open(message_file, "r") as f:
@@ -205,7 +216,13 @@ def run(message_file: Optional[str], profile: str, log_level: str) -> None:
     else:
         initial_message = click.get_text_stream("stdin").read()
 
-    session = Session(profile=profile, log_level=log_level)
+    if resume_session:
+        session_files = get_session_files()
+        if session_files:
+            name = list(session_files.keys())[0]
+            session = Session(name=name, profile=profile, log_level=log_level)
+    else:
+        session = Session(profile=profile, log_level=log_level)
     session.single_pass(initial_message=initial_message)
 
 

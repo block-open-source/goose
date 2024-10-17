@@ -8,6 +8,7 @@ Providers in Goose mean "LLM providers" that Goose can interact with. Providers 
 * Azure
 * Bedrock
 * Databricks
+* Google
 * Ollama
 * OpenAI
 

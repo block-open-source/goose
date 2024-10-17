@@ -1,11 +1,13 @@
+import json
 import os
 import re
-from typing import Type, Tuple
 
 import pytest
+import yaml
 
 from exchange import Message, ToolUse, ToolResult, Tool
 from exchange.providers import Usage, Provider
+
 from tests.conftest import read_file
 
 OPENAI_API_KEY = "test_openai_api_key"
@@ -53,6 +55,90 @@ def default_azure_env(monkeypatch):
         monkeypatch.setenv("AZURE_CHAT_COMPLETIONS_KEY", AZURE_API_KEY)
 
 
+GOOGLE_API_KEY = "test_google_api_key"
+
+
+@pytest.fixture
+def default_google_env(monkeypatch):
+    """
+    This fixture prevents GoogleProvider.from_env() from erring on missing
+    environment variables.
+
+    When running VCR tests for the first time or after deleting a cassette
+    recording, set required environment variables, so that real requests don't
+    fail. Subsequent runs use the recorded data, so don't need them.
+    """
+    if "GOOGLE_API_KEY" not in os.environ:
+        monkeypatch.setenv("GOOGLE_API_KEY", GOOGLE_API_KEY)
+
+
+class LiteralBlockScalar(str):
+    """Formats the string as a literal block scalar, preserving whitespace and
+    without interpreting escape characters"""
+
+    pass
+
+
+def literal_block_scalar_presenter(dumper, data):
+    """Represents a scalar string as a literal block, via '|' syntax"""
+    return dumper.represent_scalar("tag:yaml.org,2002:str", data, style="|")
+
+
+yaml.add_representer(LiteralBlockScalar, literal_block_scalar_presenter)
+
+
+def process_string_value(string_value):
+    """Pretty-prints JSON or returns long strings as a LiteralString"""
+    try:
+        json_data = json.loads(string_value)
+        return LiteralBlockScalar(json.dumps(json_data, indent=2))
+    except (ValueError, TypeError):
+        if len(string_value) > 80:
+            return LiteralBlockScalar(string_value)
+    return string_value
+
+
+def convert_body_to_literal(data):
+    """Searches the data for body strings, attempting to pretty-print JSON"""
+    if isinstance(data, dict):
+        for key, value in data.items():
+            # Handle response body case (e.g., response.body.string)
+            if key == "body" and isinstance(value, dict) and "string" in value:
+                value["string"] = process_string_value(value["string"])
+
+            # Handle request body case (e.g., request.body)
+            elif key == "body" and isinstance(value, str):
+                data[key] = process_string_value(value)
+
+            else:
+                convert_body_to_literal(value)
+
+    elif isinstance(data, list):
+        for i, item in enumerate(data):
+            data[i] = convert_body_to_literal(item)
+
+    return data
+
+
+class PrettyPrintJSONBody:
+    """This makes request and response body recordings more readable."""
+
+    @staticmethod
+    def serialize(cassette_dict):
+        cassette_dict = convert_body_to_literal(cassette_dict)
+        return yaml.dump(cassette_dict, default_flow_style=False, allow_unicode=True)
+
+    @staticmethod
+    def deserialize(cassette_string):
+        return yaml.load(cassette_string, Loader=yaml.Loader)
+
+
+@pytest.fixture(scope="module")
+def vcr(vcr):
+    vcr.register_serializer("yaml", PrettyPrintJSONBody)
+    return vcr
+
+
 @pytest.fixture(scope="module")
 def vcr_config():
     """
@@ -85,6 +171,8 @@ def scrub_request_url(request):
         request.uri = re.sub(r"/deployments/[^/]+", f"/deployments/{AZURE_DEPLOYMENT_NAME}", request.uri)
         request.headers["host"] = AZURE_ENDPOINT.replace("https://", "")
         request.headers["api-key"] = AZURE_API_KEY
+    elif "generativelanguage.googleapis.com" in request.uri:
+        request.uri = re.sub(r"([?&])key=[^&]+", r"\1key=" + GOOGLE_API_KEY, request.uri)
 
     return request
 
@@ -93,19 +181,21 @@ def scrub_response_headers(response):
     """
     This scrubs sensitive response headers. Note they are case-sensitive!
     """
-    response["headers"]["openai-organization"] = OPENAI_ORG_ID
-    response["headers"]["Set-Cookie"] = "test_set_cookie"
+    if "openai-organization" in response["headers"]:
+        response["headers"]["openai-organization"] = OPENAI_ORG_ID
+    if "Set-Cookie" in response["headers"]:
+        response["headers"]["Set-Cookie"] = "test_set_cookie"
     return response
 
 
-def complete(provider_cls: Type[Provider], model: str, **kwargs) -> Tuple[Message, Usage]:
+def complete(provider_cls: type[Provider], model: str, **kwargs) -> tuple[Message, Usage]:
     provider = provider_cls.from_env()
     system = "You are a helpful assistant."
     messages = [Message.user("Hello")]
-    return provider.complete(model=model, system=system, messages=messages, tools=None, **kwargs)
+    return provider.complete(model=model, system=system, messages=messages, tools=(), **kwargs)
 
 
-def tools(provider_cls: Type[Provider], model: str, **kwargs) -> Tuple[Message, Usage]:
+def tools(provider_cls: type[Provider], model: str, **kwargs) -> tuple[Message, Usage]:
     provider = provider_cls.from_env()
     system = "You are a helpful assistant. Expect to need to read a file using read_file."
     messages = [Message.user("What are the contents of this file? test.txt")]
@@ -114,7 +204,7 @@ def tools(provider_cls: Type[Provider], model: str, **kwargs) -> Tuple[Message, 
     )
 
 
-def vision(provider_cls: Type[Provider], model: str, **kwargs) -> Tuple[Message, Usage]:
+def vision(provider_cls: type[Provider], model: str, **kwargs) -> tuple[Message, Usage]:
     provider = provider_cls.from_env()
     system = "You are a helpful assistant."
     messages = [
@@ -128,4 +218,4 @@ def vision(provider_cls: Type[Provider], model: str, **kwargs) -> Tuple[Message,
             content=[ToolResult(tool_use_id="xyz", output='"image:tests/test_image.png"')],
         ),
     ]
-    return provider.complete(model=model, system=system, messages=messages, tools=None, **kwargs)
+    return provider.complete(model=model, system=system, messages=messages, tools=(), **kwargs)

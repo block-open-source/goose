@@ -1,5 +1,4 @@
 from copy import deepcopy
-from typing import List
 from attrs import define, field
 
 
@@ -31,7 +30,7 @@ class CheckpointData:
     total_token_count: int = field(default=0)
 
     # in order list of individual checkpoints in the exchange
-    checkpoints: List[Checkpoint] = field(factory=list)
+    checkpoints: list[Checkpoint] = field(factory=list)
 
     # the offset to apply to the message index when calculating the last message index
     # this is useful because messages on the exchange behave like a queue, where you can only

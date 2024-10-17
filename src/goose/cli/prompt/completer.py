@@ -1,5 +1,4 @@
 import re
-from typing import List
 
 from prompt_toolkit.completion import CompleteEvent, Completer, Completion
 from prompt_toolkit.document import Document
@@ -8,10 +7,10 @@ from goose.command.base import Command
 
 
 class GoosePromptCompleter(Completer):
-    def __init__(self, commands: List[Command]) -> None:
+    def __init__(self, commands: list[Command]) -> None:
         self.commands = commands
 
-    def get_command_completions(self, document: Document) -> List[Completion]:
+    def get_command_completions(self, document: Document) -> list[Completion]:
         all_completions = []
         for command_name, command_instance in self.commands.items():
             pattern = rf"(?<!\S)\/{command_name}:([\S]*)$"
@@ -25,7 +24,7 @@ class GoosePromptCompleter(Completer):
             all_completions.extend(completions)
         return all_completions
 
-    def get_command_name_completions(self, document: Document) -> List[Completion]:
+    def get_command_name_completions(self, document: Document) -> list[Completion]:
         pattern = r"(?<!\S)\/([\S]*)$"
         text = document.text_before_cursor
         match = re.search(pattern=pattern, string=text)
@@ -40,7 +39,7 @@ class GoosePromptCompleter(Completer):
                 completions.append(Completion(command_name, start_position=-len(query), display=command_name))
         return completions
 
-    def get_completions(self, document: Document, _: CompleteEvent) -> List[Completion]:
+    def get_completions(self, document: Document, _: CompleteEvent) -> list[Completion]:
         command_completions = self.get_command_completions(document)
         command_name_completions = self.get_command_name_completions(document)
         return command_name_completions + command_completions

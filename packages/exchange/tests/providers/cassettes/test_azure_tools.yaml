@@ -1,13 +1,40 @@
 interactions:
 - request:
-    body: '{"messages": [{"role": "system", "content": "You are a helpful assistant.
-      Expect to need to read a file using read_file."}, {"role": "user", "content":
-      "What are the contents of this file? test.txt"}], "model": "gpt-4o-mini", "tools":
-      [{"type": "function", "function": {"name": "read_file", "description": "Read
-      the contents of the file.", "parameters": {"type": "object", "properties": {"filename":
-      {"type": "string", "description": "The path to the file, which can be relative
-      or\nabsolute. If it is a plain filename, it is assumed to be in the\ncurrent
-      working directory."}}, "required": ["filename"]}}}]}'
+    body: |-
+      {
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are a helpful assistant. Expect to need to read a file using read_file."
+          },
+          {
+            "role": "user",
+            "content": "What are the contents of this file? test.txt"
+          }
+        ],
+        "model": "gpt-4o-mini",
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "read_file",
+              "description": "Read the contents of the file.",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "filename": {
+                    "type": "string",
+                    "description": "The path to the file, which can be relative or\nabsolute. If it is a plain filename, it is assumed to be in the\ncurrent working directory."
+                  }
+                },
+                "required": [
+                  "filename"
+                ]
+              }
+            }
+          }
+        ]
+      }
     headers:
       accept:
       - '*/*'
@@ -29,10 +56,64 @@ interactions:
     uri: https://test.openai.azure.com/openai/deployments/test-azure-deployment/chat/completions?api-version=2024-05-01-preview
   response:
     body:
-      string: '{"choices":[{"content_filter_results":{},"finish_reason":"tool_calls","index":0,"logprobs":null,"message":{"content":null,"role":"assistant","tool_calls":[{"function":{"arguments":"{\n  \"filename\":
-        \"test.txt\"\n}","name":"read_file"},"id":"call_a47abadDxlGKIWjvYYvGVAHa","type":"function"}]}}],"created":1727256650,"id":"chatcmpl-ABIeABbq5WVCq0e0AriGFaYDSih3P","model":"gpt-4-32k","object":"chat.completion","prompt_filter_results":[{"prompt_index":0,"content_filter_results":{"hate":{"filtered":false,"severity":"safe"},"self_harm":{"filtered":false,"severity":"safe"},"sexual":{"filtered":false,"severity":"safe"},"violence":{"filtered":false,"severity":"safe"}}}],"system_fingerprint":null,"usage":{"completion_tokens":16,"prompt_tokens":109,"total_tokens":125}}
-
-        '
+      string: |-
+        {
+          "choices": [
+            {
+              "content_filter_results": {},
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "logprobs": null,
+              "message": {
+                "content": null,
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "function": {
+                      "arguments": "{\n  \"filename\": \"test.txt\"\n}",
+                      "name": "read_file"
+                    },
+                    "id": "call_Dn0idyNSdmHSYpsql3EbFH9L",
+                    "type": "function"
+                  }
+                ]
+              }
+            }
+          ],
+          "created": 1728788173,
+          "id": "chatcmpl-AHj498XEBkixukw2lwNReXCIBStp0",
+          "model": "gpt-4-32k",
+          "object": "chat.completion",
+          "prompt_filter_results": [
+            {
+              "prompt_index": 0,
+              "content_filter_results": {
+                "hate": {
+                  "filtered": false,
+                  "severity": "safe"
+                },
+                "self_harm": {
+                  "filtered": false,
+                  "severity": "safe"
+                },
+                "sexual": {
+                  "filtered": false,
+                  "severity": "safe"
+                },
+                "violence": {
+                  "filtered": false,
+                  "severity": "safe"
+                }
+              }
+            }
+          ],
+          "system_fingerprint": null,
+          "usage": {
+            "completion_tokens": 16,
+            "prompt_tokens": 109,
+            "total_tokens": 125
+          }
+        }
     headers:
       Cache-Control:
       - no-cache, must-revalidate
@@ -41,33 +122,31 @@ interactions:
       Content-Type:
       - application/json
       Date:
-      - Wed, 25 Sep 2024 09:30:50 GMT
-      Set-Cookie: test_set_cookie
+      - Sun, 13 Oct 2024 02:56:14 GMT
       Strict-Transport-Security:
       - max-age=31536000; includeSubDomains; preload
       access-control-allow-origin:
       - '*'
       apim-request-id:
-      - 8c0e3372-8ffd-4ff5-a5d1-0b962c4ea339
+      - 0e0af575-5634-415c-88e3-a7bf68549ee5
       azureml-model-session:
-      - d145-20240919052126
-      openai-organization: test_openai_org_key
+      - d159-20241010142543
       x-accel-buffering:
       - 'no'
       x-content-type-options:
       - nosniff
       x-ms-client-request-id:
-      - 8c0e3372-8ffd-4ff5-a5d1-0b962c4ea339
+      - 0e0af575-5634-415c-88e3-a7bf68549ee5
       x-ms-rai-invoked:
       - 'true'
       x-ms-region:
       - Switzerland North
       x-ratelimit-remaining-requests:
-      - '79'
+      - '77'
       x-ratelimit-remaining-tokens:
-      - '79824'
+      - '79952'
       x-request-id:
-      - 401bd803-b790-47b7-b098-98708d44f060
+      - e5012889-ef86-449a-908c-2065dbf0954e
     status:
       code: 200
       message: OK

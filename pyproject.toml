@@ -1,7 +1,7 @@
 [project]
 name = "goose-ai"
 description = "a programming agent that runs on your machine"
-version = "0.9.3"
+version = "0.9.5"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -12,6 +12,7 @@ dependencies = [
     "click>=8.1.7",
     "prompt-toolkit>=3.0.47",
     "keyring>=25.4.1",
+    "langfuse>=2.38.2",
 ]
 author = [{ name = "Block", email = "ai-oss-tools@block.xyz" }]
 packages = [{ include = "goose", from = "src" }]
@@ -28,6 +29,7 @@ github = "goose.toolkit.github:Github"
 jira = "goose.toolkit.jira:Jira"
 screen = "goose.toolkit.screen:Screen"
 language_server = "goose.toolkit.language_server:LanguageServerCoordinator"
+reasoner = "goose.toolkit.reasoner:Reasoner"
 repo_context = "goose.toolkit.repo_context.repo_context:RepoContext"
 
 [project.entry-points."goose.profile"]

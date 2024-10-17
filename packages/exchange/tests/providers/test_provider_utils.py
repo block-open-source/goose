@@ -107,9 +107,9 @@ def test_messages_to_openai_spec() -> None:
         Message(role="user", content=[Text("How are you?")]),
         Message(
             role="assistant",
-            content=[ToolUse(id=1, name="tool1", parameters={"param1": "value1"})],
+            content=[ToolUse(id="1", name="tool1", parameters={"param1": "value1"})],
         ),
-        Message(role="user", content=[ToolResult(tool_use_id=1, output="Result")]),
+        Message(role="user", content=[ToolResult(tool_use_id="1", output="Result")]),
     ]
 
     spec = messages_to_openai_spec(messages)
@@ -121,7 +121,7 @@ def test_messages_to_openai_spec() -> None:
             "role": "assistant",
             "tool_calls": [
                 {
-                    "id": 1,
+                    "id": "1",
                     "type": "function",
                     "function": {
                         "name": "tool1",
@@ -133,7 +133,7 @@ def test_messages_to_openai_spec() -> None:
         {
             "role": "tool",
             "content": "Result",
-            "tool_call_id": 1,
+            "tool_call_id": "1",
         },
     ]
 
@@ -216,7 +216,7 @@ def test_openai_response_to_message_valid_tooluse() -> None:
     expect = asdict(
         Message(
             role="assistant",
-            content=[ToolUse(id=1, name="example_fn", parameters={"param": "value"})],
+            content=[ToolUse(id="1", name="example_fn", parameters={"param": "value"})],
         )
     )
     actual.pop("id")

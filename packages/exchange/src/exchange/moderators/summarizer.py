@@ -1,12 +1,10 @@
-from typing import Type
-
 from exchange import Message
 from exchange.checkpoint import CheckpointData
 from exchange.moderators import ContextTruncate, PassiveModerator
 
 
 class ContextSummarizer(ContextTruncate):
-    def rewrite(self, exchange: Type["exchange.exchange.Exchange"]) -> None:  # noqa: F821
+    def rewrite(self, exchange: type["exchange.exchange.Exchange"]) -> None:  # noqa: F821
         """Summarize the context history up to the last few messages in the exchange"""
 
         self._update_system_prompt_token_count(exchange)

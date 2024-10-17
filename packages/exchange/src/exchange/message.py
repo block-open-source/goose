@@ -1,7 +1,7 @@
 import inspect
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Type
+from typing import Literal
 
 from attrs import define, field
 from jinja2 import Environment, FileSystemLoader
@@ -12,7 +12,7 @@ from exchange.utils import create_object_id
 Role = Literal["user", "assistant"]
 
 
-def validate_role_and_content(instance: "Message", *_: Any) -> None:  # noqa: ANN401
+def validate_role_and_content(instance: "Message", *_: any) -> None:  # noqa: ANN401
     if instance.role == "user":
         if not (instance.text or instance.tool_result):
             raise ValueError("User message must include a Text or ToolResult")
@@ -25,7 +25,7 @@ def validate_role_and_content(instance: "Message", *_: Any) -> None:  # noqa: AN
             raise ValueError("Assistant message does not support ToolResult")
 
 
-def content_converter(contents: List[Dict[str, Any]]) -> List[Content]:
+def content_converter(contents: list[dict[str, any]]) -> list[Content]:
     return [(CONTENT_TYPES[c.pop("type")](**c) if c.__class__ not in CONTENT_TYPES.values() else c) for c in contents]
 
 
@@ -48,9 +48,9 @@ class Message:
     role: Role = field(default="user")
     id: str = field(factory=lambda: str(create_object_id(prefix="msg")))
     created: int = field(factory=lambda: int(time.time()))
-    content: List[Content] = field(factory=list, validator=validate_role_and_content, converter=content_converter)
+    content: list[Content] = field(factory=list, validator=validate_role_and_content, converter=content_converter)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, any]:
         return {
             "role": self.role,
             "id": self.id,
@@ -68,7 +68,7 @@ class Message:
         return "\n".join(result)
 
     @property
-    def tool_use(self) -> List[ToolUse]:
+    def tool_use(self) -> list[ToolUse]:
         """All tool use content of this message."""
         result = []
         for content in self.content:
@@ -77,7 +77,7 @@ class Message:
         return result
 
     @property
-    def tool_result(self) -> List[ToolResult]:
+    def tool_result(self) -> list[ToolResult]:
         """All tool result content of this message."""
         result = []
         for content in self.content:
@@ -87,10 +87,10 @@ class Message:
 
     @classmethod
     def load(
-        cls: Type["Message"],
+        cls: type["Message"],
         filename: str,
         role: Role = "user",
-        **kwargs: Dict[str, Any],
+        **kwargs: dict[str, any],
     ) -> "Message":
         """Load the message from filename relative to where the load is called.
 
@@ -113,9 +113,9 @@ class Message:
         return cls(role=role, content=[Text(text=rendered_content)])
 
     @classmethod
-    def user(cls: Type["Message"], text: str) -> "Message":
+    def user(cls: type["Message"], text: str) -> "Message":
         return cls(role="user", content=[Text(text)])
 
     @classmethod
-    def assistant(cls: Type["Message"], text: str) -> "Message":
+    def assistant(cls: type["Message"], text: str) -> "Message":
         return cls(role="assistant", content=[Text(text)])

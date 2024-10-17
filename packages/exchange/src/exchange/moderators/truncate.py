@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Optional
 
 from exchange.checkpoint import CheckpointData
 from exchange.message import Message
@@ -62,7 +62,7 @@ class ContextTruncate(Moderator):
             exchange.checkpoint_data.total_token_count -= last_system_prompt_token_count
             exchange.checkpoint_data.total_token_count += self.system_prompt_token_count
 
-    def _get_messages_to_remove(self, exchange: Exchange) -> List[Message]:
+    def _get_messages_to_remove(self, exchange: Exchange) -> list[Message]:
         # this keeps all the messages/checkpoints
         throwaway_exchange = exchange.replace(
             moderator=PassiveModerator(),

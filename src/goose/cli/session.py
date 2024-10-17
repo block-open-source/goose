@@ -1,24 +1,29 @@
 from contextlib import nullcontext
+import logging
 import traceback
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Optional
 
-from exchange import Message, ToolResult, ToolUse, Text
+from langfuse.decorators import langfuse_context
+from exchange import Message, Text, ToolResult, ToolUse
+from exchange.langfuse_wrapper import observe_wrapper, auth_check
 from rich import print
 from rich.markdown import Markdown
 from rich.panel import Panel
+from rich.prompt import Prompt
 from rich.status import Status
 
-from goose.cli.config import ensure_config, session_path, LOG_PATH
 from goose._logger import get_logger, setup_logging
+from goose.cli.config import LOG_PATH, ensure_config, session_path
 from goose.cli.prompt.goose_prompt_session import GoosePromptSession
+from goose.cli.prompt.overwrite_session_prompt import OverwriteSessionPrompt
 from goose.cli.session_notifier import SessionNotifier
 from goose.profile import Profile
 from goose.toolkit.language_server import LanguageServerCoordinator
 from goose.utils import droid, load_plugins
 from goose.utils._cost_calculator import get_total_cost_message
 from goose.utils._create_exchange import create_exchange
-from goose.utils.session_file import read_or_create_file, save_latest_session
+from goose.utils.session_file import is_empty_session, is_existing_session, read_or_create_file, save_latest_session
 
 RESUME_MESSAGE = "I see we were interrupted. How can I help you?"
 
@@ -62,7 +67,8 @@ class Session:
         profile: Optional[str] = None,
         plan: Optional[dict] = None,
         log_level: Optional[str] = "INFO",
-        **kwargs: Dict[str, Any],
+        tracing: bool = False,
+        **kwargs: dict[str, any],
     ) -> None:
         if name is None:
             self.name = droid()
@@ -73,6 +79,18 @@ class Session:
         self.status_indicator = Status("", spinner="dots")
         self.notifier = SessionNotifier(self.status_indicator)
         self.profile = load_profile(profile)
+        if not tracing:
+            logging.getLogger("langfuse").setLevel(logging.ERROR)
+        else:
+            langfuse_auth = auth_check()
+            if langfuse_auth:
+                print("Local Langfuse initialized. View your traces at http://localhost:3000")
+            else:
+                raise RuntimeError(
+                    "You passed --tracing, but a Langfuse object was not found in the current context. "
+                    "Please initialize the local Langfuse server and restart Goose."
+                )
+        langfuse_context.configure(enabled=tracing)
 
         self.exchange = create_exchange(profile=self.profile, notifier=self.notifier)
         setup_logging(log_file_directory=LOG_PATH, log_level=log_level)
@@ -84,7 +102,7 @@ class Session:
 
         self.prompt_session = GoosePromptSession()
 
-    def _get_initial_messages(self) -> List[Message]:
+    def _get_initial_messages(self) -> list[Message]:
         messages = self.load_session()
 
         if messages and messages[-1].role == "user":
@@ -155,13 +173,19 @@ class Session:
         print(f"[dim]ended run | name:[cyan]{self.name}[/]  profile:[cyan]{profile}[/]")
         print(f"[dim]to resume: [magenta]goose session resume {self.name} --profile {profile}[/][/]")
 
-    def run(self) -> None:
+    def run(self, new_session: bool = True) -> None:
         """
         Runs the main loop to handle user inputs and responses.
         Continues until an empty string is returned from the prompt.
+
+        Args:
+            new_session (bool): True when starting a new session, False when resuming.
         """
-        print(f"[dim]starting session | name:[cyan]{self.name}[/]  profile:[cyan]{self.profile_name or 'default'}[/]")
-        print(f"[dim]saving to {self.session_file_path}")
+        if is_existing_session(self.session_file_path) and new_session:
+            self._prompt_overwrite_session()
+
+        profile_name = self.profile_name or "default"
+        print(f"[dim]starting session | name: [cyan]{self.name}[/cyan]  profile: [cyan]{profile_name}[/cyan][/dim]")
         print()
         message = self.process_first_message()
         with self.setup_language_server()() as _:
@@ -191,8 +215,10 @@ class Session:
                 user_input = self.prompt_session.get_user_input()
                 message = Message.user(text=user_input.text) if user_input.to_continue() else None
 
+        self._remove_empty_session()
         self._log_cost()
 
+    @observe_wrapper()
     def reply(self) -> None:
         """Reply to the last user message, calling tools as needed"""
         self.status_indicator.update("responding")
@@ -247,12 +273,53 @@ class Session:
     def session_file_path(self) -> Path:
         return session_path(self.name)
 
-    def load_session(self) -> List[Message]:
+    def load_session(self) -> list[Message]:
         return read_or_create_file(self.session_file_path)
 
     def _log_cost(self) -> None:
         get_logger().info(get_total_cost_message(self.exchange.get_token_usage()))
-        print(f"[dim]you can view the cost and token usage in the log directory {LOG_PATH}")
+        print(f"[dim]you can view the cost and token usage in the log directory {LOG_PATH}[/]")
+
+    def _prompt_overwrite_session(self) -> None:
+        print(f"[yellow]Session already exists at {self.session_file_path}.[/]")
+
+        choice = OverwriteSessionPrompt.ask("Enter your choice", show_choices=False)
+        match choice:
+            case "y" | "yes":
+                print("Overwriting existing session")
+
+            case "n" | "no":
+                while True:
+                    new_session_name = Prompt.ask("Enter a new session name")
+                    if not is_existing_session(session_path(new_session_name)):
+                        self.name = new_session_name
+                        break
+                    print(f"[yellow]Session '{new_session_name}' already exists[/]")
+
+            case "r" | "resume":
+                self.exchange.messages.extend(self.load_session())
+
+    def _remove_empty_session(self) -> bool:
+        """
+        Removes the session file only when it's empty.
+
+        Note: This is because a session file is created at the start of the run
+        loop. When a user aborts before their first message empty session files
+        will be created, causing confusion when resuming sessions (which
+        depends on most recent mtime and is non-empty).
+
+        Returns:
+            bool: True if the session file was removed, False otherwise.
+        """
+        logger = get_logger()
+        try:
+            if is_empty_session(self.session_file_path):
+                logger.debug(f"deleting empty session file: {self.session_file_path}")
+                self.session_file_path.unlink()
+                return True
+        except Exception as e:
+            logger.error(f"error deleting empty session file: {e}")
+        return False
 
 
 if __name__ == "__main__":

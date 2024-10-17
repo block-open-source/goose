@@ -70,3 +70,10 @@ tag:
 tag-push:
   just tag
   git push origin tag v$(just tag_version)
+
+# get commit messages for a release
+release-notes:
+  git log --pretty=format:"- %s" v$(just tag_version)..HEAD
+
+langfuse-server:
+  ./scripts/setup_langfuse.sh

@@ -85,11 +85,10 @@ tag:
     #!/usr/bin/env bash
     git tag v$(just get-tag-version)
 
-# this will kick of ci for release
-
-# use this when release branch is merged to main
+# create tag and push to origin (use this when release branch is merged to main)
 tag-push: tag
     #!/usr/bin/env bash
+    # this will kick of ci for release
     git push origin tag v$(just get-tag-version)
 
 # create release notes latest tag..HEAD

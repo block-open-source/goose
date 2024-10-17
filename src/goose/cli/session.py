@@ -186,7 +186,8 @@ class Session:
                 save_latest_session(self.session_file_path, self.exchange.messages)
 
                 print()  # Print a newline for separation.
-                # TODO: check time and notify on any diffed files that are currently open
+                # TODO: check time and notify on any diffed files that are in the opened file list.
+                # this is becuause the user may have edited files outside of the goose session.
                 user_input = self.prompt_session.get_user_input()
                 message = Message.user(text=user_input.text) if user_input.to_continue() else None
 

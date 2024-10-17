@@ -163,8 +163,6 @@ class LanguageServerCoordinator(Toolkit):
             NotImplementedError("No language server is available.")
         results = self.language_server_client.request_references(file_path, line, column)
 
-        # TODO: paginate results
-
         if not results:
             return "No definition found."
 

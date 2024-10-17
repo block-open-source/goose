@@ -76,7 +76,8 @@ release version:
     git commit --message "chore(release): release version {{ version }}"
 
 # extract tag from pyproject.toml
-tag_version:
+get-tag-version:
+    #!/usr/bin/env bash
     uvx --from=toml-cli toml get --toml-path=pyproject.toml "project.version"
 
 # create tag from pyproject.toml
@@ -88,11 +89,12 @@ tag:
 
 # use this when release branch is merged to main
 tag-push: tag
-    git push origin tag v$(just tag_version)
+    #!/usr/bin/env bash
+    git push origin tag v$(just get-tag-version)
 
 # create release notes latest tag..HEAD
 release-notes:
-    git log --pretty=format:"- %s" v$(just tag_version)..HEAD
+    git log --pretty=format:"- %s" v$(just get-tag-version)..HEAD
 
 langfuse-server:
     ./scripts/setup_langfuse.sh

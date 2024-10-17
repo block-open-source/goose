@@ -65,10 +65,6 @@ ai-exchange-version:
 # bump goose and ai-exchange version
 release version:
     #!/usr/bin/env bash
-    if [ -z "$1" ]; then
-      echo "[error]: version is required"
-      exit 1
-    fi
     uvx --from=toml-cli toml set --toml-path=pyproject.toml "project.version" {{ version }}
     ai_exchange_version=$(just ai-exchange-version) && sed -i '' 's/ai-exchange>=.*/ai-exchange>='"${ai_exchange_version}"'\",/' pyproject.toml
     git checkout -b release-version-{{ version }}

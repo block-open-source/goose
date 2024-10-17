@@ -22,6 +22,7 @@ format:
   eval "$UVX_PATH ruff format ."
   eval "$UVX_PATH ruff check . --fix"
 
+  just --unstable --fmt
 
 # run tests with coverage
 coverage *FLAGS:

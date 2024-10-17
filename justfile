@@ -77,7 +77,7 @@ release version:
 
 # extract tag from pyproject.toml
 tag_version:
-    grep 'version' pyproject.toml | cut -d '"' -f 2
+    uvx --from=toml-cli toml get --toml-path=pyproject.toml "project.version"
 
 # create tag from pyproject.toml
 tag:

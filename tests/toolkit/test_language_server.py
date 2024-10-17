@@ -31,12 +31,12 @@ def test_singleton_language_server(language_server_toolkit):
 def test_server_context(language_server_toolkit):
     with language_server_toolkit.language_server_client.start_servers() as servers:
         assert len(servers.language_servers[Language.PYTHON]) > 0
-        assert servers.loop_threads["JediServer"].daemon
-        assert servers.loop_threads["JediServer"].is_alive()
-        assert servers.server_loops["JediServer"].is_running
+        assert servers.server_threads["JediServer"].daemon
+        assert servers.server_threads["JediServer"].is_alive()
+        assert servers.client_loops["JediServer"].is_running
 
-    assert not servers.loop_threads["JediServer"].is_alive()
-    assert servers.server_loops["JediServer"].is_closed
+    assert not servers.server_threads["JediServer"].is_alive()
+    assert servers.client_loops["JediServer"].is_closed
 
 
 def test_request_definition(language_server_toolkit):

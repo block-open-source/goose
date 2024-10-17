@@ -1,51 +1,50 @@
-# health_bar.py
 import time
 import threading
 
 class HealthBar:
-    def __init__(self, session_name, show_health_bar=True):
-        self.session_name = session_name
-        self.exchange_token_count = 0
-        self.total_cost = 0.0
-        self.session_start_time = time.time()
-        self.is_running = False
-        self.is_generating = False
-        self.show_health_bar = show_health_bar
-        self._stop_flag = threading.Event()
+    def __init__(self, sessionName, showHealthBar=True):
+        self.sessionName = sessionName
+        self.exchangeTokenCount = 0
+        self.totalCost = 0.0
+        self.sessionStartTime = time.time()
+        self.isRunning = False
+        self.isGenerating = False
+        self.showHealthBar = showHealthBar
+        self._stopFlag = threading.Event()
 
-    def start_session(self):
-        self.is_running = True
-        self.session_start_time = time.time()
+    def startSession(self):
+        self.isRunning = True
+        self.sessionStartTime = time.time()
 
-    def stop_session(self):
-        self.is_running = False
+    def stopSession(self):
+        self.isRunning = False
 
-    def start_generating(self):
-        self.is_generating = True
+    def startGenerating(self):
+        self.isGenerating = True
 
-    def stop_generating(self):
-        self.is_generating = False
+    def stopGenerating(self):
+        self.isGenerating = False
 
-    def add_tokens(self, count):
-        self.exchange_token_count += count
+    def addTokens(self, count):
+        self.exchangeTokenCount += count
 
-    def add_cost(self, cost):
-        self.total_cost += cost
+    def addCost(self, cost):
+        self.totalCost += cost
 
-    def get_session_uptime(self):
-        if not self.is_running:
+    def getSessionUptime(self):
+        if not self.isRunning:
             return 0
-        return time.time() - self.session_start_time
+        return time.time() - self.sessionStartTime
 
-    def display_health_bar(self):
-        if not self.show_health_bar:
+    def displayHealthBar(self):
+        if not self.showHealthBar:
             return
 
-        while not self._stop_flag.is_set():
-            uptime = self.get_session_uptime()
-            status = f"Session: {self.session_name} | Tokens: {self.exchange_token_count} | Cost: ${self.total_cost:.2f} | Uptime: {uptime:.2f}s | Running: {self.is_running} | Generating: {self.is_generating}"
+        while not self._stopFlag.is_set():
+            uptime = self.getSessionUptime()
+            status = f"Session: {self.sessionName} | Tokens: {self.exchangeTokenCount} | Cost: ${self.totalCost:.2f} | Uptime: {uptime:.2f}s | Running: {self.isRunning} | Generating: {self.isGenerating}"
             print(status, end="\r")
             time.sleep(1)  # Update every second
 
-    def stop_display(self):
-        self._stop_flag.set()
+    def stopDisplay(self):
+        self._stopFlag.set()

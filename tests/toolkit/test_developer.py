@@ -44,9 +44,11 @@ def developer_toolkit():
 def test_fetch_web_content(developer_toolkit):
     url = "http://example.com"
 
-    content_path = developer_toolkit.fetch_web_content(url)
+    result = developer_toolkit.fetch_web_content(url)
+    assert "file_path" in result
+    assert "links" in result
 
-    assert content_path.endswith(".txt")
+    content_path = result["file_path"]
 
     with open(content_path, "r") as file:
         fetched_content = file.read()

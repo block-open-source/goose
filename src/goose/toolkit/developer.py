@@ -101,32 +101,43 @@ class Developer(Toolkit):
         Args:
             url (str): url of the site to visit.
         Returns:
-            (str) Path to a file which has the content of the page. This may be large so you can use search tools to find content.
+            (dict): A dictionary with two keys:
+                - 'file_path' (str): Path to a file which has the content of the page.
+                - 'links' (list of dict): A list where each item is a dictionary with 'description' (str) and 'link' (str) keys, representing the anchor text and URLs found on the page.
         """  # noqa
-        friendly_name = re.sub(r'[^a-zA-Z0-9]', '_', url)[:50]  # Limit length to prevent filenames from being too long
+        friendly_name = re.sub(r"[^a-zA-Z0-9]", "_", url)[:50]  # Limit length to prevent filenames from being too long
         try:
             with sync_playwright() as p:
-
                 # Ensure WebKit is ready by installing each time
-                self.notifier.status('checking browser')
+                self.notifier.status("checking browser")
                 subprocess.run(["playwright", "install", "webkit"], check=True)
 
                 # Launch WebKit browser
-                self.notifier.status(f'browsing {url}')
+                self.notifier.status(f"browsing {url}")
                 browser = p.webkit.launch()
 
                 page = browser.new_page()
                 page.goto(url)
 
                 content = page.evaluate("document.body.innerText")
-                browser.close()
 
                 with tempfile.NamedTemporaryFile(delete=False, mode="w", suffix=f"_{friendly_name}.txt") as tmp_file:
                     tmp_file.write(content)
-                    return tmp_file.name
+                    # Extract links with descriptions
+                links = []
+                for anchor in page.query_selector_all("a"):
+                    href = anchor.get_attribute("href")
+                    text = anchor.inner_text()
+                    if href and text:
+                        links.append({"description": text, "link": href})
+                browser.close()
 
-        except Exception:
-            self.notifier.log("unable to use playwright so will try other things: you can try installing it: playwright install") #noqa
+                return {"file_path": tmp_file.name, "links": links}
+
+        except Exception as e:
+            self.notifier.log(
+                e + "unable to use playwright so will try other things: you can try installing it: playwright install"
+            )  # noqa
         fetch_commands = [
             f"curl {url}",
             f"wget -q -O- {url}",
@@ -138,7 +149,8 @@ class Developer(Toolkit):
                 result = subprocess.check_output(command, shell=True, text=True)
                 with tempfile.NamedTemporaryFile(delete=False, mode="w", suffix=f"_{friendly_name}.html") as tmp_file:
                     tmp_file.write(result)
-                    return tmp_file.name
+                    # When using fallback commands, return an empty list for links
+                    return {"file_path": tmp_file.name, "links": []}
             except subprocess.CalledProcessError:
                 self.notifier.log(f"Failed fetching with: {command}")
 

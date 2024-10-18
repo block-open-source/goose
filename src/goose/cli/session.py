@@ -21,7 +21,7 @@ from goose.profile import Profile
 from goose.utils import droid, load_plugins
 from goose.utils._cost_calculator import get_total_cost_message
 from goose.utils._create_exchange import create_exchange
-from goose.utils.session_file import is_empty_session, is_existing_session, read_or_create_file, save_latest_session
+from goose.utils.session_file import is_empty_session, is_existing_session, read_or_create_file, log_messages
 
 RESUME_MESSAGE = "I see we were interrupted. How can I help you?"
 
@@ -122,13 +122,13 @@ class Session:
     def setup_plan(self, plan: dict) -> None:
         if len(self.exchange.messages):
             raise ValueError("The plan can only be set on an empty session.")
-        self.exchange.messages.append(Message.user(plan["kickoff_message"]))
-        tasks = []
-        if "tasks" in plan:
-            tasks = [dict(description=task, status="planned") for task in plan["tasks"]]
 
-        plan_tool_use = ToolUse(id="initialplan", name="update_plan", parameters=dict(tasks=tasks))
-        self.exchange.add_tool_use(plan_tool_use)
+        # we append the plan to the kickoff message for now. We should
+        # revisit this if we intend plans to be handled in a consistent way across toolkits
+        plan_steps = "\n" + "\n".join(f"{i}. {t}" for i, t in enumerate(plan["tasks"]))
+
+        message = Message.user(plan["kickoff_message"] + plan_steps)
+        self.exchange.add(message)
 
     def process_first_message(self) -> Optional[Message]:
         # Get a first input unless it has been specified, such as by a plan
@@ -158,9 +158,6 @@ class Session:
         self.exchange.add(message)
         self.reply()  # Process the user message
 
-        save_latest_session(self.session_file_path, self.exchange.messages)
-        print()  # Print a newline for separation.
-
         print(f"[dim]ended run | name:[cyan]{self.name}[/]  profile:[cyan]{profile}[/]")
         print(f"[dim]to resume: [magenta]goose session resume {self.name} --profile {profile}[/][/]")
 
@@ -184,8 +181,6 @@ class Session:
             try:
                 self.exchange.add(message)
                 self.reply()  # Process the user message.
-            except KeyboardInterrupt:
-                self.interrupt_reply()
             except Exception:
                 # rewind to right before the last user message
                 self.exchange.rewind()
@@ -197,7 +192,6 @@ class Session:
                     + " - [yellow]depending on the error you may be able to continue[/]"
                 )
             self.notifier.stop()
-            save_latest_session(self.session_file_path, self.exchange.messages)
             print()  # Print a newline for separation.
             user_input = self.prompt_session.get_user_input()
             message = Message.user(text=user_input.text) if user_input.to_continue() else None
@@ -208,31 +202,48 @@ class Session:
     @observe_wrapper()
     def reply(self) -> None:
         """Reply to the last user message, calling tools as needed"""
-        self.status_indicator.update("responding")
-        response = self.exchange.generate()
+        # These are the *raw* messages, before the moderator rewrites things
+        committed = [self.exchange.messages[-1]]
 
-        if response.text:
-            print(Markdown(response.text))
-
-        while response.tool_use:
-            content = []
-            for tool_use in response.tool_use:
-                tool_result = self.exchange.call_function(tool_use)
-                content.append(tool_result)
-            self.exchange.add(Message(role="user", content=content))
+        try:
             self.status_indicator.update("responding")
             response = self.exchange.generate()
+            committed.append(response)
 
             if response.text:
                 print(Markdown(response.text))
 
-    def interrupt_reply(self) -> None:
+            while response.tool_use:
+                content = []
+                for tool_use in response.tool_use:
+                    tool_result = self.exchange.call_function(tool_use)
+                    content.append(tool_result)
+                message = Message(role="user", content=content)
+                committed.append(message)
+                self.exchange.add(message)
+                self.status_indicator.update("responding")
+                response = self.exchange.generate()
+                committed.append(response)
+
+                if response.text:
+                    print(Markdown(response.text))
+        except KeyboardInterrupt:
+            # The interrupt reply modifies the message history,
+            # and we sync those changes to committed
+            self.interrupt_reply(committed)
+
+        # we log the committed messages only once the reply completes
+        # this prevents messages related to uncaught errors from being recorded
+        log_messages(self.session_file_path, committed)
+
+    def interrupt_reply(self, committed: list[Message]) -> None:
         """Recover from an interruption at an arbitrary state"""
         # Default recovery message if no user message is pending.
         recovery = "We interrupted before the next processing started."
         if self.exchange.messages and self.exchange.messages[-1].role == "user":
             # If the last message is from the user, remove it.
             self.exchange.messages.pop()
+            committed.pop()
             recovery = "We interrupted before the model replied and removed the last message."
 
         if (
@@ -250,9 +261,13 @@ class Session:
                         is_error=True,
                     )
                 )
-            self.exchange.add(Message(role="user", content=content))
+            message = Message(role="user", content=content)
+            self.exchange.add(message)
+            committed.append(message)
             recovery = f"We interrupted the existing call to {tool_use.name}. How would you like to proceed?"
-            self.exchange.add(Message.assistant(recovery))
+            message = Message.assistant(recovery)
+            self.exchange.add(message)
+            committed.append(message)
         # Print the recovery message with markup for visibility.
         print(f"[yellow]{recovery}[/]")
 

@@ -1,5 +1,5 @@
 import pytest
-from goose.utils.check_shell_command import is_dangerous_command
+from goose.utils.shell import is_dangerous_command
 
 
 @pytest.mark.parametrize(

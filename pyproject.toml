@@ -30,6 +30,7 @@ jira = "goose.toolkit.jira:Jira"
 screen = "goose.toolkit.screen:Screen"
 reasoner = "goose.toolkit.reasoner:Reasoner"
 repo_context = "goose.toolkit.repo_context.repo_context:RepoContext"
+synopsis = "goose.synopsis.toolkit:SynopsisDeveloper"
 
 [project.entry-points."goose.profile"]
 default = "goose.profile:default_profile"
@@ -41,6 +42,9 @@ file = "goose.command.file:FileCommand"
 goose = "goose.cli.main:goose_cli"
 
 [project.entry-points."goose.cli.group_option"]
+
+[project.entry-points."exchange.moderator"]
+synopsis = "goose.synopsis.moderator:Synopsis"
 
 [project.scripts]
 goose = "goose.cli.main:cli"

@@ -3,6 +3,7 @@ import re
 import subprocess
 import time
 import tempfile
+import httpx
 
 from pathlib import Path
 
@@ -16,7 +17,6 @@ from rich.prompt import Confirm
 from rich.table import Table
 from rich.text import Text
 from rich.rule import Rule
-from playwright.sync_api import sync_playwright
 
 RULESTYLE = "bold"
 RULEPREFIX = f"[{RULESTYLE}]───[/] "
@@ -96,65 +96,28 @@ class Developer(Toolkit):
     @tool
     def fetch_web_content(self, url: str) -> str:
         """
-        Fetch content from a URL using available tools. Attempts to use playwright first, then falls back to wget, curl, or httpx.
+        Fetch content from a URL using httpx.
 
         Args:
             url (str): url of the site to visit.
         Returns:
             (dict): A dictionary with two keys:
-                - 'file_path' (str): Path to a file which has the content of the page.
+                - 'file_path' (str): Path to a file which has the content of the page. It will be large so use rg to search it or head in chunks.
                 - 'links' (list of dict): A list where each item is a dictionary with 'description' (str) and 'link' (str) keys, representing the anchor text and URLs found on the page.
         """  # noqa
         friendly_name = re.sub(r"[^a-zA-Z0-9]", "_", url)[:50]  # Limit length to prevent filenames from being too long
+
+
         try:
-            with sync_playwright() as p:
-                # Ensure WebKit is ready by installing each time
-                self.notifier.status("checking browser")
-                subprocess.run(["playwright", "install", "webkit"], check=True)
+            result = httpx.get(url).text
+            with tempfile.NamedTemporaryFile(delete=False, mode="w", suffix=f"_{friendly_name}.html") as tmp_file:
+                tmp_file.write(result)
+                return {"file_path": tmp_file.name, "links": []}
+        except httpx.HTTPStatusError as exc:
+            self.notifier.log(f"Failed fetching with HTTP error: {exc.response.status_code}")
+        except Exception as exc:
+            self.notifier.log(f"Failed fetching with error: {str(exc)}")
 
-                # Launch WebKit browser
-                self.notifier.status(f"browsing {url}")
-                browser = p.webkit.launch()
-
-                page = browser.new_page()
-                page.goto(url)
-
-                content = page.evaluate("document.body.innerText")
-
-                with tempfile.NamedTemporaryFile(delete=False, mode="w", suffix=f"_{friendly_name}.txt") as tmp_file:
-                    tmp_file.write(content)
-                    # Extract links with descriptions
-                links = []
-                for anchor in page.query_selector_all("a"):
-                    href = anchor.get_attribute("href")
-                    text = anchor.inner_text()
-                    if href and text:
-                        links.append({"description": text, "link": href})
-                browser.close()
-
-                return {"file_path": tmp_file.name, "links": links}
-
-        except Exception:
-            self.notifier.log(
-                "unable to use playwright so will try other things: you can try installing it: playwright install"
-            )  # noqa
-        fetch_commands = [
-            f"curl {url}",
-            f"wget -q -O- {url}",
-            f"python -c 'import httpx; print(httpx.get(\"{url}\").text)'",
-        ]
-
-        for command in fetch_commands:
-            try:
-                result = subprocess.check_output(command, shell=True, text=True)
-                with tempfile.NamedTemporaryFile(delete=False, mode="w", suffix=f"_{friendly_name}.html") as tmp_file:
-                    tmp_file.write(result)
-                    # When using fallback commands, return an empty list for links
-                    return {"file_path": tmp_file.name, "links": []}
-            except subprocess.CalledProcessError:
-                self.notifier.log(f"Failed fetching with: {command}")
-
-        raise RuntimeError(f"All methods failed to fetch content from {url}.")
 
     @tool
     def patch_file(self, path: str, before: str, after: str) -> str:

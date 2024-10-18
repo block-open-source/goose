@@ -2,6 +2,9 @@ import os
 import re
 import subprocess
 import time
+import tempfile
+import httpx
+
 from pathlib import Path
 
 from exchange import Message
@@ -89,6 +92,39 @@ class Developer(Toolkit):
 
         # Return the tasks unchanged as the function's primary purpose is to update and display the task status.
         return tasks
+
+    @tool
+    def fetch_web_content(self, url: str) -> str:
+        """
+        Fetch content from a URL using httpx.
+
+        Args:
+            url (str): url of the site to visit.
+        Returns:
+            (dict): A dictionary with two keys:
+                - 'html_file_path' (str): Path to a html file which has the content of the page. It will be very large so use rg to search it or head in chunks. Will contain meta data and links and markup.
+                - 'text_file_path' (str): Path to a plain text file which has the some of the content of the page. It will be large so use rg to search it or head in chunks. If content isn't there, try the html variant.
+        """  # noqa
+        friendly_name = re.sub(r"[^a-zA-Z0-9]", "_", url)[:50]  # Limit length to prevent filenames from being too long
+
+        try:
+            result = httpx.get(url, follow_redirects=True).text
+            with tempfile.NamedTemporaryFile(delete=False, mode="w", suffix=f"_{friendly_name}.html") as tmp_file:
+                tmp_file.write(result)
+                tmp_text_file_path = tmp_file.name.replace(".html", ".txt")
+                plain_text = re.sub(
+                    r"<head.*?>.*?</head>|<script.*?>.*?</script>|<style.*?>.*?</style>|<[^>]+>",
+                    "",
+                    result,
+                    flags=re.DOTALL,
+                )  # Remove head, script, and style tags/content, then any other tags
+                with open(tmp_text_file_path, "w") as text_file:
+                    text_file.write(plain_text)
+                return {"html_file_path": tmp_file.name, "text_file_path": tmp_text_file_path}
+        except httpx.HTTPStatusError as exc:
+            self.notifier.log(f"Failed fetching with HTTP error: {exc.response.status_code}")
+        except Exception as exc:
+            self.notifier.log(f"Failed fetching with error: {str(exc)}")
 
     @tool
     def patch_file(self, path: str, before: str, after: str) -> str:

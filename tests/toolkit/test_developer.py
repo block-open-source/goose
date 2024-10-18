@@ -41,6 +41,26 @@ def developer_toolkit():
     return toolkit
 
 
+def test_fetch_web_content(developer_toolkit):
+    url = "http://example.com"
+
+    result = developer_toolkit.fetch_web_content(url)
+    assert "html_file_path" in result
+    assert "text_file_path" in result
+
+    html_file_path = result["html_file_path"]
+    text_file_path = result["text_file_path"]
+
+    with open(html_file_path, "r") as html_file:
+        fetched_content = html_file.read()
+
+    assert "Example Domain" in fetched_content
+
+    with open(text_file_path, "r") as html_file:
+        fetched_content = html_file.read()
+    assert "Example Domain" in fetched_content
+
+
 def test_system_prompt_with_goosehints(temp_dir, developer_toolkit):
     readme_file = temp_dir / "README.md"
     readme_file.write_text("This is from the README.md file.")

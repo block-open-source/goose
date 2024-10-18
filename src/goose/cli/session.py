@@ -1,7 +1,7 @@
 import logging
 import traceback
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
 from langfuse.decorators import langfuse_context
 from exchange import Message, Text, ToolResult, ToolUse
@@ -236,7 +236,7 @@ class Session:
         # this prevents messages related to uncaught errors from being recorded
         log_messages(self.session_file_path, committed)
 
-    def interrupt_reply(self, committed: List[Message]) -> None:
+    def interrupt_reply(self, committed: list[Message]) -> None:
         """Recover from an interruption at an arbitrary state"""
         # Default recovery message if no user message is pending.
         recovery = "We interrupted before the next processing started."

@@ -61,8 +61,7 @@ class OperatingSystem:
 
     def view_process_output(self, process_id: int) -> str:
         """View the output of a running background process."""
-        process = self._processes.get(process_id)
-        if not process:
+        if not (process := self._processes.get(process_id)):
             raise ValueError(f"No process found with ID: {process_id}")
 
         output = []

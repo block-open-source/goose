@@ -23,7 +23,7 @@ class ContextSummarizer(ContextTruncate):
         summarizer_exchange = exchange.replace(
             system=Message.load("summarizer.jinja").text,
             moderator=PassiveModerator(),
-            model=self.model,
+            model=self.model if self.model else exchange.model,
             messages=messages_to_summarize,
             checkpoint_data=CheckpointData(),
         )

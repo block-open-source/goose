@@ -58,6 +58,10 @@ def test_fetch_web_content(developer_toolkit):
 
     assert "Example Domain" in fetched_content
 
+    with open(text_file_path, "r") as html_file:
+        fetched_content = html_file.read()
+    assert "Example Domain" in fetched_content
+
 
 def test_system_prompt_with_goosehints(temp_dir, developer_toolkit):
     readme_file = temp_dir / "README.md"

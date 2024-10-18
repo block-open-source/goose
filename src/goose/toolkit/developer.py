@@ -107,21 +107,24 @@ class Developer(Toolkit):
         """  # noqa
         friendly_name = re.sub(r"[^a-zA-Z0-9]", "_", url)[:50]  # Limit length to prevent filenames from being too long
 
-
         try:
             result = httpx.get(url, follow_redirects=True).text
             with tempfile.NamedTemporaryFile(delete=False, mode="w", suffix=f"_{friendly_name}.html") as tmp_file:
                 tmp_file.write(result)
-                tmp_text_file_path = tmp_file.name.replace('.html', '.txt')
-                plain_text = re.sub(r'<head.*?>.*?</head>|<script.*?>.*?</script>|<style.*?>.*?</style>|<[^>]+>', '', result, flags=re.DOTALL) # Remove head, script, and style tags/content, then any other tags
-                with open(tmp_text_file_path, 'w') as text_file:
+                tmp_text_file_path = tmp_file.name.replace(".html", ".txt")
+                plain_text = re.sub(
+                    r"<head.*?>.*?</head>|<script.*?>.*?</script>|<style.*?>.*?</style>|<[^>]+>",
+                    "",
+                    result,
+                    flags=re.DOTALL,
+                )  # Remove head, script, and style tags/content, then any other tags
+                with open(tmp_text_file_path, "w") as text_file:
                     text_file.write(plain_text)
                 return {"html_file_path": tmp_file.name, "text_file_path": tmp_text_file_path}
         except httpx.HTTPStatusError as exc:
             self.notifier.log(f"Failed fetching with HTTP error: {exc.response.status_code}")
         except Exception as exc:
             self.notifier.log(f"Failed fetching with error: {str(exc)}")
-
 
     @tool
     def patch_file(self, path: str, before: str, after: str) -> str:

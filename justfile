@@ -66,7 +66,6 @@ ai-exchange-version:
 release version:
     #!/usr/bin/env bash
     uvx --from=toml-cli toml set --toml-path=pyproject.toml "project.version" {{ version }}
-    ai_exchange_version=$(just ai-exchange-version) && sed -i '' 's/ai-exchange>=.*/ai-exchange>='"${ai_exchange_version}"'\",/' pyproject.toml
     git checkout -b release-version-{{ version }}
     git add pyproject.toml
     git commit --message "chore(release): release version {{ version }}"

@@ -113,7 +113,7 @@ class Developer(Toolkit):
             with tempfile.NamedTemporaryFile(delete=False, mode="w", suffix=f"_{friendly_name}.html") as tmp_file:
                 tmp_file.write(result)
                 tmp_text_file_path = tmp_file.name.replace('.html', '.txt')
-                plain_text = re.sub(r'<[^>]+>', '', result)
+                plain_text = re.sub(r'<head.*?>.*?</head>|<script.*?>.*?</script>|<style.*?>.*?</style>|<[^>]+>', '', result, flags=re.DOTALL) # Remove head, script, and style tags/content, then any other tags
                 with open(tmp_text_file_path, 'w') as text_file:
                     text_file.write(plain_text)
                 return {"html_file_path": tmp_file.name, "text_file_path": tmp_text_file_path}

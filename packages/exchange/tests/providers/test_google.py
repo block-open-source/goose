@@ -7,7 +7,7 @@ from exchange.content import ToolResult, ToolUse
 from exchange.providers.base import MissingProviderEnvVariableError
 from exchange.providers.google import GoogleProvider
 from exchange.tool import Tool
-from .conftest import complete, tools
+from .conftest import complete, tools, vision
 
 GOOGLE_MODEL = os.getenv("GOOGLE_MODEL", "gemini-1.5-flash")
 
@@ -138,3 +138,18 @@ def test_google_tools_integration():
     assert tool_use.id is not None
     assert tool_use.name == "read_file"
     assert tool_use.parameters == {"filename": "test.txt"}
+
+
+@pytest.mark.vcr()
+def test_google_vision(default_google_env):
+    reply_message, reply_usage = vision(GoogleProvider, GOOGLE_MODEL)
+
+    assert reply_message.content == [Text(text='The first entry in the menu says "Ask Goose 🦆".')]
+    assert reply_usage.total_tokens == 298
+
+
+@pytest.mark.integration
+def test_google_vision_integration():
+    reply = vision(GoogleProvider, GOOGLE_MODEL)
+
+    assert "ask goose" in reply[0].text.lower()

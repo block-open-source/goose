@@ -24,6 +24,7 @@ ollama:
   - name: developer
     requires: {{}}
 """
+    PROVIDER_NAME = "ollama"
 
     def __init__(self, client: httpx.Client) -> None:
         print("PLEASE NOTE: the ollama provider is experimental, use with care")

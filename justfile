@@ -67,11 +67,11 @@ release version:
     #!/usr/bin/env bash
     if [[ ! "{{ version }}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-.*)?$ ]]; then
       echo "[error]: invalid version '{{ version }}'."
-      echo "  expected semver format major.minor.patch or major.minor.patch-<suffix>"
+      echo "  expected: semver format major.minor.patch or major.minor.patch-<suffix>"
       exit 1
     fi
     uvx --from=toml-cli toml set --toml-path=pyproject.toml "project.version" {{ version }}
-    git checkout -b release-version-{{ version }}
+    git checkout -b "release-{{ version }}"
     git add pyproject.toml
     git commit --message "chore(release): release version {{ version }}"
 

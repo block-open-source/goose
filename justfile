@@ -56,7 +56,7 @@ install-hooks:
     echo "installed pre-commit hook to $HOOKS_DIR"
     chmod +x "$HOOKS_DIR/pre-commit"
 
-# get latest a-exchange version from pypi
+# get latest ai-exchange version from pypi
 ai-exchange-version:
     #!/usr/bin/env bash
     curl --silent https://pypi.org/pypi/ai-exchange/json |

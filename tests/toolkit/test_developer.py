@@ -47,8 +47,6 @@ def test_fetch_web_content(developer_toolkit):
     result = developer_toolkit.fetch_web_content(url)
     assert "html_file_path" in result
     assert "text_file_path" in result
-    # temporarily removed, as 'links' is no longer a part of 'fetch_web_content' result
-    # assert "links" in result
 
     html_file_path = result["html_file_path"]
     text_file_path = result["text_file_path"]

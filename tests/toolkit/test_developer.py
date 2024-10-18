@@ -45,13 +45,15 @@ def test_fetch_web_content(developer_toolkit):
     url = "http://example.com"
 
     result = developer_toolkit.fetch_web_content(url)
-    assert "file_path" in result
+    assert "html_file_path" in result
+    assert "text_file_path" in result
     assert "links" in result
 
-    content_path = result["file_path"]
+    html_file_path = result["html_file_path"]
+    text_file_path = result["text_file_path"]
 
-    with open(content_path, "r") as file:
-        fetched_content = file.read()
+    with open(html_file_path, "r") as html_file:
+        fetched_content = html_file.read()
 
     assert "Example Domain" in fetched_content
 

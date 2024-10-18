@@ -96,14 +96,14 @@ class Developer(Toolkit):
     @tool
     def fetch_web_content(self, url: str) -> str:
         """
-        Fetch content from a URL using httpx. Will return text and html file paths which may be large files.
+        Fetch content from a URL using httpx.
 
         Args:
             url (str): url of the site to visit.
         Returns:
             (dict): A dictionary with two keys:
-                - 'text_file_path' (str): Path to a plain text file which has the content of the page. It will be large so use rg to search it or head in chunks.
-                - 'html_file_path' (str): Path to a html/raw file which has the content of the page. It will be very large so use rg to search it or head in chunks. Will contain meta data and links.
+                - 'html_file_path' (str): Path to a html file which has the content of the page. It will be very large so use rg to search it or head in chunks. Will contain meta data and links and markup.
+                - 'text_file_path' (str): Path to a plain text file which has the some of the content of the page. It will be large so use rg to search it or head in chunks. If content isn't there, try the html variant.
         """  # noqa
         friendly_name = re.sub(r"[^a-zA-Z0-9]", "_", url)[:50]  # Limit length to prevent filenames from being too long
 

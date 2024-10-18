@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.6] - 2024-10-18
+- fix: update summarizer_exchange model to use default model from input exchange (#139)
+- feat: Add synopisis approach for the core goose loop (#166)
+- feat: web browsing (#154)
+- chore: restrict python version (#162)
+- feat: Run with resume session (#153)
+- refactor: move langfuse wrapper to a module in exchange instead of a package (#138)
+- docs: add subheaders to the 'Other ways to run Goose' section (#155)
+- fix: Remove tools from exchange when summarizing files (#157)
+- chore: use primitives instead of typing imports and fixes completion … (#149)
+- chore: make vcr tests pretty-print JSON (#146)
+
 ## [0.9.5] - 2024-10-15
 - chore: updates ollama default model from mistral-nemo to qwen2.5 (#150)
 - feat: add vision support for Google (#141)

@@ -1,6 +1,6 @@
 [project]
 name = "ai-exchange"
-version = "0.9.5"
+version = "0.9.6"
 description = "a uniform python SDK for message generation with LLMs"
 readme = "README.md"
 requires-python = ">=3.10"

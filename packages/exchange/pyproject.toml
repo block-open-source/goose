@@ -29,6 +29,7 @@ dev-dependencies = ["pytest>=8.3.2", "pytest-vcr>=1.0.2", "codecov>=2.1.13"]
 
 [project.entry-points."exchange.provider"]
 openai = "exchange.providers.openai:OpenAiProvider"
+openai_realtime = "exchange.providers.openai_realtime:OpenAiRealtimeProvider"
 azure = "exchange.providers.azure:AzureProvider"
 databricks = "exchange.providers.databricks:DatabricksProvider"
 anthropic = "exchange.providers.anthropic:AnthropicProvider"

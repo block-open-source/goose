@@ -1,20 +1,157 @@
 import os
+import json
+import re
 
 import httpx
+import base64
 
+from exchange.content import Text, ToolResult, ToolUse
 from exchange.message import Message
 from exchange.providers.base import Provider, Usage
-from exchange.providers.utils import (
-    messages_to_openai_spec,
-    openai_response_to_message,
-    openai_single_message_context_length_exceeded,
-    raise_for_status,
-    tools_to_openai_spec,
-)
 from exchange.tool import Tool
 from tenacity import retry, wait_fixed, stop_after_attempt
 from exchange.providers.utils import retry_if_status
 from exchange.langfuse_wrapper import observe_wrapper
+# Copied local functions for openai_response_to_message modification.
+
+def openai_response_to_message(response: dict) -> Message:
+    original = response["choices"][0]["message"]
+    content = []
+    text = original.get("content")
+    if text:
+        content.append(Text(text=text))
+
+    tool_calls = original.get("tool_calls")
+    if tool_calls:
+        for tool_call in tool_calls:
+            try:
+                function_name = tool_call["function"]["name"]
+                if not re.match(r"^[a-zA-Z0-9_-]+$", function_name):
+                    content.append(
+                        ToolUse(
+                            id=tool_call["id"],
+                            name=function_name,
+                            parameters=tool_call["function"]["arguments"],
+                            is_error=True,
+                            error_message=f"The provided function name '{function_name}' had invalid characters, it must match this regex [a-zA-Z0-9_-]+",
+                        )
+                    )
+                else:
+                    content.append(
+                        ToolUse(
+                            id=tool_call["id"],
+                            name=function_name,
+                            parameters=json.loads(tool_call["function"]["arguments"]),
+                        )
+                    )
+            except json.JSONDecodeError:
+                content.append(
+                    ToolUse(
+                        id=tool_call["id"],
+                        name=tool_call["function"]["name"],
+                        parameters=tool_call["function"]["arguments"],
+                        is_error=True,
+                        error_message=f"Could not interpret tool use parameters for id {tool_call['id']}: {tool_call['function']['arguments']}",
+                    )
+                )
+
+    return Message(role="assistant", content=content)
+
+
+from exchange.providers.utils import ( openai_single_message_context_length_exceeded, raise_for_status )
+
+# Copied local functions for modification
+
+
+def encode_image(image_path: str) -> str:
+    with open(image_path, "rb") as image_file:
+        return base64.b64encode(image_file.read()).decode("utf-8")
+
+def messages_to_openai_spec(messages: list[Message]) -> list[dict[str, any]]:
+    messages_spec = []
+    for message in messages:
+        converted = {"role": message.role}
+        output = []
+        for content in message.content:
+            if isinstance(content, Text):
+                converted["content"] = content.text
+            elif isinstance(content, ToolUse):
+                sanitized_name = re.sub(r"[^a-zA-Z0-9_-]", "_", content.name)
+                converted.setdefault("tool_calls", []).append(
+                    {
+                        "id": content.id,
+                        "type": "function",
+                        "function": {
+                            "name": sanitized_name,
+                            "arguments": json.dumps(content.parameters),
+                        },
+                    }
+                )
+            elif isinstance(content, ToolResult):
+                if content.output.startswith('"image:'):
+                    image_path = content.output.replace('"image:', "").replace('"', "")
+                    output.append(
+                        {
+                            "role": "tool",
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": "This tool result included an image that is uploaded in the next message.",
+                                },
+                            ],
+                            "tool_call_id": content.tool_use_id,
+                        }
+                    )
+                    output.append(
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "image_url",
+                                    "image_url": {"url": f"data:image/jpeg;base64,{encode_image(image_path)}"},
+                                }
+                            ],
+                        }
+                    )
+
+                else:
+                    output.append(
+                        {
+                            "role": "tool",
+                            "content": content.output,
+                            "tool_call_id": content.tool_use_id,
+                        }
+                    )
+
+        if "content" in converted or "tool_calls" in converted:
+            output = [converted] + output
+        messages_spec.extend(output)
+    return messages_spec
+
+
+def tools_to_openai_spec(tools: tuple[Tool, ...]) -> dict[str, any]:
+    tools_names = set()
+    result = []
+    for tool in tools:
+        if tool.name in tools_names:
+            # we should never allow duplicate tools
+            raise ValueError(f"Duplicate tool name: {tool.name}")
+        result.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.parameters,
+                },
+            }
+        )
+        tools_names.add(tool.name)
+    return result
+
+
+
+
 
 OPENAI_HOST = "https://api.openai.com/"
 
@@ -100,3 +237,4 @@ class OpenAiRealtimeProvider(Provider):
         # See https://github.com/openai/openai-openapi/blob/master/openapi.yaml
         response = self.client.post("chat/completions", json=payload)
         return raise_for_status(response).json()
+

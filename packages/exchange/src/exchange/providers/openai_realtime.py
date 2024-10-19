@@ -12,7 +12,61 @@ from exchange.tool import Tool
 from tenacity import retry, wait_fixed, stop_after_attempt
 from exchange.providers.utils import retry_if_status
 from exchange.langfuse_wrapper import observe_wrapper
+
+
+import asyncio
+import websockets
+import time
+import os
+import json
+
+async def send_openai(websocket, message):
+    event = {
+        "type": "conversation.item.create",
+        "item": {
+            "type": "message",
+            "role": "user",
+            "content": [
+                { "type": "input_text", "text": message }
+            ]
+        }
+    }
+    await websocket.send(json.dumps(event))
+    print(f'Sent message: {message}')
+    response = await websocket.recv()
+    print('Received response:', json.loads(response))
+
+async def add_multiple_items(websocket, messages):
+    try:
+        for message in messages:
+            await send_openai(websocket, message)
+    except Exception as e:
+        print('An error occurred:', e)
+
+async def test_realtime_api():
+    url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01"
+    headers = {
+        "Authorization": "Bearer " + os.getenv("OPENAI_API_KEY"),
+        "OpenAI-Beta": "realtime=v1",
+    }
+
+    async with websockets.connect(url, extra_headers=headers) as websocket:
+        print('Connected to the Realtime API server.')
+
+        messages = [
+            "Hello, how fast can you respond?",
+            "What is the weather like today?",
+            "Tell me a joke."
+        ]
+
+        await add_multiple_items(websocket, messages)
+
+# asyncio.run(test_realtime_api())
+
+
 # Copied local functions for openai_response_to_message modification.
+
+
 
 def openai_response_to_message(response: dict) -> Message:
     original = response["choices"][0]["message"]

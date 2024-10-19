@@ -36,14 +36,7 @@ async def send_openai(websocket, message):
     response = await websocket.recv()
     print('Received response:', json.loads(response))
 
-async def add_multiple_items(websocket, messages):
-    try:
-        for message in messages:
-            await send_openai(websocket, message)
-    except Exception as e:
-        print('An error occurred:', e)
-
-async def test_realtime_api():
+async def test_realtime_api() -> None:
     url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01"
     headers = {
         "Authorization": "Bearer " + os.getenv("OPENAI_API_KEY"),
@@ -53,13 +46,8 @@ async def test_realtime_api():
     async with websockets.connect(url, extra_headers=headers) as websocket:
         print('Connected to the Realtime API server.')
 
-        messages = [
-            "Hello, how fast can you respond?",
-            "What is the weather like today?",
-            "Tell me a joke."
-        ]
 
-        await add_multiple_items(websocket, messages)
+        await send_openai(websocket, "how are yuou")
 
 # asyncio.run(test_realtime_api())
 
@@ -265,6 +253,7 @@ class OpenAiRealtimeProvider(Provider):
         tools: tuple[Tool, ...],
         **kwargs: dict[str, any],
     ) -> tuple[Message, Usage]:
+        asyncio.run(test_realtime_api())
         system_message = [] if model.startswith("o1") else [{"role": "system", "content": system}]
         payload = dict(
             messages=system_message + messages_to_openai_spec(messages),

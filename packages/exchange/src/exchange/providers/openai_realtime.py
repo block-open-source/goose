@@ -20,7 +20,7 @@ import time
 import os
 import json
 
-async def send_openai(websocket, message):
+def send_openai(websocket, message):
     event = {
         "type": "conversation.item.create",
         "item": {
@@ -31,25 +31,46 @@ async def send_openai(websocket, message):
             ]
         }
     }
-    await websocket.send(json.dumps(event))
+    websocket.send(json.dumps(event))
     print(f'Sent message: {message}')
-    response = await websocket.recv()
+    response = websocket.recv()
     print('Received response:', json.loads(response))
 
-async def test_realtime_api() -> None:
+def test_realtime_api() -> None:
     url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01"
     headers = {
         "Authorization": "Bearer " + os.getenv("OPENAI_API_KEY"),
         "OpenAI-Beta": "realtime=v1",
     }
 
+    import asyncio
+
+async def connect_to_websocket(url, headers):
     async with websockets.connect(url, extra_headers=headers) as websocket:
+        return websocket
+
+
+def test_realtime_api() -> None:
+    url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01"
+    headers = {
+        "Authorization": "Bearer " + os.getenv("OPENAI_API_KEY"),
+        "OpenAI-Beta": "realtime=v1",
+    }
+
+    # Ensure we have an event loop
+    loop = asyncio.get_event_loop()
+    websocket = loop.run_until_complete(connect_to_websocket(url, headers))
+
+    if websocket is not None:
+        print('Connected to the Realtime API server.')
+        send_openai(websocket, "how are you")
+
         print('Connected to the Realtime API server.')
 
 
-        await send_openai(websocket, "how are yuou")
+        send_openai(websocket, "how are yuou")
 
-# asyncio.run(test_realtime_api())
+# test_realtime_api()
 
 
 # Copied local functions for openai_response_to_message modification.
@@ -253,7 +274,7 @@ class OpenAiRealtimeProvider(Provider):
         tools: tuple[Tool, ...],
         **kwargs: dict[str, any],
     ) -> tuple[Message, Usage]:
-        asyncio.run(test_realtime_api())
+        test_realtime_api()
         system_message = [] if model.startswith("o1") else [{"role": "system", "content": system}]
         payload = dict(
             messages=system_message + messages_to_openai_spec(messages),

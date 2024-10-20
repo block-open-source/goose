@@ -5,7 +5,7 @@ version = "0.9.8"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "ai-exchange=0.9.8",
+    "ai-exchange",
     "attrs>=23.2.0",
     "rich>=13.7.1",
     "ruamel-yaml>=0.18.6",

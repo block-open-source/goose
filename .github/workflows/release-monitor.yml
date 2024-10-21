@@ -1,0 +1,40 @@
+name: Release Monitor
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.x'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pipx
+        pipx install goose-ai
+
+    - name: Check Goose AI Version
+      run: goose version
+
+    - name: Create Issue on Failure
+      if: failure()
+      uses: actions/github-script@v3
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        script: |
+          const { owner, repo } = context.repo;
+          await github.issues.create({
+            owner: owner,
+            repo: repo,
+            title: 'Release Build Failed',
+            body: `The release build for version ${{ github.event.release.tag_name }} failed. Please investigate the issue.`
+          });

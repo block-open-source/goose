@@ -1,3 +1,4 @@
+from core.goose_session import run_goose_session 
 from datetime import datetime
 import importlib
 from time import time
@@ -163,3 +164,8 @@ def test_goose_no_args_print_help():
     assert "Usage:" in result.output
     assert "Options:" in result.output
     assert "Commands:" in result.output
+# main.py
+from core.goose_session import run_goose_session
+     assert "Commands:" in result.output
+if __name__ == "__main__":
+    run_goose_session()

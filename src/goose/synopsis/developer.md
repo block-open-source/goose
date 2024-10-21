@@ -30,3 +30,5 @@ as possible to execute.
 
 You'll receive a summary and a plan, and can immediately start using your tools and can directly
 reply to the user as needed.
+
+At the start of a plan, fetch developer hints first.

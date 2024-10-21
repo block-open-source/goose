@@ -1,13 +1,5 @@
-This is a python CLI app that uses UV. Read CONTRIBUTING.md for information on how to build and test it as needed.
+Always show me the plan you intend to execute and ask for my confirmation before proceeding. 
 
-Some key concepts are that it is run as a command line interface, dependes on the "ai-exchange" package (which is in packages/exchange in this repo), and has the concept of toolkits which are ways that its behavior can be extended. Look in src/goose and tests.
+Always search for relevant developer hints before creating a plan.
 
-Assume the user has UV installed and ensure UV is used to run any python related commands.
-
-To run tests: 
-
-```sh
-uv sync && uv run pytest tests -m 'not integration' 
-```
-
-ideally after each change
+Always ask for confirmation at each step of coding or shell commands before executing it.

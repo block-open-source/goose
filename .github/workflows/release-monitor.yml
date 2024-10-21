@@ -3,7 +3,7 @@ name: Release Monitor
 on:
   release:
     types: [published]
-    workflow_dispatch: # Add this line to enable manual triggering
+  workflow_dispatch: # Add this line to enable manual triggering
 
 jobs:
   build:

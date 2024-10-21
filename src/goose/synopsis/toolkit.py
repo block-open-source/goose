@@ -12,12 +12,18 @@ from goose.utils.shell import is_dangerous_command, shell, keep_unsafe_command_p
 from rich.markdown import Markdown
 from rich.rule import Rule
 
+from context_manager.developer_hints import get_developer_hints
+from context_manager.lancedb_interface import LanceDBInterface
+
+CONTEXT_STORE_PATH = "~/Development/goose-context-store/context-store-db"  # todo move this into config file
+
 
 class SynopsisDeveloper(Toolkit):
     """Provides shell and file operation tools using OperatingSystem."""
 
     def __init__(self, *args: object, **kwargs: Dict[str, object]) -> None:
         super().__init__(*args, **kwargs)
+        self.db = LanceDBInterface(CONTEXT_STORE_PATH)
 
     def system(self) -> str:
         """Retrieve system configuration details for developer"""
@@ -242,3 +248,15 @@ class SynopsisDeveloper(Toolkit):
         self.logshell(f"cd {path}")
         system.cwd = str(patho)
         return path
+
+    @tool
+    def get_hints(self, query: str, tags: list[str], limit: int) -> list[str]:
+        """Get developer hints that might help with completing the coding task. Fetch relevant hints at the beginning
+           of any plan execution.
+
+        Args:
+            query (str): A query for relevant developer hints, e.g., "update proto files" or "generate unit tests"
+            tags (list[str]): A list of metadata tags relevant to the search eg., ["java", "proto update", "unit tests"]
+            limit (int): Number of relevant documents to return.
+        """
+        return get_developer_hints(self.db, query, tags, limit)

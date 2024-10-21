@@ -218,6 +218,8 @@ class Session:
                 for tool_use in response.tool_use:
                     tool_result = self.exchange.call_function(tool_use)
                     content.append(tool_result)
+                    if tool_use.name == "get_hints":  # todo find more elegant solution to inject hints into moderator
+                        self.exchange.moderator.hints += tool_result.output
                 message = Message(role="user", content=content)
                 committed.append(message)
                 self.exchange.add(message)

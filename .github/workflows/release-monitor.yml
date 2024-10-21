@@ -37,5 +37,5 @@ jobs:
             owner: owner,
             repo: repo,
             title: 'Release Build Failed',
-            body: `The release build for version ${{ github.event.release.tag_name }} failed. Please investigate the issue.`
+            body: `The release for version ${{ github.event.release.tag_name }} failed to run. Please investigate the issue.`
           });

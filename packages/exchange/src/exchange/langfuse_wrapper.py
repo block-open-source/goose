@@ -19,9 +19,11 @@ import sys
 from io import StringIO
 from functools import cache, wraps  # Add this import
 
-DEFAULT_LOCAL_LANGFUSE_HOST = 'http://localhost:3000'
-DEFAULT_LOCAL_LANGFUSE_PUBLIC_KEY = 'publickey-local'
-DEFAULT_LOCAL_LANGFUSE_SECRET_KEY =  'secretkey-local'
+DEFAULT_LOCAL_LANGFUSE_HOST = "http://localhost:3000"
+DEFAULT_LOCAL_LANGFUSE_PUBLIC_KEY = "publickey-local"
+DEFAULT_LOCAL_LANGFUSE_SECRET_KEY = "secretkey-local"
+
+
 @cache
 def auth_check() -> bool:
     # Temporarily redirect stdout and stderr to suppress print statements from Langfuse
@@ -29,9 +31,9 @@ def auth_check() -> bool:
     sys.stderr = temp_stderr
 
     # Set environment variables if not specified
-    os.environ.setdefault('LANGFUSE_PUBLIC_KEY', DEFAULT_LOCAL_LANGFUSE_PUBLIC_KEY)
-    os.environ.setdefault('LANGFUSE_SECRET_KEY', DEFAULT_LOCAL_LANGFUSE_SECRET_KEY)
-    os.environ.setdefault('LANGFUSE_HOST', DEFAULT_LOCAL_LANGFUSE_HOST)
+    os.environ.setdefault("LANGFUSE_PUBLIC_KEY", DEFAULT_LOCAL_LANGFUSE_PUBLIC_KEY)
+    os.environ.setdefault("LANGFUSE_SECRET_KEY", DEFAULT_LOCAL_LANGFUSE_SECRET_KEY)
+    os.environ.setdefault("LANGFUSE_HOST", DEFAULT_LOCAL_LANGFUSE_HOST)
 
     auth_val = langfuse_context.auth_check()
 

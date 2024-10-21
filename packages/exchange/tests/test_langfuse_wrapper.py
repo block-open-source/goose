@@ -2,6 +2,7 @@ import pytest
 from unittest.mock import patch, MagicMock
 from exchange.langfuse_wrapper import observe_wrapper
 
+
 @pytest.fixture
 def mock_langfuse_context():
     with patch("exchange.langfuse_wrapper.langfuse_context") as mock:

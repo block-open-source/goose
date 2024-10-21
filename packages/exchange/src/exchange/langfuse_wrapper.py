@@ -14,45 +14,32 @@ Note:
 
 import os
 from typing import Callable
-from dotenv import load_dotenv
 from langfuse.decorators import langfuse_context
 import sys
 from io import StringIO
-from pathlib import Path
-from functools import wraps  # Add this import
+from functools import cache, wraps  # Add this import
+
+DEFAULT_LOCAL_LANGFUSE_HOST = "http://localhost:3000"
+DEFAULT_LOCAL_LANGFUSE_PUBLIC_KEY = "publickey-local"
+DEFAULT_LOCAL_LANGFUSE_SECRET_KEY = "secretkey-local"
 
 
-def find_package_root(start_path: Path, marker_file: str = "pyproject.toml") -> Path:
-    while start_path != start_path.parent:
-        if (start_path / marker_file).exists():
-            return start_path
-        start_path = start_path.parent
-    return None
-
-
+@cache
 def auth_check() -> bool:
     # Temporarily redirect stdout and stderr to suppress print statements from Langfuse
     temp_stderr = StringIO()
     sys.stderr = temp_stderr
 
-    # Load environment variables
-    load_dotenv(LANGFUSE_ENV_FILE, override=True)
+    # Set environment variables if not specified
+    os.environ.setdefault("LANGFUSE_PUBLIC_KEY", DEFAULT_LOCAL_LANGFUSE_PUBLIC_KEY)
+    os.environ.setdefault("LANGFUSE_SECRET_KEY", DEFAULT_LOCAL_LANGFUSE_SECRET_KEY)
+    os.environ.setdefault("LANGFUSE_HOST", DEFAULT_LOCAL_LANGFUSE_HOST)
 
     auth_val = langfuse_context.auth_check()
 
     # Restore stderr
     sys.stderr = sys.__stderr__
     return auth_val
-
-
-CURRENT_DIR = Path(__file__).parent
-PACKAGE_ROOT = find_package_root(CURRENT_DIR)
-
-LANGFUSE_ENV_FILE = os.path.join(PACKAGE_ROOT, ".env.langfuse.local") if PACKAGE_ROOT else None
-HAS_LANGFUSE_CREDENTIALS = False
-load_dotenv(LANGFUSE_ENV_FILE, override=True)
-
-HAS_LANGFUSE_CREDENTIALS = auth_check()
 
 
 def observe_wrapper(*args, **kwargs) -> Callable:  # noqa
@@ -71,7 +58,7 @@ def observe_wrapper(*args, **kwargs) -> Callable:  # noqa
     """
 
     def _wrapper(fn: Callable) -> Callable:
-        if HAS_LANGFUSE_CREDENTIALS:
+        if auth_check():
 
             @wraps(fn)
             def wrapped_fn(*fargs, **fkwargs):  # noqa

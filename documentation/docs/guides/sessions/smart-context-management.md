@@ -42,7 +42,7 @@ When you reach the auto-compaction threshold:
   3. Continue the session. Your previous conversation remains visible, but only the compacted conversation is included in the active context for goose.
 
 :::tip Customize Compaction
-You can customize how goose summarizes conversations during compaction by editing the `compaction.md` [prompt template](/docs/guides/context-engineering/prompt-templates).
+You can customize how goose summarizes conversations during compaction by editing the `compaction_prefix.md` and `compaction_summary.md` [prompt templates](/docs/guides/context-engineering/prompt-templates).
 :::
 
 :::tip Tool Output Summarization

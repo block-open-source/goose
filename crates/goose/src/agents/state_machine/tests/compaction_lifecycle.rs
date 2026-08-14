@@ -11,7 +11,7 @@ use crate::context_mgmt::{compute_tool_call_cutoff, TOOLCALL_SUMMARIZATION_BATCH
 use crate::conversation::message::{Message, MessageErrorKind};
 use crate::conversation::Conversation;
 
-const SUMMARIZE_HISTORY: &str = "Please summarize the conversation history";
+const SUMMARIZE_HISTORY: &str = "distill the conversation so far";
 const SUMMARIZE_TOOL_PAIR: &str = "summarize a tool call & response pair";
 
 #[tokio::test]
@@ -262,9 +262,11 @@ async fn a_context_error_compacts_and_the_session_survives_a_failed_retry() -> R
 async fn repeated_context_errors_stop_compacting() -> Result<()> {
     let (pipeline, api) = test_pipeline().await?;
     api.on("keep overflowing").context_limit_error("too long");
-    api.on(SUMMARIZE_HISTORY).reply("summary");
     api.on("Your context was compacted")
         .context_limit_error("too long");
+    // Registered last: the compaction request replays the conversation, so
+    // its instruction must outrank the conversation-text rules above.
+    api.on(SUMMARIZE_HISTORY).reply("summary");
 
     let mut kickoff = Message::user().with_text("keep overflowing");
     kickoff.created = 1;
@@ -491,7 +493,7 @@ async fn a_small_model_compacts_a_large_tool_result_out_of_the_conversation() ->
         .into_iter()
         .find(|call| call.input_contains(SUMMARIZE_HISTORY))
         .expect("summarization request");
-    assert!(summarization.system_contains(&large_result));
+    assert!(summarization.input_contains(&large_result));
     assert!(!api.calls().last().unwrap().input_contains(&large_result));
     assert!(!compacted
         .conversation()

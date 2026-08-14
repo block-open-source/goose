@@ -187,14 +187,22 @@ impl Agent {
             .ok_or_else(|| anyhow!("Session has no conversation"))?;
 
         let model_config = self.model_config_for_session(session_id).await?;
-        let compaction = compact_messages(
+        let compaction = match compact_messages(
             provider.as_ref(),
             &model_config,
             session_id,
             &conversation,
             true, // is_manual_compact
         )
-        .await?;
+        .await
+        {
+            Ok(compaction) => compaction,
+            Err(error) => {
+                self.record_failed_compaction_usage(session_id, session.schedule_id, &error)
+                    .await;
+                return Err(error);
+            }
+        };
 
         manager
             .replace_conversation(session_id, &compaction.conversation)

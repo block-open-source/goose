@@ -12,12 +12,12 @@ static TEMPLATE_REGISTRY: &[(&str, &str)] = &[
         "Main system prompt that defines goose's personality and behavior",
     ),
     (
-        "compaction.md",
-        "Prompt for summarizing conversation history when context limits are reached",
-    ),
-    (
         "compaction_summary.md",
         "Renders the structured compaction output into the post-compaction context",
+    ),
+    (
+        "compaction_prefix.md",
+        "Compaction instruction appended to the conversation's own request prefix (cache-prefix compaction)",
     ),
     (
         "subagent_system.md",
@@ -133,6 +133,10 @@ pub fn render_template<T: Serialize>(name: &str, context: &T) -> Result<String, 
     };
 
     render_string(&template_str, context)
+}
+
+pub fn user_override_exists(name: &str) -> bool {
+    user_prompts_dir().join(name).exists()
 }
 
 pub fn template_source(name: &str) -> Result<String, MiniJinjaError> {

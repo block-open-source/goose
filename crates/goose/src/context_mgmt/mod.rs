@@ -1,8 +1,13 @@
 pub use goose_context_management::structured;
 
+pub mod request_header;
+
 use crate::conversation::message::MessageMetadata;
 use crate::conversation::message::{Message, MessageContent};
-use crate::conversation::{merge_consecutive_messages, Conversation};
+use crate::conversation::{
+    fix_conversation, merge_consecutive_messages, merge_consecutive_messages_for_request,
+    Conversation,
+};
 use crate::providers::base::Provider;
 #[cfg(test)]
 use crate::providers::base::{stream_from_single_message, MessageStream};
@@ -277,7 +282,9 @@ pub async fn check_if_compaction_needed(
 struct GooseCompactionModel<'a> {
     provider: &'a dyn Provider,
     model_config: &'a ModelConfig,
+    compaction_config: ModelConfig,
     session_id: &'a str,
+    toolshim_tools: &'a [rmcp::model::Tool],
 }
 
 #[async_trait::async_trait]
@@ -297,6 +304,61 @@ impl goose_context_management::CompactionModel for GooseCompactionModel<'_> {
         )
         .await
     }
+
+    async fn complete_prefix(
+        &self,
+        system: &str,
+        messages: &[Message],
+        tools: &[rmcp::model::Tool],
+    ) -> Result<(Message, ProviderUsage), ProviderError> {
+        // Toolshim conversion happens at send time (as in the session's own
+        // requests) so overflow elision upstream still sees tool responses.
+        let converted;
+        let messages = if self.model_config.toolshim {
+            converted = crate::providers::toolshim::convert_tool_messages_to_text(messages);
+            converted.messages().as_slice()
+        } else {
+            messages
+        };
+
+        let result = crate::session_context::with_session_id(
+            Some(self.session_id.to_string()),
+            self.provider
+                .complete(&self.compaction_config, system, messages, tools),
+        )
+        .await;
+
+        // A toolshim model expresses tool calls as text; interpret the
+        // response the same way the session does so a textual tool call is
+        // rejected as a summary instead of silently accepted. A parseable
+        // structured summary is accepted as-is: interpreting it could mistake
+        // quoted historical tool calls for fresh ones.
+        match result {
+            Ok((response, usage))
+                if self.model_config.toolshim
+                    && goose_context_management::StructuredSummary::parse(
+                        &response.as_concat_text(),
+                    )
+                    .is_none() =>
+            {
+                let response = match crate::providers::toolshim::
+                    augment_message_with_selected_tool_interpreter(
+                        response.clone(),
+                        self.toolshim_tools,
+                    )
+                    .await
+                {
+                    Ok(augmented) => augmented,
+                    Err(error) => {
+                        warn!("Toolshim augmentation failed, skipping tool augmentation: {error}");
+                        crate::providers::toolshim::sanitize_residual_markers(response)
+                    }
+                };
+                Ok((response, usage))
+            }
+            other => other,
+        }
+    }
 }
 
 struct GooseTokenEstimator;
@@ -304,8 +366,18 @@ struct GooseTokenEstimator;
 #[async_trait::async_trait]
 impl goose_context_management::TokenEstimator for GooseTokenEstimator {
     async fn count_chat_tokens(&self, system: &str, messages: &[Message]) -> usize {
+        self.count_chat_tokens_with_tools(system, messages, &[])
+            .await
+    }
+
+    async fn count_chat_tokens_with_tools(
+        &self,
+        system: &str,
+        messages: &[Message],
+        tools: &[rmcp::model::Tool],
+    ) -> usize {
         match create_token_counter().await {
-            Ok(counter) => counter.count_chat_tokens(system, messages, &[]),
+            Ok(counter) => counter.count_chat_tokens(system, messages, tools),
             Err(error) => {
                 warn!("Failed to create token counter: {error}");
                 0
@@ -324,40 +396,68 @@ impl goose_context_management::TokenEstimator for GooseTokenEstimator {
     }
 }
 
-fn compaction_templates() -> Result<goose_context_management::Templates> {
-    Ok(goose_context_management::Templates {
-        compaction: crate::prompt_template::template_source("compaction.md")?,
-        summary: crate::prompt_template::template_source("compaction_summary.md")?,
-    })
-}
-
+/// Summarizes by extending the conversation's last routed request (same
+/// system prompt, tools, and projected messages, instruction appended as the
+/// final user message) so the provider's prompt cache is reused. A session
+/// with no routed request yet in this process summarizes without a header.
+///
+/// On failure the returned error may downcast to
+/// [`goose_context_management::CompactionFailure`], carrying the billed usage
+/// of a completed-but-rejected attempt.
 async fn do_compact(
     provider: &dyn Provider,
     model_config: &ModelConfig,
     session_id: &str,
     messages: &[Message],
 ) -> Result<(Message, ProviderUsage), anyhow::Error> {
-    // Keep stale per-turn state out of the summary.
-    let agent_visible_messages = Conversation::new_unvalidated(
-        messages
-            .iter()
-            .filter(|msg| !msg.is_turn_context())
-            .cloned(),
-    )
-    .agent_visible_messages();
+    if crate::prompt_template::user_override_exists(
+        goose_context_management::templates::COMPACTION_TEMPLATE,
+    ) {
+        warn!(
+            "Ignoring customized compaction.md: compaction now extends the conversation's own \
+             request. Customize compaction_prefix.md and compaction_summary.md instead."
+        );
+    }
+    let instruction = crate::prompt_template::template_source(
+        goose_context_management::templates::COMPACTION_PREFIX_TEMPLATE,
+    )?;
+    let summary_template = crate::prompt_template::template_source(
+        goose_context_management::templates::COMPACTION_SUMMARY_TEMPLATE,
+    )?;
+    let header = request_header::last_for_session(session_id).unwrap_or_default();
 
+    // Cache stays on and thinking is inherited: both are part of the
+    // provider's cache key, so this request extends the conversation's own
+    // cache entry.
+    let compaction_config = model_config
+        .clone()
+        .with_default_thinking_effort(Config::global().get_goose_thinking_effort());
     let model = GooseCompactionModel {
         provider,
         model_config,
+        compaction_config,
         session_id,
+        toolshim_tools: &header.toolshim_tools,
     };
-    let summary = goose_context_management::summarize(
+
+    // Same projection as `stream_response_from_provider`; the instruction is
+    // appended before the merge pass to keep role alternation valid.
+    let mut projected =
+        Conversation::new_unvalidated(messages.iter().cloned()).agent_visible_messages();
+    projected.push(Message::user().with_text(&instruction));
+    let (fixed, _) = fix_conversation(Conversation::new_unvalidated(projected));
+    let request_messages = merge_consecutive_messages_for_request(fixed.messages().clone());
+
+    let summary = goose_context_management::summarize_as_prefix(
         &model,
         Some(&GooseTokenEstimator),
-        &compaction_templates()?,
-        &agent_visible_messages,
+        &summary_template,
+        &header.system_prompt,
+        &header.tools,
+        &request_messages,
     )
-    .await?;
+    .await
+    .map_err(anyhow::Error::new)?;
 
     Ok((summary.message, summary.usage))
 }
@@ -623,8 +723,9 @@ mod tests {
     struct MockProvider {
         message: Message,
         config: ModelConfig,
-        max_tool_responses: Option<usize>,
+        max_request_bytes: Option<usize>,
         captured_system: std::sync::Mutex<Option<String>>,
+        captured_messages: std::sync::Mutex<Option<Vec<Message>>>,
         calls: std::sync::atomic::AtomicUsize,
     }
 
@@ -644,14 +745,15 @@ mod tests {
                     supports_vision: None,
                     request_headers: None,
                 },
-                max_tool_responses: None,
+                max_request_bytes: None,
                 captured_system: std::sync::Mutex::new(None),
+                captured_messages: std::sync::Mutex::new(None),
                 calls: std::sync::atomic::AtomicUsize::new(0),
             }
         }
 
-        fn with_max_tool_responses(mut self, max: usize) -> Self {
-            self.max_tool_responses = Some(max);
+        fn with_max_request_bytes(mut self, max: usize) -> Self {
+            self.max_request_bytes = Some(max);
             self
         }
 
@@ -676,21 +778,13 @@ mod tests {
             self.calls
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             *self.captured_system.lock().unwrap() = Some(system.to_string());
-            // If max_tool_responses is set, fail if we have too many
-            if let Some(max) = self.max_tool_responses {
-                let tool_response_count = messages
-                    .iter()
-                    .filter(|m| {
-                        m.content
-                            .iter()
-                            .any(|c| matches!(c, MessageContent::ToolResponse(_)))
-                    })
-                    .count();
-
-                if tool_response_count > max {
+            *self.captured_messages.lock().unwrap() = Some(messages.to_vec());
+            if let Some(max) = self.max_request_bytes {
+                let request_bytes = serde_json::to_string(messages).unwrap().len();
+                if request_bytes > max {
                     return Err(ProviderError::ContextLengthExceeded(format!(
-                        "Too many tool responses: {} > {}",
-                        tool_response_count, max
+                        "Request too large: {} > {}",
+                        request_bytes, max
                     )));
                 }
             }
@@ -1044,8 +1138,13 @@ mod tests {
         );
     }
 
+    /// Replaces `summarizer_input_excludes_turn_context_events`, which dropped
+    /// the events before flattening them into the summarizer system prompt.
+    /// A prefix request cannot drop them: any removal diverges from the
+    /// conversation's own request and forfeits the cache from that point on.
+    /// The instruction carries the exclusion rule instead.
     #[tokio::test]
-    async fn summarizer_input_excludes_turn_context_events() {
+    async fn turn_context_events_stay_in_the_prefix_and_are_excluded_by_instruction() {
         let provider = MockProvider::new(Message::assistant().with_text("summary"), 1000);
         let turn_context = |text: &str| {
             Message::user()
@@ -1059,7 +1158,7 @@ mod tests {
             turn_context("<turn-context>cwd /new/dir</turn-context>"),
         ]);
 
-        let compacted = compact_messages(
+        compact_messages(
             &provider,
             &provider.config,
             "test-session-id",
@@ -1067,20 +1166,24 @@ mod tests {
             false,
         )
         .await
-        .unwrap()
-        .conversation;
+        .unwrap();
 
         let system = provider.captured_system.lock().unwrap().clone().unwrap();
-        assert!(system.contains("please refactor the parser"));
         assert!(
-            !system.contains("/old/dir") && !system.contains("/new/dir"),
-            "turn-context events must not reach the summarizer as dialogue"
+            !system.contains("please refactor the parser"),
+            "the summarizer system prompt is the conversation's own, not a flattened transcript"
         );
 
-        let carried = compacted.messages().last().unwrap();
+        let request = provider.captured_messages.lock().unwrap().clone().unwrap();
+        let request_text = request
+            .iter()
+            .map(Message::as_concat_text)
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(request_text.contains("/new/dir"));
         assert!(
-            carried.is_turn_context() && carried.as_concat_text().contains("/new/dir"),
-            "the newest turn-context event must still be carried forward"
+            request_text.contains("`<turn-context>` blocks are ephemeral per-request state"),
+            "the instruction must tell the summarizer to exclude turn-context state"
         );
     }
 
@@ -1225,12 +1328,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_progressive_removal_on_context_exceeded() {
+    async fn test_progressive_elision_on_context_exceeded() {
         let response_message = Message::assistant().with_text("<mock summary>");
-        // Set max to 2 tool responses - will trigger progressive removal
-        let provider = MockProvider::new(response_message, 1000).with_max_tool_responses(2);
+        let provider = MockProvider::new(response_message, 1000).with_max_request_bytes(12_000);
 
-        // Create a conversation with many tool responses
         let mut messages = vec![Message::user().with_text("start")];
         for i in 0..10 {
             messages.push(Message::assistant().with_tool_request(
@@ -1240,7 +1341,7 @@ mod tests {
             messages.push(Message::user().with_tool_response(
                 format!("tool_{}", i),
                 Ok(rmcp::model::CallToolResult::success(vec![
-                    ContentBlock::text(format!("response{}", i)),
+                    ContentBlock::text(format!("response {i}: {}", "x".repeat(2000))),
                 ])),
             ));
         }
@@ -1258,8 +1359,27 @@ mod tests {
 
         assert!(
             result.is_ok(),
-            "Should succeed with progressive removal: {:?}",
+            "Should succeed with progressive elision: {:?}",
             result.err()
+        );
+        let request = provider.captured_messages.lock().unwrap().clone().unwrap();
+        let request_json = serde_json::to_string(&request).unwrap();
+        assert!(
+            request_json.len() <= 12_000,
+            "the successful attempt must fit the provider's window"
+        );
+        assert!(
+            request_json.contains("tool response elided"),
+            "oversized tool responses must be elided"
+        );
+        assert_eq!(
+            request
+                .iter()
+                .flat_map(|m| &m.content)
+                .filter(|c| matches!(c, MessageContent::ToolResponse(_)))
+                .count(),
+            10,
+            "every tool request must keep its (elided) response"
         );
     }
 

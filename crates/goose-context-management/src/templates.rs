@@ -6,6 +6,7 @@ static PROMPTS: Dir = include_dir!("$CARGO_MANIFEST_DIR/src/prompts");
 
 pub const COMPACTION_TEMPLATE: &str = "compaction.md";
 pub const COMPACTION_SUMMARY_TEMPLATE: &str = "compaction_summary.md";
+pub const COMPACTION_PREFIX_TEMPLATE: &str = "compaction_prefix.md";
 
 pub fn builtin_template(name: &str) -> Option<String> {
     PROMPTS

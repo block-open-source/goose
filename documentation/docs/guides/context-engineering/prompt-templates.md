@@ -93,7 +93,8 @@ The following default templates can be customized.
 | [system.md](https://github.com/aaif-goose/goose/blob/main/crates/goose/src/prompts/system.md) | General system prompt defining goose's role, capabilities, and response format | Desktop and CLI |
 | [apps_create.md](https://github.com/aaif-goose/goose/blob/main/crates/goose/src/prompts/apps_create.md) | Prompt for generating new standalone apps (in development) | Desktop only |
 | [apps_iterate.md](https://github.com/aaif-goose/goose/blob/main/crates/goose/src/prompts/apps_iterate.md) | Prompt for updating existing standalone apps (in development) | Desktop only |
-| [compaction.md](https://github.com/aaif-goose/goose/blob/main/crates/goose/src/prompts/compaction.md) | Prompt for summarizing conversation history when context limits are reached | Desktop and CLI |
+| [compaction_prefix.md](https://github.com/aaif-goose/goose/blob/main/crates/goose-context-management/src/prompts/compaction_prefix.md) | Instruction appended to the conversation to summarize it when context limits are reached | Desktop and CLI |
+| [compaction_summary.md](https://github.com/aaif-goose/goose/blob/main/crates/goose-context-management/src/prompts/compaction_summary.md) | Renders the structured compaction summary into the post-compaction context | Desktop and CLI |
 | [permission_judge.md](https://github.com/aaif-goose/goose/blob/main/crates/goose/src/prompts/permission_judge.md) | Prompt for analyzing tool operations for read-only detection | Desktop and CLI |
 | [plan.md](https://github.com/aaif-goose/goose/blob/main/crates/goose/src/prompts/plan.md) | Instructions for creating detailed, actionable plans with clarifying questions | CLI only |
 | [subagent_system.md](https://github.com/aaif-goose/goose/blob/main/crates/goose/src/prompts/subagent_system.md) | System prompt for subagents spawned to handle specific tasks | Desktop and CLI |

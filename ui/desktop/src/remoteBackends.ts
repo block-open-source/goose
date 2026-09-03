@@ -1,4 +1,5 @@
 import { net } from 'electron';
+import { probeRequest } from './backendProbe';
 import {
   acpHttpUrlFromHttpBase,
   normalizeAcpHttpBaseUrl,
@@ -115,6 +116,31 @@ const netHopRequest: HopRequest = (url, init) =>
 
 class RedirectError extends Error {}
 
+const CLIENT_AUTH_PATTERN = /ERR_SSL_CLIENT_AUTH_CERT_NEEDED|ERR_BAD_SSL_CLIENT_AUTH_CERT/;
+
+// A server asking for a client certificate cannot be reached from net.request,
+// because Chromium only runs certificate selection for WebContents-originated
+// requests. That path follows redirects itself, so it is used only after the
+// hop-by-hop transport reports that a certificate is required.
+const mtlsHopRequest: HopRequest = async (url, init) => {
+  const result = await probeRequest(url, init.headers ?? {});
+  // This path follows redirects itself, so a hop cannot be validated. Rather
+  // than trust an unvalidated destination, a redirected mTLS backend fails.
+  if (result.url && result.url !== url) {
+    throw new RedirectError(
+      `Redirect to ${result.url} cannot be validated on an mTLS backend. Configure the final backend URL instead.`
+    );
+  }
+
+  const headers = new Map(result.headers.map(([name, value]) => [name.toLowerCase(), value]));
+  return {
+    status: result.status,
+    statusText: result.statusText,
+    header: (name) => headers.get(name.toLowerCase()) ?? null,
+    location: null,
+  };
+};
+
 const isRedirect = (status: number): boolean =>
   status === 301 || status === 302 || status === 303 || status === 307 || status === 308;
 
@@ -192,14 +218,25 @@ const probe = async (
 ): Promise<Probe> => {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
-  try {
-    const { url: resolvedUrl, hop } = await resolveRedirects(request, url, pinnedHostname, {
+  const attempt = async (hopRequest: HopRequest): Promise<Probe> => {
+    const { url: resolvedUrl, hop } = await resolveRedirects(hopRequest, url, pinnedHostname, {
       signal: controller.signal,
     });
     const finalHop = credentials
-      ? await request(resolvedUrl, { headers: credentials, signal: controller.signal })
+      ? await hopRequest(resolvedUrl, { headers: credentials, signal: controller.signal })
       : hop;
     return expect(finalHop, resolvedUrl);
+  };
+
+  try {
+    try {
+      return await attempt(request);
+    } catch (error) {
+      if (request !== netHopRequest || !CLIENT_AUTH_PATTERN.test(errorText(error))) {
+        throw error;
+      }
+      return await attempt(mtlsHopRequest);
+    }
   } catch (error) {
     const detail = errorText(error);
     return {

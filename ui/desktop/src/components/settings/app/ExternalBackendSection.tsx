@@ -116,6 +116,15 @@ const i18n = defineMessages({
     id: 'externalBackendSection.connectFailed',
     defaultMessage: 'Could not connect: {error}',
   },
+  diagnosticsHeading: {
+    id: 'externalBackendSection.diagnosticsHeading',
+    defaultMessage: 'Connection checks',
+  },
+  diagnosticsHint: {
+    id: 'externalBackendSection.diagnosticsHint',
+    defaultMessage:
+      'The first failed check above is where the connection stopped. Confirm the backend is running and reachable from this machine, that its secret key matches, and that any proxy or VPN in between allows /status and /acp.',
+  },
 });
 
 export default function ExternalBackendSection() {
@@ -126,7 +135,7 @@ export default function ExternalBackendSection() {
   const [isConnecting, setIsConnecting] = useState(false);
   const [outcome, setOutcome] = useState<{
     steps: RemoteBackendStep[];
-    message: string | null;
+    message: string;
     ok: boolean;
   } | null>(null);
 
@@ -350,7 +359,7 @@ export default function ExternalBackendSection() {
             </p>
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-3">
             <div className="flex items-center gap-2">
               <Button
                 size="sm"
@@ -370,25 +379,44 @@ export default function ExternalBackendSection() {
               </Button>
             </div>
 
-            {outcome?.steps.map((step) => (
-              <p key={step.name} className="flex gap-2 text-xs">
-                {step.ok ? (
-                  <Check className="size-3 mt-0.5 shrink-0 text-green-600" />
-                ) : (
-                  <X className="size-3 mt-0.5 shrink-0 text-red-600" />
-                )}
-                <span className="text-text-primary">{step.name}</span>
-                <span className="text-text-secondary break-words">{step.detail}</span>
-              </p>
-            ))}
+            {outcome && (
+              <div className="space-y-2">
+                <p
+                  className={`text-xs flex items-start gap-1 ${outcome.ok ? 'text-text-secondary' : 'text-red-500'}`}
+                >
+                  {outcome.ok ? (
+                    <Check className="size-3 mt-0.5 shrink-0 text-green-600" />
+                  ) : (
+                    <AlertCircle size={12} className="mt-0.5 shrink-0" />
+                  )}
+                  <span className="break-words">{outcome.message}</span>
+                </p>
 
-            {outcome?.message && (
-              <p
-                className={`text-xs flex items-start gap-1 ${outcome.ok ? 'text-text-secondary' : 'text-red-500'}`}
-              >
-                {!outcome.ok && <AlertCircle size={12} className="mt-0.5 shrink-0" />}
-                <span className="break-words">{outcome.message}</span>
-              </p>
+                {outcome.steps.length > 0 && (
+                  <div className="rounded-md border border-border-subtle bg-background-muted p-2 space-y-1">
+                    <p className="text-xs text-text-secondary">
+                      {intl.formatMessage(i18n.diagnosticsHeading)}
+                    </p>
+                    {outcome.steps.map((step) => (
+                      <p key={step.name} className="flex gap-2 text-xs">
+                        {step.ok ? (
+                          <Check className="size-3 mt-0.5 shrink-0 text-green-600" />
+                        ) : (
+                          <X className="size-3 mt-0.5 shrink-0 text-red-600" />
+                        )}
+                        <span className="text-text-primary shrink-0">{step.name}</span>
+                        <span className="text-text-secondary break-all">{step.detail}</span>
+                      </p>
+                    ))}
+                  </div>
+                )}
+
+                {!outcome.ok && (
+                  <p className="text-xs text-text-secondary">
+                    {intl.formatMessage(i18n.diagnosticsHint)}
+                  </p>
+                )}
+              </div>
             )}
           </div>
         </CardContent>

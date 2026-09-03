@@ -1232,6 +1232,12 @@
   "externalBackendSection.description": {
     "defaultMessage": "By default Goose starts a local backend. Use this to connect to an external ACP-compatible backend."
   },
+  "externalBackendSection.diagnosticsHeading": {
+    "defaultMessage": "Connection checks"
+  },
+  "externalBackendSection.diagnosticsHint": {
+    "defaultMessage": "The first failed check above is where the connection stopped. Confirm the backend is running and reachable from this machine, that its secret key matches, and that any proxy or VPN in between allows /status and /acp."
+  },
   "externalBackendSection.disconnect": {
     "defaultMessage": "Disconnect"
   },

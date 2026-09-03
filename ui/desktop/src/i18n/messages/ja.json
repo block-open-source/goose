@@ -1229,6 +1229,12 @@
   "externalBackendSection.serverUrlHelp": {
     "defaultMessage": "Enter the HTTP(S) base URL. Goose checks /status and connects to /acp under this base."
   },
+  "externalBackendSection.diagnosticsHeading": {
+    "defaultMessage": "接続チェック"
+  },
+  "externalBackendSection.diagnosticsHint": {
+    "defaultMessage": "上記で最初に失敗したチェックが、接続が止まった箇所です。バックエンドが起動しこのマシンから到達可能か、シークレットキーが一致しているか、間にあるプロキシや VPN が /status と /acp を許可しているかを確認してください。"
+  },
   "externalBackendSection.connect": {
     "defaultMessage": "接続"
   },

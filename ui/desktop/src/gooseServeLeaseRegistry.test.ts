@@ -35,7 +35,7 @@ function createGooseServeResult(
 describe('GooseServeLeaseRegistry', () => {
   it('returns the ACP URL for an attached live lease', () => {
     const store = new GooseServeLeaseRegistry(createLogger());
-    const lease = store.create(createGooseServeResult(), 'local-secret');
+    const lease = store.create(createGooseServeResult(), 'local-secret', '/tmp/goose');
 
     store.attachWindow(1, lease);
 
@@ -47,7 +47,7 @@ describe('GooseServeLeaseRegistry', () => {
     const logger = createLogger();
     const store = new GooseServeLeaseRegistry(logger);
     const result = createGooseServeResult();
-    const lease = store.create(result, 'local-secret');
+    const lease = store.create(result, 'local-secret', '/tmp/goose');
     store.attachWindow(1, lease);
 
     result.process.emit('exit', 1, null);
@@ -67,7 +67,8 @@ describe('GooseServeLeaseRegistry', () => {
         hasExited: () => true,
         getExitDetails: () => ({ code: null, signal: 'SIGTERM' }),
       }),
-      'local-secret'
+      'local-secret',
+      '/tmp/goose'
     );
 
     store.attachWindow(1, lease);
@@ -78,7 +79,7 @@ describe('GooseServeLeaseRegistry', () => {
   it('cleans up once after the last attached window is released', async () => {
     const cleanup = vi.fn(async () => undefined);
     const store = new GooseServeLeaseRegistry(createLogger());
-    const lease = store.create(createGooseServeResult({ cleanup }), 'local-secret');
+    const lease = store.create(createGooseServeResult({ cleanup }), 'local-secret', '/tmp/goose');
     store.attachWindow(1, lease);
     store.attachWindow(2, lease);
 
@@ -95,7 +96,11 @@ describe('GooseServeLeaseRegistry', () => {
 
   it('creates an external ACP lease without process cleanup', async () => {
     const store = new GooseServeLeaseRegistry(createLogger());
-    const lease = store.createExternal('wss://example.com/goose/acp?token=test', 'external-secret');
+    const lease = store.createExternal(
+      'wss://example.com/goose/acp?token=test',
+      'external-secret',
+      '/remote/work'
+    );
 
     store.attachWindow(1, lease);
 
@@ -113,6 +118,7 @@ describe('GooseServeLeaseRegistry', () => {
     const lease = store.createExternal(
       'wss://example.com/goose/acp?token=test',
       'external-secret',
+      '/remote/work',
       cleanup
     );
     store.attachWindow(1, lease);

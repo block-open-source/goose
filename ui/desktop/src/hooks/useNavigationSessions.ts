@@ -86,6 +86,19 @@ export function useNavigationSessions() {
     }
   }, []);
 
+  // Sessions belong to the backend that served them, so drop the old list and
+  // reload from the newly connected one.
+  useEffect(() => {
+    const handleBackendSwitched = () => {
+      setRecentSessions([]);
+      lastSessionIdRef.current = null;
+      void fetchSessions();
+    };
+
+    window.addEventListener(AppEvents.BACKEND_SWITCHED, handleBackendSwitched);
+    return () => window.removeEventListener(AppEvents.BACKEND_SWITCHED, handleBackendSwitched);
+  }, [fetchSessions]);
+
   useEffect(() => {
     if (!activeSessionId) return;
     if (recentSessions.some((s) => s.id === activeSessionId)) return;

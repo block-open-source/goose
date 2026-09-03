@@ -1214,9 +1214,6 @@
   "externalBackendSection.fingerprintRequiresHttps": {
     "defaultMessage": "Certificate fingerprint requires an https URL"
   },
-  "externalBackendSection.restartNote": {
-    "defaultMessage": "Perubahan memerlukan mulai ulang Goose agar berlaku. Jendela obrolan baru akan terhubung ke server eksternal."
-  },
   "externalBackendSection.secretKey": {
     "defaultMessage": "Kunci Rahasia"
   },
@@ -1232,6 +1229,30 @@
   "externalBackendSection.serverUrlHelp": {
     "defaultMessage": "Enter the HTTP(S) base URL. Goose checks /status and connects to /acp under this base."
   },
+  "externalBackendSection.connect": {
+    "defaultMessage": "Hubungkan"
+  },
+  "externalBackendSection.connectFailed": {
+    "defaultMessage": "Tidak dapat terhubung: {error}"
+  },
+  "externalBackendSection.connected": {
+    "defaultMessage": "Jendela ini sekarang menggunakan backend eksternal."
+  },
+  "externalBackendSection.connecting": {
+    "defaultMessage": "Menghubungkan…"
+  },
+  "externalBackendSection.disconnect": {
+    "defaultMessage": "Putuskan"
+  },
+  "externalBackendSection.disconnectFailed": {
+    "defaultMessage": "Tidak dapat memutuskan: {error}"
+  },
+  "externalBackendSection.disconnected": {
+    "defaultMessage": "Jendela ini sekarang menggunakan backend lokal."
+  },
+  "externalBackendSection.disconnecting": {
+    "defaultMessage": "Memutuskan…"
+  },
   "externalBackendSection.title": {
     "defaultMessage": "Server Goose"
   },
@@ -1243,12 +1264,6 @@
   },
   "externalBackendSection.urlProtocolError": {
     "defaultMessage": "URL harus menggunakan protokol http atau https"
-  },
-  "externalBackendSection.useExternalServer": {
-    "defaultMessage": "Gunakan server eksternal"
-  },
-  "externalBackendSection.useExternalServerDescription": {
-    "defaultMessage": "Terhubung ke server goose yang berjalan di tempat lain (memerlukan mulai ulang aplikasi)"
   },
   "externalBackendSection.workingDir": {
     "defaultMessage": "Direktori kerja jarak jauh (opsional)"
@@ -2390,8 +2405,17 @@
   "onboardingGuard.checkProviderErrorTitle": {
     "defaultMessage": "Tidak dapat terhubung ke server Goose"
   },
+  "onboardingGuard.externalBackendErrorTitle": {
+    "defaultMessage": "Tidak dapat terhubung ke backend eksternal"
+  },
   "onboardingGuard.retry": {
     "defaultMessage": "Coba Lagi"
+  },
+  "onboardingGuard.retrying": {
+    "defaultMessage": "Mencoba lagi…"
+  },
+  "onboardingGuard.switchToLocal": {
+    "defaultMessage": "Beralih ke lokal"
   },
   "onboardingGuard.welcomeDescription": {
     "defaultMessage": "Agen AI lokal Anda. Hubungkan penyedia model AI untuk memulai."

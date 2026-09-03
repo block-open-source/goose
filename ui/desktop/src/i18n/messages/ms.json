@@ -1214,9 +1214,6 @@
   "externalBackendSection.fingerprintRequiresHttps": {
     "defaultMessage": "Certificate fingerprint requires an https URL"
   },
-  "externalBackendSection.restartNote": {
-    "defaultMessage": "Perubahan memerlukan memulakan semula Goose untuk berkuat kuasa. Tetingkap sembang baharu akan menyambung ke pelayan luaran."
-  },
   "externalBackendSection.secretKey": {
     "defaultMessage": "Kunci Rahsia"
   },
@@ -1232,6 +1229,30 @@
   "externalBackendSection.serverUrlHelp": {
     "defaultMessage": "Enter the HTTP(S) base URL. Goose checks /status and connects to /acp under this base."
   },
+  "externalBackendSection.connect": {
+    "defaultMessage": "Sambung"
+  },
+  "externalBackendSection.connectFailed": {
+    "defaultMessage": "Tidak dapat menyambung: {error}"
+  },
+  "externalBackendSection.connected": {
+    "defaultMessage": "Tetingkap ini kini menggunakan backend luaran."
+  },
+  "externalBackendSection.connecting": {
+    "defaultMessage": "Menyambung…"
+  },
+  "externalBackendSection.disconnect": {
+    "defaultMessage": "Putuskan"
+  },
+  "externalBackendSection.disconnectFailed": {
+    "defaultMessage": "Tidak dapat memutuskan: {error}"
+  },
+  "externalBackendSection.disconnected": {
+    "defaultMessage": "Tetingkap ini kini menggunakan backend tempatan."
+  },
+  "externalBackendSection.disconnecting": {
+    "defaultMessage": "Memutuskan…"
+  },
   "externalBackendSection.title": {
     "defaultMessage": "Pelayan Goose"
   },
@@ -1243,12 +1264,6 @@
   },
   "externalBackendSection.urlProtocolError": {
     "defaultMessage": "URL mesti menggunakan protokol http atau https"
-  },
-  "externalBackendSection.useExternalServer": {
-    "defaultMessage": "Gunakan pelayan luaran"
-  },
-  "externalBackendSection.useExternalServerDescription": {
-    "defaultMessage": "Sambung ke pelayan goose yang berjalan di tempat lain (memerlukan memulakan semula aplikasi)"
   },
   "externalBackendSection.workingDir": {
     "defaultMessage": "Direktori kerja jauh (pilihan)"
@@ -2390,8 +2405,17 @@
   "onboardingGuard.checkProviderErrorTitle": {
     "defaultMessage": "Tidak dapat menyambung ke pelayan Goose"
   },
+  "onboardingGuard.externalBackendErrorTitle": {
+    "defaultMessage": "Tidak dapat menyambung ke backend luaran"
+  },
   "onboardingGuard.retry": {
     "defaultMessage": "Cuba Semula"
+  },
+  "onboardingGuard.retrying": {
+    "defaultMessage": "Mencuba semula…"
+  },
+  "onboardingGuard.switchToLocal": {
+    "defaultMessage": "Tukar ke tempatan"
   },
   "onboardingGuard.welcomeDescription": {
     "defaultMessage": "Ejen AI tempatan anda. Sambungkan penyedia model AI untuk bermula."

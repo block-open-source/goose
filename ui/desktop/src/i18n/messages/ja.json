@@ -1214,9 +1214,6 @@
   "externalBackendSection.fingerprintRequiresHttps": {
     "defaultMessage": "Certificate fingerprint requires an https URL"
   },
-  "externalBackendSection.restartNote": {
-    "defaultMessage": "変更を有効にするには Goose の再起動が必要です。新しいチャットウィンドウは外部サーバーに接続します。"
-  },
   "externalBackendSection.secretKey": {
     "defaultMessage": "シークレットキー"
   },
@@ -1232,6 +1229,30 @@
   "externalBackendSection.serverUrlHelp": {
     "defaultMessage": "Enter the HTTP(S) base URL. Goose checks /status and connects to /acp under this base."
   },
+  "externalBackendSection.connect": {
+    "defaultMessage": "接続"
+  },
+  "externalBackendSection.connectFailed": {
+    "defaultMessage": "接続できませんでした: {error}"
+  },
+  "externalBackendSection.connected": {
+    "defaultMessage": "このウィンドウは外部バックエンドを使用しています。"
+  },
+  "externalBackendSection.connecting": {
+    "defaultMessage": "接続中…"
+  },
+  "externalBackendSection.disconnect": {
+    "defaultMessage": "切断"
+  },
+  "externalBackendSection.disconnectFailed": {
+    "defaultMessage": "切断できませんでした: {error}"
+  },
+  "externalBackendSection.disconnected": {
+    "defaultMessage": "このウィンドウはローカルバックエンドを使用しています。"
+  },
+  "externalBackendSection.disconnecting": {
+    "defaultMessage": "切断中…"
+  },
   "externalBackendSection.title": {
     "defaultMessage": "Goose Server"
   },
@@ -1243,12 +1264,6 @@
   },
   "externalBackendSection.urlProtocolError": {
     "defaultMessage": "URLは http または https プロトコルを使用する必要があります"
-  },
-  "externalBackendSection.useExternalServer": {
-    "defaultMessage": "外部サーバーを使用"
-  },
-  "externalBackendSection.useExternalServerDescription": {
-    "defaultMessage": "別の場所で実行中の goose サーバーに接続します（アプリの再起動が必要）"
   },
   "externalBackendSection.workingDir": {
     "defaultMessage": "リモート作業ディレクトリ（任意）"
@@ -2390,8 +2405,17 @@
   "onboardingGuard.checkProviderErrorTitle": {
     "defaultMessage": "gooseサーバーに接続できません"
   },
+  "onboardingGuard.externalBackendErrorTitle": {
+    "defaultMessage": "外部バックエンドに接続できません"
+  },
   "onboardingGuard.retry": {
     "defaultMessage": "再試行"
+  },
+  "onboardingGuard.retrying": {
+    "defaultMessage": "再試行中…"
+  },
+  "onboardingGuard.switchToLocal": {
+    "defaultMessage": "ローカルに切り替え"
   },
   "onboardingGuard.welcomeDescription": {
     "defaultMessage": "ローカルAIエージェントです。始めるにはAIモデルプロバイダーに接続してください。"

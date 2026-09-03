@@ -4,6 +4,7 @@ import type { GooseApp } from './types/apps';
 import type { Settings, SettingKey } from './utils/settings';
 import { defaultSettings } from './utils/settings';
 import type { OpenExternalUrlResult } from './utils/urlSecurity';
+import type { RemoteBackendStep } from './remoteBackends';
 
 // Mapping from settings keys to their old localStorage keys for lazy migration
 const localStorageKeyMap: Partial<Record<SettingKey, string>> = {
@@ -135,6 +136,14 @@ type ElectronAPI = {
   setSetting: <K extends SettingKey>(key: K, value: Settings[K]) => Promise<void>;
   getSecretKey: () => Promise<string | null>;
   getAcpUrl: () => Promise<string | null>;
+  getWorkingDir: () => Promise<string | null>;
+  switchBackend: () => Promise<{
+    ok: boolean;
+    error?: string;
+    workingDir?: string;
+    steps: RemoteBackendStep[];
+  }>;
+  disconnectBackend: () => Promise<{ ok: boolean; error?: string; workingDir?: string }>;
   setWakelock: (enable: boolean) => Promise<boolean>;
   getWakelockState: () => Promise<boolean>;
   setSpellcheck: (enable: boolean) => Promise<boolean>;
@@ -262,6 +271,9 @@ const electronAPI: ElectronAPI = {
   },
   getSecretKey: () => ipcRenderer.invoke('get-secret-key'),
   getAcpUrl: () => ipcRenderer.invoke('get-acp-url'),
+  getWorkingDir: () => ipcRenderer.invoke('get-working-dir'),
+  switchBackend: () => ipcRenderer.invoke('switch-backend'),
+  disconnectBackend: () => ipcRenderer.invoke('disconnect-backend'),
   setWakelock: (enable: boolean) => ipcRenderer.invoke('set-wakelock', enable),
   getWakelockState: () => ipcRenderer.invoke('get-wakelock-state'),
   setSpellcheck: (enable: boolean) => ipcRenderer.invoke('set-spellcheck', enable),

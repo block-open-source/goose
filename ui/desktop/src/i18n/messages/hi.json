@@ -1214,9 +1214,6 @@
   "externalBackendSection.fingerprintRequiresHttps": {
     "defaultMessage": "Certificate fingerprint requires an https URL"
   },
-  "externalBackendSection.restartNote": {
-    "defaultMessage": "परिवर्तनों को प्रभावी होने के लिए Goose को पुनः आरंभ करने की आवश्यकता है। नई चैट विंडो बाहरी सर्वर से कनेक्ट होंगी."
-  },
   "externalBackendSection.secretKey": {
     "defaultMessage": "गुप्त कुंजी"
   },
@@ -1232,6 +1229,30 @@
   "externalBackendSection.serverUrlHelp": {
     "defaultMessage": "Enter the HTTP(S) base URL. Goose checks /status and connects to /acp under this base."
   },
+  "externalBackendSection.connect": {
+    "defaultMessage": "कनेक्ट करें"
+  },
+  "externalBackendSection.connectFailed": {
+    "defaultMessage": "कनेक्ट नहीं हो सका: {error}"
+  },
+  "externalBackendSection.connected": {
+    "defaultMessage": "यह विंडो अब बाहरी बैकेंड का उपयोग कर रही है।"
+  },
+  "externalBackendSection.connecting": {
+    "defaultMessage": "कनेक्ट हो रहा है…"
+  },
+  "externalBackendSection.disconnect": {
+    "defaultMessage": "डिस्कनेक्ट करें"
+  },
+  "externalBackendSection.disconnectFailed": {
+    "defaultMessage": "डिस्कनेक्ट नहीं हो सका: {error}"
+  },
+  "externalBackendSection.disconnected": {
+    "defaultMessage": "यह विंडो अब स्थानीय बैकेंड का उपयोग कर रही है।"
+  },
+  "externalBackendSection.disconnecting": {
+    "defaultMessage": "डिस्कनेक्ट हो रहा है…"
+  },
   "externalBackendSection.title": {
     "defaultMessage": "Goose सर्वर"
   },
@@ -1243,12 +1264,6 @@
   },
   "externalBackendSection.urlProtocolError": {
     "defaultMessage": "URL को http या https प्रोटोकॉल का उपयोग करना चाहिए"
-  },
-  "externalBackendSection.useExternalServer": {
-    "defaultMessage": "बाहरी सर्वर का प्रयोग करें"
-  },
-  "externalBackendSection.useExternalServerDescription": {
-    "defaultMessage": "कहीं और चल रहे goose सर्वर से कनेक्ट करें (ऐप पुनरारंभ की आवश्यकता है)"
   },
   "externalBackendSection.workingDir": {
     "defaultMessage": "रिमोट कार्य निर्देशिका (वैकल्पिक)"
@@ -2390,8 +2405,17 @@
   "onboardingGuard.checkProviderErrorTitle": {
     "defaultMessage": "Goose सर्वर से कनेक्ट करने में असमर्थ"
   },
+  "onboardingGuard.externalBackendErrorTitle": {
+    "defaultMessage": "बाहरी बैकेंड से कनेक्ट नहीं हो सका"
+  },
   "onboardingGuard.retry": {
     "defaultMessage": "पुनः प्रयास करें"
+  },
+  "onboardingGuard.retrying": {
+    "defaultMessage": "पुन: प्रयास हो रहा है…"
+  },
+  "onboardingGuard.switchToLocal": {
+    "defaultMessage": "स्थानीय पर स्विच करें"
   },
   "onboardingGuard.welcomeDescription": {
     "defaultMessage": "आपका स्थानीय एआई एजेंट। आरंभ करने के लिए किसी AI मॉडल प्रदाता से कनेक्ट करें।"

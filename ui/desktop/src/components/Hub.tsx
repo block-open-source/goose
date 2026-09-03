@@ -16,7 +16,7 @@ import { ChatState } from '../types/chatState';
 import 'react-toastify/dist/ReactToastify.css';
 import { View, ViewOptions } from '../utils/navigationUtils';
 import { useConfig } from './ConfigContext';
-import { getEffectiveWorkingDir, getInitialWorkingDir } from '../utils/workingDir';
+import { getInitialWorkingDir, refreshWorkingDir } from '../utils/workingDir';
 import { createSession } from '../sessions';
 import LoadingGoose from './LoadingGoose';
 import { UserInput } from '../types/message';
@@ -63,11 +63,11 @@ export default function Hub({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const { time, meridiem, hour } = useClock();
 
-  // Re-resolve the working dir on mount: GOOSE_WORKING_DIR is fixed at window
-  // creation, so a configured remote directory may have changed since then.
+  // Re-resolve the working dir on mount: the window's backend lease is the
+  // authority and may differ from the value baked in at window creation.
   useEffect(() => {
     let active = true;
-    void getEffectiveWorkingDir().then((dir) => {
+    void refreshWorkingDir().then((dir) => {
       if (active && !userSelectedWorkingDirRef.current) setWorkingDir(dir);
     });
     return () => {
@@ -121,7 +121,7 @@ export default function Hub({
 
       // Resolve the effective directory at submit time: the IPC lookup may still
       // be pending when the user submits, and an explicit pick must win.
-      const dir = userSelectedWorkingDirRef.current ? workingDir : await getEffectiveWorkingDir();
+      const dir = userSelectedWorkingDirRef.current ? workingDir : await refreshWorkingDir();
       const session = await createSession(dir, sessionOptions);
       setNextChatExtensionDraft(null);
 

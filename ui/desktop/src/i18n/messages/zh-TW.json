@@ -1214,9 +1214,6 @@
   "externalBackendSection.fingerprintRequiresHttps": {
     "defaultMessage": "Certificate fingerprint requires an https URL"
   },
-  "externalBackendSection.restartNote": {
-    "defaultMessage": "變更需要重新啟動 Goose 才會生效。新的聊天視窗將連線至外部伺服器。"
-  },
   "externalBackendSection.secretKey": {
     "defaultMessage": "密鑰"
   },
@@ -1232,6 +1229,30 @@
   "externalBackendSection.serverUrlHelp": {
     "defaultMessage": "Enter the HTTP(S) base URL. Goose checks /status and connects to /acp under this base."
   },
+  "externalBackendSection.connect": {
+    "defaultMessage": "連線"
+  },
+  "externalBackendSection.connectFailed": {
+    "defaultMessage": "無法連線：{error}"
+  },
+  "externalBackendSection.connected": {
+    "defaultMessage": "此視窗現在使用外部後端。"
+  },
+  "externalBackendSection.connecting": {
+    "defaultMessage": "正在連線…"
+  },
+  "externalBackendSection.disconnect": {
+    "defaultMessage": "中斷連線"
+  },
+  "externalBackendSection.disconnectFailed": {
+    "defaultMessage": "無法中斷連線：{error}"
+  },
+  "externalBackendSection.disconnected": {
+    "defaultMessage": "此視窗現在使用本機後端。"
+  },
+  "externalBackendSection.disconnecting": {
+    "defaultMessage": "正在中斷…"
+  },
   "externalBackendSection.title": {
     "defaultMessage": "Goose 伺服器"
   },
@@ -1243,12 +1264,6 @@
   },
   "externalBackendSection.urlProtocolError": {
     "defaultMessage": "URL 必須使用 http 或 https 通訊協定"
-  },
-  "externalBackendSection.useExternalServer": {
-    "defaultMessage": "使用外部伺服器"
-  },
-  "externalBackendSection.useExternalServerDescription": {
-    "defaultMessage": "連線至在其他位置執行的 goose 伺服器（需要重新啟動應用程式）"
   },
   "externalBackendSection.workingDir": {
     "defaultMessage": "遠端工作目錄（選用）"
@@ -2390,8 +2405,17 @@
   "onboardingGuard.checkProviderErrorTitle": {
     "defaultMessage": "無法連線到 Goose 伺服器"
   },
+  "onboardingGuard.externalBackendErrorTitle": {
+    "defaultMessage": "無法連線到外部後端"
+  },
   "onboardingGuard.retry": {
     "defaultMessage": "重試"
+  },
+  "onboardingGuard.retrying": {
+    "defaultMessage": "正在重試…"
+  },
+  "onboardingGuard.switchToLocal": {
+    "defaultMessage": "切換到本機"
   },
   "onboardingGuard.welcomeDescription": {
     "defaultMessage": "您的本機 AI 代理。連線 AI 模型供應商即可開始使用。"

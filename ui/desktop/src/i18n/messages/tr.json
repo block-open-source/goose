@@ -1214,9 +1214,6 @@
   "externalBackendSection.fingerprintRequiresHttps": {
     "defaultMessage": "Certificate fingerprint requires an https URL"
   },
-  "externalBackendSection.restartNote": {
-    "defaultMessage": "Değişikliklerin etkili olması için Goose'nin yeniden başlatılması gerekir. Yeni sohbet pencereleri harici sunucuya bağlanacaktır."
-  },
   "externalBackendSection.secretKey": {
     "defaultMessage": "Gizli Anahtar"
   },
@@ -1232,6 +1229,30 @@
   "externalBackendSection.serverUrlHelp": {
     "defaultMessage": "Enter the HTTP(S) base URL. Goose checks /status and connects to /acp under this base."
   },
+  "externalBackendSection.connect": {
+    "defaultMessage": "Bağlan"
+  },
+  "externalBackendSection.connectFailed": {
+    "defaultMessage": "Bağlanılamadı: {error}"
+  },
+  "externalBackendSection.connected": {
+    "defaultMessage": "Bu pencere artık harici arka uç kullanıyor."
+  },
+  "externalBackendSection.connecting": {
+    "defaultMessage": "Bağlanıyor…"
+  },
+  "externalBackendSection.disconnect": {
+    "defaultMessage": "Bağlantıyı kes"
+  },
+  "externalBackendSection.disconnectFailed": {
+    "defaultMessage": "Bağlantı kesilemedi: {error}"
+  },
+  "externalBackendSection.disconnected": {
+    "defaultMessage": "Bu pencere artık yerel arka uç kullanıyor."
+  },
+  "externalBackendSection.disconnecting": {
+    "defaultMessage": "Bağlantı kesiliyor…"
+  },
   "externalBackendSection.title": {
     "defaultMessage": "Goose Sunucu"
   },
@@ -1243,12 +1264,6 @@
   },
   "externalBackendSection.urlProtocolError": {
     "defaultMessage": "URL, http veya https protokolünü kullanmalıdır"
-  },
-  "externalBackendSection.useExternalServer": {
-    "defaultMessage": "Harici sunucu kullan"
-  },
-  "externalBackendSection.useExternalServerDescription": {
-    "defaultMessage": "Başka bir yerde çalışan bir goose sunucusuna bağlanın (uygulamanın yeniden başlatılmasını gerektirir)"
   },
   "externalBackendSection.workingDir": {
     "defaultMessage": "Uzak çalışma dizini (isteğe bağlı)"
@@ -2390,8 +2405,17 @@
   "onboardingGuard.checkProviderErrorTitle": {
     "defaultMessage": "Goose sunucusuna bağlanılamıyor"
   },
+  "onboardingGuard.externalBackendErrorTitle": {
+    "defaultMessage": "Harici arka uca bağlanılamadı"
+  },
   "onboardingGuard.retry": {
     "defaultMessage": "Yeniden dene"
+  },
+  "onboardingGuard.retrying": {
+    "defaultMessage": "Yeniden deneniyor…"
+  },
+  "onboardingGuard.switchToLocal": {
+    "defaultMessage": "Yerele geç"
   },
   "onboardingGuard.welcomeDescription": {
     "defaultMessage": "Yerel AI temsilciniz. Başlamak için bir AI model sağlayıcısına bağlanın."

@@ -1214,9 +1214,6 @@
   "externalBackendSection.fingerprintRequiresHttps": {
     "defaultMessage": "Certificate fingerprint requires an https URL"
   },
-  "externalBackendSection.restartNote": {
-    "defaultMessage": "更改需要重启 Goose 才能生效。新的聊天窗口将连接到外部服务器。"
-  },
   "externalBackendSection.secretKey": {
     "defaultMessage": "密钥"
   },
@@ -1232,6 +1229,30 @@
   "externalBackendSection.serverUrlHelp": {
     "defaultMessage": "Enter the HTTP(S) base URL. Goose checks /status and connects to /acp under this base."
   },
+  "externalBackendSection.connect": {
+    "defaultMessage": "连接"
+  },
+  "externalBackendSection.connectFailed": {
+    "defaultMessage": "无法连接：{error}"
+  },
+  "externalBackendSection.connected": {
+    "defaultMessage": "此窗口现在使用外部后端。"
+  },
+  "externalBackendSection.connecting": {
+    "defaultMessage": "正在连接…"
+  },
+  "externalBackendSection.disconnect": {
+    "defaultMessage": "断开连接"
+  },
+  "externalBackendSection.disconnectFailed": {
+    "defaultMessage": "无法断开连接：{error}"
+  },
+  "externalBackendSection.disconnected": {
+    "defaultMessage": "此窗口现在使用本地后端。"
+  },
+  "externalBackendSection.disconnecting": {
+    "defaultMessage": "正在断开…"
+  },
   "externalBackendSection.title": {
     "defaultMessage": "Goose 服务器"
   },
@@ -1243,12 +1264,6 @@
   },
   "externalBackendSection.urlProtocolError": {
     "defaultMessage": "URL 必须使用 http 或 https 协议"
-  },
-  "externalBackendSection.useExternalServer": {
-    "defaultMessage": "使用外部服务器"
-  },
-  "externalBackendSection.useExternalServerDescription": {
-    "defaultMessage": "连接到运行在其他位置的 goose 服务器（需要重启应用）"
   },
   "externalBackendSection.workingDir": {
     "defaultMessage": "远程工作目录（可选）"
@@ -2390,8 +2405,17 @@
   "onboardingGuard.checkProviderErrorTitle": {
     "defaultMessage": "无法连接到 Goose 服务器"
   },
+  "onboardingGuard.externalBackendErrorTitle": {
+    "defaultMessage": "无法连接到外部后端"
+  },
   "onboardingGuard.retry": {
     "defaultMessage": "重试"
+  },
+  "onboardingGuard.retrying": {
+    "defaultMessage": "正在重试…"
+  },
+  "onboardingGuard.switchToLocal": {
+    "defaultMessage": "切换到本地"
   },
   "onboardingGuard.welcomeDescription": {
     "defaultMessage": "你的本地 AI agent。连接 AI 模型提供商即可开始。"

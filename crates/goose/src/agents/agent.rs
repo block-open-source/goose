@@ -2965,138 +2965,52 @@ impl Agent {
                                     }
                                 }
 
-                                // Thinking/reasoning belongs on the tool-call messages, not also
-                                // as a separate standalone message: Gemini and Kimi/DeepSeek
-                                // require it echoed on each assistant tool-call message, and the
-                                // provider formatters reconstruct per-provider shape from there.
-                                // Storing it both standalone AND on the tool-call message
-                                // duplicates it; once merge_consecutive_messages glues the adjacent
-                                // standalone and tool-call messages together, the duplicate signed
-                                // blocks make Anthropic reject the turn with a 400. So the thinking
-                                // is carried onto the split request messages below and never kept
-                                // as a redundant standalone message.
+                                // DeepSeek and Kimi need the turn's thinking on every split
+                                // tool-call message; fix_conversation removes the signed copies.
+                                let is_thinking = |c: &MessageContent| {
+                                    matches!(
+                                        c,
+                                        MessageContent::Thinking(_)
+                                            | MessageContent::RedactedThinking(_)
+                                    )
+                                };
+                                let prior_thinking: Vec<MessageContent> = messages_to_add
+                                    .iter()
+                                    .filter(|m| m.role == response.role)
+                                    .flat_map(|m| m.content.iter())
+                                    .filter(|c| is_thinking(c))
+                                    .cloned()
+                                    .collect();
                                 let direct_thinking: Vec<MessageContent> = response
                                     .content
                                     .iter()
-                                    .filter(|c| {
-                                        matches!(
-                                            c,
-                                            MessageContent::Thinking(_)
-                                                | MessageContent::RedactedThinking(_)
-                                        )
-                                    })
+                                    .filter(|c| is_thinking(c) && !prior_thinking.contains(c))
                                     .cloned()
                                     .collect();
-                                // When thinking arrived in earlier stream chunks it was stored as
-                                // standalone thinking-only messages; reuse that thinking on the
-                                // tool-call messages and drop the standalone messages so the
-                                // thinking isn't duplicated.
-                                // Always accumulate ALL prior thinking — even when
-                                // direct_thinking is non-empty (reasoning arrived on the same
-                                // chunk as tool_calls) — because otherwise only the last chunk's
-                                // reasoning ends up on split tool-call messages.
-                                // Also extract thinking from mixed (thinking+text) messages,
-                                // not just pure-thinking-only ones.
-                                let mut accumulated_prior: Vec<MessageContent> = Vec::new();
-                                let mut indices_to_remove: Vec<usize> = Vec::new();
-                                for (idx, m) in messages_to_add.messages_mut().iter_mut().enumerate()
-                                {
-                                    if m.role != response.role || m.content.is_empty() {
-                                        continue;
-                                    }
-                                    let thinking_only = m.content.iter().all(|c| {
-                                        matches!(
-                                            c,
-                                            MessageContent::Thinking(_)
-                                                | MessageContent::RedactedThinking(_)
-                                        )
-                                    });
-                                    let has_thinking = m.content.iter().any(|c| {
-                                        matches!(
-                                            c,
-                                            MessageContent::Thinking(_)
-                                                | MessageContent::RedactedThinking(_)
-                                        )
-                                    });
-                                    if has_thinking {
-                                        // Only accumulate thinking from messages that
-                                        // have not already been split into tool-call
-                                        // request_msg items — prior-split messages
-                                        // already carry their own thinking copy.
-                                        if !m.content.iter().any(|c| {
-                                            matches!(c, MessageContent::ToolRequest(_))
-                                        }) {
-                                            for c in &m.content {
-                                                if matches!(
-                                                    c,
-                                                    MessageContent::Thinking(_)
-                                                        | MessageContent::RedactedThinking(_)
-                                                ) {
-                                                    accumulated_prior.push(c.clone());
-                                                }
-                                            }
-                                        }
-                                    }
-                                    if thinking_only {
-                                        indices_to_remove.push(idx);
-                                    } else if has_thinking
-                                        && !m.content.iter().any(|c| {
-                                            matches!(c, MessageContent::ToolRequest(_))
-                                        })
-                                    {
-                                        // Strip thinking blocks from mixed text+thinking
-                                        // messages so the same signed/unsigned thinking is not
-                                        // duplicated when carried onto the tool-call request
-                                        // messages below. Messages that already contain tool
-                                        // requests are prior-split request_msg items whose
-                                        // thinking was already attached — stripping their
-                                        // thinking would leave only the last split message
-                                        // with reasoning, violating the signed-thinking
-                                        // dedup expectation that the first split message
-                                        // retains it.
-                                        m.content.retain(|c| {
-                                            !matches!(
-                                                c,
-                                                MessageContent::Thinking(_)
-                                                    | MessageContent::RedactedThinking(_)
-                                            )
-                                        });
-                                    }
-                                }
-                                // Remove in reverse order to preserve indices
-                                for idx in indices_to_remove.into_iter().rev() {
-                                    messages_to_add.remove(idx);
-                                }
-                                let response_thinking = if direct_thinking.is_empty() {
-                                    accumulated_prior
-                                } else if accumulated_prior.is_empty() {
-                                    direct_thinking
-                                } else {
-                                    let mut merged = accumulated_prior;
-                                    merged.extend(direct_thinking);
-                                    merged
-                                };
+                                let mut turn_thinking = prior_thinking;
+                                turn_thinking.extend(direct_thinking.iter().cloned());
 
                                 let response_message_id = response
                                     .id
                                     .as_deref()
                                     .expect("provider stream responses have IDs");
-                                let has_existing_message_id_carrier = messages_to_add
-                                    .iter()
-                                    .any(|message| {
-                                        message.id.as_deref() == Some(response_message_id)
-                                    });
-                                let carrier_tool_call_id = if has_existing_message_id_carrier {
-                                    None
-                                } else {
-                                    tool_requests
-                                        .first()
-                                        .map(|request| request.id.as_str())
+                                let is_response_message = |message: &Message| {
+                                    message.id.as_deref() == Some(response_message_id)
+                                };
+                                let first_tool_call_id = tool_requests
+                                    .first()
+                                    .map(|request| request.id.as_str());
+                                // A same-id prefix at the tail coalesces with the first request on
+                                // push, so tool-pair hiding removes the thinking with the call.
+                                let carrier_tool_call_id = match messages_to_add.messages().last() {
+                                    Some(last) if is_response_message(last) => first_tool_call_id,
+                                    _ if messages_to_add.iter().any(is_response_message) => None,
+                                    _ => first_tool_call_id,
                                 };
                                 preferred_turn_usage_message_id =
                                     Some(response_message_id.to_owned());
 
-                                for request in &tool_requests {
+                                for (index, request) in tool_requests.iter().enumerate() {
                                     let mut request_msg =
                                         if carrier_tool_call_id == Some(request.id.as_str()) {
                                             Message::assistant().with_id(response_message_id)
@@ -3104,7 +3018,12 @@ impl Agent {
                                             Message::assistant().with_generated_id()
                                         };
 
-                                    for thinking in &response_thinking {
+                                    let thinking = if index == 0 {
+                                        &direct_thinking
+                                    } else {
+                                        &turn_thinking
+                                    };
+                                    for thinking in thinking {
                                         request_msg = request_msg.with_content(thinking.clone());
                                     }
 

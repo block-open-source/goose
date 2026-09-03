@@ -75,7 +75,7 @@ fn is_thinking(content: &MessageContent) -> bool {
     )
 }
 
-fn normalize_tool_call_thinking(accumulator: &mut Conversation, chunk: &mut Message) {
+fn drop_repeated_tool_call_thinking(accumulator: &Conversation, chunk: &mut Message) {
     if !chunk
         .content
         .iter()
@@ -83,42 +83,15 @@ fn normalize_tool_call_thinking(accumulator: &mut Conversation, chunk: &mut Mess
     {
         return;
     }
-
-    let has_direct_thinking = chunk.content.iter().any(is_thinking);
-    let mut prior_thinking = Vec::new();
-    for message in accumulator.messages_mut() {
-        if message.role != chunk.role
-            || message
-                .content
-                .iter()
-                .any(|content| matches!(content, MessageContent::ToolRequest(_)))
-        {
-            continue;
-        }
-        prior_thinking.extend(
-            message
-                .content
-                .iter()
-                .filter(|content| is_thinking(content))
-                .cloned(),
-        );
-        message.content.retain(|content| !is_thinking(content));
-    }
-    accumulator
-        .messages_mut()
-        .retain(|message| !message.content.is_empty());
-
-    if !has_direct_thinking && !prior_thinking.is_empty() {
-        if let Some(tool_request) = chunk
-            .content
-            .iter()
-            .position(|content| matches!(content, MessageContent::ToolRequest(_)))
-        {
-            chunk
-                .content
-                .splice(tool_request..tool_request, prior_thinking);
-        }
-    }
+    let prior: Vec<&MessageContent> = accumulator
+        .iter()
+        .filter(|message| message.role == chunk.role)
+        .flat_map(|message| message.content.iter())
+        .filter(|content| is_thinking(content))
+        .collect();
+    chunk
+        .content
+        .retain(|content| !(is_thinking(content) && prior.contains(&content)));
 }
 
 pub fn chat_span(
@@ -479,7 +452,7 @@ impl<S: Sync, E: InferenceEffect> Inference<S, E> for InferenceRunner<'_, S, E> 
                                 }
                                 _ => true,
                             });
-                            normalize_tool_call_thinking(&mut accumulator, &mut chunk);
+                            drop_repeated_tool_call_thinking(&accumulator, &mut chunk);
                             if chunk.content.is_empty() {
                                 if chunk.metadata.output_token_limit_reached {
                                     chunk = emit.message(chunk).await;

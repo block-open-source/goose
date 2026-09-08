@@ -8,6 +8,7 @@ interface LiveVoiceCall {
   sessionId: string;
   callId?: string;
   media: LiveVoiceMediaSession;
+  cancelled: boolean;
 }
 
 export function useLiveVoice(sessionId: string) {
@@ -35,9 +36,10 @@ export function useLiveVoice(sessionId: string) {
     const call: LiveVoiceCall = {
       sessionId,
       media: new LiveVoiceMediaSession(),
+      cancelled: false,
     };
     callRef.current = call;
-    const isCurrent = () => callRef.current === call;
+    const isCurrent = () => callRef.current === call && !call.cancelled;
 
     try {
       const offerSdp = await call.media.createOffer();
@@ -69,10 +71,17 @@ export function useLiveVoice(sessionId: string) {
 
   const stop = useCallback(async () => {
     const call = callRef.current;
-    if (!call?.callId) return;
+    if (!call || call.cancelled) return;
+
+    call.cancelled = true;
+    call.media.teardown();
+    if (!call.callId) {
+      callRef.current = null;
+      setState('idle');
+      return;
+    }
 
     setState('stopping');
-    call.media.teardown();
     try {
       await acpStopLiveVoice(call.sessionId, call.callId);
       if (callRef.current !== call) return;

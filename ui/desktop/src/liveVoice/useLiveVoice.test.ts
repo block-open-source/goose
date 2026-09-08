@@ -13,6 +13,14 @@ vi.mock('./LiveVoiceMediaSession', () => ({
   LiveVoiceMediaSession: vi.fn(),
 }));
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
 describe('useLiveVoice', () => {
   const media = {
     createOffer: vi.fn(),
@@ -69,29 +77,47 @@ describe('useLiveVoice', () => {
     expect(acpStopLiveVoice).toHaveBeenCalledWith('main-session', 'live-opaque');
   });
 
-  it('stops a call that finishes starting after unmount', async () => {
-    let finishStart!: (value: { callId: string; answerSdp: string }) => void;
-    vi.mocked(acpStartLiveVoice).mockReturnValueOnce(
-      new Promise((resolve) => {
-        finishStart = resolve;
-      })
-    );
-    const { result, unmount } = renderHook(() => useLiveVoice('main-session'));
-    let start!: Promise<void>;
+  it.each(['unmount', 'stop'] as const)(
+    'closes a call that finishes after %s while connecting',
+    async (action) => {
+      const pending = deferred<{ callId: string; answerSdp: string }>();
+      vi.mocked(acpStartLiveVoice).mockReturnValueOnce(pending.promise);
+      const { result, unmount } = renderHook(() => useLiveVoice('main-session'));
+      act(() => {
+        void result.current.start();
+      });
+      await waitFor(() => expect(acpStartLiveVoice).toHaveBeenCalledOnce());
+
+      if (action === 'unmount') {
+        unmount();
+      } else {
+        await act(async () => result.current.stop());
+        expect(result.current.state).toBe('idle');
+      }
+      await act(async () => {
+        pending.resolve({ callId: 'late-call', answerSdp: 'late-answer' });
+      });
+
+      expect(media.teardown).toHaveBeenCalledOnce();
+      expect(media.applyAnswer).not.toHaveBeenCalled();
+      expect(media.enableMicrophone).not.toHaveBeenCalled();
+      expect(acpStopLiveVoice).toHaveBeenCalledWith('main-session', 'late-call');
+    }
+  );
+
+  it('does not become live after stopping during answer setup', async () => {
+    const pending = deferred<void>();
+    media.applyAnswer.mockReturnValueOnce(pending.promise);
+    const { result } = renderHook(() => useLiveVoice('main-session'));
     act(() => {
-      start = result.current.start();
+      void result.current.start();
     });
-    await waitFor(() => expect(acpStartLiveVoice).toHaveBeenCalledOnce());
+    await waitFor(() => expect(media.applyAnswer).toHaveBeenCalledOnce());
 
-    unmount();
-    await act(async () => {
-      finishStart({ callId: 'late-call', answerSdp: 'late-answer' });
-      await start;
-    });
+    await act(async () => result.current.stop());
+    await act(async () => pending.resolve(undefined));
 
-    expect(media.teardown).toHaveBeenCalledOnce();
-    expect(media.applyAnswer).not.toHaveBeenCalled();
     expect(media.enableMicrophone).not.toHaveBeenCalled();
-    expect(acpStopLiveVoice).toHaveBeenCalledWith('main-session', 'late-call');
+    expect(result.current.state).toBe('idle');
   });
 });

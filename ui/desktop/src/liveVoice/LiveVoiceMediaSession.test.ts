@@ -97,4 +97,23 @@ describe('LiveVoiceMediaSession', () => {
       'Microphone or media setup failed'
     );
   });
+
+  it('stops a microphone stream acquired after teardown', async () => {
+    let provideStream!: (stream: MediaStream) => void;
+    vi.mocked(navigator.mediaDevices.getUserMedia).mockReturnValueOnce(
+      new Promise((resolve) => {
+        provideStream = resolve;
+      })
+    );
+    const lateTrack = new FakeTrack();
+    const media = new LiveVoiceMediaSession();
+
+    const offer = media.createOffer();
+    media.teardown();
+    provideStream(new FakeStream([lateTrack]) as unknown as MediaStream);
+
+    await expect(offer).rejects.toThrow('Microphone or media setup failed');
+    expect(lateTrack.stop).toHaveBeenCalledOnce();
+    expect(peerConnection.createOffer).not.toHaveBeenCalled();
+  });
 });

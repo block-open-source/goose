@@ -10,8 +10,17 @@ export class LiveVoiceMediaSession {
 
   async createOffer(): Promise<string> {
     try {
-      this.localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      for (const track of this.localStream.getAudioTracks()) {
+      const localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (this.tornDown) {
+        for (const track of localStream.getTracks()) {
+          track.enabled = false;
+          track.stop();
+        }
+        throw new Error('Live voice media is unavailable');
+      }
+
+      this.localStream = localStream;
+      for (const track of localStream.getAudioTracks()) {
         track.enabled = false;
       }
 
@@ -28,8 +37,8 @@ export class LiveVoiceMediaSession {
           void this.audioElement.play().catch(() => undefined);
         }
       };
-      for (const track of this.localStream.getTracks()) {
-        peerConnection.addTrack(track, this.localStream);
+      for (const track of localStream.getTracks()) {
+        peerConnection.addTrack(track, localStream);
       }
 
       const offer = await peerConnection.createOffer();

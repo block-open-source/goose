@@ -54,7 +54,7 @@ describe('LiveVoiceButton', () => {
     expect(screen.queryByTestId('live-voice-button')).not.toBeInTheDocument();
   });
 
-  it('starts and stops from the matching visible states', () => {
+  it('starts when idle and stops while connecting or live', () => {
     const onStart = vi.fn();
     const onStop = vi.fn();
     const { rerender } = renderButton({ onStart, onStop });
@@ -62,13 +62,19 @@ describe('LiveVoiceButton', () => {
     screen.getByTestId('live-voice-button').click();
     expect(onStart).toHaveBeenCalledOnce();
 
-    rerender(<LiveVoiceButton {...baseProps} state="live" onStart={onStart} onStop={onStop} />);
+    rerender(
+      <LiveVoiceButton {...baseProps} state="connecting" onStart={onStart} onStop={onStop} />
+    );
     screen.getByTestId('live-voice-button').click();
     expect(onStop).toHaveBeenCalledOnce();
+
+    rerender(<LiveVoiceButton {...baseProps} state="live" onStart={onStart} onStop={onStop} />);
+    screen.getByTestId('live-voice-button').click();
+    expect(onStop).toHaveBeenCalledTimes(2);
   });
 
-  it.each(['connecting', 'stopping'] as const)('disables the %s state', (state) => {
-    renderButton({ state });
+  it('disables the stopping state', () => {
+    renderButton({ state: 'stopping' });
     expect(screen.getByTestId('live-voice-button')).toBeDisabled();
   });
 });

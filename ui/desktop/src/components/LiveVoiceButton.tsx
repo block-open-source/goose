@@ -76,7 +76,7 @@ export function LiveVoiceButton({
   if (status === null) return null;
 
   const eligible = status === 'ready' && composerEmpty;
-  const busy = state === 'connecting' || state === 'stopping';
+  const stopping = state === 'stopping';
   const message =
     state === 'connecting'
       ? i18n.connecting
@@ -90,7 +90,8 @@ export function LiveVoiceButton({
               ? statusMessages[status]
               : i18n.emptyComposerRequired;
   const label = intl.formatMessage(message);
-  const disabled = state === 'idle' ? !eligible : busy;
+  const disabled = state === 'idle' ? !eligible : stopping;
+  const canStop = state === 'connecting' || state === 'live';
 
   return (
     <Tooltip>
@@ -102,22 +103,22 @@ export function LiveVoiceButton({
             size="sm"
             shape="round"
             disabled={disabled}
-            onClick={state === 'live' ? onStop : onStart}
+            onClick={canStop ? onStop : onStart}
             aria-label={label}
             data-testid="live-voice-button"
             data-eligible={eligible}
             data-state={state}
             className={cn(
               'transition-colors',
-              state === 'live' && 'text-red-500 hover:text-red-600 cursor-pointer',
+              canStop && 'text-red-500 hover:text-red-600 cursor-pointer',
               state === 'error' && 'text-red-500 hover:text-red-600 cursor-pointer',
               state === 'idle' && eligible && 'text-text-primary/70 cursor-pointer',
               disabled && 'text-text-secondary opacity-50'
             )}
           >
-            {busy ? (
+            {stopping ? (
               <LoaderCircle className="w-4 h-4 animate-spin" />
-            ) : state === 'live' ? (
+            ) : canStop ? (
               <Square className="w-4 h-4" />
             ) : (
               <AudioLines className="w-4 h-4" />

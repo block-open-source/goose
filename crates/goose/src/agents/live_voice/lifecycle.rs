@@ -262,8 +262,8 @@ impl<'a> ConnectionLifecycle<'a> {
             Some(Ok(ProviderEvent::ProjectedTurn(value))) => {
                 self.updates.send(LiveVoiceEvent::ProjectedTurn(value));
             }
-            Some(Ok(ProviderEvent::OutputActivityChanged(value))) => {
-                self.output_speaking = Some(value);
+            Some(Ok(ProviderEvent::OutputActivityChanged { active })) => {
+                self.output_speaking = Some(active);
                 self.emit_state();
             }
             Some(Ok(ProviderEvent::UsageUpdated(usage))) => self.latest_usage = Some(usage),
@@ -313,7 +313,7 @@ impl<'a> ConnectionLifecycle<'a> {
                         .send(LiveVoiceEvent::DelegationDelivered(delegation_id));
                 }
             }
-            Some(Ok(ProviderEvent::CommandRejected(command_id, error))) => {
+            Some(Ok(ProviderEvent::CommandRejected { command_id, reason })) => {
                 if let Some(pending) = self
                     .pending_delegation
                     .as_ref()
@@ -321,10 +321,10 @@ impl<'a> ConnectionLifecycle<'a> {
                 {
                     self.updates.send(LiveVoiceEvent::DelegationFailed(
                         pending.request.id.clone(),
-                        error.clone(),
+                        reason.clone(),
                     ));
                 }
-                return Some(LiveTerminalReason::CommandFailed(error));
+                return Some(LiveTerminalReason::CommandFailed(reason));
             }
             Some(Ok(ProviderEvent::RemoteClosed { reason, usage })) => {
                 self.remote_acknowledged = true;

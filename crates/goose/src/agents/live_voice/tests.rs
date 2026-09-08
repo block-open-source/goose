@@ -1,6 +1,6 @@
 use super::*;
 use goose_providers::live_voice_provider::{
-    fake::{channel, FakeConnectionDriver, FakeStartRequest},
+    fake::{provider_channel, FakeConnectionDriver, FakeStartRequest},
     LiveVoiceCapabilities, ProviderCommand, ProviderDelegation, ProviderDelegationId,
     ProviderDelegationTarget, ProviderDispatchResult, ProviderEvent, ProviderEventStreamError,
     ProviderStartupObservation,
@@ -12,7 +12,7 @@ fn coordinator() -> (
     LiveVoiceCoordinator,
     mpsc::UnboundedReceiver<FakeStartRequest>,
 ) {
-    let (provider, starts) = channel(LiveVoiceCapabilities::default());
+    let (provider, start_requests) = provider_channel(LiveVoiceCapabilities::default());
     let short = Duration::from_millis(60);
     (
         LiveVoiceCoordinator::with_deadlines(
@@ -25,7 +25,7 @@ fn coordinator() -> (
                 cleanup: short,
             },
         ),
-        starts,
+        start_requests,
     )
 }
 
@@ -54,8 +54,8 @@ fn request(attempt: u64) -> (StartRequest, mpsc::UnboundedReceiver<LiveVoiceUpda
     )
 }
 
-fn accept(start: FakeStartRequest) -> FakeConnectionDriver {
-    start
+fn accept(start_request: FakeStartRequest) -> FakeConnectionDriver {
+    start_request
         .accept(
             goose_providers::live_voice_provider::LiveVoiceMediaAnswer::WebRtc {
                 answer_sdp: "answer".into(),
@@ -70,13 +70,13 @@ async fn connected() -> (
     FakeConnectionDriver,
     mpsc::UnboundedReceiver<LiveVoiceUpdate>,
 ) {
-    let (coordinator, mut starts) = coordinator();
+    let (coordinator, mut start_requests) = coordinator();
     let (request, updates) = request(1);
     let task = {
         let coordinator = coordinator.clone();
         tokio::spawn(async move { coordinator.start(request).await.unwrap() })
     };
-    let driver = accept(starts.recv().await.unwrap());
+    let driver = accept(start_requests.recv().await.unwrap());
     (coordinator, task.await.unwrap(), driver, updates)
 }
 
@@ -118,7 +118,7 @@ async fn update_matching(
 
 #[tokio::test]
 async fn attempt_registration_is_atomic_and_cancellation_is_remembered() {
-    let (coordinator, mut starts) = coordinator();
+    let (coordinator, mut start_requests) = coordinator();
     coordinator
         .stop(&owner(), &session(), StopTarget::Attempt(1))
         .unwrap();
@@ -133,7 +133,7 @@ async fn attempt_registration_is_atomic_and_cancellation_is_remembered() {
         let coordinator = coordinator.clone();
         tokio::spawn(async move { coordinator.start(first).await })
     };
-    let pending = starts.recv().await.unwrap();
+    let pending = start_requests.recv().await.unwrap();
     let (duplicate, _) = request(3);
     assert_eq!(
         coordinator.start(duplicate).await.unwrap_err(),
@@ -335,16 +335,21 @@ async fn delegations_are_deduplicated_and_keep_the_provider_identity() {
 
 #[tokio::test]
 async fn dropped_start_request_cleans_up_a_late_connection() {
-    let (coordinator, mut starts) = coordinator();
+    let (coordinator, mut start_requests) = coordinator();
     let (request, _) = request(1);
     let task = {
         let coordinator = coordinator.clone();
         tokio::spawn(async move { coordinator.start(request).await })
     };
-    let pending = starts.recv().await.unwrap();
+    let pending = start_requests.recv().await.unwrap();
     task.abort();
     let mut driver = accept(pending);
-    driver.next_close().await.unwrap().send(Ok(())).unwrap();
+    driver
+        .next_close_request()
+        .await
+        .unwrap()
+        .send(Ok(()))
+        .unwrap();
     tokio::time::sleep(Duration::from_millis(70)).await;
     assert!(!coordinator.has_connection(&owner(), &session()));
 }
@@ -364,7 +369,12 @@ async fn fallback_cleanup_does_not_claim_remote_acknowledgement() {
     driver
         .fail(ProviderEventStreamError::Failed("sideband lost".into()))
         .unwrap();
-    driver.next_close().await.unwrap().send(Ok(())).unwrap();
+    driver
+        .next_close_request()
+        .await
+        .unwrap()
+        .send(Ok(()))
+        .unwrap();
     update_matching(&mut updates, |event| {
         matches!(event, LiveVoiceEvent::RequestMediaCleanup(_))
     })

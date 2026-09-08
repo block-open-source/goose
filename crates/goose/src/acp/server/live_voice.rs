@@ -2,6 +2,8 @@ use super::*;
 use crate::agents::live_voice::{LiveSessionId, LiveVoiceCoordinator};
 use goose_providers::openai_live_voice_provider::OpenAiLiveVoiceProvider;
 
+const MAX_SESSION_ID_BYTES: usize = 128;
+
 pub struct LiveVoiceService {
     enabled: bool,
     provider_configured: bool,
@@ -30,16 +32,16 @@ impl LiveVoiceService {
         }
     }
 
-    fn availability(
+    fn status(
         &self,
         session_id: &str,
         mode: GooseMode,
         prompt_active: bool,
     ) -> LiveVoiceAvailabilityResponse {
-        use LiveVoiceAvailability::*;
+        use LiveVoiceStatus::*;
 
-        let availability = if !self.enabled {
-            Disabled
+        let status = if !self.enabled {
+            FeatureDisabled
         } else if !self.provider_configured {
             ProviderUnavailable
         } else if prompt_active {
@@ -52,10 +54,10 @@ impl LiveVoiceService {
         {
             SessionBusy
         } else {
-            Available
+            Ready
         };
 
-        LiveVoiceAvailabilityResponse { availability }
+        LiveVoiceAvailabilityResponse { status }
     }
 }
 
@@ -64,6 +66,9 @@ impl GooseAcpAgent {
         &self,
         req: LiveVoiceAvailabilityRequest,
     ) -> Result<LiveVoiceAvailabilityResponse, agent_client_protocol::Error> {
+        if req.session_id.is_empty() || req.session_id.len() > MAX_SESSION_ID_BYTES {
+            return Err(agent_client_protocol::Error::invalid_params());
+        }
         if !self.sessions.lock().await.contains_key(&req.session_id) {
             return Err(agent_client_protocol::Error::resource_not_found(None)
                 .data("Session is not accessible"));
@@ -91,7 +96,7 @@ impl GooseAcpAgent {
             .contains_key(&req.session_id);
         Ok(self
             .live_voice
-            .availability(&req.session_id, session.goose_mode, prompt_active))
+            .status(&req.session_id, session.goose_mode, prompt_active))
     }
 }
 
@@ -112,47 +117,47 @@ mod tests {
         LiveVoiceService::new(enabled, configured, LiveVoiceCoordinator::new(provider))
     }
 
-    fn assert_availability(
+    fn assert_status(
         service: &LiveVoiceService,
         mode: GooseMode,
         prompt_active: bool,
-        expected: LiveVoiceAvailability,
+        expected: LiveVoiceStatus,
     ) {
-        let response = service.availability("main-session", mode, prompt_active);
-        assert_eq!(response.availability, expected);
+        let response = service.status("main-session", mode, prompt_active);
+        assert_eq!(response.status, expected);
     }
 
     #[test]
     fn reports_each_static_eligibility_gate() {
-        assert_availability(
+        assert_status(
             &service(false, true),
             GooseMode::Auto,
             false,
-            LiveVoiceAvailability::Disabled,
+            LiveVoiceStatus::FeatureDisabled,
         );
-        assert_availability(
+        assert_status(
             &service(true, false),
             GooseMode::Auto,
             false,
-            LiveVoiceAvailability::ProviderUnavailable,
+            LiveVoiceStatus::ProviderUnavailable,
         );
-        assert_availability(
+        assert_status(
             &service(true, true),
             GooseMode::Auto,
             true,
-            LiveVoiceAvailability::SessionBusy,
+            LiveVoiceStatus::SessionBusy,
         );
-        assert_availability(
+        assert_status(
             &service(true, true),
             GooseMode::Approve,
             false,
-            LiveVoiceAvailability::RequiresAutonomousMode,
+            LiveVoiceStatus::RequiresAutonomousMode,
         );
-        assert_availability(
+        assert_status(
             &service(true, true),
             GooseMode::Auto,
             false,
-            LiveVoiceAvailability::Available,
+            LiveVoiceStatus::Ready,
         );
     }
 
@@ -165,24 +170,29 @@ mod tests {
         let coordinator = LiveVoiceCoordinator::new(provider);
         let service = LiveVoiceService::new(true, true, coordinator.clone());
         let (updates, _update_rx) = mpsc::unbounded_channel();
-        let start = tokio::spawn(coordinator.start(StartRequest {
-            owner: LiveOwnerToken("owner".into()),
-            live_session_id: LiveSessionId("main-session".into()),
-            linked_work_session_id: Some(WorkSessionId("main-session".into())),
-            attempt: 1,
-            config: LiveVoiceConfig::default(),
-            media: LiveVoiceMediaRequest::WebRtc {
-                offer_sdp: "offer".into(),
-            },
-            updates,
-        }));
+        let start_coordinator = coordinator.clone();
+        let start = tokio::spawn(async move {
+            start_coordinator
+                .start(StartRequest {
+                    owner: LiveOwnerToken("owner".into()),
+                    live_session_id: LiveSessionId("main-session".into()),
+                    linked_work_session_id: Some(WorkSessionId("main-session".into())),
+                    attempt: 1,
+                    config: LiveVoiceConfig::default(),
+                    media: LiveVoiceMediaRequest::WebRtc {
+                        offer_sdp: "offer".into(),
+                    },
+                    updates,
+                })
+                .await
+        });
         let pending_start = starts.recv().await.expect("provider start request");
 
-        assert_availability(
+        assert_status(
             &service,
             GooseMode::Auto,
             false,
-            LiveVoiceAvailability::SessionBusy,
+            LiveVoiceStatus::SessionBusy,
         );
 
         pending_start.reject("done").unwrap();

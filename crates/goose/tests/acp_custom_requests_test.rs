@@ -189,6 +189,39 @@ fn test_custom_get_tools() {
 
 #[test]
 #[serial]
+fn test_live_voice_availability_is_bound_to_an_accessible_main_session() {
+    let _guard = env_lock::lock_env([
+        ("GOOSE_LIVE_VOICE_ENABLED", Some("1")),
+        ("OPENAI_API_KEY", Some("test-live-key")),
+    ]);
+    write_acp_global_config(DEFAULT_ACP_TEST_CONFIG);
+
+    run_test(async move {
+        let openai = OpenAiFixture::new(vec![], Arc::new(EnforceSessionId::default())).await;
+        let mut conn = AcpServerConnection::new(TestConnectionConfig::default(), openai).await;
+        let SessionData { session, .. } = conn.new_session().await.unwrap();
+
+        let response = send_custom(
+            conn.cx(),
+            "_goose/unstable/session/live-voice/availability",
+            serde_json::json!({ "sessionId": session.session_id().0 }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(response["status"], "ready");
+
+        let inaccessible = send_custom(
+            conn.cx(),
+            "_goose/unstable/session/live-voice/availability",
+            serde_json::json!({ "sessionId": "not-loaded-on-this-connection" }),
+        )
+        .await;
+        assert!(inaccessible.is_err());
+    });
+}
+
+#[test]
+#[serial]
 fn test_custom_get_extensions() {
     let config_key = "test-stdio-acp-mutation-flow";
     let _guard = env_lock::lock_env([("EXTENSIONS", None::<&str>)]);

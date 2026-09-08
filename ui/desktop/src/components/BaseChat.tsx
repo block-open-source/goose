@@ -36,6 +36,8 @@ import { Goose } from './icons';
 import EnvironmentBadge from './GooseSidebar/EnvironmentBadge';
 import SessionActionsHeader from './SessionActionsHeader';
 import { isAcpRecovering, subscribeToAcpRecovery } from '../acp/acpConnection';
+import type { LiveVoiceStatus } from '@aaif/goose-sdk';
+import { acpGetLiveVoiceAvailability } from '../acp/liveVoice';
 
 const i18n = defineMessages({
   failedToLoadSession: {
@@ -93,6 +95,9 @@ export default function BaseChat({
   const [hasNotAcceptedRecipe, setHasNotAcceptedRecipe] = useState<boolean>();
   const [hasRecipeSecurityWarnings, setHasRecipeSecurityWarnings] = useState(false);
   const [acpRecovering, setAcpRecovering] = useState(isAcpRecovering);
+  const [liveVoiceStatus, setLiveVoiceStatus] = useState<LiveVoiceStatus | null>(
+    null
+  );
   const isMobile = useIsMobile();
   const navContext = useNavigationContextSafe();
   const setView = useNavigation();
@@ -128,6 +133,41 @@ export default function BaseChat({
     (text: string) => handleSubmit({ msg: text, images: [] }),
     [handleSubmit]
   );
+
+  const sessionLoaded = session !== undefined;
+  const liveVoiceChatBusy = chatState !== ChatState.Idle;
+
+  useEffect(() => {
+    if (!isActiveSession || !sessionLoaded || acpRecovering) {
+      setLiveVoiceStatus(null);
+      return;
+    }
+
+    let current = true;
+    setLiveVoiceStatus(null);
+    void acpGetLiveVoiceAvailability(sessionId).then(
+      (response) => {
+        if (current) {
+          setLiveVoiceStatus(response.status);
+        }
+      },
+      () => {
+        if (current) {
+          setLiveVoiceStatus(null);
+        }
+      }
+    );
+    return () => {
+      current = false;
+    };
+  }, [
+    acpRecovering,
+    isActiveSession,
+    liveVoiceChatBusy,
+    session?.goose_mode,
+    sessionId,
+    sessionLoaded,
+  ]);
 
   const handleWorkingDirChange = useCallback(
     async (newDir: string) => {
@@ -221,7 +261,6 @@ export default function BaseChat({
 
   const sessionModel = session?.model_config?.model_name ?? null;
   const sessionProvider = session?.provider_name ?? null;
-  const sessionLoaded = session !== undefined;
   const latestInference = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
       const message = messages[i];
@@ -547,6 +586,7 @@ export default function BaseChat({
             workingDir={session?.working_dir}
             onWorkingDirChange={handleWorkingDirChange}
             latestInference={latestInference}
+            liveVoiceStatus={liveVoiceStatus}
             {...customChatInputProps}
           />
         </ChatInputCard>

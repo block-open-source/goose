@@ -41,6 +41,8 @@ import { getTextDirection } from '../utils/textDirection';
 import { defineMessages, useIntl } from '../i18n';
 import TurndownService from 'turndown';
 import type { NextChatExtensionDraft } from '../utils/nextChatExtensions';
+import { LiveVoiceButton } from './LiveVoiceButton';
+import type { LiveVoiceStatus } from '@aaif/goose-sdk';
 
 const turndown = new TurndownService({
   headingStyle: 'atx',
@@ -199,6 +201,7 @@ interface ChatInputProps {
   latestInference?: Message['metadata']['inference'] | null;
   nextChatExtensionDraft?: NextChatExtensionDraft;
   onNextChatExtensionDraftChange?: (draft: NextChatExtensionDraft) => void;
+  liveVoiceStatus?: LiveVoiceStatus | null;
 }
 
 export default function ChatInput({
@@ -236,6 +239,7 @@ export default function ChatInput({
   latestInference,
   nextChatExtensionDraft,
   onNextChatExtensionDraftChange,
+  liveVoiceStatus = null,
 }: ChatInputProps) {
   const [_value, setValue] = useState(initialValue);
   const [displayValue, setDisplayValue] = useState(initialValue); // For immediate visual feedback
@@ -1802,6 +1806,17 @@ export default function ChatInput({
               <TooltipContent>Attach file</TooltipContent>
             </Tooltip>
           </>
+        )}
+
+        {sessionId && liveVoiceStatus && (
+          <LiveVoiceButton
+            status={liveVoiceStatus}
+            composerEmpty={
+              displayValue.trim().length === 0 &&
+              pastedImages.length === 0 &&
+              allDroppedFiles.length === 0
+            }
+          />
         )}
 
         {/* Right: mic — ghost icon, no background when idle */}

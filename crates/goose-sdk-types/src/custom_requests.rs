@@ -239,6 +239,33 @@ pub struct SteerSessionResponse {
     pub message_id: String,
 }
 
+/// Ask whether the displayed main session can enter direct Live voice.
+#[derive(Debug, Default, Clone, Serialize, Deserialize, JsonSchema, JsonRpcRequest)]
+#[request(
+    method = "_goose/unstable/session/live-voice/availability",
+    response = LiveVoiceAvailabilityResponse
+)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveVoiceAvailabilityRequest {
+    pub session_id: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LiveVoiceAvailability {
+    Available,
+    Disabled,
+    ProviderUnavailable,
+    SessionBusy,
+    RequiresAutonomousMode,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, JsonRpcResponse)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveVoiceAvailabilityResponse {
+    pub availability: LiveVoiceAvailability,
+}
+
 /// Get a diagnostic report for a session.
 #[derive(Debug, Default, Clone, Serialize, Deserialize, JsonSchema, JsonRpcRequest)]
 #[request(

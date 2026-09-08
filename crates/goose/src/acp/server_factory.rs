@@ -27,14 +27,17 @@ pub struct AcpServer {
     config: AcpServerFactoryConfig,
     scheduler: OnceCell<Arc<dyn SchedulerTrait>>,
     active_prompt_runs: ActiveRunRegistry,
+    live_voice: Arc<crate::acp::server::LiveVoiceService>,
 }
 
 impl AcpServer {
     pub fn new(config: AcpServerFactoryConfig) -> Self {
+        let live_voice = Arc::new(crate::acp::server::LiveVoiceService::from_env());
         Self {
             config,
             scheduler: OnceCell::new(),
             active_prompt_runs: ActiveRunRegistry::default(),
+            live_voice,
         }
     }
 
@@ -124,6 +127,7 @@ impl AcpServer {
             session_cwd,
             scheduler,
             active_prompt_runs: self.active_prompt_runs.clone(),
+            live_voice: self.live_voice.clone(),
         })
         .await?;
         info!("Created new ACP agent");

@@ -403,6 +403,7 @@ pub async fn spawn_acp_server_in_process(
         session_cwd: None,
         scheduler: Some(Arc::new(FixtureScheduler::new())),
         active_prompt_runs: Default::default(),
+        live_voice: Arc::new(goose::acp::server::LiveVoiceService::from_env()),
     })
     .await
     .unwrap();

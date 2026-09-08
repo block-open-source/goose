@@ -108,8 +108,10 @@ mod elicitation;
 mod extensions;
 mod fork_session;
 mod list_sessions;
+mod live_voice;
 mod load_session;
 mod local_inference;
+pub use live_voice::LiveVoiceService;
 mod manage_sessions;
 mod message_meta;
 mod new_session;
@@ -337,11 +339,13 @@ pub struct GooseAcpAgentOptions {
     /// active-run guard holds across roaming connections that each get a fresh
     /// agent for the same session.
     pub active_prompt_runs: ActiveRunRegistry,
+    pub live_voice: Arc<LiveVoiceService>,
 }
 
 pub struct GooseAcpAgent {
     sessions: Arc<Mutex<HashMap<String, GooseAcpSession>>>,
     active_prompt_runs: Arc<Mutex<HashMap<String, ActivePromptRun>>>,
+    live_voice: Arc<LiveVoiceService>,
     closed_session_ids: Arc<Mutex<HashSet<String>>>,
     agent_manager: Arc<AgentManager>,
     provider_factory: AcpProviderFactory,
@@ -984,6 +988,7 @@ impl GooseAcpAgent {
         Ok(Self {
             sessions: Arc::new(Mutex::new(HashMap::new())),
             active_prompt_runs: options.active_prompt_runs,
+            live_voice: options.live_voice,
             closed_session_ids: Arc::new(Mutex::new(HashSet::new())),
             agent_manager,
             provider_factory: options.provider_factory,
@@ -3646,6 +3651,7 @@ print(\"hello, world\")
                 scheduler: None,
                 session_cwd: None,
                 active_prompt_runs: Default::default(),
+                live_voice: Arc::new(LiveVoiceService::from_env()),
             })
             .await
             .unwrap(),

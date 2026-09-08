@@ -16,7 +16,7 @@ const UNSUPPORTED_WORK: &str =
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) struct ConnectionKey {
     pub owner: LiveOwnerToken,
-    live_session_id: LiveSessionId,
+    pub live_session_id: LiveSessionId,
 }
 
 impl ConnectionKey {

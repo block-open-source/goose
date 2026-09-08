@@ -133,6 +133,14 @@ impl GooseAcpAgent {
         self.on_steer_session(req).await
     }
 
+    #[custom_method(LiveVoiceAvailabilityRequest)]
+    async fn dispatch_live_voice_availability(
+        &self,
+        req: LiveVoiceAvailabilityRequest,
+    ) -> Result<LiveVoiceAvailabilityResponse, agent_client_protocol::Error> {
+        self.on_live_voice_availability(req).await
+    }
+
     #[custom_method(DiagnosticsGetRequest)]
     async fn dispatch_get_diagnostics(
         &self,

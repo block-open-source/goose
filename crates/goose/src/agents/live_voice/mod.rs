@@ -222,6 +222,16 @@ impl LiveVoiceCoordinator {
         }
     }
 
+    pub fn has_live_session(&self, session: &LiveSessionId) -> bool {
+        self.inner
+            .registry
+            .lock()
+            .expect("live voice lock poisoned")
+            .current
+            .keys()
+            .any(|key| &key.live_session_id == session)
+    }
+
     #[cfg(test)]
     fn has_connection(&self, owner: &LiveOwnerToken, session: &LiveSessionId) -> bool {
         self.inner

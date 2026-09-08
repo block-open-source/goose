@@ -38,6 +38,7 @@ import SessionActionsHeader from './SessionActionsHeader';
 import { isAcpRecovering, subscribeToAcpRecovery } from '../acp/acpConnection';
 import type { LiveVoiceStatus } from '@aaif/goose-sdk';
 import { acpGetLiveVoiceAvailability } from '../acp/liveVoice';
+import { useLiveVoice } from '../liveVoice/useLiveVoice';
 
 const i18n = defineMessages({
   failedToLoadSession: {
@@ -95,9 +96,8 @@ export default function BaseChat({
   const [hasNotAcceptedRecipe, setHasNotAcceptedRecipe] = useState<boolean>();
   const [hasRecipeSecurityWarnings, setHasRecipeSecurityWarnings] = useState(false);
   const [acpRecovering, setAcpRecovering] = useState(isAcpRecovering);
-  const [liveVoiceStatus, setLiveVoiceStatus] = useState<LiveVoiceStatus | null>(
-    null
-  );
+  const [liveVoiceStatus, setLiveVoiceStatus] = useState<LiveVoiceStatus | null>(null);
+  const liveVoice = useLiveVoice(sessionId);
   const isMobile = useIsMobile();
   const navContext = useNavigationContextSafe();
   const setView = useNavigation();
@@ -556,7 +556,13 @@ export default function BaseChat({
             onStop={stopStreaming}
             onSteerQueuedMessage={onSteerQueuedMessage}
             pauseQueueOnStop={pauseQueueOnStop}
-            queueProcessingBlocked={queueProcessingBlocked || acpRecovering}
+            queueProcessingBlocked={
+              queueProcessingBlocked ||
+              acpRecovering ||
+              liveVoice.state === 'connecting' ||
+              liveVoice.state === 'live' ||
+              liveVoice.state === 'stopping'
+            }
             commandHistory={commandHistory}
             initialValue={initialPrompt}
             setView={setView}
@@ -587,6 +593,9 @@ export default function BaseChat({
             onWorkingDirChange={handleWorkingDirChange}
             latestInference={latestInference}
             liveVoiceStatus={liveVoiceStatus}
+            liveVoiceState={liveVoice.state}
+            onStartLiveVoice={() => void liveVoice.start()}
+            onStopLiveVoice={() => void liveVoice.stop()}
             {...customChatInputProps}
           />
         </ChatInputCard>

@@ -1,12 +1,15 @@
 import { render, screen } from '@testing-library/react';
 import type { ComponentProps } from 'react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { IntlTestWrapper } from '../i18n/test-utils';
 import { LiveVoiceButton } from './LiveVoiceButton';
 
 const baseProps: ComponentProps<typeof LiveVoiceButton> = {
   status: 'ready',
   composerEmpty: true,
+  state: 'idle',
+  onStart: vi.fn(),
+  onStop: vi.fn(),
 };
 
 function renderButton(props: Partial<typeof baseProps> = {}) {
@@ -18,7 +21,7 @@ describe('LiveVoiceButton', () => {
     renderButton();
 
     const button = screen.getByTestId('live-voice-button');
-    expect(button).toBeDisabled();
+    expect(button).toBeEnabled();
     expect(button).toHaveAttribute('data-eligible', 'true');
     expect(button).toHaveAccessibleName('Start Live voice');
   });
@@ -49,5 +52,23 @@ describe('LiveVoiceButton', () => {
   it('does not render without eligibility for the displayed session', () => {
     renderButton({ status: null });
     expect(screen.queryByTestId('live-voice-button')).not.toBeInTheDocument();
+  });
+
+  it('starts and stops from the matching visible states', () => {
+    const onStart = vi.fn();
+    const onStop = vi.fn();
+    const { rerender } = renderButton({ onStart, onStop });
+
+    screen.getByTestId('live-voice-button').click();
+    expect(onStart).toHaveBeenCalledOnce();
+
+    rerender(<LiveVoiceButton {...baseProps} state="live" onStart={onStart} onStop={onStop} />);
+    screen.getByTestId('live-voice-button').click();
+    expect(onStop).toHaveBeenCalledOnce();
+  });
+
+  it.each(['connecting', 'stopping'] as const)('disables the %s state', (state) => {
+    renderButton({ state });
+    expect(screen.getByTestId('live-voice-button')).toBeDisabled();
   });
 });

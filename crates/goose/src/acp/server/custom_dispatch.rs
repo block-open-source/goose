@@ -141,6 +141,22 @@ impl GooseAcpAgent {
         self.on_live_voice_availability(req).await
     }
 
+    #[custom_method(LiveVoiceStartRequest)]
+    async fn dispatch_live_voice_start(
+        &self,
+        req: LiveVoiceStartRequest,
+    ) -> Result<LiveVoiceStartResponse, agent_client_protocol::Error> {
+        self.on_live_voice_start(req).await
+    }
+
+    #[custom_method(LiveVoiceStopRequest)]
+    async fn dispatch_live_voice_stop(
+        &self,
+        req: LiveVoiceStopRequest,
+    ) -> Result<EmptyResponse, agent_client_protocol::Error> {
+        self.on_live_voice_stop(req).await
+    }
+
     #[custom_method(DiagnosticsGetRequest)]
     async fn dispatch_get_diagnostics(
         &self,

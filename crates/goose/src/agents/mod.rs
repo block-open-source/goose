@@ -7,7 +7,6 @@ pub mod extension_manager;
 pub mod final_output_tool;
 pub(crate) mod gen_ai_telemetry;
 mod large_response_handler;
-pub mod live_voice;
 pub mod mcp_client;
 pub mod moim;
 pub mod platform_extensions;

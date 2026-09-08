@@ -269,6 +269,35 @@ pub struct LiveVoiceAvailabilityResponse {
 /// Get a diagnostic report for a session.
 #[derive(Debug, Default, Clone, Serialize, Deserialize, JsonSchema, JsonRpcRequest)]
 #[request(
+    method = "_goose/unstable/session/live-voice/start",
+    response = LiveVoiceStartResponse
+)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveVoiceStartRequest {
+    pub session_id: String,
+    pub offer_sdp: String,
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize, JsonSchema, JsonRpcResponse)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveVoiceStartResponse {
+    pub call_id: String,
+    pub answer_sdp: String,
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize, JsonSchema, JsonRpcRequest)]
+#[request(
+    method = "_goose/unstable/session/live-voice/stop",
+    response = EmptyResponse
+)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveVoiceStopRequest {
+    pub session_id: String,
+    pub call_id: String,
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize, JsonSchema, JsonRpcRequest)]
+#[request(
     method = "_goose/unstable/diagnostics/get",
     response = DiagnosticsGetResponse
 )]

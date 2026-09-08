@@ -1,11 +1,15 @@
 use crate::acp::server::{
-    AcpBuiltinSelection, AcpProviderFactory, ActiveRunRegistry, GooseAcpAgent, GooseAcpAgentOptions,
+    AcpBuiltinSelection, AcpProviderFactory, ActiveRunRegistry, GooseAcpAgent,
+    GooseAcpAgentOptions, LiveVoiceService,
 };
 use crate::agents::GoosePlatform;
 use crate::scheduler_trait::SchedulerTrait;
 use crate::session::SessionManager;
 use crate::source_roots::SourceRoot;
 use anyhow::Result;
+use goose_providers::{
+    live_voice_provider::LiveVoiceProvider, openai_live_voice_provider::OpenAiLiveVoiceProvider,
+};
 use std::sync::Arc;
 use tokio::sync::OnceCell;
 use tracing::info;
@@ -32,7 +36,8 @@ pub struct AcpServer {
 
 impl AcpServer {
     pub fn new(config: AcpServerFactoryConfig) -> Self {
-        let live_voice = Arc::new(crate::acp::server::LiveVoiceService::from_env());
+        let provider: Arc<dyn LiveVoiceProvider> = Arc::new(OpenAiLiveVoiceProvider::from_env());
+        let live_voice = Arc::new(LiveVoiceService::new(provider));
         Self {
             config,
             scheduler: OnceCell::new(),

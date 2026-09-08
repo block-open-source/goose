@@ -1,9 +1,10 @@
 import type { LiveVoiceStatus } from '@aaif/goose-sdk';
-import { AudioLines } from 'lucide-react';
+import { AudioLines, LoaderCircle, Square } from 'lucide-react';
 import { defineMessages, useIntl } from '../i18n';
 import { cn } from '../utils';
 import { Button } from './ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/Tooltip';
+import type { LiveVoiceUiState } from '../liveVoice/useLiveVoice';
 
 const i18n = defineMessages({
   ready: {
@@ -30,6 +31,22 @@ const i18n = defineMessages({
     id: 'liveVoice.emptyComposerRequired',
     defaultMessage: 'Clear the message and attachments to use Live voice',
   },
+  connecting: {
+    id: 'liveVoice.connecting',
+    defaultMessage: 'Connecting Live voice',
+  },
+  live: {
+    id: 'liveVoice.live',
+    defaultMessage: 'Stop Live voice',
+  },
+  stopping: {
+    id: 'liveVoice.stopping',
+    defaultMessage: 'Stopping Live voice',
+  },
+  error: {
+    id: 'liveVoice.error',
+    defaultMessage: 'Live voice failed. Try again',
+  },
 });
 
 const statusMessages = {
@@ -43,15 +60,37 @@ const statusMessages = {
 interface LiveVoiceButtonProps {
   status: LiveVoiceStatus | null;
   composerEmpty: boolean;
+  state: LiveVoiceUiState;
+  onStart: () => void;
+  onStop: () => void;
 }
 
-export function LiveVoiceButton({ status, composerEmpty }: LiveVoiceButtonProps) {
+export function LiveVoiceButton({
+  status,
+  composerEmpty,
+  state,
+  onStart,
+  onStop,
+}: LiveVoiceButtonProps) {
   const intl = useIntl();
   if (status === null) return null;
 
   const eligible = status === 'ready' && composerEmpty;
-  const message = composerEmpty ? statusMessages[status] : i18n.emptyComposerRequired;
+  const busy = state === 'connecting' || state === 'stopping';
+  const message =
+    state === 'connecting'
+      ? i18n.connecting
+      : state === 'live'
+        ? i18n.live
+        : state === 'stopping'
+          ? i18n.stopping
+          : state === 'error'
+            ? i18n.error
+            : composerEmpty
+              ? statusMessages[status]
+              : i18n.emptyComposerRequired;
   const label = intl.formatMessage(message);
+  const disabled = state === 'idle' ? !eligible : busy;
 
   return (
     <Tooltip>
@@ -62,16 +101,27 @@ export function LiveVoiceButton({ status, composerEmpty }: LiveVoiceButtonProps)
             variant="ghost"
             size="sm"
             shape="round"
-            disabled
+            disabled={disabled}
+            onClick={state === 'live' ? onStop : onStart}
             aria-label={label}
             data-testid="live-voice-button"
             data-eligible={eligible}
+            data-state={state}
             className={cn(
               'transition-colors',
-              eligible ? 'text-text-primary/70' : 'text-text-secondary opacity-50'
+              state === 'live' && 'text-red-500 hover:text-red-600 cursor-pointer',
+              state === 'error' && 'text-red-500 hover:text-red-600 cursor-pointer',
+              state === 'idle' && eligible && 'text-text-primary/70 cursor-pointer',
+              disabled && 'text-text-secondary opacity-50'
             )}
           >
-            <AudioLines className="w-4 h-4" />
+            {busy ? (
+              <LoaderCircle className="w-4 h-4 animate-spin" />
+            ) : state === 'live' ? (
+              <Square className="w-4 h-4" />
+            ) : (
+              <AudioLines className="w-4 h-4" />
+            )}
           </Button>
         </span>
       </TooltipTrigger>

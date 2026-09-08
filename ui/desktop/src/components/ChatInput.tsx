@@ -43,6 +43,7 @@ import TurndownService from 'turndown';
 import type { NextChatExtensionDraft } from '../utils/nextChatExtensions';
 import { LiveVoiceButton } from './LiveVoiceButton';
 import type { LiveVoiceStatus } from '@aaif/goose-sdk';
+import type { LiveVoiceUiState } from '../liveVoice/useLiveVoice';
 
 const turndown = new TurndownService({
   headingStyle: 'atx',
@@ -202,6 +203,9 @@ interface ChatInputProps {
   nextChatExtensionDraft?: NextChatExtensionDraft;
   onNextChatExtensionDraftChange?: (draft: NextChatExtensionDraft) => void;
   liveVoiceStatus?: LiveVoiceStatus | null;
+  liveVoiceState?: LiveVoiceUiState;
+  onStartLiveVoice?: () => void;
+  onStopLiveVoice?: () => void;
 }
 
 export default function ChatInput({
@@ -240,6 +244,9 @@ export default function ChatInput({
   nextChatExtensionDraft,
   onNextChatExtensionDraftChange,
   liveVoiceStatus = null,
+  liveVoiceState = 'idle',
+  onStartLiveVoice = () => undefined,
+  onStopLiveVoice = () => undefined,
 }: ChatInputProps) {
   const [_value, setValue] = useState(initialValue);
   const [displayValue, setDisplayValue] = useState(initialValue); // For immediate visual feedback
@@ -262,6 +269,8 @@ export default function ChatInput({
 
   // Derived state - chatState != Idle means we're in some form of loading state
   const isLoading = chatState !== ChatState.Idle;
+  const liveVoiceOwnsChat =
+    liveVoiceState === 'connecting' || liveVoiceState === 'live' || liveVoiceState === 'stopping';
   const isLoadingRef = useRef(isLoading);
 
   const composerDir = useMemo(() => getTextDirection(displayValue) ?? undefined, [displayValue]);
@@ -1561,7 +1570,7 @@ export default function ChatInput({
             onBlur={() => setIsFocused(false)}
             ref={textAreaRef}
             rows={1}
-            readOnly={isRecording}
+            readOnly={isRecording || liveVoiceOwnsChat}
             style={{
               minHeight: `${minTextareaHeight}px`,
               maxHeight: `${maxHeight}px`,
@@ -1702,7 +1711,7 @@ export default function ChatInput({
       <div ref={bottomBarRef} className="flex flex-row items-center gap-2 px-3 py-2 relative">
         {/* Left: model selector */}
         <Tooltip>
-          <div>
+          <div className={cn(liveVoiceOwnsChat && 'pointer-events-none opacity-60')}>
             <ModelsBottomBar
               sessionId={sessionId}
               dropdownRef={dropdownRef}
@@ -1811,6 +1820,9 @@ export default function ChatInput({
         {sessionId && liveVoiceStatus && (
           <LiveVoiceButton
             status={liveVoiceStatus}
+            state={liveVoiceState}
+            onStart={onStartLiveVoice}
+            onStop={onStopLiveVoice}
             composerEmpty={
               displayValue.trim().length === 0 &&
               pastedImages.length === 0 &&

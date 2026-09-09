@@ -2,21 +2,34 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { acpStartLiveVoice, acpStopLiveVoice } from '../acp/liveVoice';
 import { LiveVoiceMediaSession } from './LiveVoiceMediaSession';
 
-export type LiveVoiceUiState = 'idle' | 'connecting' | 'live' | 'stopping' | 'error';
+export type LiveVoicePhase = 'idle' | 'connecting' | 'live' | 'stopping' | 'error';
+
+export interface LiveVoiceController {
+  phase: LiveVoicePhase;
+  muted: boolean;
+  start: () => Promise<void>;
+  stop: () => Promise<void>;
+  toggleMute: () => void;
+}
 
 interface LiveVoiceCall {
   sessionId: string;
   callId?: string;
   media: LiveVoiceMediaSession;
+  mediaReady: boolean;
   cancelled: boolean;
 }
 
-export function useLiveVoice(sessionId: string) {
-  const [state, setState] = useState<LiveVoiceUiState>('idle');
+export function useLiveVoice(sessionId: string): LiveVoiceController {
+  const [phase, setPhase] = useState<LiveVoicePhase>('idle');
+  const [muted, setMuted] = useState(false);
+  const mutedRef = useRef(false);
   const callRef = useRef<LiveVoiceCall | null>(null);
 
   useEffect(() => {
-    setState('idle');
+    setPhase('idle');
+    mutedRef.current = false;
+    setMuted(false);
     return () => {
       const call = callRef.current;
       if (!call || call.sessionId !== sessionId) return;
@@ -32,10 +45,13 @@ export function useLiveVoice(sessionId: string) {
   const start = useCallback(async () => {
     if (callRef.current) return;
 
-    setState('connecting');
+    mutedRef.current = false;
+    setMuted(false);
+    setPhase('connecting');
     const call: LiveVoiceCall = {
       sessionId,
       media: new LiveVoiceMediaSession(),
+      mediaReady: false,
       cancelled: false,
     };
     callRef.current = call;
@@ -55,19 +71,31 @@ export function useLiveVoice(sessionId: string) {
       await call.media.applyAnswer(response.answerSdp);
       if (!isCurrent()) return;
 
-      call.media.enableMicrophone();
-      setState('live');
+      call.mediaReady = true;
+      call.media.setMuted(mutedRef.current);
+      setPhase('live');
     } catch {
       call.media.teardown();
       if (!isCurrent()) return;
 
       callRef.current = null;
+      mutedRef.current = false;
+      setMuted(false);
       if (call.callId) {
         void acpStopLiveVoice(call.sessionId, call.callId).catch(() => undefined);
       }
-      setState('error');
+      setPhase('error');
     }
   }, [sessionId]);
+
+  const toggleMute = useCallback(() => {
+    const call = callRef.current;
+    if (!call || call.cancelled || !call.mediaReady) return;
+
+    mutedRef.current = !mutedRef.current;
+    call.media.setMuted(mutedRef.current);
+    setMuted(mutedRef.current);
+  }, []);
 
   const stop = useCallback(async () => {
     const call = callRef.current;
@@ -75,26 +103,28 @@ export function useLiveVoice(sessionId: string) {
 
     call.cancelled = true;
     call.media.teardown();
+    mutedRef.current = false;
+    setMuted(false);
     if (!call.callId) {
       callRef.current = null;
-      setState('idle');
+      setPhase('idle');
       return;
     }
 
-    setState('stopping');
+    setPhase('stopping');
     try {
       await acpStopLiveVoice(call.sessionId, call.callId);
       if (callRef.current !== call) return;
 
       callRef.current = null;
-      setState('idle');
+      setPhase('idle');
     } catch {
       if (callRef.current === call) {
         callRef.current = null;
-        setState('error');
+        setPhase('error');
       }
     }
   }, []);
 
-  return { state, start, stop };
+  return { phase, muted, start, stop, toggleMute };
 }

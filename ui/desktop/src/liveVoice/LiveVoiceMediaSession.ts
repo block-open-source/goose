@@ -75,10 +75,10 @@ export class LiveVoiceMediaSession {
     }
   }
 
-  enableMicrophone(): void {
+  setMuted(muted: boolean): void {
     if (this.tornDown) return;
     for (const track of this.localStream?.getAudioTracks() ?? []) {
-      track.enabled = true;
+      track.enabled = !muted;
     }
   }
 

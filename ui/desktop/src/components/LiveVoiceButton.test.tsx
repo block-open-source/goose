@@ -5,11 +5,13 @@ import { IntlTestWrapper } from '../i18n/test-utils';
 import { LiveVoiceButton } from './LiveVoiceButton';
 
 const baseProps: ComponentProps<typeof LiveVoiceButton> = {
-  status: 'ready',
+  availability: 'ready',
   composerEmpty: true,
-  state: 'idle',
+  phase: 'idle',
+  muted: false,
   onStart: vi.fn(),
   onStop: vi.fn(),
+  onToggleMute: vi.fn(),
 };
 
 function renderButton(props: Partial<typeof baseProps> = {}) {
@@ -31,8 +33,8 @@ describe('LiveVoiceButton', () => {
     ['provider_unavailable', 'Live voice provider is not configured'],
     ['session_busy', 'Live voice is unavailable while this chat is busy'],
     ['requires_autonomous_mode', 'Live voice requires Autonomous mode'],
-  ] as const)('shows the %s reason', (status, label) => {
-    renderButton({ status });
+  ] as const)('shows the %s reason', (availability, label) => {
+    renderButton({ availability });
 
     const button = screen.getByTestId('live-voice-button');
     expect(button).toBeDisabled();
@@ -50,7 +52,7 @@ describe('LiveVoiceButton', () => {
   });
 
   it('does not render without eligibility for the displayed session', () => {
-    renderButton({ status: null });
+    renderButton({ availability: null });
     expect(screen.queryByTestId('live-voice-button')).not.toBeInTheDocument();
   });
 
@@ -63,18 +65,30 @@ describe('LiveVoiceButton', () => {
     expect(onStart).toHaveBeenCalledOnce();
 
     rerender(
-      <LiveVoiceButton {...baseProps} state="connecting" onStart={onStart} onStop={onStop} />
+      <LiveVoiceButton {...baseProps} phase="connecting" onStart={onStart} onStop={onStop} />
     );
     screen.getByTestId('live-voice-button').click();
     expect(onStop).toHaveBeenCalledOnce();
 
-    rerender(<LiveVoiceButton {...baseProps} state="live" onStart={onStart} onStop={onStop} />);
+    rerender(<LiveVoiceButton {...baseProps} phase="live" onStart={onStart} onStop={onStop} />);
     screen.getByTestId('live-voice-button').click();
     expect(onStop).toHaveBeenCalledTimes(2);
   });
 
   it('disables the stopping state', () => {
-    renderButton({ state: 'stopping' });
+    renderButton({ phase: 'stopping' });
     expect(screen.getByTestId('live-voice-button')).toBeDisabled();
+  });
+
+  it('toggles microphone mute while live', () => {
+    const onToggleMute = vi.fn();
+    const { rerender } = renderButton({ phase: 'live', onToggleMute });
+
+    screen.getByTestId('live-voice-mute-button').click();
+    expect(onToggleMute).toHaveBeenCalledOnce();
+    expect(screen.getByTestId('live-voice-mute-button')).toHaveAccessibleName('Mute microphone');
+
+    rerender(<LiveVoiceButton {...baseProps} phase="live" muted onToggleMute={onToggleMute} />);
+    expect(screen.getByTestId('live-voice-mute-button')).toHaveAccessibleName('Unmute microphone');
   });
 });

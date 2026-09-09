@@ -42,8 +42,8 @@ import { defineMessages, useIntl } from '../i18n';
 import TurndownService from 'turndown';
 import type { NextChatExtensionDraft } from '../utils/nextChatExtensions';
 import { LiveVoiceButton } from './LiveVoiceButton';
-import type { LiveVoiceStatus } from '@aaif/goose-sdk';
-import type { LiveVoiceUiState } from '../liveVoice/useLiveVoice';
+import type { LiveVoiceStatus as LiveVoiceAvailability } from '@aaif/goose-sdk';
+import type { LiveVoiceController } from '../liveVoice/useLiveVoice';
 
 const turndown = new TurndownService({
   headingStyle: 'atx',
@@ -71,6 +71,10 @@ interface PastedImage {
   isLoading: boolean;
   error?: string;
 }
+
+type ChatInputLiveVoice = LiveVoiceController & {
+  availability: LiveVoiceAvailability | null;
+};
 
 const moveQueuedMessageToFront = (
   messages: QueuedMessage[],
@@ -202,10 +206,7 @@ interface ChatInputProps {
   latestInference?: Message['metadata']['inference'] | null;
   nextChatExtensionDraft?: NextChatExtensionDraft;
   onNextChatExtensionDraftChange?: (draft: NextChatExtensionDraft) => void;
-  liveVoiceStatus?: LiveVoiceStatus | null;
-  liveVoiceState?: LiveVoiceUiState;
-  onStartLiveVoice?: () => void;
-  onStopLiveVoice?: () => void;
+  liveVoice?: ChatInputLiveVoice;
 }
 
 export default function ChatInput({
@@ -243,10 +244,7 @@ export default function ChatInput({
   latestInference,
   nextChatExtensionDraft,
   onNextChatExtensionDraftChange,
-  liveVoiceStatus = null,
-  liveVoiceState = 'idle',
-  onStartLiveVoice = () => undefined,
-  onStopLiveVoice = () => undefined,
+  liveVoice,
 }: ChatInputProps) {
   const [_value, setValue] = useState(initialValue);
   const [displayValue, setDisplayValue] = useState(initialValue); // For immediate visual feedback
@@ -270,7 +268,9 @@ export default function ChatInput({
   // Derived state - chatState != Idle means we're in some form of loading state
   const isLoading = chatState !== ChatState.Idle;
   const liveVoiceOwnsChat =
-    liveVoiceState === 'connecting' || liveVoiceState === 'live' || liveVoiceState === 'stopping';
+    liveVoice?.phase === 'connecting' ||
+    liveVoice?.phase === 'live' ||
+    liveVoice?.phase === 'stopping';
   const isLoadingRef = useRef(isLoading);
 
   const composerDir = useMemo(() => getTextDirection(displayValue) ?? undefined, [displayValue]);
@@ -1817,12 +1817,14 @@ export default function ChatInput({
           </>
         )}
 
-        {sessionId && liveVoiceStatus && (
+        {sessionId && liveVoice?.availability && (
           <LiveVoiceButton
-            status={liveVoiceStatus}
-            state={liveVoiceState}
-            onStart={onStartLiveVoice}
-            onStop={onStopLiveVoice}
+            availability={liveVoice.availability}
+            phase={liveVoice.phase}
+            muted={liveVoice.muted}
+            onStart={() => void liveVoice.start()}
+            onStop={() => void liveVoice.stop()}
+            onToggleMute={liveVoice.toggleMute}
             composerEmpty={
               displayValue.trim().length === 0 &&
               pastedImages.length === 0 &&

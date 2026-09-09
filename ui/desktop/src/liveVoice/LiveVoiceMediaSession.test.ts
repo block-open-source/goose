@@ -78,8 +78,13 @@ describe('LiveVoiceMediaSession', () => {
     expect(peerConnection.createDataChannel).toHaveBeenCalledWith('oai-events');
 
     await media.applyAnswer('bounded-answer');
-    media.enableMicrophone();
+    media.setMuted(false);
     expect(localTrack.enabled).toBe(true);
+
+    media.setMuted(true);
+    media.setMuted(false);
+    media.setMuted(true);
+    expect(localTrack.enabled).toBe(false);
 
     media.teardown();
     media.teardown();

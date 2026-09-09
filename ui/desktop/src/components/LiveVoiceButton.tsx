@@ -1,10 +1,10 @@
-import type { LiveVoiceStatus } from '@aaif/goose-sdk';
-import { AudioLines, LoaderCircle, Square } from 'lucide-react';
+import type { LiveVoiceStatus as LiveVoiceAvailability } from '@aaif/goose-sdk';
+import { AudioLines, LoaderCircle, Mic, MicOff, Square } from 'lucide-react';
 import { defineMessages, useIntl } from '../i18n';
 import { cn } from '../utils';
 import { Button } from './ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/Tooltip';
-import type { LiveVoiceUiState } from '../liveVoice/useLiveVoice';
+import type { LiveVoicePhase } from '../liveVoice/useLiveVoice';
 
 const i18n = defineMessages({
   ready: {
@@ -47,86 +47,119 @@ const i18n = defineMessages({
     id: 'liveVoice.error',
     defaultMessage: 'Live voice failed. Try again',
   },
+  mute: {
+    id: 'liveVoice.mute',
+    defaultMessage: 'Mute microphone',
+  },
+  unmute: {
+    id: 'liveVoice.unmute',
+    defaultMessage: 'Unmute microphone',
+  },
 });
 
-const statusMessages = {
+const availabilityMessages = {
   ready: i18n.ready,
   feature_disabled: i18n.featureDisabled,
   provider_unavailable: i18n.providerUnavailable,
   session_busy: i18n.sessionBusy,
   requires_autonomous_mode: i18n.requiresAutonomousMode,
-} satisfies Record<LiveVoiceStatus, (typeof i18n)[keyof typeof i18n]>;
+} satisfies Record<LiveVoiceAvailability, (typeof i18n)[keyof typeof i18n]>;
 
 interface LiveVoiceButtonProps {
-  status: LiveVoiceStatus | null;
+  availability: LiveVoiceAvailability | null;
   composerEmpty: boolean;
-  state: LiveVoiceUiState;
+  phase: LiveVoicePhase;
+  muted: boolean;
   onStart: () => void;
   onStop: () => void;
+  onToggleMute: () => void;
 }
 
 export function LiveVoiceButton({
-  status,
+  availability,
   composerEmpty,
-  state,
+  phase,
+  muted,
   onStart,
   onStop,
+  onToggleMute,
 }: LiveVoiceButtonProps) {
   const intl = useIntl();
-  if (status === null) return null;
+  if (availability === null) return null;
 
-  const eligible = status === 'ready' && composerEmpty;
-  const stopping = state === 'stopping';
+  const eligible = availability === 'ready' && composerEmpty;
+  const stopping = phase === 'stopping';
   const message =
-    state === 'connecting'
+    phase === 'connecting'
       ? i18n.connecting
-      : state === 'live'
+      : phase === 'live'
         ? i18n.live
-        : state === 'stopping'
+        : phase === 'stopping'
           ? i18n.stopping
-          : state === 'error'
+          : phase === 'error'
             ? i18n.error
             : composerEmpty
-              ? statusMessages[status]
+              ? availabilityMessages[availability]
               : i18n.emptyComposerRequired;
   const label = intl.formatMessage(message);
-  const disabled = state === 'idle' ? !eligible : stopping;
-  const canStop = state === 'connecting' || state === 'live';
+  const disabled = phase === 'idle' ? !eligible : stopping;
+  const canStop = phase === 'connecting' || phase === 'live';
 
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            shape="round"
-            disabled={disabled}
-            onClick={canStop ? onStop : onStart}
-            aria-label={label}
-            data-testid="live-voice-button"
-            data-eligible={eligible}
-            data-state={state}
-            className={cn(
-              'transition-colors',
-              canStop && 'text-red-500 hover:text-red-600 cursor-pointer',
-              state === 'error' && 'text-red-500 hover:text-red-600 cursor-pointer',
-              state === 'idle' && eligible && 'text-text-primary/70 cursor-pointer',
-              disabled && 'text-text-secondary opacity-50'
-            )}
-          >
-            {stopping ? (
-              <LoaderCircle className="w-4 h-4 animate-spin" />
-            ) : canStop ? (
-              <Square className="w-4 h-4" />
-            ) : (
-              <AudioLines className="w-4 h-4" />
-            )}
-          </Button>
-        </span>
-      </TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
-    </Tooltip>
+    <>
+      {phase === 'live' && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              shape="round"
+              onClick={onToggleMute}
+              aria-label={intl.formatMessage(muted ? i18n.unmute : i18n.mute)}
+              data-testid="live-voice-mute-button"
+              aria-pressed={muted}
+            >
+              {muted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{intl.formatMessage(muted ? i18n.unmute : i18n.mute)}</TooltipContent>
+        </Tooltip>
+      )}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              shape="round"
+              disabled={disabled}
+              onClick={canStop ? onStop : onStart}
+              aria-label={label}
+              data-testid="live-voice-button"
+              data-eligible={eligible}
+              data-phase={phase}
+              className={cn(
+                'transition-colors',
+                canStop && 'text-red-500 hover:text-red-600 cursor-pointer',
+                phase === 'error' && 'text-red-500 hover:text-red-600 cursor-pointer',
+                phase === 'idle' && eligible && 'text-text-primary/70 cursor-pointer',
+                disabled && 'text-text-secondary opacity-50'
+              )}
+            >
+              {stopping ? (
+                <LoaderCircle className="w-4 h-4 animate-spin" />
+              ) : canStop ? (
+                <Square className="w-4 h-4" />
+              ) : (
+                <AudioLines className="w-4 h-4" />
+              )}
+            </Button>
+          </span>
+        </TooltipTrigger>
+        <TooltipContent>{label}</TooltipContent>
+      </Tooltip>
+    </>
   );
 }

@@ -25,7 +25,7 @@ describe('useLiveVoice', () => {
   const media = {
     createOffer: vi.fn(),
     applyAnswer: vi.fn(),
-    enableMicrophone: vi.fn(),
+    setMuted: vi.fn(),
     teardown: vi.fn(),
   };
   beforeEach(() => {
@@ -47,13 +47,13 @@ describe('useLiveVoice', () => {
 
     await act(async () => result.current.start());
     expect(media.applyAnswer).toHaveBeenCalledWith('answer');
-    expect(media.enableMicrophone).toHaveBeenCalledOnce();
-    expect(result.current.state).toBe('live');
+    expect(media.setMuted).toHaveBeenCalledWith(false);
+    expect(result.current.phase).toBe('live');
 
     await act(async () => result.current.stop());
     expect(media.teardown).toHaveBeenCalledOnce();
     expect(acpStopLiveVoice).toHaveBeenCalledWith('main-session', 'live-opaque');
-    expect(result.current.state).toBe('idle');
+    expect(result.current.phase).toBe('idle');
   });
 
   it('stops the server call when media setup fails after start', async () => {
@@ -64,7 +64,7 @@ describe('useLiveVoice', () => {
 
     expect(media.teardown).toHaveBeenCalledOnce();
     expect(acpStopLiveVoice).toHaveBeenCalledWith('main-session', 'live-opaque');
-    expect(result.current.state).toBe('error');
+    expect(result.current.phase).toBe('error');
   });
 
   it('tears down and stops an active call when unmounted', async () => {
@@ -92,7 +92,7 @@ describe('useLiveVoice', () => {
         unmount();
       } else {
         await act(async () => result.current.stop());
-        expect(result.current.state).toBe('idle');
+        expect(result.current.phase).toBe('idle');
       }
       await act(async () => {
         pending.resolve({ callId: 'late-call', answerSdp: 'late-answer' });
@@ -100,7 +100,7 @@ describe('useLiveVoice', () => {
 
       expect(media.teardown).toHaveBeenCalledOnce();
       expect(media.applyAnswer).not.toHaveBeenCalled();
-      expect(media.enableMicrophone).not.toHaveBeenCalled();
+      expect(media.setMuted).not.toHaveBeenCalled();
       expect(acpStopLiveVoice).toHaveBeenCalledWith('main-session', 'late-call');
     }
   );
@@ -117,7 +117,21 @@ describe('useLiveVoice', () => {
     await act(async () => result.current.stop());
     await act(async () => pending.resolve(undefined));
 
-    expect(media.enableMicrophone).not.toHaveBeenCalled();
-    expect(result.current.state).toBe('idle');
+    expect(media.setMuted).not.toHaveBeenCalled();
+    expect(result.current.phase).toBe('idle');
+  });
+
+  it('applies rapid mute changes to the current media session', async () => {
+    const { result } = renderHook(() => useLiveVoice('main-session'));
+    await act(async () => result.current.start());
+
+    act(() => {
+      result.current.toggleMute();
+      result.current.toggleMute();
+      result.current.toggleMute();
+    });
+
+    expect(media.setMuted.mock.calls).toEqual([[false], [true], [false], [true]]);
+    expect(result.current.muted).toBe(true);
   });
 });

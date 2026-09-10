@@ -16,10 +16,19 @@ use tokio_util::sync::CancellationToken;
 const PROVIDER_CLEANUP_TIMEOUT: Duration = Duration::from_secs(20);
 
 type LiveCallControls = Arc<StdMutex<HashMap<String, LiveCallControl>>>;
+pub(super) type LiveVoiceCallEndedHandler = Arc<dyn Fn(LiveVoiceCallEnded) + Send + Sync>;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct LiveVoiceCallEnded {
+    pub(super) session_id: String,
+    pub(super) call_id: LiveVoiceCallId,
+    pub(super) state: LiveVoiceCallState,
+}
 
 pub(super) struct StartLiveVoiceCallResult {
     pub(super) call_id: LiveVoiceCallId,
     pub(super) answer: WebRtcAnswer,
+    pub(super) finished_state_rx: watch::Receiver<Option<LiveVoiceCallState>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -111,6 +120,7 @@ impl LiveVoiceService {
         session_id: &str,
         mode: GooseMode,
         offer: WebRtcOffer,
+        call_ended_handler: LiveVoiceCallEndedHandler,
     ) -> Result<StartLiveVoiceCallResult, LiveVoiceError> {
         if self.provider.availability() != LiveVoiceProviderAvailability::Ready
             || mode != GooseMode::Auto
@@ -139,7 +149,7 @@ impl LiveVoiceService {
                 _run_guard: run_guard,
                 call_id: call_id.clone(),
                 stop_requested: stop_requested.clone(),
-                finished_state_rx,
+                finished_state_rx: finished_state_rx.clone(),
             },
         );
         drop(calls);
@@ -149,8 +159,13 @@ impl LiveVoiceService {
             call,
             stop_requested,
             finished_state_tx,
+            call_ended_handler,
         );
-        Ok(StartLiveVoiceCallResult { call_id, answer })
+        Ok(StartLiveVoiceCallResult {
+            call_id,
+            answer,
+            finished_state_rx,
+        })
     }
 
     pub(super) async fn stop_call(
@@ -178,7 +193,7 @@ impl LiveVoiceService {
     }
 }
 
-async fn wait_until_finished(
+pub(super) async fn wait_until_finished(
     mut finished_state_rx: watch::Receiver<Option<LiveVoiceCallState>>,
 ) -> Result<LiveVoiceCallState, LiveVoiceError> {
     loop {
@@ -198,11 +213,18 @@ fn spawn_live_call(
     mut call: LiveVoiceCall,
     stop_requested: CancellationToken,
     finished_state_tx: watch::Sender<Option<LiveVoiceCallState>>,
+    call_ended_handler: LiveVoiceCallEndedHandler,
 ) {
     tokio::spawn(async move {
         let final_state = run_live_call(&mut call, stop_requested).await;
-        remove_matching_call(&calls_by_session, &session_id, call.id());
+        let call_id = call.id().clone();
+        remove_matching_call(&calls_by_session, &session_id, &call_id);
         finished_state_tx.send_replace(Some(final_state));
+        call_ended_handler(LiveVoiceCallEnded {
+            session_id,
+            call_id,
+            state: final_state,
+        });
     });
 }
 
@@ -246,11 +268,15 @@ fn remove_matching_call(
 mod tests {
     use super::*;
     use goose_providers::live_voice_provider::fake::{
-        FakeConnectionDriver, provider_channel, provider_channel_with_availability,
+        provider_channel, provider_channel_with_availability, FakeConnectionDriver,
     };
     use tokio::task::JoinHandle;
 
     type StartResult = Result<StartLiveVoiceCallResult, LiveVoiceError>;
+
+    fn ignore_call_ended() -> LiveVoiceCallEndedHandler {
+        Arc::new(|_| {})
+    }
 
     fn service(availability: LiveVoiceProviderAvailability) -> LiveVoiceService {
         let (provider, _starts) = provider_channel_with_availability(availability);
@@ -268,6 +294,7 @@ mod tests {
                     session_id,
                     GooseMode::Auto,
                     WebRtcOffer::new(offer.into()).unwrap(),
+                    ignore_call_ended(),
                 )
                 .await
         })
@@ -352,6 +379,7 @@ mod tests {
                 "main-session",
                 GooseMode::Auto,
                 WebRtcOffer::new("second-offer".into()).unwrap(),
+                ignore_call_ended(),
             )
             .await;
         assert!(matches!(second, Err(LiveVoiceError::Unavailable)));
@@ -450,6 +478,48 @@ mod tests {
             ));
             assert_availability(&service, LiveVoiceAvailability::Ready);
         }
+    }
+
+    #[tokio::test]
+    async fn provider_terminal_publishes_one_call_ended_update_after_release() {
+        let (provider, mut starts) = provider_channel();
+        let service = Arc::new(LiveVoiceService::new(
+            provider,
+            Arc::new(ActiveRunRegistry::default()),
+        ));
+        let (ended_tx, mut ended_rx) = tokio::sync::mpsc::unbounded_channel();
+        let call_ended_handler: LiveVoiceCallEndedHandler = Arc::new(move |ended| {
+            ended_tx.send(ended).unwrap();
+        });
+        let start_service = service.clone();
+        let start_task = tokio::spawn(async move {
+            start_service
+                .start_call(
+                    "main-session",
+                    GooseMode::Auto,
+                    WebRtcOffer::new("offer".into()).unwrap(),
+                    call_ended_handler,
+                )
+                .await
+        });
+        let mut connection = starts
+            .recv()
+            .await
+            .unwrap()
+            .accept(WebRtcAnswer::new("answer".into()).unwrap())
+            .unwrap();
+        let call_id = start_task.await.unwrap().unwrap().call_id;
+
+        connection
+            .send_event(ProviderConnectionEvent::Closed)
+            .unwrap();
+        let ended = ended_rx.recv().await.unwrap();
+
+        assert_eq!(ended.session_id, "main-session");
+        assert_eq!(ended.call_id, call_id);
+        assert_eq!(ended.state, LiveVoiceCallState::Failed);
+        assert_availability(&service, LiveVoiceAvailability::Ready);
+        assert!(ended_rx.try_recv().is_err());
     }
 
     #[tokio::test(start_paused = true)]

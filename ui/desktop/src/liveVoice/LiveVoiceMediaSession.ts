@@ -8,6 +8,8 @@ export class LiveVoiceMediaSession {
   private audioElement: HTMLAudioElement | null = null;
   private tornDown = false;
 
+  constructor(private readonly onMediaFailure: () => void) {}
+
   async createOffer(): Promise<string> {
     try {
       const localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -69,6 +71,7 @@ export class LiveVoiceMediaSession {
         waitForDataChannel(dataChannel),
         waitForRemoteTrack(this),
       ]);
+      this.observeMediaFailures(peerConnection);
     } catch {
       this.teardown();
       throw new Error('Live voice could not connect media');
@@ -108,6 +111,22 @@ export class LiveVoiceMediaSession {
     this.peerConnection = null;
     this.audioElement = null;
   }
+
+  private observeMediaFailures(peerConnection: RTCPeerConnection): void {
+    for (const track of this.localStream?.getAudioTracks() ?? []) {
+      track.addEventListener('ended', this.reportMediaFailure, { once: true });
+    }
+    peerConnection.addEventListener('connectionstatechange', () => {
+      if (peerConnection.connectionState === 'failed') {
+        this.reportMediaFailure();
+      }
+    });
+  }
+
+  private reportMediaFailure = (): void => {
+    if (this.tornDown) return;
+    this.onMediaFailure();
+  };
 }
 
 function waitForIceGathering(peerConnection: RTCPeerConnection): Promise<void> {

@@ -929,6 +929,9 @@
   "dirSwitcher.enterPathInvalid": {
     "defaultMessage": "Working directory must be an absolute path"
   },
+
+
+
   "dirSwitcher.failedToUpdateWorkingDir": {
     "defaultMessage": "更新工作目录失败"
   },
@@ -1748,6 +1751,9 @@
   "liveVoice.live": {
     "defaultMessage": "Stop Live voice"
   },
+  "liveVoice.mute": {
+    "defaultMessage": "Mute microphone"
+  },
   "liveVoice.providerUnavailable": {
     "defaultMessage": "Live voice provider is not configured"
   },
@@ -1762,6 +1768,9 @@
   },
   "liveVoice.stopping": {
     "defaultMessage": "Stopping Live voice"
+  },
+  "liveVoice.unmute": {
+    "defaultMessage": "Unmute microphone"
   },
   "loadingGoose.compacting": {
     "defaultMessage": "goose 正在压缩对话…"

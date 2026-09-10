@@ -7,11 +7,11 @@ import { AppEvents } from '../constants/events';
 import { maybeHandlePlatformEvent } from '../utils/platform_events';
 import { toolNotificationEvent } from './adapter/toolNotifications';
 import { acpChatSessionActions, acpChatSessionStore } from './chatSessionStore';
+import { publishLiveVoiceCallEnded } from './liveVoiceNotifications';
 
 export function handleAcpSessionNotification(notification: SessionNotification): Promise<void> {
-  const sessionNameBeforeNotification = acpChatSessionStore.getSnapshot(
-    notification.sessionId
-  )?.session?.name;
+  const sessionNameBeforeNotification = acpChatSessionStore.getSnapshot(notification.sessionId)
+    ?.session?.name;
   const updatedName =
     notification.update.sessionUpdate === 'session_info_update'
       ? notification.update.title
@@ -49,6 +49,14 @@ function maybeHandleLivePlatformEvent(notification: SessionNotification): void {
 export function handleAcpGooseSessionNotification(
   notification: GooseSessionNotification_unstable
 ): Promise<void> {
+  if (notification.update.sessionUpdate === 'live_voice_call_ended') {
+    publishLiveVoiceCallEnded({
+      sessionId: notification.sessionId,
+      update: notification.update,
+    });
+    return Promise.resolve();
+  }
+
   acpChatSessionActions.applyAcpGooseSessionNotification(notification);
   return Promise.resolve();
 }

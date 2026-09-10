@@ -1748,6 +1748,9 @@
   "liveVoice.live": {
     "defaultMessage": "Stop Live voice"
   },
+  "liveVoice.mute": {
+    "defaultMessage": "Mute microphone"
+  },
   "liveVoice.providerUnavailable": {
     "defaultMessage": "Live voice provider is not configured"
   },
@@ -1762,6 +1765,9 @@
   },
   "liveVoice.stopping": {
     "defaultMessage": "Stopping Live voice"
+  },
+  "liveVoice.unmute": {
+    "defaultMessage": "Unmute microphone"
   },
   "loadingGoose.compacting": {
     "defaultMessage": "goose komprimiert die Unterhaltung..."

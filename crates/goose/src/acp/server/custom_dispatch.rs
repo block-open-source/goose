@@ -5,6 +5,7 @@ use goose_acp_macros::custom_methods;
 impl GooseAcpAgent {
     pub async fn dispatch_custom_request(
         &self,
+        cx: &ConnectionTo<Client>,
         method: &str,
         params: serde_json::Value,
     ) -> Result<serde_json::Value, agent_client_protocol::Error> {
@@ -18,7 +19,7 @@ impl GooseAcpAgent {
                 });
             }
 
-            self.handle_custom_request(method, params).await
+            self.handle_custom_request(cx, method, params).await
         }
         .await;
 
@@ -144,9 +145,10 @@ impl GooseAcpAgent {
     #[custom_method(LiveVoiceStartRequest)]
     async fn dispatch_live_voice_start(
         &self,
+        cx: &ConnectionTo<Client>,
         req: LiveVoiceStartRequest,
     ) -> Result<LiveVoiceStartResponse, agent_client_protocol::Error> {
-        self.on_live_voice_start(req).await
+        self.on_live_voice_start(cx, req).await
     }
 
     #[custom_method(LiveVoiceStopRequest)]

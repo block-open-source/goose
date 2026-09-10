@@ -3,7 +3,7 @@ import { LiveVoiceMediaSession } from './LiveVoiceMediaSession';
 
 const createElement = document.createElement.bind(document);
 
-class FakeTrack {
+class FakeTrack extends EventTarget {
   enabled = true;
   stop = vi.fn();
 }
@@ -71,7 +71,7 @@ describe('LiveVoiceMediaSession', () => {
   });
 
   it('keeps the microphone disabled until media is connected, then tears down once', async () => {
-    const media = new LiveVoiceMediaSession();
+    const media = new LiveVoiceMediaSession(vi.fn());
 
     await expect(media.createOffer()).resolves.toBe('bounded-offer');
     expect(localTrack.enabled).toBe(false);
@@ -98,7 +98,7 @@ describe('LiveVoiceMediaSession', () => {
       new Error('native device identifier')
     );
 
-    await expect(new LiveVoiceMediaSession().createOffer()).rejects.toThrow(
+    await expect(new LiveVoiceMediaSession(vi.fn()).createOffer()).rejects.toThrow(
       'Microphone or media setup failed'
     );
   });
@@ -111,7 +111,7 @@ describe('LiveVoiceMediaSession', () => {
       })
     );
     const lateTrack = new FakeTrack();
-    const media = new LiveVoiceMediaSession();
+    const media = new LiveVoiceMediaSession(vi.fn());
 
     const offer = media.createOffer();
     media.teardown();
@@ -120,5 +120,42 @@ describe('LiveVoiceMediaSession', () => {
     await expect(offer).rejects.toThrow('Microphone or media setup failed');
     expect(lateTrack.stop).toHaveBeenCalledOnce();
     expect(peerConnection.createOffer).not.toHaveBeenCalled();
+  });
+
+  it('reports terminal microphone failure after media connects', async () => {
+    const onMediaFailure = vi.fn();
+    const media = new LiveVoiceMediaSession(onMediaFailure);
+    await media.createOffer();
+    await media.applyAnswer('bounded-answer');
+
+    localTrack.dispatchEvent(new Event('ended'));
+
+    expect(onMediaFailure).toHaveBeenCalledOnce();
+  });
+
+  it('reports terminal peer failure after media connects', async () => {
+    const onMediaFailure = vi.fn();
+    const media = new LiveVoiceMediaSession(onMediaFailure);
+    await media.createOffer();
+    await media.applyAnswer('bounded-answer');
+
+    peerConnection.connectionState = 'failed';
+    peerConnection.dispatchEvent(new Event('connectionstatechange'));
+
+    expect(onMediaFailure).toHaveBeenCalledOnce();
+  });
+
+  it('does not report its own teardown as a media failure', async () => {
+    const onMediaFailure = vi.fn();
+    const media = new LiveVoiceMediaSession(onMediaFailure);
+    await media.createOffer();
+    await media.applyAnswer('bounded-answer');
+
+    media.teardown();
+    localTrack.dispatchEvent(new Event('ended'));
+    peerConnection.connectionState = 'failed';
+    peerConnection.dispatchEvent(new Event('connectionstatechange'));
+
+    expect(onMediaFailure).not.toHaveBeenCalled();
   });
 });

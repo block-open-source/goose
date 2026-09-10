@@ -25,7 +25,8 @@ use syn::{
 ///
 /// # Handler signatures
 ///
-/// Handlers may take zero or one parameter (beyond `&self`):
+/// Handlers may take zero or one request parameter (beyond `&self`). A handler
+/// that needs the active ACP connection may take it before the request:
 ///
 /// ```ignore
 /// // No params — called for requests with no/empty params
@@ -35,6 +36,14 @@ use syn::{
 /// // Typed params — JSON params auto-deserialized
 /// #[custom_method(GetSessionRequest)]
 /// async fn on_get_session(&self, req: GetSessionRequest) -> Result<GetSessionResponse, agent_client_protocol::Error> { .. }
+///
+/// // Connection and typed params
+/// #[custom_method(StartCallRequest)]
+/// async fn on_start_call(
+///     &self,
+///     cx: &agent_client_protocol::ConnectionTo<agent_client_protocol::Client>,
+///     req: StartCallRequest,
+/// ) -> Result<StartCallResponse, agent_client_protocol::Error> { .. }
 /// ```
 ///
 /// The return type must be `Result<T, agent_client_protocol::Error>` where `T: Serialize`.
@@ -64,7 +73,13 @@ pub fn custom_methods(_attr: TokenStream, item: TokenStream) -> TokenStream {
             if let Some(req_type) = request_type {
                 let fn_ident = method.sig.ident.clone();
 
-                let param_type = extract_param_type(&method.sig);
+                let parameter_types = extract_parameter_types(&method.sig);
+                let (uses_connection, param_type) = match parameter_types.as_slice() {
+                    [] => (false, None),
+                    [request] => (false, Some(request.clone())),
+                    [_connection, request] => (true, Some(request.clone())),
+                    _ => panic!("custom method handlers accept at most a connection and request"),
+                };
                 let return_type = extract_return_type(&method.sig);
                 let ok_type = extract_result_ok_type(&method.sig);
 
@@ -72,6 +87,7 @@ pub fn custom_methods(_attr: TokenStream, item: TokenStream) -> TokenStream {
                     request_type: req_type,
                     fn_ident,
                     param_type,
+                    uses_connection,
                     return_type,
                     ok_type,
                 });
@@ -85,6 +101,11 @@ pub fn custom_methods(_attr: TokenStream, item: TokenStream) -> TokenStream {
         .map(|route| {
             let req_type = &route.request_type;
             let fn_ident = &route.fn_ident;
+            let call = if route.uses_connection {
+                quote! { self.#fn_ident(cx, req).await? }
+            } else {
+                quote! { self.#fn_ident(req).await? }
+            };
 
             match &route.param_type {
                 Some(_) => {
@@ -92,7 +113,7 @@ pub fn custom_methods(_attr: TokenStream, item: TokenStream) -> TokenStream {
                         if <#req_type as agent_client_protocol::JsonRpcMessage>::matches_method(method) {
                             let req = serde_json::from_value(params)
                                 .map_err(|e| agent_client_protocol::Error::invalid_params().data(e.to_string()))?;
-                            let result = self.#fn_ident(req).await?;
+                            let result = #call;
                             return serde_json::to_value(&result)
                                 .map_err(|e| agent_client_protocol::Error::internal_error().data(e.to_string()));
                         }
@@ -184,6 +205,7 @@ pub fn custom_methods(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let dispatcher = quote! {
         async fn handle_custom_request(
             &self,
+            cx: &agent_client_protocol::ConnectionTo<agent_client_protocol::Client>,
             method: &str,
             params: serde_json::Value,
         ) -> Result<serde_json::Value, agent_client_protocol::Error> {
@@ -216,24 +238,26 @@ struct Route {
     request_type: Type,
     fn_ident: syn::Ident,
     param_type: Option<Type>,
+    uses_connection: bool,
     #[allow(dead_code)]
     return_type: Option<Type>,
     ok_type: Option<Type>,
 }
 
-/// Extract the type of the first non-self parameter, if any.
-fn extract_param_type(sig: &syn::Signature) -> Option<Type> {
-    for input in &sig.inputs {
-        if let FnArg::Typed(pat_type) = input {
-            if let Pat::Ident(pat_ident) = &*pat_type.pat {
-                if pat_ident.ident == "self" {
-                    continue;
+fn extract_parameter_types(sig: &syn::Signature) -> Vec<Type> {
+    sig.inputs
+        .iter()
+        .filter_map(|input| match input {
+            FnArg::Typed(pat_type) => {
+                if matches!(&*pat_type.pat, Pat::Ident(pat) if pat.ident == "self") {
+                    None
+                } else {
+                    Some((*pat_type.ty).clone())
                 }
             }
-            return Some((*pat_type.ty).clone());
-        }
-    }
-    None
+            FnArg::Receiver(_) => None,
+        })
+        .collect()
 }
 
 /// Extract the full return type (e.g. `Result<T, E>`).

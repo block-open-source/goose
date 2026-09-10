@@ -2,8 +2,11 @@ mod call;
 mod service;
 
 use super::*;
-use call::LiveVoiceCallId;
-use service::{LiveVoiceAvailability, LiveVoiceError, WebRtcOffer};
+use call::{LiveVoiceCallId, LiveVoiceCallState};
+use service::{
+    wait_until_finished, LiveVoiceAvailability, LiveVoiceCallEndedHandler, LiveVoiceError,
+    WebRtcOffer,
+};
 
 pub use service::LiveVoiceService;
 
@@ -43,6 +46,7 @@ impl GooseAcpAgent {
 
     pub(super) async fn on_live_voice_start(
         &self,
+        cx: &ConnectionTo<Client>,
         req: LiveVoiceStartRequest,
     ) -> Result<LiveVoiceStartResponse, agent_client_protocol::Error> {
         let offer = WebRtcOffer::new(req.offer_sdp)
@@ -51,11 +55,58 @@ impl GooseAcpAgent {
         if session.provider_name.is_none() || session.model_config.is_none() {
             return Err(map_live_voice_error(LiveVoiceError::Unavailable));
         }
-        let call = self
-            .live_voice
-            .start_call(&req.session_id, session.goose_mode, offer)
-            .await
-            .map_err(map_live_voice_error)?;
+
+        let call_ended_handler: LiveVoiceCallEndedHandler =
+            if self.supports_goose_custom_notifications() {
+                let notification_connection = cx.clone();
+                Arc::new(move |ended| {
+                    let outcome = match ended.state {
+                        LiveVoiceCallState::Stopped => LiveVoiceCallOutcome::Stopped,
+                        LiveVoiceCallState::Failed => LiveVoiceCallOutcome::Failed,
+                        // An invalid ended event must still tell Desktop to release local media.
+                        LiveVoiceCallState::Live => LiveVoiceCallOutcome::Failed,
+                    };
+                    let _ = notification_connection.send_notification(GooseSessionNotification {
+                        session_id: ended.session_id,
+                        update: GooseSessionUpdate::LiveVoiceCallEnded(LiveVoiceCallEndedUpdate {
+                            call_id: ended.call_id.0,
+                            outcome,
+                        }),
+                    });
+                })
+            } else {
+                Arc::new(|_| {})
+            };
+
+        let session_id = req.session_id.clone();
+        let start = self.live_voice.start_call(
+            &req.session_id,
+            session.goose_mode,
+            offer,
+            call_ended_handler,
+        );
+        tokio::pin!(start);
+        let call = tokio::select! {
+            result = &mut start => result.map_err(map_live_voice_error)?,
+            _ = cx.incoming_closed() => {
+                return Err(agent_client_protocol::Error::internal_error()
+                    .data("ACP connection closed while Live voice was starting"));
+            }
+        };
+
+        let call_id = call.call_id.clone();
+        let live_voice = self.live_voice.clone();
+        let finished_state_rx = call.finished_state_rx;
+        let watcher_connection = cx.clone();
+        tokio::spawn(async move {
+            tokio::select! {
+                biased;
+                _ = watcher_connection.incoming_closed() => {
+                    let _ = live_voice.stop_call(&session_id, &call_id).await;
+                }
+                _ = wait_until_finished(finished_state_rx) => {}
+            }
+        });
 
         Ok(LiveVoiceStartResponse {
             call_id: call.call_id.0,

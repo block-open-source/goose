@@ -1,4 +1,5 @@
 use super::call::{LiveVoiceCall, LiveVoiceCallId, LiveVoiceCallState};
+use crate::acp::server::ActiveRunRegistry;
 use crate::config::GooseMode;
 use goose_providers::live_voice_provider::{LiveVoiceProvider, LiveVoiceProviderAvailability};
 pub(super) use goose_providers::live_voice_provider::{WebRtcAnswer, WebRtcOffer};
@@ -29,71 +30,47 @@ pub(super) enum LiveVoiceError {
     StopFailed,
 }
 
-enum LiveVoiceEntry {
-    Starting,
-    Active(Arc<Mutex<LiveVoiceCall>>),
+struct ActiveLiveVoiceCall {
+    _run_guard: LiveRunGuard,
+    call: Arc<Mutex<LiveVoiceCall>>,
 }
 
-struct StartReservation<'a> {
-    calls_by_session: &'a StdMutex<HashMap<String, LiveVoiceEntry>>,
+struct LiveRunGuard {
+    active_runs: Arc<ActiveRunRegistry>,
     session_id: String,
-    activated: bool,
 }
 
-impl StartReservation<'_> {
-    fn activate(mut self, call: LiveVoiceCall) -> Result<(), LiveVoiceError> {
-        let call = Arc::new(Mutex::new(call));
-        {
-            let mut calls = self
-                .calls_by_session
-                .lock()
-                .expect("live voice lock poisoned");
-            let Some(entry) = calls.get_mut(&self.session_id) else {
-                return Err(LiveVoiceError::StartFailed);
-            };
-            if !matches!(entry, LiveVoiceEntry::Starting) {
-                return Err(LiveVoiceError::StartFailed);
-            }
-            *entry = LiveVoiceEntry::Active(call);
-        }
-        self.activated = true;
-        Ok(())
+impl LiveRunGuard {
+    fn start(active_runs: Arc<ActiveRunRegistry>, session_id: &str) -> Option<Self> {
+        active_runs.start_live(session_id).then(|| Self {
+            active_runs,
+            session_id: session_id.to_string(),
+        })
     }
 }
 
-impl Drop for StartReservation<'_> {
+impl Drop for LiveRunGuard {
     fn drop(&mut self) {
-        if !self.activated {
-            let mut calls = self
-                .calls_by_session
-                .lock()
-                .expect("live voice lock poisoned");
-            if matches!(calls.get(&self.session_id), Some(LiveVoiceEntry::Starting)) {
-                calls.remove(&self.session_id);
-            }
-        }
+        self.active_runs.finish_live(&self.session_id);
     }
 }
 
 pub struct LiveVoiceService {
     provider: Arc<dyn LiveVoiceProvider>,
-    calls_by_session: StdMutex<HashMap<String, LiveVoiceEntry>>,
+    calls_by_session: StdMutex<HashMap<String, ActiveLiveVoiceCall>>,
+    active_runs: Arc<ActiveRunRegistry>,
 }
 
 impl LiveVoiceService {
-    pub fn new(provider: Arc<dyn LiveVoiceProvider>) -> Self {
+    pub fn new(provider: Arc<dyn LiveVoiceProvider>, active_runs: Arc<ActiveRunRegistry>) -> Self {
         Self {
             provider,
             calls_by_session: StdMutex::new(HashMap::new()),
+            active_runs,
         }
     }
 
-    pub(super) fn availability(
-        &self,
-        session_id: &str,
-        mode: GooseMode,
-        prompt_active: bool,
-    ) -> LiveVoiceAvailability {
+    pub(super) fn availability(&self, session_id: &str, mode: GooseMode) -> LiveVoiceAvailability {
         use LiveVoiceAvailability::*;
 
         match self.provider.availability() {
@@ -102,13 +79,7 @@ impl LiveVoiceService {
             LiveVoiceProviderAvailability::Ready => {}
         }
 
-        if prompt_active
-            || self
-                .calls_by_session
-                .lock()
-                .expect("live voice lock poisoned")
-                .contains_key(session_id)
-        {
+        if self.active_runs.is_active(session_id) {
             ChatBusy
         } else if mode != GooseMode::Auto {
             RequiresAutonomousMode
@@ -121,15 +92,15 @@ impl LiveVoiceService {
         &self,
         session_id: &str,
         mode: GooseMode,
-        prompt_active: bool,
         offer: WebRtcOffer,
     ) -> Result<StartLiveVoiceCallResult, LiveVoiceError> {
-        if self.availability(session_id, mode, prompt_active) != LiveVoiceAvailability::Ready {
+        if self.provider.availability() != LiveVoiceProviderAvailability::Ready
+            || mode != GooseMode::Auto
+        {
             return Err(LiveVoiceError::Unavailable);
         }
-
-        let reservation = self.reserve(session_id)?;
-
+        let run_guard = LiveRunGuard::start(self.active_runs.clone(), session_id)
+            .ok_or(LiveVoiceError::Unavailable)?;
         let (answer, provider_connection) = self
             .provider
             .start(offer)
@@ -137,7 +108,24 @@ impl LiveVoiceService {
             .map_err(|_| LiveVoiceError::StartFailed)?;
 
         let call_id = LiveVoiceCallId::new();
-        reservation.activate(LiveVoiceCall::new(call_id.clone(), provider_connection))?;
+        let call = Arc::new(Mutex::new(LiveVoiceCall::new(
+            call_id.clone(),
+            provider_connection,
+        )));
+        let mut calls = self
+            .calls_by_session
+            .lock()
+            .expect("live voice lock poisoned");
+        if calls.contains_key(session_id) {
+            return Err(LiveVoiceError::StartFailed);
+        }
+        calls.insert(
+            session_id.to_string(),
+            ActiveLiveVoiceCall {
+                _run_guard: run_guard,
+                call,
+            },
+        );
         Ok(StartLiveVoiceCallResult { call_id, answer })
     }
 
@@ -151,10 +139,7 @@ impl LiveVoiceService {
             .lock()
             .expect("live voice lock poisoned")
             .get(session_id)
-            .and_then(|entry| match entry {
-                LiveVoiceEntry::Starting => None,
-                LiveVoiceEntry::Active(call) => Some(call.clone()),
-            })
+            .map(|entry| entry.call.clone())
             .ok_or(LiveVoiceError::Unavailable)?;
 
         let final_state = {
@@ -177,22 +162,6 @@ impl LiveVoiceService {
         }
     }
 
-    fn reserve(&self, session_id: &str) -> Result<StartReservation<'_>, LiveVoiceError> {
-        let mut calls = self
-            .calls_by_session
-            .lock()
-            .expect("live voice lock poisoned");
-        if calls.contains_key(session_id) {
-            return Err(LiveVoiceError::Unavailable);
-        }
-        calls.insert(session_id.to_string(), LiveVoiceEntry::Starting);
-        Ok(StartReservation {
-            calls_by_session: &self.calls_by_session,
-            session_id: session_id.to_string(),
-            activated: false,
-        })
-    }
-
     fn remove_call(&self, session_id: &str, call: &Arc<Mutex<LiveVoiceCall>>) {
         let mut calls = self
             .calls_by_session
@@ -200,7 +169,7 @@ impl LiveVoiceService {
             .expect("live voice lock poisoned");
         if matches!(
             calls.get(session_id),
-            Some(LiveVoiceEntry::Active(current)) if Arc::ptr_eq(current, call)
+            Some(ActiveLiveVoiceCall { call: current, .. }) if Arc::ptr_eq(current, call)
         ) {
             calls.remove(session_id);
         }
@@ -219,7 +188,7 @@ mod tests {
 
     fn service(availability: LiveVoiceProviderAvailability) -> LiveVoiceService {
         let (provider, _starts) = provider_channel_with_availability(availability);
-        LiveVoiceService::new(provider)
+        LiveVoiceService::new(provider, Arc::new(ActiveRunRegistry::default()))
     }
 
     fn spawn_start(
@@ -232,7 +201,6 @@ mod tests {
                 .start_call(
                     session_id,
                     GooseMode::Auto,
-                    false,
                     WebRtcOffer::new(offer.into()).unwrap(),
                 )
                 .await
@@ -241,7 +209,7 @@ mod tests {
 
     fn assert_availability(service: &LiveVoiceService, expected: LiveVoiceAvailability) {
         assert_eq!(
-            service.availability("main-session", GooseMode::Auto, false),
+            service.availability("main-session", GooseMode::Auto),
             expected
         );
     }
@@ -258,12 +226,14 @@ mod tests {
         );
 
         let ready = service(LiveVoiceProviderAvailability::Ready);
+        let run_guard = LiveRunGuard::start(ready.active_runs.clone(), "main-session").unwrap();
         assert_eq!(
-            ready.availability("main-session", GooseMode::Auto, true),
+            ready.availability("main-session", GooseMode::Auto),
             LiveVoiceAvailability::ChatBusy
         );
+        drop(run_guard);
         assert_eq!(
-            ready.availability("main-session", GooseMode::Approve, false),
+            ready.availability("main-session", GooseMode::Approve),
             LiveVoiceAvailability::RequiresAutonomousMode
         );
         assert_availability(&ready, LiveVoiceAvailability::Ready);
@@ -272,7 +242,10 @@ mod tests {
     #[tokio::test]
     async fn a_start_reserves_the_session_until_it_finishes() {
         let (provider, mut starts) = provider_channel();
-        let service = Arc::new(LiveVoiceService::new(provider));
+        let service = Arc::new(LiveVoiceService::new(
+            provider,
+            Arc::new(ActiveRunRegistry::default()),
+        ));
         let first = spawn_start(service.clone(), "main-session", "first-offer");
         let pending = starts.recv().await.unwrap();
 
@@ -282,7 +255,6 @@ mod tests {
             .start_call(
                 "main-session",
                 GooseMode::Auto,
-                false,
                 WebRtcOffer::new("second-offer".into()).unwrap(),
             )
             .await;
@@ -299,7 +271,10 @@ mod tests {
     #[tokio::test]
     async fn a_cancelled_start_releases_the_session() {
         let (provider, mut starts) = provider_channel();
-        let service = Arc::new(LiveVoiceService::new(provider));
+        let service = Arc::new(LiveVoiceService::new(
+            provider,
+            Arc::new(ActiveRunRegistry::default()),
+        ));
         let start_task = spawn_start(service.clone(), "main-session", "offer");
         let pending = starts.recv().await.unwrap();
 
@@ -312,7 +287,10 @@ mod tests {
     #[tokio::test]
     async fn stop_failure_releases_the_session() {
         let (provider, mut starts) = provider_channel();
-        let service = Arc::new(LiveVoiceService::new(provider));
+        let service = Arc::new(LiveVoiceService::new(
+            provider,
+            Arc::new(ActiveRunRegistry::default()),
+        ));
         let start_task = spawn_start(service.clone(), "main-session", "offer");
         let mut connection = starts
             .recv()

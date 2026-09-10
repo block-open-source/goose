@@ -391,8 +391,10 @@ pub async fn spawn_acp_server_in_process(
     });
 
     let live_voice_provider = Arc::new(OpenAiLiveVoiceProvider::from_env());
+    let active_runs = Arc::new(goose::acp::server::ActiveRunRegistry::default());
     let live_voice = Arc::new(goose::acp::server::LiveVoiceService::new(
         live_voice_provider,
+        active_runs.clone(),
     ));
     let agent = GooseAcpAgent::new(GooseAcpAgentOptions {
         provider_factory,
@@ -407,7 +409,7 @@ pub async fn spawn_acp_server_in_process(
         additional_source_roots: Vec::new(),
         session_cwd: None,
         scheduler: Some(Arc::new(FixtureScheduler::new())),
-        active_prompt_runs: Default::default(),
+        active_runs,
         live_voice,
     })
     .await

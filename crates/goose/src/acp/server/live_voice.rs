@@ -26,24 +26,18 @@ impl GooseAcpAgent {
         req: LiveVoiceAvailabilityRequest,
     ) -> Result<LiveVoiceAvailabilityResponse, agent_client_protocol::Error> {
         let session = self.load_live_voice_session(&req.session_id).await?;
-        let prompt_active = self
-            .active_prompt_runs
-            .lock()
-            .await
-            .contains_key(&req.session_id);
-        let status =
-            match self
-                .live_voice
-                .availability(&req.session_id, session.goose_mode, prompt_active)
-            {
-                LiveVoiceAvailability::Ready => LiveVoiceStatus::Ready,
-                LiveVoiceAvailability::FeatureDisabled => LiveVoiceStatus::FeatureDisabled,
-                LiveVoiceAvailability::ProviderUnavailable => LiveVoiceStatus::ProviderUnavailable,
-                LiveVoiceAvailability::ChatBusy => LiveVoiceStatus::SessionBusy,
-                LiveVoiceAvailability::RequiresAutonomousMode => {
-                    LiveVoiceStatus::RequiresAutonomousMode
-                }
-            };
+        let status = match self
+            .live_voice
+            .availability(&req.session_id, session.goose_mode)
+        {
+            LiveVoiceAvailability::Ready => LiveVoiceStatus::Ready,
+            LiveVoiceAvailability::FeatureDisabled => LiveVoiceStatus::FeatureDisabled,
+            LiveVoiceAvailability::ProviderUnavailable => LiveVoiceStatus::ProviderUnavailable,
+            LiveVoiceAvailability::ChatBusy => LiveVoiceStatus::SessionBusy,
+            LiveVoiceAvailability::RequiresAutonomousMode => {
+                LiveVoiceStatus::RequiresAutonomousMode
+            }
+        };
         Ok(LiveVoiceAvailabilityResponse { status })
     }
 
@@ -54,17 +48,12 @@ impl GooseAcpAgent {
         let offer = WebRtcOffer::new(req.offer_sdp)
             .ok_or_else(agent_client_protocol::Error::invalid_params)?;
         let session = self.load_live_voice_session(&req.session_id).await?;
-        let prompt_active = self
-            .active_prompt_runs
-            .lock()
-            .await
-            .contains_key(&req.session_id);
         if session.provider_name.is_none() || session.model_config.is_none() {
             return Err(map_live_voice_error(LiveVoiceError::Unavailable));
         }
         let call = self
             .live_voice
-            .start_call(&req.session_id, session.goose_mode, prompt_active, offer)
+            .start_call(&req.session_id, session.goose_mode, offer)
             .await
             .map_err(map_live_voice_error)?;
 

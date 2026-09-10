@@ -138,14 +138,14 @@ mod tests {
     fn normal_and_live_runs_conflict() {
         let registry = ActiveRunRegistry::default();
 
-        registry
+        assert!(registry
             .start_normal(
                 "session",
                 "run".into(),
                 CancellationToken::new(),
                 Arc::new(Agent::new()),
             )
-            .unwrap();
+            .is_ok());
         assert!(!registry.start_live("session"));
 
         registry.remove_normal("session", "run");

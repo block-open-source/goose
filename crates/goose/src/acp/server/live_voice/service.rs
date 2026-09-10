@@ -1,13 +1,21 @@
 use super::call::{LiveVoiceCall, LiveVoiceCallId, LiveVoiceCallState};
 use crate::acp::server::ActiveRunRegistry;
 use crate::config::GooseMode;
-use goose_providers::live_voice_provider::{LiveVoiceProvider, LiveVoiceProviderAvailability};
+use goose_providers::live_voice_provider::{
+    LiveVoiceProvider, LiveVoiceProviderAvailability, ProviderConnectionEvent,
+};
 pub(super) use goose_providers::live_voice_provider::{WebRtcAnswer, WebRtcOffer};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex as StdMutex},
+    time::Duration,
 };
-use tokio::sync::Mutex;
+use tokio::{sync::watch, time::timeout};
+use tokio_util::sync::CancellationToken;
+
+const PROVIDER_CLEANUP_TIMEOUT: Duration = Duration::from_secs(20);
+
+type LiveCallControls = Arc<StdMutex<HashMap<String, LiveCallControl>>>;
 
 pub(super) struct StartLiveVoiceCallResult {
     pub(super) call_id: LiveVoiceCallId,
@@ -30,9 +38,19 @@ pub(super) enum LiveVoiceError {
     StopFailed,
 }
 
-struct ActiveLiveVoiceCall {
+/// Control side of the task that exclusively owns `LiveVoiceCall`.
+struct LiveCallControl {
     _run_guard: LiveRunGuard,
-    call: Arc<Mutex<LiveVoiceCall>>,
+    call_id: LiveVoiceCallId,
+    stop_requested: CancellationToken,
+    finished_state_rx: watch::Receiver<Option<LiveVoiceCallState>>,
+}
+
+impl LiveCallControl {
+    fn request_stop(&self) -> watch::Receiver<Option<LiveVoiceCallState>> {
+        self.stop_requested.cancel();
+        self.finished_state_rx.clone()
+    }
 }
 
 struct LiveRunGuard {
@@ -57,7 +75,7 @@ impl Drop for LiveRunGuard {
 
 pub struct LiveVoiceService {
     provider: Arc<dyn LiveVoiceProvider>,
-    calls_by_session: StdMutex<HashMap<String, ActiveLiveVoiceCall>>,
+    calls_by_session: LiveCallControls,
     active_runs: Arc<ActiveRunRegistry>,
 }
 
@@ -65,7 +83,7 @@ impl LiveVoiceService {
     pub fn new(provider: Arc<dyn LiveVoiceProvider>, active_runs: Arc<ActiveRunRegistry>) -> Self {
         Self {
             provider,
-            calls_by_session: StdMutex::new(HashMap::new()),
+            calls_by_session: Arc::new(StdMutex::new(HashMap::new())),
             active_runs,
         }
     }
@@ -108,23 +126,29 @@ impl LiveVoiceService {
             .map_err(|_| LiveVoiceError::StartFailed)?;
 
         let call_id = LiveVoiceCallId::new();
-        let call = Arc::new(Mutex::new(LiveVoiceCall::new(
-            call_id.clone(),
-            provider_connection,
-        )));
+        let call = LiveVoiceCall::new(call_id.clone(), provider_connection);
+        let stop_requested = CancellationToken::new();
+        let (finished_state_tx, finished_state_rx) = watch::channel(None);
         let mut calls = self
             .calls_by_session
             .lock()
             .expect("live voice lock poisoned");
-        if calls.contains_key(session_id) {
-            return Err(LiveVoiceError::StartFailed);
-        }
         calls.insert(
             session_id.to_string(),
-            ActiveLiveVoiceCall {
+            LiveCallControl {
                 _run_guard: run_guard,
-                call,
+                call_id: call_id.clone(),
+                stop_requested: stop_requested.clone(),
+                finished_state_rx,
             },
+        );
+        drop(calls);
+        spawn_live_call(
+            self.calls_by_session.clone(),
+            session_id.to_string(),
+            call,
+            stop_requested,
+            finished_state_tx,
         );
         Ok(StartLiveVoiceCallResult { call_id, answer })
     }
@@ -134,45 +158,87 @@ impl LiveVoiceService {
         session_id: &str,
         call_id: &LiveVoiceCallId,
     ) -> Result<(), LiveVoiceError> {
-        let call = self
-            .calls_by_session
-            .lock()
-            .expect("live voice lock poisoned")
-            .get(session_id)
-            .map(|entry| entry.call.clone())
-            .ok_or(LiveVoiceError::Unavailable)?;
-
-        let final_state = {
-            let mut call = call.lock().await;
-            if call.id() != call_id {
+        let finished_state_rx = {
+            let calls = self
+                .calls_by_session
+                .lock()
+                .expect("live voice lock poisoned");
+            let control = calls.get(session_id).ok_or(LiveVoiceError::Unavailable)?;
+            if &control.call_id != call_id {
                 return Err(LiveVoiceError::Unavailable);
             }
-            call.stop().await
+            control.request_stop()
         };
-
-        if final_state.is_terminal() {
-            self.remove_call(session_id, &call);
-        }
+        let final_state = wait_until_finished(finished_state_rx).await?;
         match final_state {
             LiveVoiceCallState::Stopped => Ok(()),
             LiveVoiceCallState::Failed => Err(LiveVoiceError::StopFailed),
-            LiveVoiceCallState::Live | LiveVoiceCallState::Stopping => {
-                Err(LiveVoiceError::StopFailed)
-            }
+            LiveVoiceCallState::Live => Err(LiveVoiceError::StopFailed),
         }
     }
+}
 
-    fn remove_call(&self, session_id: &str, call: &Arc<Mutex<LiveVoiceCall>>) {
-        let mut calls = self
-            .calls_by_session
-            .lock()
-            .expect("live voice lock poisoned");
-        if matches!(
-            calls.get(session_id),
-            Some(ActiveLiveVoiceCall { call: current, .. }) if Arc::ptr_eq(current, call)
-        ) {
-            calls.remove(session_id);
+async fn wait_until_finished(
+    mut finished_state_rx: watch::Receiver<Option<LiveVoiceCallState>>,
+) -> Result<LiveVoiceCallState, LiveVoiceError> {
+    loop {
+        if let Some(state) = *finished_state_rx.borrow() {
+            return Ok(state);
         }
+        finished_state_rx
+            .changed()
+            .await
+            .map_err(|_| LiveVoiceError::StopFailed)?;
+    }
+}
+
+fn spawn_live_call(
+    calls_by_session: LiveCallControls,
+    session_id: String,
+    mut call: LiveVoiceCall,
+    stop_requested: CancellationToken,
+    finished_state_tx: watch::Sender<Option<LiveVoiceCallState>>,
+) {
+    tokio::spawn(async move {
+        let final_state = run_live_call(&mut call, stop_requested).await;
+        remove_matching_call(&calls_by_session, &session_id, call.id());
+        finished_state_tx.send_replace(Some(final_state));
+    });
+}
+
+async fn run_live_call(
+    call: &mut LiveVoiceCall,
+    stop_requested: CancellationToken,
+) -> LiveVoiceCallState {
+    tokio::select! {
+        biased;
+        _ = stop_requested.cancelled() => {
+            match timeout(PROVIDER_CLEANUP_TIMEOUT, call.stop()).await {
+                Ok(state) => state,
+                Err(_) => call.fail(),
+            }
+        }
+        event = call.next_provider_event() => {
+            let state = call.observe_provider_event(event);
+            if event == ProviderConnectionEvent::Failed {
+                let _ = timeout(PROVIDER_CLEANUP_TIMEOUT, call.cleanup_provider()).await;
+            }
+            state
+        }
+    }
+}
+
+fn remove_matching_call(
+    calls_by_session: &LiveCallControls,
+    session_id: &str,
+    call_id: &LiveVoiceCallId,
+) {
+    let mut calls = calls_by_session.lock().expect("live voice lock poisoned");
+    if matches!(
+        calls.get(session_id),
+        Some(control) if &control.call_id == call_id
+    ) {
+        calls.remove(session_id);
     }
 }
 
@@ -180,7 +246,7 @@ impl LiveVoiceService {
 mod tests {
     use super::*;
     use goose_providers::live_voice_provider::fake::{
-        provider_channel, provider_channel_with_availability,
+        FakeConnectionDriver, provider_channel, provider_channel_with_availability,
     };
     use tokio::task::JoinHandle;
 
@@ -212,6 +278,36 @@ mod tests {
             service.availability("main-session", GooseMode::Auto),
             expected
         );
+    }
+
+    async fn establish_call() -> (Arc<LiveVoiceService>, FakeConnectionDriver, LiveVoiceCallId) {
+        let (provider, mut starts) = provider_channel();
+        let service = Arc::new(LiveVoiceService::new(
+            provider,
+            Arc::new(ActiveRunRegistry::default()),
+        ));
+        let start_task = spawn_start(service.clone(), "main-session", "offer");
+        let connection = starts
+            .recv()
+            .await
+            .unwrap()
+            .accept(WebRtcAnswer::new("answer".into()).unwrap())
+            .unwrap();
+        let call_id = start_task.await.unwrap().unwrap().call_id;
+        (service, connection, call_id)
+    }
+
+    fn finished_state_receiver(
+        service: &LiveVoiceService,
+    ) -> watch::Receiver<Option<LiveVoiceCallState>> {
+        service
+            .calls_by_session
+            .lock()
+            .unwrap()
+            .get("main-session")
+            .unwrap()
+            .finished_state_rx
+            .clone()
     }
 
     #[test]
@@ -286,26 +382,10 @@ mod tests {
 
     #[tokio::test]
     async fn stop_failure_releases_the_session() {
-        let (provider, mut starts) = provider_channel();
-        let service = Arc::new(LiveVoiceService::new(
-            provider,
-            Arc::new(ActiveRunRegistry::default()),
-        ));
-        let start_task = spawn_start(service.clone(), "main-session", "offer");
-        let mut connection = starts
-            .recv()
-            .await
-            .unwrap()
-            .accept(WebRtcAnswer::new("answer".into()).unwrap())
-            .unwrap();
-        let started = start_task.await.unwrap().unwrap();
-
+        let (service, mut connection, call_id) = establish_call().await;
         let stop_service = service.clone();
-        let stop = tokio::spawn(async move {
-            stop_service
-                .stop_call("main-session", &started.call_id)
-                .await
-        });
+        let stop =
+            tokio::spawn(async move { stop_service.stop_call("main-session", &call_id).await });
         connection
             .next_stop_request()
             .await
@@ -318,5 +398,121 @@ mod tests {
             Err(LiveVoiceError::StopFailed)
         ));
         assert_availability(&service, LiveVoiceAvailability::Ready);
+    }
+
+    #[tokio::test]
+    async fn repeated_stop_uses_one_provider_shutdown() {
+        let (service, mut connection, call_id) = establish_call().await;
+        let first = service.stop_call("main-session", &call_id);
+        let second = service.stop_call("main-session", &call_id);
+        let provider = async move {
+            connection
+                .next_stop_request()
+                .await
+                .unwrap()
+                .send(Ok(()))
+                .unwrap();
+            assert!(connection.next_stop_request().await.is_none());
+        };
+
+        let (first, second, ()) = tokio::join!(first, second, provider);
+
+        assert!(first.is_ok());
+        assert!(second.is_ok());
+        assert_availability(&service, LiveVoiceAvailability::Ready);
+    }
+
+    #[tokio::test]
+    async fn provider_terminal_events_fail_and_release_the_session() {
+        for event in [
+            ProviderConnectionEvent::Closed,
+            ProviderConnectionEvent::Failed,
+        ] {
+            let (service, mut connection, call_id) = establish_call().await;
+            let finished_state_rx = finished_state_receiver(&service);
+            connection.send_event(event).unwrap();
+            if event == ProviderConnectionEvent::Failed {
+                connection
+                    .next_stop_request()
+                    .await
+                    .unwrap()
+                    .send(Ok(()))
+                    .unwrap();
+            }
+
+            assert_eq!(
+                wait_until_finished(finished_state_rx).await.unwrap(),
+                LiveVoiceCallState::Failed
+            );
+            assert!(matches!(
+                service.stop_call("main-session", &call_id).await,
+                Err(LiveVoiceError::Unavailable)
+            ));
+            assert_availability(&service, LiveVoiceAvailability::Ready);
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn cleanup_timeout_fails_and_releases_the_session() {
+        let (service, mut connection, call_id) = establish_call().await;
+        let stop_service = service.clone();
+        let stop =
+            tokio::spawn(async move { stop_service.stop_call("main-session", &call_id).await });
+        let pending_response = connection.next_stop_request().await.unwrap();
+        tokio::time::advance(PROVIDER_CLEANUP_TIMEOUT).await;
+
+        assert!(matches!(
+            stop.await.unwrap(),
+            Err(LiveVoiceError::StopFailed)
+        ));
+        assert_availability(&service, LiveVoiceAvailability::Ready);
+        drop(pending_response);
+    }
+
+    #[tokio::test]
+    async fn queued_stop_wins_a_provider_close_race() {
+        let (service, mut connection, call_id) = establish_call().await;
+        connection
+            .send_event(ProviderConnectionEvent::Closed)
+            .unwrap();
+
+        let stop = service.stop_call("main-session", &call_id);
+        let provider = async move {
+            connection
+                .next_stop_request()
+                .await
+                .unwrap()
+                .send(Ok(()))
+                .unwrap();
+        };
+        let (stop, ()) = tokio::join!(stop, provider);
+
+        assert!(stop.is_ok());
+        assert_availability(&service, LiveVoiceAvailability::Ready);
+    }
+
+    #[test]
+    fn stale_cleanup_cannot_remove_a_later_call() {
+        let active_runs = Arc::new(ActiveRunRegistry::default());
+        let calls = Arc::new(StdMutex::new(HashMap::new()));
+        let current_id = LiveVoiceCallId("current".into());
+        let (_, finished_state_rx) = watch::channel(None);
+        calls.lock().unwrap().insert(
+            "main-session".into(),
+            LiveCallControl {
+                _run_guard: LiveRunGuard::start(active_runs.clone(), "main-session").unwrap(),
+                call_id: current_id.clone(),
+                stop_requested: CancellationToken::new(),
+                finished_state_rx,
+            },
+        );
+
+        remove_matching_call(&calls, "main-session", &LiveVoiceCallId("stale".into()));
+
+        assert!(matches!(
+            calls.lock().unwrap().get("main-session"),
+            Some(control) if control.call_id == current_id
+        ));
+        assert!(active_runs.is_active("main-session"));
     }
 }

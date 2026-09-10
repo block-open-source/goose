@@ -1,4 +1,4 @@
-use goose_providers::live_voice_provider::ProviderConnection;
+use goose_providers::live_voice_provider::{ProviderConnection, ProviderConnectionEvent};
 use uuid::Uuid;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -13,7 +13,6 @@ impl LiveVoiceCallId {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum LiveVoiceCallState {
     Live,
-    Stopping,
     Stopped,
     Failed,
 }
@@ -46,12 +45,34 @@ impl LiveVoiceCall {
         &self.id
     }
 
+    pub(super) async fn next_provider_event(&mut self) -> ProviderConnectionEvent {
+        self.provider_connection.next_event().await
+    }
+
+    pub(super) fn observe_provider_event(
+        &mut self,
+        event: ProviderConnectionEvent,
+    ) -> LiveVoiceCallState {
+        self.state = match (self.state, event) {
+            (LiveVoiceCallState::Live, _) => LiveVoiceCallState::Failed,
+            (terminal, _) => terminal,
+        };
+        self.state
+    }
+
+    pub(super) async fn cleanup_provider(&mut self) -> anyhow::Result<()> {
+        self.provider_connection.stop().await
+    }
+
+    pub(super) fn fail(&mut self) -> LiveVoiceCallState {
+        if !self.state.is_terminal() {
+            self.state = LiveVoiceCallState::Failed;
+        }
+        self.state
+    }
+
     pub(super) async fn stop(&mut self) -> LiveVoiceCallState {
-        if matches!(
-            self.state,
-            LiveVoiceCallState::Live | LiveVoiceCallState::Stopping
-        ) {
-            self.state = LiveVoiceCallState::Stopping;
+        if self.state == LiveVoiceCallState::Live {
             self.state = if self.provider_connection.stop().await.is_ok() {
                 LiveVoiceCallState::Stopped
             } else {
@@ -74,6 +95,10 @@ mod tests {
 
     #[async_trait]
     impl ProviderConnection for TestConnection {
+        async fn next_event(&mut self) -> ProviderConnectionEvent {
+            std::future::pending().await
+        }
+
         async fn stop(&mut self) -> anyhow::Result<()> {
             if let Some(stopped) = self.stopped.take() {
                 let _ = stopped.send(());
@@ -94,5 +119,26 @@ mod tests {
 
         assert_eq!(call.stop().await, LiveVoiceCallState::Stopped);
         did_stop.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn provider_events_are_interpreted_through_call_intent() {
+        let mut active = LiveVoiceCall::new(
+            LiveVoiceCallId("active".into()),
+            Box::new(TestConnection { stopped: None }),
+        );
+        assert_eq!(
+            active.observe_provider_event(ProviderConnectionEvent::Closed),
+            LiveVoiceCallState::Failed
+        );
+
+        let mut failed = LiveVoiceCall::new(
+            LiveVoiceCallId("failed".into()),
+            Box::new(TestConnection { stopped: None }),
+        );
+        assert_eq!(
+            failed.observe_provider_event(ProviderConnectionEvent::Failed),
+            LiveVoiceCallState::Failed
+        );
     }
 }

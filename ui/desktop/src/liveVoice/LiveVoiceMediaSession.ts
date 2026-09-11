@@ -6,6 +6,7 @@ export class LiveVoiceMediaSession {
   private remoteStream: MediaStream | null = null;
   private dataChannel: RTCDataChannel | null = null;
   private audioElement: HTMLAudioElement | null = null;
+  private playbackStarted: Promise<void> | null = null;
   private tornDown = false;
 
   constructor(private readonly onMediaFailure: () => void) {}
@@ -36,7 +37,8 @@ export class LiveVoiceMediaSession {
         this.remoteStream = stream;
         if (this.audioElement) {
           this.audioElement.srcObject = stream;
-          void this.audioElement.play().catch(() => undefined);
+          this.playbackStarted = this.audioElement.play();
+          void this.playbackStarted.catch(() => undefined);
         }
       };
       for (const track of localStream.getTracks()) {
@@ -65,13 +67,20 @@ export class LiveVoiceMediaSession {
     }
 
     try {
-      await peerConnection.setRemoteDescription({ type: 'answer', sdp: answerSdp });
-      await Promise.all([
-        waitForPeerConnection(peerConnection),
-        waitForDataChannel(dataChannel),
-        waitForRemoteTrack(this),
-      ]);
-      this.observeMediaFailures(peerConnection);
+      const sessionStarted = waitForSessionStarted(dataChannel);
+      try {
+        await peerConnection.setRemoteDescription({ type: 'answer', sdp: answerSdp });
+        await Promise.all([
+          waitForPeerConnection(peerConnection),
+          waitForDataChannel(dataChannel),
+          waitForRemoteTrack(this),
+          sessionStarted.promise,
+        ]);
+        await this.playbackStarted;
+        this.observeMediaFailures(peerConnection);
+      } finally {
+        sessionStarted.cancel();
+      }
     } catch {
       this.teardown();
       throw new Error('Live voice could not connect media');
@@ -110,6 +119,7 @@ export class LiveVoiceMediaSession {
     this.dataChannel = null;
     this.peerConnection = null;
     this.audioElement = null;
+    this.playbackStarted = null;
   }
 
   private observeMediaFailures(peerConnection: RTCPeerConnection): void {
@@ -154,6 +164,45 @@ function waitForPeerConnection(peerConnection: RTCPeerConnection): Promise<void>
 function waitForDataChannel(dataChannel: RTCDataChannel): Promise<void> {
   if (dataChannel.readyState === 'open') return Promise.resolve();
   return waitForEvent(dataChannel, 'open', () => true);
+}
+
+function waitForSessionStarted(dataChannel: RTCDataChannel): {
+  promise: Promise<void>;
+  cancel: () => void;
+} {
+  let cancel: () => void = () => undefined;
+  const promise = new Promise<void>((resolve, reject) => {
+    const timeoutId = setTimeout(
+      () => finish(new Error('Live session startup timed out')),
+      MEDIA_SETUP_TIMEOUT_MS
+    );
+    const listener = (event: MessageEvent) => {
+      if (typeof event.data !== 'string') return;
+      let message: { type?: unknown };
+      try {
+        message = JSON.parse(event.data) as { type?: unknown };
+      } catch {
+        return;
+      }
+      if (message.type === 'session.started') {
+        finish();
+      } else if (message.type === 'error') {
+        finish(new Error('Live session failed to start'));
+      }
+    };
+    const finish = (error?: Error) => {
+      clearTimeout(timeoutId);
+      dataChannel.removeEventListener('message', listener);
+      if (error) {
+        reject(error);
+      } else {
+        resolve();
+      }
+    };
+    cancel = finish;
+    dataChannel.addEventListener('message', listener);
+  });
+  return { promise, cancel };
 }
 
 function waitForRemoteTrack(media: LiveVoiceMediaSession): Promise<void> {

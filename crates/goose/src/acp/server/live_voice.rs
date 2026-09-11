@@ -5,7 +5,7 @@ use super::*;
 use call::{LiveVoiceCallId, LiveVoiceCallState};
 use service::{
     wait_until_finished, LiveVoiceAvailability, LiveVoiceCallEndedHandler, LiveVoiceError,
-    WebRtcOffer,
+    LiveVoiceTranscriptHandler, WebRtcOffer,
 };
 
 pub use service::LiveVoiceService;
@@ -79,10 +79,31 @@ impl GooseAcpAgent {
             };
 
         let session_id = req.session_id.clone();
+        let transcript_session_id = req.session_id.clone();
+        let transcript_connection = cx.clone();
+        let transcript_handler: LiveVoiceTranscriptHandler = Arc::new(move |message| {
+            let [MessageContent::Text(text)] = message.content.as_slice() else {
+                return;
+            };
+            let chunk = content_chunk_for_message(
+                &message,
+                ContentBlock::Text(TextContent::new(text.text.clone())),
+            );
+            let update = match message.role {
+                Role::User => SessionUpdate::UserMessageChunk(chunk),
+                Role::Assistant => SessionUpdate::AgentMessageChunk(chunk),
+            };
+            let _ = transcript_connection.send_notification(SessionNotification::new(
+                SessionId::new(transcript_session_id.clone()),
+                update,
+            ));
+        });
         let start = self.live_voice.start_call(
             &req.session_id,
             session.goose_mode,
             offer,
+            self.session_manager.clone(),
+            transcript_handler,
             call_ended_handler,
         );
         tokio::pin!(start);

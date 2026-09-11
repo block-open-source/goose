@@ -47,12 +47,12 @@ class FakePeerConnection extends EventTarget {
 describe('LiveVoiceMediaSession', () => {
   let localTrack: FakeTrack;
   let peerConnection: FakePeerConnection;
-  let play: ReturnType<typeof vi.fn>;
+  let play: ReturnType<typeof vi.fn<() => Promise<void>>>;
 
   beforeEach(() => {
     localTrack = new FakeTrack();
     peerConnection = new FakePeerConnection();
-    play = vi.fn().mockResolvedValue(undefined);
+    play = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
     vi.stubGlobal('MediaStream', FakeStream);
     vi.stubGlobal(
       'RTCPeerConnection',

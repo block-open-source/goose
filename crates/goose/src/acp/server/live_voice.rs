@@ -51,11 +51,6 @@ impl GooseAcpAgent {
     ) -> Result<LiveVoiceStartResponse, agent_client_protocol::Error> {
         let offer = WebRtcOffer::new(req.offer_sdp)
             .ok_or_else(agent_client_protocol::Error::invalid_params)?;
-        let session = self.load_live_voice_session(&req.session_id).await?;
-        if session.provider_name.is_none() || session.model_config.is_none() {
-            return Err(map_live_voice_error(LiveVoiceError::Unavailable));
-        }
-
         let call_ended_handler: LiveVoiceCallEndedHandler =
             if self.supports_goose_custom_notifications() {
                 let notification_connection = cx.clone();
@@ -100,7 +95,6 @@ impl GooseAcpAgent {
         });
         let start = self.live_voice.start_call(
             &req.session_id,
-            session.goose_mode,
             offer,
             self.session_manager.clone(),
             transcript_handler,

@@ -199,10 +199,9 @@ mod tests {
             "hello world"
         );
 
-        assert!(
-            call.observe_transcript("2".into(), Role::User, " world")
-                .is_none()
-        );
+        assert!(call
+            .observe_transcript("2".into(), Role::User, " world")
+            .is_none());
 
         let role_change = call
             .observe_transcript("3".into(), Role::Assistant, "hello")

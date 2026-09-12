@@ -54,7 +54,6 @@ const DATABRICKS_V2_CATALOG_PAGE_SIZE: usize = 100;
 const DATABRICKS_V2_MAX_CATALOG_PAGES: usize = 100;
 // Model-services intermittently uses 499 for transient gateway timeouts.
 const DATABRICKS_V2_TRANSIENT_GATEWAY_STATUS: u16 = 499;
-const MODEL_SERVICE_METADATA_TIMEOUT: Duration = Duration::from_secs(5);
 const MODEL_SERVICE_METADATA_TTL: Duration = Duration::from_secs(60);
 
 struct CachedModelServiceMetadata {
@@ -285,10 +284,6 @@ impl DatabricksV2Provider {
         if route == DatabricksV2Route::OpenAiResponses {
             config.temperature = None;
         }
-        if config.reasoning != Some(false) {
-            config.reasoning = None;
-        }
-        config.supports_vision = None;
         Ok((
             config.with_canonical_limits(DATABRICKS_V2_PROVIDER_NAME),
             route,
@@ -301,21 +296,16 @@ impl DatabricksV2Provider {
         let fallback = routing
             .pointer("/fallback/destinations")
             .and_then(Value::as_array);
-        let models: Vec<_> = primary
+        let models: Vec<String> = primary
             .iter()
             .chain(fallback.into_iter().flatten())
-            .map(|destination| {
-                let model = destination
-                    .pointer("/pay_per_token_config/model")
-                    .or_else(|| destination.pointer("/provisioned_throughput_config/model"))
-                    .or_else(|| destination.pointer("/external_model_config/target/model"))?
-                    .as_str()?;
-                let model = model.strip_prefix("models/").unwrap_or(model);
-                maybe_get_canonical_model(DATABRICKS_V2_PROVIDER_NAME, model).map(|model| model.id)
-            })
+            .map(Self::backing_model_name)
             .collect::<Option<Vec<_>>>()?;
         let model = models.first()?;
-        let route = if models.iter().all(|model| is_openai_responses_model(model)) {
+        let route = if models
+            .iter()
+            .all(|model| Self::route_for_model(model) == DatabricksV2Route::OpenAiResponses)
+        {
             DatabricksV2Route::OpenAiResponses
         } else {
             DatabricksV2Route::MlflowChatCompletions
@@ -325,6 +315,26 @@ impl DatabricksV2Provider {
             .all(|candidate| candidate == model)
             .then(|| model.clone());
         Some(ModelServiceMetadata { model, route })
+    }
+
+    /// Canonical id when the registry knows the backing model, otherwise its bare name so
+    /// routing and effort heuristics still see e.g. `gpt-5-custom` rather than `system.ai.gpt-5-custom`.
+    fn backing_model_name(destination: &Value) -> Option<String> {
+        let model = destination
+            .pointer("/pay_per_token_config/model")
+            .or_else(|| destination.pointer("/provisioned_throughput_config/model"))
+            .or_else(|| destination.pointer("/external_model_config/target/model"))?
+            .as_str()?;
+        let model = model.strip_prefix("models/").unwrap_or(model);
+        let model = if Self::is_model_service_fqn(model) {
+            model.splitn(3, '.').nth(2).unwrap_or(model)
+        } else {
+            model
+        };
+        Some(
+            maybe_get_canonical_model(DATABRICKS_V2_PROVIDER_NAME, model)
+                .map_or_else(|| model.to_string(), |canonical| canonical.id),
+        )
     }
 
     async fn model_service_metadata(
@@ -343,34 +353,25 @@ impl DatabricksV2Provider {
         let metadata = self
             .with_retry_config(
                 || async {
-                    tokio::time::timeout(MODEL_SERVICE_METADATA_TIMEOUT, async {
-                        let response = self.api_client.response_get(&path).await?;
-                        if response.status().as_u16() == DATABRICKS_V2_TRANSIENT_GATEWAY_STATUS {
-                            let detail = read_error_body(response).await.unwrap_or_default();
-                            return Err(ProviderError::ServerError(format!(
-                                "Databricks model-service metadata returned {DATABRICKS_V2_TRANSIENT_GATEWAY_STATUS}: {detail}"
-                            )));
-                        }
-                        let value: Value =
-                            read_json_response(handle_status(response).await?).await?;
-                        if value
-                            .pointer("/config/routing/destinations")
-                            .and_then(Value::as_array)
-                            .is_none()
-                        {
-                            return Err(ProviderError::RequestFailed(
-                                "Databricks model-service metadata is missing routing destinations"
-                                    .to_string(),
-                            ));
-                        }
-                        Ok(Self::model_service_metadata_from_value(&value))
-                    })
-                    .await
-                    .map_err(|_| {
-                        ProviderError::NetworkError(
-                            "Databricks model-service metadata request timed out".to_string(),
-                        )
-                    })?
+                    let response = self.api_client.response_get(&path).await?;
+                    if response.status().as_u16() == DATABRICKS_V2_TRANSIENT_GATEWAY_STATUS {
+                        let detail = read_error_body(response).await.unwrap_or_default();
+                        return Err(ProviderError::ServerError(format!(
+                            "Databricks model-service metadata returned {DATABRICKS_V2_TRANSIENT_GATEWAY_STATUS}: {detail}"
+                        )));
+                    }
+                    let value: Value = read_json_response(handle_status(response).await?).await?;
+                    if value
+                        .pointer("/config/routing/destinations")
+                        .and_then(Value::as_array)
+                        .is_none()
+                    {
+                        return Err(ProviderError::RequestFailed(
+                            "Databricks model-service metadata is missing routing destinations"
+                                .to_string(),
+                        ));
+                    }
+                    Ok(Self::model_service_metadata_from_value(&value))
                 },
                 self.retry_config.clone().transient_only(),
             )
@@ -396,7 +397,7 @@ impl DatabricksV2Provider {
                 info.resolved_model = Some(model.to_string());
                 // The model-service MLflow path only translates thinking effort for Claude.
                 if *route == DatabricksV2Route::MlflowChatCompletions
-                    && !model.starts_with("anthropic/")
+                    && !Self::resolves_to_claude(model)
                 {
                     info.reasoning = false;
                 }
@@ -404,6 +405,13 @@ impl DatabricksV2Provider {
             }
             _ => ModelInfo::new(name),
         }
+    }
+
+    /// The Anthropic formatter needs canonical metadata to emit thinking, so an
+    /// uncatalogued Claude-looking name must not be treated as effort-capable.
+    fn resolves_to_claude(model: &str) -> bool {
+        maybe_get_canonical_model(DATABRICKS_V2_PROVIDER_NAME, model)
+            .is_some_and(|canonical| canonical.id.starts_with("anthropic/"))
     }
 
     pub fn is_model_service_fqn(model_name: &str) -> bool {
@@ -566,7 +574,7 @@ impl DatabricksV2Provider {
         if payload.get("max_tokens").is_none() {
             payload["max_tokens"] = Value::from(format_config.max_output_tokens());
         }
-        if is_model_service && resolved_config.model_name.starts_with("anthropic/") {
+        if is_model_service && Self::resolves_to_claude(&resolved_config.model_name) {
             payload.as_object_mut().unwrap().remove("budget_tokens");
             if !anthropic::model_supports_temperature(DATABRICKS_V2_PROVIDER_NAME, resolved_config)
             {

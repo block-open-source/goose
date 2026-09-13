@@ -19,7 +19,6 @@ const UNSUPPORTED_KEYWORDS = [
   'if',
   'not',
   'patternProperties',
-  'prefixItems',
   'propertyNames',
   'then',
   'unevaluatedProperties',
@@ -128,6 +127,10 @@ function schemaType(schema, inlineObject = false) {
   }
 
   if (schema.type === 'array') {
+    if (schema.prefixItems) {
+      const parts = schema.prefixItems.map((item) => schemaType(item, true));
+      return `[${parts.join(', ')}]`;
+    }
     if (!Object.hasOwn(schema, 'items')) throw new Error('Array schema is missing items');
     return `Array&lt;${schemaType(schema.items, true)}&gt;`;
   }

@@ -86,6 +86,7 @@ goose supports [Agent Client Protocol (ACP)](https://agentclientprotocol.com/) a
 |-----------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | [Claude ACP](https://github.com/agentclientprotocol/claude-agent-acp) (`claude-acp`) | Uses Claude Code via ACP. Passes goose extensions to the agent as MCP servers. | `npm install -g @agentclientprotocol/claude-agent-acp`, active Claude Code subscription |
 | [Codex ACP](https://github.com/agentclientprotocol/codex-acp) (`codex-acp`) | Uses OpenAI Codex via ACP. Passes goose extensions to the agent as MCP servers. | `npm install -g @agentclientprotocol/codex-acp`, active ChatGPT Plus/Pro subscription or OpenAI API credits |
+| Custom ACP agent | Runs any local ACP-compatible agent over stdio, such as Kiro CLI or a custom Pi launch. | Agent installed and authenticated locally |
 
 :::tip ACP Providers
 See the [ACP Providers guide](/docs/guides/acp-providers) for detailed setup instructions.
@@ -389,7 +390,7 @@ Create custom providers to connect to services that aren't [already supported](#
 - **Custom naming**: Show "Corporate API" instead of "OpenAI" in the UI
 - **Separate credentials**: Assign each provider its own API key
 
-Custom providers must use OpenAI, Anthropic, or Ollama compatible API formats. They can include custom headers for additional authentication, API keys, tokens, or tenant identifiers. Each custom provider maps to a JSON configuration file.
+Custom providers can use OpenAI, Anthropic, or Ollama compatible API formats, or a local ACP agent over stdio. HTTP providers can include custom headers for additional authentication, API keys, tokens, or tenant identifiers. Each custom provider maps to a JSON configuration file.
 
 **To add a custom provider:**
 <Tabs groupId="interface">
@@ -404,8 +405,11 @@ Custom providers must use OpenAI, Anthropic, or Ollama compatible API formats. T
          - `OpenAI Compatible` (most common)
          - `Anthropic Compatible`
          - `Ollama Compatible`
+         - `ACP agent (local stdio)` for a locally installed ACP agent such as Kiro or Pi
        - **Display Name**: A friendly name for the provider
-       - **API URL**: The base URL of the API endpoint
+       - **API URL**: The base URL of the API endpoint (HTTP providers only)
+       - **ACP command and arguments**: For an ACP provider, enter the executable and comma-separated arguments, such as `kiro-cli` with `acp, --agent, my-agent`
+       - **Working directory**: Optional working directory reported to the ACP agent for the session
        - **Authentication**:
          - **API Key**: The API key, which is accessed using a custom environment variable and stored in the keychain (or `secrets.yaml` if the keyring is disabled or cannot be accessed)
             - For providers that don't require authorization (e.g., local models like Ollama, vLLM, or internal APIs), uncheck the **"This provider requires an API key"** checkbox
@@ -433,7 +437,7 @@ Custom providers must use OpenAI, Anthropic, or Ollama compatible API formats. T
        ◆  What would you like to configure?
        │  ○ Configure Providers
        // highlight-start
-       │  ● Custom Providers (Add custom provider with compatible API)
+       │  ● Custom Providers (Add custom HTTP or ACP provider)
        // highlight-end
        │  ○ Add Extension
        │  ○ Toggle Extensions
@@ -452,7 +456,7 @@ Custom providers must use OpenAI, Anthropic, or Ollama compatible API formats. T
        │
        ◆  What would you like to do?
        // highlight-start
-       │  ● Add A Custom Provider (Add a new OpenAI/Anthropic/Ollama compatible Provider)
+       │  ● Add A Custom Provider (Add a new HTTP-compatible or ACP Provider)
        // highlight-end
        │  ○ Remove Custom Provider
        └
@@ -464,7 +468,9 @@ Custom providers must use OpenAI, Anthropic, or Ollama compatible API formats. T
          - `Anthropic Compatible`
          - `Ollama Compatible`
        - **Name**: A friendly name for the provider
-       - **API URL**: The base URL of the API endpoint
+       - **API URL**: The base URL of the API endpoint (HTTP providers only)
+       - **ACP command and arguments**: For an ACP provider, enter the executable and comma-separated arguments, such as `kiro-cli` with `acp, --agent, my-agent`
+       - **Working directory**: Optional working directory reported to the ACP agent for the session
        - **Authentication Required**: Answer "Yes" if your provider needs an API key, or "No" if authentication is not required
          - If Yes: Choose how goose should obtain the credential:
            - **Static API key**: You'll be prompted to enter your **API Key** (stored securely in the keychain, or in `secrets.yaml` if the keyring is disabled or cannot be accessed)
@@ -674,7 +680,7 @@ Your changes are available in your next goose session.
        ◆  What would you like to configure?
        │  ○ Configure Providers
        // highlight-start
-       │  ● Custom Providers (Add custom provider with compatible API)
+       │  ● Custom Providers (Add custom HTTP or ACP provider)
        // highlight-end
        │  ○ Add Extension
        │  ○ Toggle Extensions

@@ -931,6 +931,7 @@ pub fn declarative_inventory_identity(
                 ProviderEngine::OpenAI => "openai".to_string(),
                 ProviderEngine::Anthropic => "anthropic".to_string(),
                 ProviderEngine::Ollama => "ollama".to_string(),
+                ProviderEngine::Acp => "acp".to_string(),
             }),
     );
 
@@ -938,6 +939,19 @@ pub fn declarative_inventory_identity(
         .public_inputs
         .insert("base_url".to_string(), config.base_url.clone());
 
+    if let Some(acp) = &config.acp {
+        identity
+            .public_inputs
+            .insert("command".to_string(), acp.command.clone());
+        identity
+            .public_inputs
+            .insert("args".to_string(), serde_json::to_string(&acp.args)?);
+        if let Some(work_dir) = &acp.work_dir {
+            identity
+                .public_inputs
+                .insert("work_dir".to_string(), work_dir.display().to_string());
+        }
+    }
     if let Some(base_path) = &config.base_path {
         identity
             .public_inputs

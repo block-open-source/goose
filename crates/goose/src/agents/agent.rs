@@ -4557,6 +4557,7 @@ mod tests {
         let config = crate::config::declarative_providers::create_custom_provider(
             crate::config::declarative_providers::CreateCustomProviderParams {
                 engine: "openai".to_string(),
+                acp: None,
                 display_name: "Sticky Toolshim".to_string(),
                 api_url: "https://example.invalid/v1".to_string(),
                 api_key: None,
@@ -4604,6 +4605,7 @@ mod tests {
         crate::config::declarative_providers::update_custom_provider(
             crate::config::declarative_providers::UpdateCustomProviderParams {
                 id: config.name.clone(),
+                acp: None,
                 engine: "openai".to_string(),
                 display_name: config.display_name,
                 api_url: config.base_url,

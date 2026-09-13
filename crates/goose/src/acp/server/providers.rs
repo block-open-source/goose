@@ -275,6 +275,7 @@ fn custom_provider_engine_to_dto(engine: &declarative_providers::ProviderEngine)
         declarative_providers::ProviderEngine::OpenAI => "openai_compatible",
         declarative_providers::ProviderEngine::Anthropic => "anthropic_compatible",
         declarative_providers::ProviderEngine::Ollama => "ollama_compatible",
+        declarative_providers::ProviderEngine::Acp => "acp",
     }
 }
 
@@ -289,6 +290,7 @@ fn normalize_custom_provider_engine(engine: &str) -> Result<String, agent_client
         "openai" | "openai_compatible" => Ok("openai_compatible".to_string()),
         "anthropic" | "anthropic_compatible" => Ok("anthropic_compatible".to_string()),
         "ollama" | "ollama_compatible" => Ok("ollama_compatible".to_string()),
+        "acp" => Ok("acp".to_string()),
         _ => unreachable!("provider engine was validated above"),
     }
 }
@@ -316,21 +318,38 @@ fn normalize_custom_provider_upsert(
 ) -> Result<CustomProviderUpsertDto, agent_client_protocol::Error> {
     provider.engine = normalize_custom_provider_engine(&provider.engine)?;
     provider.display_name = non_empty_trimmed(provider.display_name, "displayName")?;
-    provider.api_url = non_empty_trimmed(provider.api_url, "apiUrl")?;
-    let url = url::Url::parse(&provider.api_url).map_err(|_| {
-        agent_client_protocol::Error::invalid_params().data("apiUrl must be a valid URL")
-    })?;
-    if !matches!(url.scheme(), "http" | "https") {
-        return Err(
-            agent_client_protocol::Error::invalid_params().data("apiUrl must use HTTP or HTTPS")
-        );
+    if provider.engine == "acp" {
+        let acp = provider.acp.as_ref().ok_or_else(|| {
+            agent_client_protocol::Error::invalid_params().data("ACP configuration is required")
+        })?;
+        if acp.command.trim().is_empty() {
+            return Err(
+                agent_client_protocol::Error::invalid_params().data("ACP command cannot be empty")
+            );
+        }
+        provider.api_url.clear();
+        provider.api_key = None;
+        provider.requires_auth = false;
+    } else {
+        provider.api_url = non_empty_trimmed(provider.api_url, "apiUrl")?;
+        let url = url::Url::parse(&provider.api_url).map_err(|_| {
+            agent_client_protocol::Error::invalid_params().data("apiUrl must be a valid URL")
+        })?;
+        if provider.engine != "acp" && !matches!(url.scheme(), "http" | "https") {
+            return Err(agent_client_protocol::Error::invalid_params()
+                .data("apiUrl must use HTTP or HTTPS"));
+        }
     }
 
     provider.api_key = provider.api_key.and_then(|api_key| {
         let api_key = api_key.trim().to_string();
         (!api_key.is_empty()).then_some(api_key)
     });
-    if require_api_key && provider.requires_auth && provider.api_key.is_none() {
+    if provider.engine != "acp"
+        && require_api_key
+        && provider.requires_auth
+        && provider.api_key.is_none()
+    {
         return Err(agent_client_protocol::Error::invalid_params().data("apiKey cannot be empty"));
     }
     provider.models = provider
@@ -341,8 +360,15 @@ fn normalize_custom_provider_upsert(
             (!model.is_empty()).then_some(model)
         })
         .collect();
-    if provider.models.is_empty() {
+    if provider.engine != "acp" && provider.models.is_empty() {
         return Err(agent_client_protocol::Error::invalid_params().data("models cannot be empty"));
+    }
+
+    if provider.engine == "acp" {
+        provider.headers.clear();
+        provider.catalog_provider_id = None;
+        provider.base_path = None;
+        return Ok(provider);
     }
 
     provider.headers = provider
@@ -452,6 +478,15 @@ fn custom_provider_config_to_dto(
         api_key_env,
         api_key_set,
         preserves_thinking: config.preserves_thinking,
+        acp: config.acp.as_ref().map(|acp| CustomAcpConfigDto {
+            command: acp.command.clone(),
+            args: acp.args.clone(),
+            env: acp.env.clone(),
+            env_remove: acp.env_remove.clone(),
+            work_dir: acp.work_dir.as_ref().map(|path| path.display().to_string()),
+            model_config_option_id: acp.model_config_option_id.clone(),
+            session_config_options: acp.session_config_options.clone(),
+        }),
     }
 }
 
@@ -634,6 +669,20 @@ impl GooseAcpAgent {
     ) -> Result<CustomProviderCreateResponse, agent_client_protocol::Error> {
         let toolshim = req.toolshim;
         let provider = normalize_custom_provider_upsert(req.provider, true)?;
+        let acp =
+            provider
+                .acp
+                .as_ref()
+                .map(|acp| goose_providers::declarative::DeclarativeAcpConfig {
+                    command: acp.command.clone(),
+                    args: acp.args.clone(),
+                    env: acp.env.clone(),
+                    env_remove: acp.env_remove.clone(),
+                    work_dir: acp.work_dir.as_deref().map(std::path::PathBuf::from),
+                    mode_mapping: std::collections::HashMap::new(),
+                    model_config_option_id: acp.model_config_option_id.clone(),
+                    session_config_options: acp.session_config_options.clone(),
+                });
         let config = declarative_providers::create_custom_provider(
             declarative_providers::CreateCustomProviderParams {
                 engine: provider.engine,
@@ -653,6 +702,7 @@ impl GooseAcpAgent {
                 toolshim,
                 preserves_thinking: provider.preserves_thinking,
                 auth: None,
+                acp,
             },
         )
         .internal_err_ctx("Failed to create custom provider")?;
@@ -697,6 +747,20 @@ impl GooseAcpAgent {
         }
 
         let provider = normalize_custom_provider_upsert(req.provider, false)?;
+        let acp =
+            provider
+                .acp
+                .as_ref()
+                .map(|acp| goose_providers::declarative::DeclarativeAcpConfig {
+                    command: acp.command.clone(),
+                    args: acp.args.clone(),
+                    env: acp.env.clone(),
+                    env_remove: acp.env_remove.clone(),
+                    work_dir: acp.work_dir.as_deref().map(std::path::PathBuf::from),
+                    mode_mapping: std::collections::HashMap::new(),
+                    model_config_option_id: acp.model_config_option_id.clone(),
+                    session_config_options: acp.session_config_options.clone(),
+                });
         if provider.requires_auth && provider.api_key.is_none() && loaded.config.auth.is_none() {
             let api_key_env = if loaded.config.api_key_env.is_empty() {
                 declarative_providers::generate_api_key_name(&req.provider_id)
@@ -711,6 +775,7 @@ impl GooseAcpAgent {
         declarative_providers::update_custom_provider(
             declarative_providers::UpdateCustomProviderParams {
                 id: req.provider_id.clone(),
+                acp,
                 engine: provider.engine,
                 display_name: provider.display_name,
                 api_url: provider.api_url,

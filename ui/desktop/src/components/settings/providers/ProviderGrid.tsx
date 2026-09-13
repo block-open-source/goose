@@ -299,6 +299,17 @@ function ProviderCards({
     headers: editingProvider.config.headers ?? undefined,
     catalog_provider_id: editingProvider.config.catalogProviderId ?? undefined,
     toolshim: editingProvider.config.toolshim,
+    acp: editingProvider.config.acp
+      ? {
+          command: editingProvider.config.acp.command,
+          args: editingProvider.config.acp.args ?? [],
+          env: editingProvider.config.acp.env,
+          env_remove: editingProvider.config.acp.envRemove,
+          work_dir: editingProvider.config.acp.workDir ?? null,
+          model_config_option_id: editingProvider.config.acp.modelConfigOptionId ?? null,
+          session_config_options: editingProvider.config.acp.sessionConfigOptions,
+        }
+      : null,
   };
 
   const editable = editingProvider ? editingProvider.isEditable : true;

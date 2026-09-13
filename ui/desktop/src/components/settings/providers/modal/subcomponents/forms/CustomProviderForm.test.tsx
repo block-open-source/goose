@@ -2,6 +2,7 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { IntlTestWrapper } from '../../../../../../i18n/test-utils';
+import type { UpdateCustomProviderRequest } from '../../../../../../types/providers';
 import CustomProviderForm from './CustomProviderForm';
 
 const templates = vi.hoisted(() => ({
@@ -211,5 +212,85 @@ describe('CustomProviderForm transitions', () => {
     await user.click(screen.getByText('Configure manually'));
 
     expect(screen.queryByText('Display name is required')).not.toBeInTheDocument();
+  });
+});
+
+describe('CustomProviderForm ACP provider editing', () => {
+  const savedAcpProvider: UpdateCustomProviderRequest = {
+    engine: 'acp',
+    display_name: 'Kiro ACP',
+    api_url: '',
+    api_key: '',
+    models: [],
+    supports_streaming: true,
+    toolshim: false,
+    requires_auth: false,
+    acp: {
+      command: 'kiro-cli',
+      args: ['acp', '--agent', 'my-agent'],
+      env: [['KIRO_TOKEN', 'from-env']],
+      env_remove: ['INHERITED_SECRET'],
+      work_dir: '/tmp/workspace',
+      model_config_option_id: 'model',
+      session_config_options: [['mode', 'default']],
+    },
+  };
+
+  const renderSavedForm = (onSubmit = vi.fn()) => {
+    render(
+      <CustomProviderForm
+        initialData={savedAcpProvider}
+        isEditable
+        onSubmit={onSubmit}
+        onCancel={vi.fn()}
+      />,
+      { wrapper: IntlTestWrapper }
+    );
+    return onSubmit;
+  };
+
+  it('loads persisted ACP launch fields into the form', () => {
+    renderSavedForm();
+
+    expect(screen.getByDisplayValue('kiro-cli')).toBeInTheDocument();
+    expect(screen.getByDisplayValue(/KIRO_TOKEN=from-env/)).toBeInTheDocument();
+    expect(screen.getByDisplayValue('model')).toBeInTheDocument();
+    expect(screen.getByDisplayValue(/mode=default/)).toBeInTheDocument();
+  });
+
+  it('submits every persisted ACP field so an edit cannot drop launch configuration', async () => {
+    const user = userEvent.setup();
+    const onSubmit = renderSavedForm();
+
+    await user.click(screen.getByRole('button', { name: 'Update Provider' }));
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        engine: 'acp',
+        api_url: '',
+        api_key: '',
+        acp: {
+          command: 'kiro-cli',
+          args: ['acp', '--agent', 'my-agent'],
+          env: [['KIRO_TOKEN', 'from-env']],
+          env_remove: ['INHERITED_SECRET'],
+          work_dir: '/tmp/workspace',
+          model_config_option_id: 'model',
+          session_config_options: [['mode', 'default']],
+        },
+      })
+    );
+  });
+
+  it('blocks an ACP provider without a command', async () => {
+    const user = userEvent.setup();
+    const onSubmit = renderSavedForm();
+
+    await user.clear(screen.getByDisplayValue('kiro-cli'));
+    await user.click(screen.getByRole('button', { name: 'Update Provider' }));
+
+    expect(screen.getByText('ACP command is required')).toBeInTheDocument();
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 });

@@ -733,6 +733,16 @@ export const zProviderCatalogTemplateResponse_unstable = z.object({
     template: zProviderTemplateDto
 });
 
+export const zCustomAcpConfigDto = z.object({
+    command: z.string(),
+    args: z.array(z.string()).optional().default([]),
+    env: z.array(z.tuple([z.string(), z.string()])).optional().default([]),
+    envRemove: z.array(z.string()).optional().default([]),
+    workDir: z.string().nullish().default(null),
+    modelConfigOptionId: z.string().nullish().default(null),
+    sessionConfigOptions: z.array(z.tuple([z.string(), z.string()])).optional().default([])
+});
+
 /**
  * Create a custom provider backed by goose's declarative provider store.
  */
@@ -748,6 +758,7 @@ export const zCustomProviderCreateRequest_unstable = z.object({
     catalogProviderId: z.string().nullish(),
     basePath: z.string().nullish(),
     preservesThinking: z.boolean().nullish(),
+    acp: zCustomAcpConfigDto.nullish(),
     toolshim: z.boolean()
 });
 
@@ -803,7 +814,8 @@ export const zCustomProviderConfigDto = z.object({
     toolshim: z.boolean(),
     apiKeyEnv: z.string().nullish(),
     apiKeySet: z.boolean(),
-    preservesThinking: z.boolean()
+    preservesThinking: z.boolean(),
+    acp: zCustomAcpConfigDto.nullish()
 });
 
 export const zCustomProviderReadResponse_unstable = z.object({
@@ -828,6 +840,7 @@ export const zCustomProviderUpdateRequest_unstable = z.object({
     catalogProviderId: z.string().nullish(),
     basePath: z.string().nullish(),
     preservesThinking: z.boolean().nullish(),
+    acp: zCustomAcpConfigDto.nullish(),
     toolshim: z.boolean()
 });
 

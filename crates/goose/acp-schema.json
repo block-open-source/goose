@@ -2305,6 +2305,16 @@
             "null"
           ]
         },
+        "acp": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CustomAcpConfigDto"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "toolshim": {
           "type": "boolean"
         }
@@ -2319,6 +2329,79 @@
       "description": "Create a custom provider backed by goose's declarative provider store.",
       "x-side": "agent",
       "x-method": "_goose/unstable/providers/custom/create"
+    },
+    "CustomAcpConfigDto": {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string"
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "env": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "default": []
+        },
+        "envRemove": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "workDir": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "modelConfigOptionId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "sessionConfigOptions": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "default": []
+        }
+      },
+      "required": [
+        "command"
+      ]
     },
     "CustomProviderCreateResponse_unstable": {
       "type": "object",
@@ -2505,6 +2588,16 @@
         },
         "preservesThinking": {
           "type": "boolean"
+        },
+        "acp": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CustomAcpConfigDto"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -2578,6 +2671,16 @@
           "type": [
             "boolean",
             "null"
+          ]
+        },
+        "acp": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CustomAcpConfigDto"
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "toolshim": {

@@ -1085,7 +1085,24 @@ export type CustomProviderCreateRequest_unstable = {
     catalogProviderId?: string | null;
     basePath?: string | null;
     preservesThinking?: boolean | null;
+    acp?: CustomAcpConfigDto | null;
     toolshim: boolean;
+};
+
+export type CustomAcpConfigDto = {
+    command: string;
+    args?: Array<string>;
+    env?: Array<[
+        string,
+        string
+    ]>;
+    envRemove?: Array<string>;
+    workDir?: string | null;
+    modelConfigOptionId?: string | null;
+    sessionConfigOptions?: Array<[
+        string,
+        string
+    ]>;
 };
 
 export type CustomProviderCreateResponse_unstable = {
@@ -1150,6 +1167,7 @@ export type CustomProviderConfigDto = {
     apiKeyEnv?: string | null;
     apiKeySet: boolean;
     preservesThinking: boolean;
+    acp?: CustomAcpConfigDto | null;
 };
 
 /**
@@ -1170,6 +1188,7 @@ export type CustomProviderUpdateRequest_unstable = {
     catalogProviderId?: string | null;
     basePath?: string | null;
     preservesThinking?: boolean | null;
+    acp?: CustomAcpConfigDto | null;
     toolshim: boolean;
 };
 

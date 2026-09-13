@@ -537,6 +537,7 @@ async fn generic_acp_provider_resumes_a_recorded_session() {
             "args": [script.to_string_lossy()],
             "env": [
                 ["FAKE_ACP_RECORD", transcript.display().to_string()],
+                ["FAKE_ACP_REPLY", REPLY],
                 ["FAKE_ACP_SESSION_RESUME", "1"],
             ],
             "work_dir": workspace.path().to_string_lossy(),
@@ -579,6 +580,30 @@ async fn generic_acp_provider_resumes_a_recorded_session() {
         observed["closes"],
         json!([{ "sessionId": "fake-session-1" }]),
         "the session created during connect should be closed once it is replaced"
+    );
+
+    assert_eq!(
+        prompt(provider.as_ref(), "prompt after resume")
+            .await
+            .expect("the resumed session should accept subsequent prompts"),
+        REPLY
+    );
+    let observed = wait_for_transcript(&transcript, "the resumed prompt", |value| {
+        value
+            .get("prompts")
+            .and_then(Value::as_array)
+            .is_some_and(|prompts| {
+                prompts.iter().any(|prompt| {
+                    prompt["sessionId"] == json!("prior-session")
+                        && prompt["text"] == json!("prompt after resume")
+                })
+            })
+    });
+    assert!(
+        observed["prompts"].as_array().is_some_and(|prompts| prompts
+            .iter()
+            .any(|prompt| prompt["sessionId"] == json!("prior-session"))),
+        "subsequent prompts must use the loaded ACP session"
     );
 }
 
@@ -728,8 +753,8 @@ async fn generic_acp_failures_identify_the_stage_that_failed() {
     let transcript_dir = tempfile::tempdir().unwrap();
     let handshake_transcript = transcript_dir.path().join("handshake.json");
     let script = agent_script();
-    let failing_handshake = acp_config(
-        "custom_acp_handshake",
+    let exiting_handshake = acp_config(
+        "custom_acp_handshake_exit",
         &python,
         json!({
             "args": [script.to_string_lossy()],
@@ -740,18 +765,48 @@ async fn generic_acp_failures_identify_the_stage_that_failed() {
             "work_dir": workspace.path().to_string_lossy(),
         }),
     );
-    let handshake =
-        connect_error(&registry_with(&failing_handshake), &failing_handshake.name).await;
+    let exit_error =
+        connect_error(&registry_with(&exiting_handshake), &exiting_handshake.name).await;
     assert!(
-        handshake.contains("ACP initialize failed"),
-        "handshake failures should be reported as initialization failures: {handshake}"
+        exit_error.contains("ACP initialize failed"),
+        "an agent that exits before initialize should report the initialization stage: {exit_error}"
     );
     assert!(
-        !handshake.contains("spawn") && !handshake.contains("could not resolve"),
-        "an agent that launched and then died should not be reported as a launch failure: {handshake}"
+        !exit_error.contains("spawn") && !exit_error.contains("could not resolve"),
+        "an agent that launched and then died should not be reported as a launch failure: {exit_error}"
     );
     wait_for_transcript(&handshake_transcript, "its launch", |value| {
         value.get("argv").is_some()
+    });
+
+    let json_error_transcript = transcript_dir.path().join("handshake-error.json");
+    let rejected_handshake = acp_config(
+        "custom_acp_handshake_error",
+        &python,
+        json!({
+            "args": [script.to_string_lossy()],
+            "env": [
+                ["FAKE_ACP_RECORD", json_error_transcript.display().to_string()],
+                ["FAKE_ACP_MODE", "fail_handshake"],
+            ],
+            "work_dir": workspace.path().to_string_lossy(),
+        }),
+    );
+    let json_error = connect_error(
+        &registry_with(&rejected_handshake),
+        &rejected_handshake.name,
+    )
+    .await;
+    assert!(
+        json_error.contains("ACP initialize failed") && json_error.contains("handshake refused"),
+        "JSON-RPC handshake errors should preserve the initialization stage and agent cause: {json_error}"
+    );
+    assert!(
+        !json_error.contains("spawn") && !json_error.contains("could not resolve"),
+        "an agent that launched and rejected initialize should not be reported as a launch failure: {json_error}"
+    );
+    wait_for_transcript(&json_error_transcript, "its initialize request", |value| {
+        value.get("initialize").is_some()
     });
 
     let auth_transcript = transcript_dir.path().join("auth.json");

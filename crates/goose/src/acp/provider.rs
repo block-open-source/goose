@@ -4422,6 +4422,18 @@ mod tests {
         assert!(filtered.is_empty());
     }
 
+    #[test]
+    fn test_filter_supported_servers_skips_sse() {
+        let servers = vec![McpServer::Sse(
+            agent_client_protocol::schema::v1::McpServerSse::new(
+                "legacy-sse",
+                "https://example.invalid/sse",
+            ),
+        )];
+
+        assert!(filter_supported_servers(&servers, &McpCapabilities::default()).is_empty());
+    }
+
     #[test_case(GooseMode::Auto => Some(PermissionDecision::AllowOnce) ; "auto allows")]
     #[test_case(GooseMode::Chat => Some(PermissionDecision::RejectOnce) ; "chat rejects")]
     #[test_case(GooseMode::Approve => None ; "approve defers")]

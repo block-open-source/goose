@@ -36,7 +36,7 @@
   {
     "id": "apify",
     "name": "Apify",
-    "description": "Extract data from any website with thousands of scrapers, crawlers, and automations on Apify Store \u26a1",
+    "description": "Extract data from any website with thousands of scrapers, crawlers, and automations on Apify Store ⚡",
     "command": "npx -y @apify/actors-mcp-server",
     "link": "https://github.com/apify/apify-mcp-server",
     "installation_notes": "Install using npx. Requires an Apify API token.",
@@ -220,6 +220,27 @@
         "required": true
       }
     ]
+  },
+  {
+    "id": "hasdata",
+    "name": "HasData",
+    "description": "Web scraping and search as structured JSON: Google Search, Maps, Trends, Amazon, Zillow, YouTube, TikTok and 20 more sites",
+    "url": "https://mcp.hasdata.com/mcp",
+    "link": "https://github.com/HasData/hasdata-mcp",
+    "installation_notes": "This is a remote extension. Send your HasData API key (free at https://app.hasdata.com) as the x-api-key request header, or sign in with OAuth when your client supports it. Append ?apis=<key> to the URL to expose one site only, for example https://mcp.hasdata.com/mcp?apis=zillow; the keys are listed in the README.",
+    "is_builtin": false,
+    "endorsed": false,
+    "environmentVariables": [],
+    "headers": [
+      {
+        "name": "x-api-key",
+        "description": "<YOUR_HASDATA_API_KEY>",
+        "required": true
+      }
+    ],
+    "show_install_command": false,
+    "type": "streamable-http",
+    "documentation": "https://docs.hasdata.com/mcp-server"
   },
   {
     "id": "code_execution",
@@ -797,7 +818,7 @@
   {
     "id": "cash-app",
     "name": "Cash App",
-    "description": "Cash App brings local food ordering into the AI era. Discover nearby sellers, browse menus with calories and allergen info, customize orders, and complete checkout\u2014all conversationally.",
+    "description": "Cash App brings local food ordering into the AI era. Discover nearby sellers, browse menus with calories and allergen info, customize orders, and complete checkout—all conversationally.",
     "type": "streamable-http",
     "url": "https://connect.squareup.com/v2/mcp/cash-app",
     "link": "",
@@ -807,26 +828,25 @@
     "environmentVariables": []
   },
   {
-  "id": "scholar-sidekick",
-  "name": "Scholar Sidekick",
-  "description": "Resolve, format, export, and verify academic citations (DOI, PMID, ISBN, arXiv) plus retraction and open-access checks",
-  "command": "npx -y scholar-sidekick-mcp@latest",
-  "link": "https://github.com/mlava/scholar-sidekick-mcp",
-  "installation_notes": "No API key required — works anonymously on a free, rate-limited tier. Optionally set SCHOLAR_API_KEY (a free first-party ssk_ key from https://scholar-sidekick.com/account) for higher limits, or RAPIDAPI_KEY for paid tiers via RapidAPI.",
-  "is_builtin": false,
-  "endorsed": false,
-  "environmentVariables": [
-    {
-      "name": "SCHOLAR_API_KEY",
-      "description": "Optional first-party API key (ssk_) from https://scholar-sidekick.com/account; raises rate limits. Sent as Authorization: Bearer.",
-      "required": false
-    },
-    {
-      "name": "RAPIDAPI_KEY",
-      "description": "Optional RapidAPI key for paid/managed tiers; routes calls through the RapidAPI gateway.",
-      "required": false
-    }
-  ]
-}
-
+    "id": "scholar-sidekick",
+    "name": "Scholar Sidekick",
+    "description": "Resolve, format, export, and verify academic citations (DOI, PMID, ISBN, arXiv) plus retraction and open-access checks",
+    "command": "npx -y scholar-sidekick-mcp@latest",
+    "link": "https://github.com/mlava/scholar-sidekick-mcp",
+    "installation_notes": "No API key required — works anonymously on a free, rate-limited tier. Optionally set SCHOLAR_API_KEY (a free first-party ssk_ key from https://scholar-sidekick.com/account) for higher limits, or RAPIDAPI_KEY for paid tiers via RapidAPI.",
+    "is_builtin": false,
+    "endorsed": false,
+    "environmentVariables": [
+      {
+        "name": "SCHOLAR_API_KEY",
+        "description": "Optional first-party API key (ssk_) from https://scholar-sidekick.com/account; raises rate limits. Sent as Authorization: Bearer.",
+        "required": false
+      },
+      {
+        "name": "RAPIDAPI_KEY",
+        "description": "Optional RapidAPI key for paid/managed tiers; routes calls through the RapidAPI gateway.",
+        "required": false
+      }
+    ]
+  }
 ]

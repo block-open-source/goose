@@ -466,41 +466,6 @@ describe('acpChatSessionStore', () => {
     expect(clearedSnapshot.activeRunId).toBeNull();
   });
 
-  it('tracks server-started runs as cancellable prompt attempts', () => {
-    const currentSessionId = sessionId('session-1');
-
-    const running = acpChatSessionActions.applyAcpSessionNotification(
-      activeRunNotification(currentSessionId, 'resume-run')
-    );
-
-    expect(running.activePromptAttemptId).toBe('server-run:resume-run');
-    expect(running.chatState).toBe(ChatState.Streaming);
-
-    const finished = acpChatSessionActions.applyAcpSessionNotification(
-      activeRunNotification(currentSessionId, null)
-    );
-
-    expect(finished.activePromptAttemptId).toBeNull();
-    expect(finished.chatState).toBe(ChatState.Idle);
-  });
-
-  it('clears cancellation state when a cancelled server-started run finishes', () => {
-    const currentSessionId = sessionId('session-1');
-
-    acpChatSessionActions.applyAcpSessionNotification(
-      activeRunNotification(currentSessionId, 'resume-run')
-    );
-    acpChatSessionActions.startPromptCancellation(currentSessionId, 'server-run:resume-run');
-
-    const finished = acpChatSessionActions.applyAcpSessionNotification(
-      activeRunNotification(currentSessionId, null)
-    );
-
-    expect(finished.pendingCancelPromptAttemptId).toBeNull();
-    expect(finished.activePromptAttemptId).toBeNull();
-    expect(finished.chatState).toBe(ChatState.Idle);
-  });
-
   it('clears active run ids when the prompt attempt finishes', () => {
     const currentSessionId = sessionId('session-1');
 

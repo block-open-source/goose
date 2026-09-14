@@ -100,7 +100,6 @@ describe('ACP sessions', () => {
       sessionId: 'session-1',
       cwd: '/tmp',
       mcpServers: [],
-      _meta: { goose: { unrolledAgentLoop: true } },
     });
     expect(client.goose.sessionInfo_unstable).toHaveBeenCalledTimes(2);
     expect(result.sessionInfo).toBe(loadedSessionInfo);

@@ -666,19 +666,6 @@ function applyChatStateChanges(entry: StoreEntry, changes: AcpChatStateChange[])
         }
         if (change.activeRunId !== undefined) {
           entry.activeRunId = change.activeRunId;
-          if (change.activeRunId && !entry.activePromptAttemptId) {
-            entry.activePromptAttemptId = `server-run:${change.activeRunId}`;
-            entry.chatState = ChatState.Streaming;
-          } else if (change.activeRunId === null) {
-            if (entry.activePromptAttemptId?.startsWith('server-run:')) {
-              entry.activePromptAttemptId = null;
-              entry.chatState = ChatState.Idle;
-            }
-            if (entry.pendingCancelPromptAttemptId?.startsWith('server-run:')) {
-              entry.pendingCancelPromptAttemptId = null;
-              entry.promptCancellationRestoreState = null;
-            }
-          }
         }
         break;
       case 'localSteerConfirmed':

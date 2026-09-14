@@ -208,12 +208,10 @@ async function loadAcpSession(sessionId: string): Promise<AcpLoadSessionResult> 
   const client = await getAcpClient();
   const initialSessionInfoResponse = await client.goose.sessionInfo_unstable({ sessionId });
   const initialSessionInfo = initialSessionInfoResponse.session;
-  const useLegacyAgentLoop = await window.electron.getSetting('useLegacyAgentLoop');
   const response = await client.connection.agent.request(methods.agent.session.load, {
     sessionId,
     cwd: initialSessionInfo.cwd,
     mcpServers: [],
-    _meta: { goose: { unrolledAgentLoop: !useLegacyAgentLoop } },
   });
   // Loading can populate missing provider/model metadata.
   const sessionInfoResponse = await client.goose.sessionInfo_unstable({ sessionId });

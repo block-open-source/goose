@@ -272,6 +272,18 @@ fn format_parameter_paths(indices: &[usize]) -> String {
         .join(", ")
 }
 
+fn normalize_scheduling_parameter_key(key: &str) -> String {
+    serde_yaml::from_str::<serde_yaml::Value>(key)
+        .ok()
+        .and_then(|value| match value {
+            serde_yaml::Value::Bool(value) => Some(value.to_string()),
+            serde_yaml::Value::Number(value) => Some(value.to_string()),
+            serde_yaml::Value::Null => Some("null".to_string()),
+            _ => None,
+        })
+        .unwrap_or_else(|| key.to_string())
+}
+
 fn validate_scheduling_parameters(
     parameters: &Option<Vec<RecipeParameter>>,
     template_variables: &HashSet<String>,
@@ -321,8 +333,18 @@ fn validate_scheduling_parameters(
 
     let mut referenced_keys = template_variables.clone();
     referenced_keys.remove(BUILT_IN_RECIPE_DIR_PARAM);
+    let keys_match = |defined: &str, referenced: &str| {
+        defined == referenced || defined == normalize_scheduling_parameter_key(referenced)
+    };
 
-    let missing_count = referenced_keys.difference(&defined_keys).count();
+    let missing_count = referenced_keys
+        .iter()
+        .filter(|referenced| {
+            !defined_keys
+                .iter()
+                .any(|defined| keys_match(defined, referenced))
+        })
+        .count();
     if missing_count > 0 {
         return Err(format!(
             "missing parameter definitions for {missing_count} template variables"
@@ -332,7 +354,11 @@ fn validate_scheduling_parameters(
     let unnecessary = parameters
         .iter()
         .enumerate()
-        .filter(|(_, parameter)| !referenced_keys.contains(&parameter.key))
+        .filter(|(_, parameter)| {
+            !referenced_keys
+                .iter()
+                .any(|referenced| keys_match(&parameter.key, referenced))
+        })
         .map(|(index, _)| index)
         .collect::<Vec<_>>();
     if !unnecessary.is_empty() {
@@ -816,6 +842,24 @@ parameters:
                 scheduling.is_ok(),
                 cli.is_ok(),
                 "validation verdict differed for {scalar}: cli={cli:?}, scheduling={scheduling:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn scheduling_matches_parameter_keys_after_yaml_scalar_normalization() {
+        for key in ["TRUE", "NULL"] {
+            let template_key = key;
+            let content = format!(
+                "title: Test\ndescription: hi\nprompt: Run {{{{ {template_key} }}}}\nparameters:\n  - key: {key}\n    input_type: string\n    requirement: required\n    description: hi\n"
+            );
+            let cli = validate_recipe_template_from_content(&content, None);
+            let scheduling = validate_recipe_for_scheduling(&content, None, RecipeFileFormat::Yaml);
+
+            assert_eq!(
+                scheduling.is_ok(),
+                cli.is_ok(),
+                "validation verdict differed for {key}: cli={cli:?}, scheduling={scheduling:?}"
             );
         }
     }

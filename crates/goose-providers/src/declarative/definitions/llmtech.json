@@ -1,0 +1,25 @@
+{
+  "name": "llmtech",
+  "engine": "openai",
+  "display_name": "LLM Tech",
+  "description": "EU-hosted endpoint for open-weight models: Qwen3.8-27B on dedicated hardware in Helsinki, 262,144 context, tool calling, structured outputs and image input, no prompt retention.",
+  "api_key_env": "LLMTECH_API_KEY",
+  "base_url": "https://api.llmtech.eu/v1/chat/completions",
+  "catalog_provider_id": "llmtech",
+  "models": [
+    {
+      "name": "unsloth/Qwen3.8-27B-NVFP4",
+      "context_limit": 262144,
+      "input_token_cost": 0.00000025,
+      "output_token_cost": 0.00000209,
+      "currency": "USD"
+    }
+  ],
+  "dynamic_models": true,
+  "supports_streaming": true,
+  "model_doc_link": "https://llmtech.eu/models/qwen3.8-27b/",
+  "setup_steps": [
+    "Get a key at https://llmtech.eu/docs/",
+    "Paste the key above as LLMTECH_API_KEY"
+  ]
+}

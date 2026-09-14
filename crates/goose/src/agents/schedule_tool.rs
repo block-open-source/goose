@@ -9,8 +9,7 @@ use chrono::Utc;
 use rmcp::model::{Annotations, ContentBlock, ErrorCode, ErrorData, Role, TextContent};
 
 use crate::conversation::Conversation;
-use crate::recipe::template_recipe::parse_recipe_content;
-use crate::recipe::validate_recipe::validate_recipe_template_from_content;
+use crate::recipe::validate_recipe::{recipe_file_format, validate_recipe_for_scheduling};
 use crate::scheduler::{
     open_regular_schedule_recipe, ValidatedScheduleRecipe, MAX_SCHEDULE_RECIPE_BYTES,
 };
@@ -181,18 +180,12 @@ impl ScheduleTool {
         let recipe_dir = canonical_recipe_path
             .parent()
             .map(|path| path.to_string_lossy().into_owned());
-        // Parse failures echo the file back in the serde error, so they only ever
-        // get the generic message; the checks that follow describe the recipe's
-        // own shape and are safe to report.
-        parse_recipe_content(&content, recipe_dir.clone()).map_err(|_| {
-            if recipe_path.ends_with(".json") {
-                recipe_file_error("Invalid JSON recipe")
-            } else {
-                recipe_file_error("Invalid YAML recipe")
-            }
-        })?;
-        validate_recipe_template_from_content(&content, recipe_dir)
-            .map_err(|error| recipe_file_error(&error.to_string()))?;
+        validate_recipe_for_scheduling(
+            &content,
+            recipe_dir,
+            recipe_file_format(&canonical_recipe_path),
+        )
+        .map_err(|error| recipe_file_error(&error.to_string()))?;
 
         // Generate unique job ID
         let job_id = format!("agent_created_{}", uuid::Uuid::new_v4());

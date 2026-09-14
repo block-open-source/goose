@@ -19,6 +19,7 @@ pub mod read_recipe_file_content;
 mod recipe_extension_adapter;
 pub mod template_recipe;
 pub mod validate_recipe;
+mod value_deserializer;
 pub mod yaml_format_utils;
 
 pub const BUILT_IN_RECIPE_DIR_PARAM: &str = "recipe_dir";

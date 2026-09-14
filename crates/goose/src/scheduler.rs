@@ -22,6 +22,9 @@ use crate::conversation::Conversation;
 use crate::posthog;
 use crate::providers::create;
 use crate::recipe::build_recipe::build_recipe_from_template;
+use crate::recipe::validate_recipe::{
+    recipe_file_format, validate_recipe_for_scheduling, SchedulerRecipeError,
+};
 use crate::recipe::Recipe;
 use crate::scheduler_trait::SchedulerTrait;
 use crate::session::session_manager::SessionType;
@@ -73,8 +76,8 @@ pub(crate) fn open_regular_schedule_recipe(path: &Path) -> io::Result<File> {
     Ok(file)
 }
 
-fn copy_bounded_schedule_recipe(source: &Path, destination: &Path) -> Result<(), SchedulerError> {
-    let source = open_regular_schedule_recipe(source).map_err(|error| {
+fn read_validated_schedule_recipe(source_path: &Path) -> Result<Vec<u8>, SchedulerError> {
+    let source = open_regular_schedule_recipe(source_path).map_err(|error| {
         SchedulerError::RecipeLoadError(format!("Cannot read recipe file: {error}"))
     })?;
     let metadata = source.metadata().map_err(|error| {
@@ -104,7 +107,17 @@ fn copy_bounded_schedule_recipe(source: &Path, destination: &Path) -> Result<(),
         )));
     }
 
-    write_schedule_recipe_bytes(destination, &bytes)
+    let format = recipe_file_format(source_path);
+    let content = std::str::from_utf8(&bytes).map_err(|_| {
+        SchedulerError::RecipeLoadError(SchedulerRecipeError::GenericParse(format).to_string())
+    })?;
+    let recipe_dir = source_path
+        .parent()
+        .map(|path| path.to_string_lossy().into_owned());
+    validate_recipe_for_scheduling(content, recipe_dir, format)
+        .map_err(|error| SchedulerError::RecipeLoadError(error.to_string()))?;
+
+    Ok(bytes)
 }
 
 fn write_schedule_recipe_bytes(destination: &Path, bytes: &[u8]) -> Result<(), SchedulerError> {
@@ -441,9 +454,9 @@ impl Scheduler {
 
         let mut stored_job = original_job_spec;
         if make_copy {
-            let (original_recipe_path, validated_recipe) =
+            let (original_recipe_path, recipe_bytes) =
                 if let Some(validated_recipe) = validated_recipe {
-                    (validated_recipe.source, Some(validated_recipe.bytes))
+                    (validated_recipe.source, validated_recipe.bytes)
                 } else {
                     let original_recipe_path =
                         Path::new(&stored_job.source).canonicalize().map_err(|e| {
@@ -458,7 +471,8 @@ impl Scheduler {
                             stored_job.source
                         )));
                     }
-                    (original_recipe_path, None)
+                    let recipe_bytes = read_validated_schedule_recipe(&original_recipe_path)?;
+                    (original_recipe_path, recipe_bytes)
                 };
 
             let scheduled_recipes_dir = self
@@ -475,11 +489,7 @@ impl Scheduler {
             let destination_filename = format!("{}.{}", stored_job.id, original_extension);
             let destination_recipe_path = scheduled_recipes_dir.join(destination_filename);
 
-            if let Some(recipe) = validated_recipe.as_deref() {
-                write_schedule_recipe_bytes(&destination_recipe_path, recipe)?;
-            } else {
-                copy_bounded_schedule_recipe(&original_recipe_path, &destination_recipe_path)?;
-            }
+            write_schedule_recipe_bytes(&destination_recipe_path, &recipe_bytes)?;
             stored_job.recipe_base_dir = original_recipe_path
                 .parent()
                 .map(|p| p.to_string_lossy().into_owned());
@@ -1336,10 +1346,9 @@ mod tests {
     }
 
     #[test]
-    fn bounded_recipe_copy_rejects_source_that_grew_after_validation() {
+    fn bounded_recipe_read_rejects_source_that_grew_after_validation() {
         let temp_dir = tempdir().unwrap();
         let source = temp_dir.path().join("source.yaml");
-        let destination = temp_dir.path().join("destination.yaml");
         fs::write(
             &source,
             "title: Valid\ndescription: Initially valid\nprompt: Run safely\n",
@@ -1354,10 +1363,9 @@ mod tests {
             .set_len(MAX_SCHEDULE_RECIPE_BYTES + 1)
             .unwrap();
 
-        let error = copy_bounded_schedule_recipe(&source, &destination).unwrap_err();
+        let error = read_validated_schedule_recipe(&source).unwrap_err();
 
         assert!(error.to_string().contains("exceeds the 1048576 byte limit"));
-        assert!(!destination.exists());
     }
 
     #[tokio::test]
@@ -1426,6 +1434,70 @@ mod tests {
 
         assert!(error.to_string().contains("exceeds the 1048576 byte limit"));
         assert!(!destination.exists());
+    }
+
+    #[tokio::test]
+    async fn schedule_add_rejects_invalid_recipe_before_copying_or_persisting() {
+        let temp_dir = tempdir().unwrap();
+        let recipe_path = temp_dir.path().join("missing-title.yaml");
+        fs::write(
+            &recipe_path,
+            "description: Missing title\nprompt: Run safely\n",
+        )
+        .unwrap();
+        let storage_path = temp_dir.path().join("schedule.json");
+        let session_manager = Arc::new(SessionManager::new(temp_dir.path().to_path_buf()));
+        let scheduler = Scheduler::new(storage_path, session_manager).await.unwrap();
+        let job = ScheduledJob {
+            id: "invalid_recipe".to_string(),
+            source: recipe_path.to_string_lossy().into_owned(),
+            cron: "0 0 0 1 1 *".to_string(),
+            last_run: None,
+            currently_running: false,
+            paused: false,
+            current_session_id: None,
+            process_start_time: None,
+            parameters: vec![],
+            recipe_base_dir: None,
+        };
+
+        let error = scheduler.add_scheduled_job(job, true).await.unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "Recipe load error: Invalid recipe: missing field `title`"
+        );
+        assert!(scheduler.list_scheduled_jobs().await.is_empty());
+        assert!(!temp_dir.path().join("scheduled_recipes").exists());
+    }
+
+    #[tokio::test]
+    async fn schedule_add_preserves_validated_source_bytes() {
+        let temp_dir = tempdir().unwrap();
+        let recipe_path = temp_dir.path().join("scalar-spelling.yaml");
+        let source = b"title: 12345\ndescription: Preserve source bytes\nprompt: Run {{ count }}\nparameters:\n  - key: count\n    input_type: string\n    requirement: optional\n    default: 1e3\n    description: hi\n";
+        fs::write(&recipe_path, source).unwrap();
+        let storage_path = temp_dir.path().join("schedule.json");
+        let session_manager = Arc::new(SessionManager::new(temp_dir.path().to_path_buf()));
+        let scheduler = Scheduler::new(storage_path, session_manager).await.unwrap();
+        let job = ScheduledJob {
+            id: "preserve_source".to_string(),
+            source: recipe_path.to_string_lossy().into_owned(),
+            cron: "0 0 0 1 1 *".to_string(),
+            last_run: None,
+            currently_running: false,
+            paused: false,
+            current_session_id: None,
+            process_start_time: None,
+            parameters: vec![],
+            recipe_base_dir: None,
+        };
+
+        scheduler.add_scheduled_job(job, true).await.unwrap();
+
+        let jobs = scheduler.list_scheduled_jobs().await;
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(fs::read(&jobs[0].source).unwrap(), source);
     }
 
     #[cfg(unix)]
@@ -1677,13 +1749,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_job_with_no_prompt_does_not_panic() {
-        let _guard = env_lock::lock_env([
-            ("GOOSE_PROVIDER", Some("openai")),
-            ("GOOSE_MODEL", Some("gpt-4o")),
-            ("OPENAI_API_KEY", Some("fake-openai-no-keyring")),
-            ("OPENAI_CUSTOM_HEADERS", Some("")),
-        ]);
+    async fn test_job_with_no_prompt_is_rejected_at_add_time() {
         let temp_dir = tempdir().unwrap();
         let recipe_path = temp_dir.path().join("no_prompt.yaml");
         fs::write(
@@ -1709,15 +1775,13 @@ mod tests {
             recipe_base_dir: None,
         };
 
-        // Schedule the job and let it run — should not panic
-        scheduler.add_scheduled_job(job, true).await.unwrap();
-        sleep(Duration::from_millis(1500)).await;
+        let error = scheduler.add_scheduled_job(job, true).await.unwrap_err();
 
-        // The job should have attempted to run (last_run set) but not crashed the scheduler
-        let jobs = scheduler.list_scheduled_jobs().await;
-        assert!(
-            jobs[0].last_run.is_some(),
-            "Job should have attempted to run without panicking"
+        assert_eq!(
+            error.to_string(),
+            "Recipe load error: Invalid recipe: Recipe must specify at least one of `instructions` or `prompt`."
         );
+        assert!(scheduler.list_scheduled_jobs().await.is_empty());
+        assert!(!temp_dir.path().join("scheduled_recipes").exists());
     }
 }

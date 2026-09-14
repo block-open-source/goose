@@ -280,6 +280,7 @@ const baseUrlFromStatusUrl = (statusUrl: string): string | null => {
 const acpWebSocketUrl = (acpUrl: string, secret: string): string => {
   const url = new URL(acpUrl);
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+  url.hash = '';
   url.searchParams.set('token', secret);
   return url.toString();
 };

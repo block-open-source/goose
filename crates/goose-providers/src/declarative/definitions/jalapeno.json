@@ -1,0 +1,31 @@
+{
+  "name": "jalapeno",
+  "engine": "openai",
+  "display_name": "Jalapeno Cloud",
+  "description": "Jalapeno Cloud OpenAI-compatible API for coding and chat models including Kimi, GLM, Qwen, DeepSeek, and MiniMax.",
+  "api_key_env": "JALAPENO_API_KEY",
+  "base_url": "https://api.jalapeno-cloud.ai/v1",
+  "catalog_provider_id": "jalapeno",
+  "models": [
+    { "name": "Kimi-K3", "context_limit": 1048576, "reasoning": true },
+    { "name": "Kimi-K2.7-Code", "context_limit": 271360, "reasoning": true },
+    { "name": "Kimi-K2.5", "context_limit": 262144, "reasoning": true },
+    { "name": "GLM-5.2", "context_limit": 1048576, "reasoning": true },
+    { "name": "GLM-5.1", "context_limit": 202752, "reasoning": true },
+    { "name": "Hy3", "context_limit": 202752, "reasoning": true },
+    { "name": "DeepSeek-V4-Pro", "context_limit": 1048576, "reasoning": true },
+    { "name": "DeepSeek-V4-Flash", "context_limit": 1048576, "reasoning": true },
+    { "name": "MiniMax-M3", "context_limit": 524288, "reasoning": true },
+    { "name": "Qwen3.5-397B-A17B", "context_limit": 262144, "reasoning": true },
+    { "name": "Qwen3.5-122B-A10B", "context_limit": 262144, "reasoning": true },
+    { "name": "Qwen3-Next-80B-A3B-Thinking", "context_limit": 131072, "reasoning": true }
+  ],
+  "dynamic_models": true,
+  "supports_streaming": true,
+  "model_doc_link": "https://www.jalapeno-cloud.ai/docs/",
+  "setup_steps": [
+    "Sign up at https://www.jalapeno-cloud.ai",
+    "Create an API key from the Jalapeno Cloud dashboard",
+    "Paste the key above as JALAPENO_API_KEY"
+  ]
+}

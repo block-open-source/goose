@@ -1403,22 +1403,42 @@ async fn create_unix_socket_http_client(
         custom_headers.insert(header_name, header_value);
     }
 
-    let config = StreamableHttpClientTransportConfig::with_uri(uri).custom_headers(custom_headers);
-    let transport = StreamableHttpClientTransport::with_client(unix_client, config);
+    let config =
+        StreamableHttpClientTransportConfig::with_uri(uri).custom_headers(custom_headers.clone());
+    let transport = StreamableHttpClientTransport::with_client(unix_client.clone(), config);
 
     let timeout_duration = Duration::from_secs(resolve_timeout(timeout));
 
-    let client_res = McpClient::connect(
+    let mut client_res = McpClient::connect(
         transport,
         timeout_duration,
         provider.clone(),
         client_name.clone(),
         capabilities.clone(),
         roots_dir.to_path_buf(),
-        action_required,
-        extension_manager,
+        action_required.clone(),
+        extension_manager.clone(),
     )
     .await;
+
+    if should_retry_legacy_after_empty_discover(&client_res, &capabilities) {
+        let config =
+            StreamableHttpClientTransportConfig::with_uri(uri).custom_headers(custom_headers);
+        let transport = StreamableHttpClientTransport::with_client(unix_client, config);
+        let mut legacy_capabilities = capabilities;
+        legacy_capabilities.protocol_version = Some(ProtocolVersion::V_2025_11_25);
+        client_res = McpClient::connect(
+            transport,
+            timeout_duration,
+            provider.clone(),
+            client_name.clone(),
+            legacy_capabilities,
+            roots_dir.to_path_buf(),
+            action_required,
+            extension_manager,
+        )
+        .await;
+    }
 
     if should_attempt_oauth_fallback(&client_res) {
         tracing::warn!(

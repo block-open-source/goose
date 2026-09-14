@@ -96,7 +96,7 @@ fn provider_creation_error(error: anyhow::Error, context: impl fmt::Display) -> 
     error.context(message)
 }
 
-pub const MCP_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::V_2026_07_28;
+pub const MCP_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::V_2025_11_25;
 
 fn normalize_legacy_provider_thinking_effort(
     mut model_config: goose_providers::model::ModelConfig,
@@ -246,7 +246,7 @@ impl AgentConfig {
             goose_platform,
             mcp_host_info: None,
             elicitation_handler: None,
-            mcp_protocol_version: None,
+            mcp_protocol_version: Some(MCP_PROTOCOL_VERSION),
             session_name_update_tx: None,
             use_login_shell_path: None,
             is_subagent: false,

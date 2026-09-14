@@ -6,6 +6,7 @@ import {
   DialogTitle,
   DialogPortal,
   DialogOverlay,
+  DialogPointerEventsRecovery,
 } from './dialog';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { Button } from './button';
@@ -93,6 +94,7 @@ export function RecipeWarningModal({
           onPointerDownOutside={(e) => e.preventDefault()}
           onEscapeKeyDown={(e) => e.preventDefault()}
         >
+          <DialogPointerEventsRecovery />
           <DialogHeader className="flex-shrink-0 p-6 pb-0">
             <DialogTitle>
               {hasSecurityWarnings

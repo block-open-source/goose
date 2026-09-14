@@ -6,6 +6,7 @@ import { XIcon } from 'lucide-react';
 
 import { cn } from '../../utils';
 import { defineMessages, useIntl } from '../../i18n';
+import { scheduleBodyPointerEventsRelease } from '../../utils/radixPointerEvents';
 
 const i18n = defineMessages({
   close: {
@@ -42,6 +43,28 @@ const DialogOverlay = React.forwardRef<
 ));
 DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
 
+/**
+ * Renders nothing. Place it inside `DialogPrimitive.Content` so that it unmounts together
+ * with the content's dismissable layer, and schedules the body pointer-events recovery
+ * from there.
+ *
+ * Two copies of Radix's dismissable layer are installed, so a dialog opened from a
+ * dropdown menu can leave `pointer-events: none` on the body and freeze every click in
+ * the window - see `releaseStuckBodyPointerEvents`. The recovery has to run after the
+ * content's layer has done its own restore, which is what keeps writing the stale value
+ * back. Hanging it off the overlay is not enough: overlay and content have separate
+ * presence lifecycles and exit animations (the overlay's default 150ms against the
+ * content's `duration-200`), so the overlay unmounts first and a check scheduled from
+ * there runs while the closing content is still mounted, only for the content's later
+ * cleanup to re-apply `none` with nothing left to clear it. `DialogContent` itself is no
+ * home for the effect either: it stays mounted for the life of the `Dialog`, and only the
+ * portal's children unmount on close.
+ */
+function DialogPointerEventsRecovery() {
+  React.useEffect(() => () => scheduleBodyPointerEventsRelease(), []);
+  return null;
+}
+
 function DialogContent({
   className,
   children,
@@ -59,6 +82,7 @@ function DialogContent({
         )}
         {...props}
       >
+        <DialogPointerEventsRecovery />
         {children}
         <DialogPrimitive.Close className="ring-offset-background p-1 hover:bg-background-secondary rounded-full focus:ring-ring data-[state=open]:bg-background-secondary transition-all duration-200 data-[state=open]:text-text-secondary absolute top-4 right-4 opacity-70 hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4">
           <XIcon />
@@ -119,6 +143,7 @@ export {
   DialogFooter,
   DialogHeader,
   DialogOverlay,
+  DialogPointerEventsRecovery,
   DialogPortal,
   DialogTitle,
   DialogTrigger,

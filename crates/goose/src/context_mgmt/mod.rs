@@ -1517,6 +1517,74 @@ mod tests {
         );
     }
 
+    /// The header costs nothing to rebuild; an elided tool response is gone
+    /// from the summary for good. So when the header is what overflows, it is
+    /// what should go.
+    #[tokio::test]
+    async fn header_is_given_back_before_tool_responses_are() {
+        let mut messages = vec![Message::user().with_text("start")];
+        for i in 0..4 {
+            messages.push(Message::assistant().with_tool_request(
+                format!("tool_{i}"),
+                Ok(CallToolRequestParams::new("read_file")),
+            ));
+            messages.push(Message::user().with_tool_response(
+                format!("tool_{i}"),
+                Ok(rmcp::model::CallToolResult::success(vec![
+                    ContentBlock::text(format!("small result {i}")),
+                ])),
+            ));
+        }
+        let conversation = Conversation::new_unvalidated(messages);
+        let system_prompt = "you are a helpful assistant ".repeat(400);
+
+        // Responses small enough that eliding every one of them cannot cover a
+        // header-sized deficit, so the header is the only thing that can give.
+        let counter = create_token_counter().await.unwrap();
+        let instruction = counter.count_tokens(
+            &crate::prompt_template::template_source("compaction_prefix.md").unwrap(),
+        );
+        let headerless = counter.count_chat_tokens("", conversation.messages(), &[]) + instruction;
+        let with_header = headerless + counter.count_chat_tokens(&system_prompt, &[], &[]);
+
+        let session_id = "header-before-responses-session";
+        request_header::record(
+            session_id,
+            request_header::RequestHeader {
+                system_prompt,
+                tools: vec![],
+                toolshim_tools: vec![],
+            },
+        );
+        let provider = MockProvider::new(
+            Message::assistant().with_text("<mock summary>"),
+            (headerless + with_header) / 2 * 10 / 9,
+        );
+
+        compact_messages(
+            &provider,
+            &provider.config.clone(),
+            session_id,
+            &conversation,
+            false,
+        )
+        .await
+        .unwrap();
+
+        let request = provider.captured_messages.lock().unwrap().clone().unwrap();
+        assert_eq!(provider.call_count(), 1);
+        assert_eq!(
+            provider.captured_system.lock().unwrap().clone().unwrap(),
+            "",
+            "the header is what overflowed, so the header is what should go"
+        );
+        assert_eq!(
+            elided_response_count(&request),
+            0,
+            "dropping the header was enough, so every tool response must survive"
+        );
+    }
+
     #[test]
     fn test_compute_tool_call_cutoff_scales_with_context() {
         // Default threshold (0.8)

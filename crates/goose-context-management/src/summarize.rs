@@ -277,15 +277,45 @@ async fn elisions_covering(
     (saved >= deficit).then_some(chosen)
 }
 
+/// The least destructive plan the estimate says fits for a given header
+/// choice, or `None` when eliding every tool response still is not enough.
+async fn covering_plan(
+    estimator: &dyn TokenEstimator,
+    budget: usize,
+    system: &str,
+    tools: &[Tool],
+    messages: &[Message],
+    drop_header: bool,
+) -> Option<FitPlan> {
+    let (system, tools): (&str, &[Tool]) = if drop_header {
+        ("", &[])
+    } else {
+        (system, tools)
+    };
+    let total = estimator
+        .count_chat_tokens_with_tools(system, messages, tools)
+        .await;
+    if total <= budget {
+        return Some(FitPlan {
+            drop_header,
+            elide: Vec::new(),
+        });
+    }
+    let candidates = middle_out_tool_response_indices(messages, 100);
+    elisions_covering(estimator, total - budget, messages, &candidates)
+        .await
+        .map(|elide| FitPlan { drop_header, elide })
+}
+
 /// The escalation sequence to try, least destructive first. The first entry is
 /// the measured one; the rest cover estimator error, since the provider is the
 /// final authority on what fits. The estimator undercounts thinking blocks and
 /// images, so the fallback rungs stay graduated rather than jumping straight to
 /// eliding everything.
 ///
-/// When the estimate says no request keeping the header can fit, only the
-/// headerless one is attempted: the resolved context limit can itself be wrong,
-/// so the provider gets to disagree, but it gets one chance, not five.
+/// When the header is what does not fit, it is given back before any tool
+/// response is: the header costs nothing to rebuild, whereas an elided response
+/// is gone from the summary for good.
 async fn fit_plans(
     estimator: Option<&dyn TokenEstimator>,
     budget: Option<usize>,
@@ -301,19 +331,17 @@ async fn fit_plans(
     let measured = match estimator.zip(budget) {
         None => FitPlan::as_is(),
         Some((estimator, budget)) => {
-            let total = estimator
-                .count_chat_tokens_with_tools(system, messages, tools)
-                .await;
-            if total <= budget {
-                FitPlan::as_is()
-            } else {
-                let candidates = middle_out_tool_response_indices(messages, 100);
-                match elisions_covering(estimator, total - budget, messages, &candidates).await {
-                    Some(elide) => FitPlan {
-                        drop_header: false,
-                        elide,
-                    },
-                    None => return vec![headerless],
+            match covering_plan(estimator, budget, system, tools, messages, false).await {
+                Some(plan) => plan,
+                None => {
+                    let mut plans =
+                        match covering_plan(estimator, budget, system, tools, messages, true).await
+                        {
+                            Some(plan) => vec![plan, headerless],
+                            None => vec![headerless],
+                        };
+                    plans.dedup();
+                    return plans;
                 }
             }
         }

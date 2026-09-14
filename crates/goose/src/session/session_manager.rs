@@ -4,6 +4,7 @@ use crate::conversation::message::{Message, MessageUsage, TokenState};
 use crate::conversation::Conversation;
 use crate::providers::base::CostSource;
 use crate::providers::base::Provider;
+use crate::recipe::validate_recipe::strip_unreferenced_parameters;
 use crate::recipe::Recipe;
 use crate::session::export_markdown::export_session_to_markdown;
 use crate::session::extension_data::ExtensionData;
@@ -265,7 +266,7 @@ impl<'a> SessionUpdateBuilder<'a> {
     }
 
     pub fn recipe(mut self, recipe: Option<Recipe>) -> Self {
-        self.recipe = Some(recipe);
+        self.recipe = Some(recipe.map(strip_unreferenced_parameters));
         self
     }
 
@@ -1180,7 +1181,9 @@ impl SessionStorage {
         let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
 
         let recipe_json = match &session.recipe {
-            Some(recipe) => Some(serde_json::to_string(recipe)?),
+            Some(recipe) => Some(serde_json::to_string(&strip_unreferenced_parameters(
+                recipe.clone(),
+            ))?),
             None => None,
         };
 
@@ -3525,6 +3528,61 @@ mod tests {
             .await
             .unwrap();
         assert!(update.is_none());
+    }
+
+    #[tokio::test]
+    async fn storing_a_rendered_recipe_strips_inert_parameters() {
+        use crate::recipe::{
+            RecipeParameter, RecipeParameterInputType, RecipeParameterRequirement,
+        };
+
+        let temp_dir = TempDir::new().unwrap();
+        let sm = SessionManager::new(temp_dir.path().to_path_buf());
+        let session = sm
+            .create_session(
+                temp_dir.path().to_path_buf(),
+                "Recipe snapshot".to_string(),
+                SessionType::User,
+                GooseMode::default(),
+            )
+            .await
+            .unwrap();
+
+        let rendered = Recipe::builder()
+            .title("snapshot")
+            .description("rendered")
+            .prompt("hello")
+            .parameters(vec![RecipeParameter {
+                key: "message".to_string(),
+                input_type: RecipeParameterInputType::String,
+                requirement: RecipeParameterRequirement::Required,
+                description: "message parameter".to_string(),
+                default: None,
+                options: None,
+            }])
+            .build()
+            .unwrap();
+
+        crate::recipe::validate_recipe::validate_recipe_template_from_content(
+            &rendered.to_yaml().unwrap(),
+            None,
+        )
+        .unwrap_err();
+
+        sm.update(&session.id)
+            .recipe(Some(rendered))
+            .apply()
+            .await
+            .unwrap();
+
+        let stored = sm.get_session(&session.id, false).await.unwrap();
+        let stored_recipe = stored.recipe.expect("recipe should be stored");
+        assert!(stored_recipe.parameters.is_none());
+        crate::recipe::validate_recipe::validate_recipe_template_from_content(
+            &stored_recipe.to_yaml().unwrap(),
+            None,
+        )
+        .unwrap();
     }
 
     #[tokio::test]

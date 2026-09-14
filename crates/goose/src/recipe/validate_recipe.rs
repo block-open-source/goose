@@ -447,6 +447,34 @@ fn validate_recipe_parameters(recipe: &Recipe, template_variables: &HashSet<Stri
     validate_parameters_in_template(&recipe.parameters, template_variables)
 }
 
+/// Drop parameter keys that no longer appear as `{{ }}` (session snapshots).
+pub fn strip_unreferenced_parameters(mut recipe: Recipe) -> Recipe {
+    if recipe
+        .parameters
+        .as_ref()
+        .is_none_or(|parameters| parameters.is_empty())
+    {
+        recipe.parameters = None;
+        return recipe;
+    }
+
+    let Ok(yaml) = recipe.to_yaml() else {
+        return recipe;
+    };
+    let Ok((_, mut template_variables)) = parse_recipe_content(&yaml, None) else {
+        return recipe;
+    };
+    template_variables.remove(BUILT_IN_RECIPE_DIR_PARAM);
+
+    if let Some(parameters) = recipe.parameters.as_mut() {
+        parameters.retain(|parameter| template_variables.contains(&parameter.key));
+        if parameters.is_empty() {
+            recipe.parameters = None;
+        }
+    }
+    recipe
+}
+
 fn validate_json_schema(schema: &serde_json::Value) -> Result<()> {
     let schema_object = schema
         .as_object()
@@ -1056,5 +1084,88 @@ response:
         let error = validate_recipe_template_from_content(recipe_content, None).unwrap_err();
 
         assert!(error.to_string().contains("JSON schema validation failed"));
+    }
+
+    fn string_param(key: &str) -> RecipeParameter {
+        RecipeParameter {
+            key: key.to_string(),
+            input_type: RecipeParameterInputType::String,
+            requirement: RecipeParameterRequirement::Required,
+            description: format!("{key} parameter"),
+            default: None,
+            options: None,
+        }
+    }
+
+    #[test]
+    fn rendered_snapshot_with_leftover_parameters_fails_template_validation() {
+        let recipe = Recipe::builder()
+            .title("snapshot")
+            .description("rendered")
+            .prompt("hello")
+            .parameters(vec![string_param("message")])
+            .build()
+            .unwrap();
+
+        let error =
+            validate_recipe_template_from_content(&recipe.to_yaml().unwrap(), None).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("Unnecessary parameter definitions: message"));
+    }
+
+    #[test]
+    fn strip_unreferenced_parameters_lets_rendered_snapshot_validate() {
+        let recipe = Recipe::builder()
+            .title("snapshot")
+            .description("rendered")
+            .prompt("hello")
+            .parameters(vec![string_param("message")])
+            .build()
+            .unwrap();
+
+        let stripped = strip_unreferenced_parameters(recipe);
+        assert!(stripped.parameters.is_none());
+        validate_recipe_template_from_content(&stripped.to_yaml().unwrap(), None).unwrap();
+    }
+
+    #[test]
+    fn strip_unreferenced_parameters_keeps_keys_still_in_the_template() {
+        let recipe = Recipe::builder()
+            .title("template")
+            .description("unrendered")
+            .prompt("{{ message }}")
+            .parameters(vec![string_param("message")])
+            .build()
+            .unwrap();
+
+        let stripped = strip_unreferenced_parameters(recipe);
+        let keys: Vec<_> = stripped
+            .parameters
+            .as_ref()
+            .unwrap()
+            .iter()
+            .map(|parameter| parameter.key.as_str())
+            .collect();
+        assert_eq!(keys, ["message"]);
+    }
+
+    #[test]
+    fn authoring_unused_parameter_still_fails_after_strip_helper_exists() {
+        let recipe_content = r#"
+version: 1.0.0
+title: Unused
+description: Unused parameter
+instructions: no templates here
+parameters:
+  - key: message
+    input_type: string
+    requirement: required
+    description: unused
+"#;
+        let error = validate_recipe_template_from_content(recipe_content, None).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("Unnecessary parameter definitions: message"));
     }
 }

@@ -1,6 +1,7 @@
 use std::ops::{Add, AddAssign};
 
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderUsage {
@@ -16,6 +17,10 @@ pub struct ProviderUsage {
     pub finish_reasons: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub response_id: Option<String>,
+    /// Provider-specific response fields that have no canonical equivalent, kept
+    /// unstructured so new fields flow through without changing this type.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub additional_data: Option<Map<String, Value>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -54,6 +59,7 @@ impl ProviderUsage {
             cost_source: None,
             finish_reasons: None,
             response_id: None,
+            additional_data: None,
         }
     }
 

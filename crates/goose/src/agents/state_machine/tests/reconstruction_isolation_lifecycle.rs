@@ -73,9 +73,7 @@ async fn reconstruction_and_session_isolation() -> Result<()> {
         .build()
         .expect("valid recipe");
     pipeline.set_recipe(recipe).await?;
-    let model_config = ModelConfig::new("gpt-4o")
-        .with_canonical_limits("openai")
-        .with_context_limit(Some(100_000));
+    let model_config = ModelConfig::new("gpt-4o").with_canonical_limits("openai");
     let pipeline = pipeline
         .with_model_config(model_config)
         .await
@@ -92,7 +90,7 @@ async fn reconstruction_and_session_isolation() -> Result<()> {
             .map(|config| config.model_name.as_str()),
         Some("gpt-4o")
     );
-    assert_eq!(pipeline.context_limit(), 100_000);
+    assert_eq!(pipeline.context_limit(), 128_000);
     assert_eq!(restored.goose_mode, GooseMode::Chat);
     assert_eq!(
         restored.recipe.as_ref().map(|recipe| recipe.title.as_str()),

@@ -45,22 +45,39 @@ type GdkApiDoc = {
 const VERSIONS = (apiData as { versions: GdkApiDoc[] }).versions;
 
 const DEFAULT_VERSION = VERSIONS[0].docVersion;
+const DEFAULT_LANGUAGE = LANGUAGES[0].id;
 const VERSION_PARAM = "version";
+const LANGUAGE_PARAM = "language";
+
+type Selection = { docVersion: string; languageId: LanguageId };
 
 const isKnownVersion = (docVersion: string | null): docVersion is string =>
   VERSIONS.some((entry) => entry.docVersion === docVersion);
 
-const readVersionParam = (search: string) =>
-  new URLSearchParams(search).get(VERSION_PARAM);
+const isKnownLanguage = (languageId: string | null): languageId is LanguageId =>
+  LANGUAGES.some((entry) => entry.id === languageId);
 
-const versionSearch = (docVersion: string, search: string) => {
+// Links carry the reader's version and language so a shared anchor lands on the
+// same content. Params missing from older links fall back to the defaults.
+const readSelection = (search: string): Selection => {
   const params = new URLSearchParams(search);
-  params.set(VERSION_PARAM, docVersion);
+  const requestedVersion = params.get(VERSION_PARAM);
+  const requestedLanguage = params.get(LANGUAGE_PARAM);
+  return {
+    docVersion: isKnownVersion(requestedVersion) ? requestedVersion : DEFAULT_VERSION,
+    languageId: isKnownLanguage(requestedLanguage) ? requestedLanguage : DEFAULT_LANGUAGE,
+  };
+};
+
+const selectionSearch = (selection: Selection, search: string) => {
+  const params = new URLSearchParams(search);
+  params.set(VERSION_PARAM, selection.docVersion);
+  params.set(LANGUAGE_PARAM, selection.languageId);
   return `?${params.toString()}`;
 };
 
-const VersionSearchContext = React.createContext(
-  `?${VERSION_PARAM}=${DEFAULT_VERSION}`,
+const SelectionSearchContext = React.createContext(
+  `?${VERSION_PARAM}=${DEFAULT_VERSION}&${LANGUAGE_PARAM}=${DEFAULT_LANGUAGE}`,
 );
 
 const KIND_LABELS: Record<GdkItem["kind"], string> = {
@@ -152,7 +169,7 @@ function signature(func: GdkFunc, language: Language, owner?: string): string {
 }
 
 function HashLink({ anchor, label }: { anchor: string; label: string }) {
-  const search = useContext(VersionSearchContext);
+  const search = useContext(SelectionSearchContext);
   const title = `Direct link to ${label}`;
   return (
     <Link
@@ -346,24 +363,30 @@ function ItemEntry({ item, language }: { item: GdkItem; language: Language }) {
 }
 
 export default function GdkApiReference() {
-  const [languageId, setLanguageId] = useState<LanguageId>("rust");
-  const [docVersion, setDocVersion] = useState(DEFAULT_VERSION);
+  const [selection, setSelection] = useState<Selection>({
+    docVersion: DEFAULT_VERSION,
+    languageId: DEFAULT_LANGUAGE,
+  });
+  const { docVersion, languageId } = selection;
   const brokenLinks = useBrokenLinks();
   const history = useHistory();
   const location = useLocation();
 
   useEffect(() => {
-    const requested = readVersionParam(location.search);
-    if (isKnownVersion(requested)) {
-      setDocVersion(requested);
-      return;
+    const requested = readSelection(location.search);
+    setSelection(requested);
+
+    const canonical = selectionSearch(requested, location.search);
+    if (canonical !== `?${new URLSearchParams(location.search)}`) {
+      history.replace({ search: canonical, hash: location.hash });
     }
-    setDocVersion(DEFAULT_VERSION);
+  }, [history, location.hash, location.search]);
+
+  const select = (next: Partial<Selection>) =>
     history.replace({
-      search: versionSearch(DEFAULT_VERSION, location.search),
+      search: selectionSearch({ ...selection, ...next }, location.search),
       hash: location.hash,
     });
-  }, [history, location.hash, location.search]);
 
   const language = LANGUAGES.find((entry) => entry.id === languageId)!;
   const doc = useMemo(
@@ -377,7 +400,7 @@ export default function GdkApiReference() {
     const anchor = location.hash.slice(1);
     if (!anchor) return;
     document.getElementById(decodeURIComponent(anchor))?.scrollIntoView();
-  }, [docVersion, location.hash]);
+  }, [docVersion, languageId, location.hash]);
 
   const grouped = useMemo(() => {
     const order: GdkItem["kind"][] = ["object", "callback", "record", "enum", "error"];
@@ -387,10 +410,10 @@ export default function GdkApiReference() {
   }, [doc]);
 
   return (
-    <VersionSearchContext.Provider value={versionSearch(docVersion, location.search)}>
+    <SelectionSearchContext.Provider value={selectionSearch(selection, location.search)}>
       <div>
         <div className={styles.toolbar}>
-          <div className={styles.tabs} role="tablist" aria-label="GDK language">
+          <div className={styles.tabs} role="tablist" aria-label="SDK language">
             {LANGUAGES.map((entry) => (
               <button
                 key={entry.id}
@@ -398,7 +421,7 @@ export default function GdkApiReference() {
                 role="tab"
                 aria-selected={entry.id === languageId}
                 className={entry.id === languageId ? styles.tabActive : styles.tab}
-                onClick={() => setLanguageId(entry.id)}
+                onClick={() => select({ languageId: entry.id })}
               >
                 {entry.label}
               </button>
@@ -409,13 +432,8 @@ export default function GdkApiReference() {
             Version
             <select
               value={docVersion}
-              onChange={(event) =>
-                history.replace({
-                  search: versionSearch(event.target.value, location.search),
-                  hash: location.hash,
-                })
-              }
-              aria-label="GDK version"
+              onChange={(event) => select({ docVersion: event.target.value })}
+              aria-label="SDK version"
             >
               {VERSIONS.map((entry) => (
                 <option key={entry.docVersion} value={entry.docVersion}>
@@ -452,6 +470,6 @@ export default function GdkApiReference() {
           </React.Fragment>
         ))}
       </div>
-    </VersionSearchContext.Provider>
+    </SelectionSearchContext.Provider>
   );
 }

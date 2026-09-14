@@ -7,9 +7,7 @@ use std::sync::{Arc, OnceLock};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 
-use super::base::{
-    stream_from_single_message, MessageStream, Provider, ProviderDef, ProviderMetadata,
-};
+use super::base::{MessageStream, Provider, ProviderDef, ProviderMetadata};
 use super::cli_common::{error_from_event, extract_usage_tokens};
 use super::utils::filter_extensions_from_system_prompt;
 use crate::config::search_path::SearchPaths;
@@ -218,14 +216,6 @@ impl Provider for GeminiCliProvider {
         messages: &[Message],
         _tools: &[Tool],
     ) -> Result<MessageStream, ProviderError> {
-        if super::cli_common::is_session_description_request(system) {
-            let (message, provider_usage) = super::cli_common::generate_simple_session_description(
-                &model_config.model_name,
-                messages,
-            )?;
-            return Ok(stream_from_single_message(message, provider_usage));
-        }
-
         let GeminiCliProcess {
             mut child,
             mut reader,
@@ -469,5 +459,30 @@ printf '%s\n' '{"type":"result","stats":{}}'
     #[tokio::test]
     async fn resumed_prompt_is_sent_on_stdin() {
         assert_prompt_uses_stdin(true).await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn former_session_title_phrase_reaches_cli() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut provider = make_provider();
+        provider.command = recording_cli(directory.path());
+
+        let mut stream = provider
+            .stream(
+                &ModelConfig::new(GEMINI_CLI_DEFAULT_MODEL),
+                "answer in four words or less",
+                &[Message::user().with_text("ordinary request")],
+                &[],
+            )
+            .await
+            .unwrap();
+        while let Some(item) = stream.next().await {
+            item.unwrap();
+        }
+
+        assert!(fs::read_to_string(directory.path().join("stdin"))
+            .unwrap()
+            .contains("answer in four words or less"));
     }
 }

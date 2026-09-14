@@ -48,14 +48,15 @@ impl HandleDispatchFrom<Client> for GooseAcpHandler {
                             match agent.on_new_session(&cx_clone, req).await {
                                 Ok(response) => {
                                     let session_id = response.session_id.0.to_string();
+                                    responder.respond(response)?;
                                     let session_setup =
                                         agent.prepare_session_setup_by_id(&session_id).await;
-                                    responder.respond(response)?;
-                                    if let Err(error) = session_setup.and_then(|(session, totals)| {
+                                    if let Err(error) = session_setup.and_then(|(session, totals, context_limit)| {
                                         send_session_setup_notifications(
                                             &cx_clone,
                                             &session,
                                             &totals,
+                                            context_limit,
                                             agent.supports_goose_custom_notifications(),
                                         )
                                     }) {
@@ -85,6 +86,25 @@ impl HandleDispatchFrom<Client> for GooseAcpHandler {
                             match agent.on_load_session(&cx_clone, req).await {
                                 Ok(response) => {
                                     responder.respond(response)?;
+                                    let session_setup =
+                                        agent.prepare_session_setup_by_id(&session_id).await;
+                                    if let Err(error) = session_setup.and_then(
+                                        |(session, totals, context_limit)| {
+                                            send_session_setup_notifications(
+                                                &cx_clone,
+                                                &session,
+                                                &totals,
+                                                context_limit,
+                                                agent.supports_goose_custom_notifications(),
+                                            )
+                                        },
+                                    ) {
+                                        tracing::warn!(
+                                            session_id = %session_id,
+                                            error = ?error,
+                                            "Failed to send ACP session setup notifications"
+                                        );
+                                    }
                                 }
                                 Err(e) => {
                                     tracing::error!(
@@ -420,14 +440,15 @@ impl HandleDispatchFrom<Client> for GooseAcpHandler {
                             match agent.on_fork_session(&cx_spawn, req).await {
                                 Ok(response) => {
                                     let session_id = response.session_id.0.to_string();
+                                    responder.respond(response)?;
                                     let session_setup =
                                         agent.prepare_session_setup_by_id(&session_id).await;
-                                    responder.respond(response)?;
-                                    if let Err(error) = session_setup.and_then(|(session, totals)| {
+                                    if let Err(error) = session_setup.and_then(|(session, totals, context_limit)| {
                                         send_session_setup_notifications(
                                             &cx_spawn,
                                             &session,
                                             &totals,
+                                            context_limit,
                                             agent.supports_goose_custom_notifications(),
                                         )
                                     }) {

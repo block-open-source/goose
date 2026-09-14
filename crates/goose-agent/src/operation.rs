@@ -64,9 +64,7 @@ pub fn ends_turn(messages: &[Message]) -> bool {
             && !last.content.iter().any(|content| {
                 matches!(
                     content,
-                    MessageContent::ToolRequest(_)
-                        | MessageContent::FrontendToolRequest(_)
-                        | MessageContent::ActionRequired(_)
+                    MessageContent::ToolRequest(_) | MessageContent::ActionRequired(_)
                 )
             })
     })

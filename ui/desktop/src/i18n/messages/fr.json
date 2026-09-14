@@ -617,6 +617,9 @@
   "customProviderForm.add": {
     "defaultMessage": "Ajouter"
   },
+  "customProviderForm.alwaysUseToolshim": {
+    "defaultMessage": "Toujours utiliser Toolshim pour ce fournisseur"
+  },
   "customProviderForm.anthropicCompatible": {
     "defaultMessage": "Compatible Anthropic"
   },
@@ -926,8 +929,6 @@
   "dirSwitcher.enterPathInvalid": {
     "defaultMessage": "Working directory must be an absolute path"
   },
-
-
   "dirSwitcher.failedToUpdateWorkingDir": {
     "defaultMessage": "Échec de la mise à jour du répertoire de travail"
   },
@@ -1053,9 +1054,6 @@
   },
   "extensionInfoFields.typeLabel": {
     "defaultMessage": "Type"
-  },
-  "extensionInfoFields.typeSseUnsupported": {
-    "defaultMessage": "SSE (non pris en charge)"
   },
   "extensionInfoFields.typeStandardIo": {
     "defaultMessage": "Entrée/sortie standard (STDIO)"
@@ -1760,13 +1758,10 @@
     "defaultMessage": "Supprimer ce modèle ? Vous pourrez le retélécharger plus tard."
   },
   "localInferenceSettings.description": {
-    "defaultMessage": "Téléchargez et gérez des modèles LLM locaux pour l'inférence sans clés API. Recherchez des modèles GGUF ou MLX sur HuggingFace, ou utilisez les sélections présentées ci-dessous."
+    "defaultMessage": "Téléchargez et gérez des modèles LLM locaux pour l’inférence sans clés API. Recherchez des modèles GGUF ou MLX sur Hugging Face."
   },
   "localInferenceSettings.dismiss": {
     "defaultMessage": "Ignorer"
-  },
-  "localInferenceSettings.download": {
-    "defaultMessage": "Télécharger"
   },
   "localInferenceSettings.downloadCancelled": {
     "defaultMessage": "Téléchargement annulé"
@@ -1785,9 +1780,6 @@
   },
   "localInferenceSettings.evictFromMemory": {
     "defaultMessage": "Evict from memory"
-  },
-  "localInferenceSettings.featuredModels": {
-    "defaultMessage": "Modèles en vedette"
   },
   "localInferenceSettings.huggingFaceSignInNote": {
     "defaultMessage": "Connectez-vous pour augmenter les limites de débit lors de la recherche et du téléchargement de modèles, et pour accéder aux dépôts Hugging Face privés ou à accès restreint."
@@ -1812,12 +1804,6 @@
   },
   "localInferenceSettings.retry": {
     "defaultMessage": "Réessayer"
-  },
-  "localInferenceSettings.showAllFeatured": {
-    "defaultMessage": "Afficher tous les modèles en vedette ({count} de plus)"
-  },
-  "localInferenceSettings.showRecommendedOnly": {
-    "defaultMessage": "Afficher uniquement les modèles recommandés"
   },
   "localInferenceSettings.title": {
     "defaultMessage": "Modèles d'inférence locale"
@@ -3173,7 +3159,7 @@
     "defaultMessage": "Aucune recette enregistrée"
   },
   "recipesView.noSavedRecipesDescription": {
-    "defaultMessage": "Les recettes enregistrées à partir des conversations apparaîtront ici."
+    "defaultMessage": "Les recettes enregistrées apparaîtront ici."
   },
   "recipesView.openInNewWindow": {
     "defaultMessage": "Ouvrir dans une nouvelle fenêtre"
@@ -3710,7 +3696,7 @@
     "defaultMessage": "JSON de la session copié"
   },
   "sessionActionsHeader.copiedModelInteractions": {
-    "defaultMessage": "Recent model interactions copied"
+    "defaultMessage": "Interactions récentes du modèle copiées"
   },
   "sessionActionsHeader.copiedText": {
     "defaultMessage": "Texte copié"
@@ -3743,10 +3729,10 @@
     "defaultMessage": "Chargement du JSON..."
   },
   "sessionActionsHeader.modelInteractionsFailed": {
-    "defaultMessage": "Failed to load model interactions: {error}"
+    "defaultMessage": "Échec du chargement des interactions du modèle : {error}"
   },
   "sessionActionsHeader.modelInteractionsTitle": {
-    "defaultMessage": "Recent model interactions"
+    "defaultMessage": "Interactions récentes du modèle"
   },
   "sessionActionsHeader.renameFailed": {
     "defaultMessage": "Échec du renommage de la session : {error}"
@@ -3773,7 +3759,7 @@
     "defaultMessage": "Afficher le JSON de la session"
   },
   "sessionActionsHeader.viewModelInteractions": {
-    "defaultMessage": "View recent model interactions"
+    "defaultMessage": "Afficher les interactions récentes du modèle"
   },
   "sessionIndicators.error": {
     "defaultMessage": "La session a rencontré une erreur"
@@ -3783,6 +3769,9 @@
   },
   "sessionIndicators.streaming": {
     "defaultMessage": "Diffusion en cours"
+  },
+  "sessions.acpBadge": {
+    "defaultMessage": "ACP"
   },
   "sessions.action.delete": {
     "defaultMessage": "Supprimer la session"
@@ -3861,6 +3850,9 @@
   },
   "sessions.importing": {
     "defaultMessage": "Importation..."
+  },
+  "sessions.includeAcp": {
+    "defaultMessage": "Inclure les sessions ACP"
   },
   "sessions.loadingMore": {
     "defaultMessage": "Chargement de sessions supplémentaires..."

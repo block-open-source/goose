@@ -1,6 +1,4 @@
 # This is a reusable workflow that builds the CLI for multiple platforms.
-# It doesn't get triggered on its own. It gets used by:
-#  - publish-npm.yml
 #
 # Platform Build Strategy:
 #  - Linux standard (x86_64 + aarch64): Builds inside manylinux_2_28 container for glibc 2.28+ compat

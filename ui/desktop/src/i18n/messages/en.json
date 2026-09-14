@@ -638,6 +638,9 @@
   "customProviderForm.add": {
     "defaultMessage": "Add"
   },
+  "customProviderForm.alwaysUseToolshim": {
+    "defaultMessage": "Always use Toolshim for this provider"
+  },
   "customProviderForm.anthropicCompatible": {
     "defaultMessage": "Anthropic Compatible"
   },
@@ -1060,9 +1063,6 @@
   },
   "extensionInfoFields.typeLabel": {
     "defaultMessage": "Type"
-  },
-  "extensionInfoFields.typeSseUnsupported": {
-    "defaultMessage": "SSE (unsupported)"
   },
   "extensionInfoFields.typeStandardIo": {
     "defaultMessage": "Standard IO (STDIO)"
@@ -1779,13 +1779,10 @@
     "defaultMessage": "Delete this model? You can re-download it later."
   },
   "localInferenceSettings.description": {
-    "defaultMessage": "Download and manage local LLM models for inference without API keys. Search HuggingFace for GGUF or MLX models, or use the featured picks below."
+    "defaultMessage": "Download and manage local LLM models for inference without API keys. Search Hugging Face for GGUF or MLX models."
   },
   "localInferenceSettings.dismiss": {
     "defaultMessage": "Dismiss"
-  },
-  "localInferenceSettings.download": {
-    "defaultMessage": "Download"
   },
   "localInferenceSettings.downloadCancelled": {
     "defaultMessage": "Download cancelled"
@@ -1804,9 +1801,6 @@
   },
   "localInferenceSettings.evictFromMemory": {
     "defaultMessage": "Evict from memory"
-  },
-  "localInferenceSettings.featuredModels": {
-    "defaultMessage": "Featured Models"
   },
   "localInferenceSettings.huggingFaceSignInNote": {
     "defaultMessage": "Sign in to increase rate limits when searching and downloading models, and to access private or gated Hugging Face repositories."
@@ -1831,12 +1825,6 @@
   },
   "localInferenceSettings.retry": {
     "defaultMessage": "Retry"
-  },
-  "localInferenceSettings.showAllFeatured": {
-    "defaultMessage": "Show all featured ({count} more)"
-  },
-  "localInferenceSettings.showRecommendedOnly": {
-    "defaultMessage": "Show recommended only"
   },
   "localInferenceSettings.title": {
     "defaultMessage": "Local Inference Models"
@@ -3219,7 +3207,7 @@
     "defaultMessage": "No saved recipes"
   },
   "recipesView.noSavedRecipesDescription": {
-    "defaultMessage": "Recipe saved from chats will show up here."
+    "defaultMessage": "Saved recipes will show up here."
   },
   "recipesView.openInNewWindow": {
     "defaultMessage": "Open in new window"
@@ -3830,6 +3818,9 @@
   "sessionIndicators.streaming": {
     "defaultMessage": "Streaming"
   },
+  "sessions.acpBadge": {
+    "defaultMessage": "ACP"
+  },
   "sessions.action.delete": {
     "defaultMessage": "Delete session"
   },
@@ -3907,6 +3898,9 @@
   },
   "sessions.importing": {
     "defaultMessage": "Importing..."
+  },
+  "sessions.includeAcp": {
+    "defaultMessage": "Include ACP sessions"
   },
   "sessions.loadingMore": {
     "defaultMessage": "Loading more sessions..."

@@ -1,4 +1,7 @@
 use crate::conversation::token_usage::{ProviderUsage, Usage};
+use crate::documents::{
+    document_media_type_is_supported, unsupported_document_text, UNSUPPORTED_MEDIA_TYPE_REASON,
+};
 use crate::errors::ProviderError;
 use crate::formats::openai::{is_valid_function_name, sanitize_function_name};
 use crate::mcp_utils::extract_text_from_resource;
@@ -88,18 +91,9 @@ pub fn format_messages(messages: &[Message], nested_function_response_media: boo
         })
         .collect();
 
-    let tool_names: HashMap<_, _> = filtered
-        .iter()
-        .flat_map(|message| &message.content)
-        .filter_map(|content| match content {
-            MessageContentBlock::ToolRequest(request) => request
-                .tool_call
-                .as_ref()
-                .ok()
-                .map(|tool_call| (request.id.as_str(), sanitize_function_name(&tool_call.name))),
-            _ => None,
-        })
-        .collect();
+    // Record names as we walk the conversation so a reused tool-call id
+    // resolves to the nearest preceding request, not a later overwrite.
+    let mut tool_names: HashMap<&str, String> = HashMap::new();
 
     let active_loop_start_idx = filtered
         .iter()
@@ -132,12 +126,11 @@ pub fn format_messages(messages: &[Message], nested_function_response_media: boo
                     }
                     MessageContentBlock::ToolRequest(request) => match &request.tool_call {
                         Ok(tool_call) => {
+                            let name = sanitize_function_name(&tool_call.name);
+                            tool_names.insert(request.id.as_str(), name.clone());
                             let mut function_call_part = Map::new();
                             function_call_part.insert("id".to_string(), json!(request.id));
-                            function_call_part.insert(
-                                "name".to_string(),
-                                json!(sanitize_function_name(&tool_call.name)),
-                            );
+                            function_call_part.insert("name".to_string(), json!(name));
 
                             if let Some(args) = &tool_call.arguments {
                                 if !args.is_empty() {
@@ -254,6 +247,20 @@ pub fn format_messages(messages: &[Message], nested_function_response_media: boo
                                 "data": image.data,
                             }
                         }));
+                    }
+                    MessageContentBlock::Document(document) => {
+                        if document_media_type_is_supported(&document.mime_type) {
+                            parts.push(json!({
+                                "inline_data": {
+                                    "mime_type": document.mime_type,
+                                    "data": document.data,
+                                }
+                            }));
+                        } else {
+                            parts.push(json!({
+                                "text": unsupported_document_text(document, UNSUPPORTED_MEDIA_TYPE_REASON)
+                            }));
+                        }
                     }
 
                     _ => {}
@@ -936,6 +943,31 @@ mod tests {
     }
 
     #[test]
+    fn test_message_to_google_spec_document_only_message() {
+        let messages = vec![Message::new(
+            Role::User,
+            0,
+            vec![MessageContentBlock::document(
+                "base64pdfdata".to_string(),
+                "application/pdf".to_string(),
+                Some("report.pdf".to_string()),
+            )],
+        )];
+        let payload = format_messages(&messages, false);
+
+        assert_eq!(payload.len(), 1);
+        assert_eq!(payload[0]["role"], "user");
+        assert_eq!(
+            payload[0]["parts"][0]["inline_data"]["mime_type"],
+            "application/pdf"
+        );
+        assert_eq!(
+            payload[0]["parts"][0]["inline_data"]["data"],
+            "base64pdfdata"
+        );
+    }
+
+    #[test]
     fn test_message_to_google_spec_tool_request_message() {
         let arguments = json!({
             "param1": "value1"
@@ -1011,6 +1043,38 @@ mod tests {
                 "id": "call_123",
                 "name": "read_file",
                 "response": {"content": {"text": "contents"}}
+            })
+        );
+    }
+
+    #[test]
+    fn test_reused_tool_call_id_keeps_each_response_name() {
+        let messages = vec![
+            set_up_tool_request_message(
+                "call_3407",
+                CallToolRequestParams::new("download_document"),
+            ),
+            set_up_tool_response_message("call_3407", vec![ContentBlock::text("the document")]),
+            set_up_tool_request_message("call_3407", CallToolRequestParams::new("shell")),
+            set_up_tool_response_message("call_3407", vec![ContentBlock::text("shell output")]),
+        ];
+
+        let payload = format_messages(&messages, false);
+
+        assert_eq!(
+            payload[1]["parts"][0]["functionResponse"],
+            json!({
+                "id": "call_3407",
+                "name": "download_document",
+                "response": {"content": {"text": "the document"}}
+            })
+        );
+        assert_eq!(
+            payload[3]["parts"][0]["functionResponse"],
+            json!({
+                "id": "call_3407",
+                "name": "shell",
+                "response": {"content": {"text": "shell output"}}
             })
         );
     }

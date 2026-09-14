@@ -100,7 +100,7 @@ export default function RecipePage() {
             <Link to="/docs/guides/recipes/session-recipes" className="text-purple-600 hover:underline">
               goose recipe
             </Link>{" "}
-            shared by the community with a single click.
+            in this archived community collection with a single click. The public submission program has ended, and we are not accepting new community recipe submissions.
           </p>
         </div>
 

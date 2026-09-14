@@ -28,7 +28,6 @@ pub enum InputResult {
     EndPlan,
     Clear,
     New,
-    Recipe(Option<String>),
     Compact,
     ToggleFullToolOutput,
     Edit(Option<String>),
@@ -241,7 +240,6 @@ fn handle_slash_command(input: &str) -> Option<InputResult> {
     const CMD_ENDPLAN: &str = "/endplan";
     const CMD_CLEAR: &str = "/clear";
     const CMD_NEW: &str = "/new";
-    const CMD_RECIPE: &str = "/recipe";
     const CMD_COMPACT: &str = "/compact";
     const CMD_SUMMARIZE_DEPRECATED: &str = "/summarize";
     const CMD_EDIT: &str = "/edit";
@@ -338,7 +336,6 @@ fn handle_slash_command(input: &str) -> Option<InputResult> {
         s if s == CMD_ENDPLAN => Some(InputResult::EndPlan),
         s if s == CMD_CLEAR => Some(InputResult::Clear),
         s if s == CMD_NEW => Some(InputResult::New),
-        s if s.starts_with(CMD_RECIPE) => parse_recipe_command(s),
         s if s == CMD_COMPACT => Some(InputResult::Compact),
         // Match "/skills" exactly or "/skills " with args - avoids matching e.g. "/skillsextra"
         s if s == CMD_SKILLS || s.starts_with(&format!("{CMD_SKILLS} ")) => {
@@ -369,31 +366,6 @@ fn handle_slash_command(input: &str) -> Option<InputResult> {
         }
         _ => None,
     }
-}
-
-fn parse_recipe_command(s: &str) -> Option<InputResult> {
-    const CMD_RECIPE: &str = "/recipe";
-
-    if s == CMD_RECIPE {
-        // No filepath provided, use default
-        return Some(InputResult::Recipe(None));
-    }
-
-    // Extract the filepath from the command
-    let filepath = s.get(CMD_RECIPE.len()..).unwrap_or("").trim();
-
-    if filepath.is_empty() {
-        return Some(InputResult::Recipe(None));
-    }
-
-    // Validate that the filepath ends with .yaml
-    if !filepath.to_lowercase().ends_with(".yaml") {
-        println!("{}", console::style("Filepath must end with .yaml").red());
-        return Some(InputResult::Retry);
-    }
-
-    // Return the filepath for validation in the handler
-    Some(InputResult::Recipe(Some(filepath.to_string())))
 }
 
 fn parse_prompts_command(args: &str) -> Option<InputResult> {
@@ -486,8 +458,6 @@ fn help_text() -> String {
                         The model is used based on $GOOSE_PLANNER_PROVIDER and $GOOSE_PLANNER_MODEL environment variables.
                         If no model is set, the default model is used.
 /endplan - Exit plan mode and return to 'normal' goose mode.
-/recipe [filepath] - Generate a recipe from the current conversation and save it to the specified filepath (must end with .yaml).
-                       If no filepath is provided, it will be saved to ./recipe.yaml.
 /compact - Compact the current conversation to reduce context length while preserving key information.
 {additional_builtin_help}/status - Show session status: model, provider, mode, and token usage.
 /edit [text] - Open your prompt editor to compose a message. Optionally pre-fill with text.
@@ -501,7 +471,8 @@ Navigation:
 Enter - Send message
 Ctrl+{newline_key} - Add a newline (configurable via GOOSE_CLI_NEWLINE_KEY)
 Ctrl+C - Clear current line if text is entered, otherwise exit the session
-Up/Down arrows - Navigate through command history"
+Up/Down arrows - Navigate through command history
+GOOSE_CLI_BELL=true - Ring the terminal bell when goose finishes a turn or needs approval"
     )
 }
 
@@ -845,26 +816,9 @@ mod tests {
     }
 
     #[test]
-    fn test_recipe_command() {
-        // Test recipe with no filepath
-        if let Some(InputResult::Recipe(filepath)) = handle_slash_command("/recipe") {
-            assert!(filepath.is_none());
-        } else {
-            panic!("Expected Recipe");
-        }
-
-        // Test recipe with filepath
-        if let Some(InputResult::Recipe(filepath)) =
-            handle_slash_command("/recipe /path/to/file.yaml")
-        {
-            assert_eq!(filepath, Some("/path/to/file.yaml".to_string()));
-        } else {
-            panic!("Expected recipe with filepath");
-        }
-
-        // Test recipe with invalid extension
-        let result = handle_slash_command("/recipe /path/to/file.txt");
-        assert!(matches!(result, Some(InputResult::Retry)));
+    fn recipe_command_is_not_builtin() {
+        assert!(handle_slash_command("/recipe").is_none());
+        assert!(handle_slash_command("/recipe recipe.yaml").is_none());
     }
 
     // --- should_use_editor_always tests ---

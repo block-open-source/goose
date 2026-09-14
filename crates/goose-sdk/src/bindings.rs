@@ -20,6 +20,7 @@ use goose_providers::{
     databricks_auth::DatabricksAuth,
     databricks_v2::DatabricksV2Provider as GooseDatabricksV2Provider,
     declarative::{DeclarativeProviderConfig, EnvKeyResolver},
+    documents::{document_media_type_is_supported, SUPPORTED_DOCUMENT_MEDIA_TYPES},
     model::ModelConfig,
     openai::OpenAiProviderBuilder,
     utils::sanitize_unicode_tags,
@@ -28,6 +29,8 @@ use rmcp::model::{
     CallToolRequestParams, CallToolResult, ContentBlock, ErrorCode, ErrorData, Role, Tool,
 };
 use serde_json::Value;
+
+use crate::observability::{RequestDescriptor, RequestObserver, RequestOperation};
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum GooseError {
@@ -200,10 +203,19 @@ pub enum MessageContent {
         mime_type: String,
         data: Vec<u8>,
     },
+    Document {
+        mime_type: String,
+        data: Vec<u8>,
+        name: Option<String>,
+    },
     ToolRequest {
         id: String,
         name: String,
         arguments_json: String,
+        #[uniffi(default = None)]
+        provider_metadata_json: Option<String>,
+        #[uniffi(default = None)]
+        tool_error_json: Option<String>,
     },
     ToolResult {
         id: String,
@@ -243,15 +255,45 @@ impl MessageContent {
                 base64::engine::general_purpose::STANDARD.encode(data),
                 mime_type.clone(),
             )),
+            MessageContent::Document {
+                mime_type,
+                data,
+                name,
+            } => {
+                if !document_media_type_is_supported(mime_type) {
+                    return Err(GooseError::generic(format!(
+                        "unsupported document media type {mime_type}: supported types are {}",
+                        SUPPORTED_DOCUMENT_MEDIA_TYPES.join(", ")
+                    )));
+                }
+                Ok(GooseMessageContent::document(
+                    base64::engine::general_purpose::STANDARD.encode(data),
+                    mime_type.clone(),
+                    name.clone(),
+                ))
+            }
             MessageContent::ToolRequest {
                 id,
                 name,
                 arguments_json,
+                provider_metadata_json,
+                tool_error_json,
             } => {
-                let arguments = parse_json_object(arguments_json)?;
-                Ok(GooseMessageContent::tool_request(
+                let metadata = provider_metadata_json
+                    .as_deref()
+                    .map(parse_json_object)
+                    .transpose()?;
+                let tool_call = match tool_error_json {
+                    Some(error_json) => Err(serde_json::from_str(error_json)?),
+                    None => {
+                        let arguments = parse_json_object(arguments_json)?;
+                        Ok(CallToolRequestParams::new(name.clone()).with_arguments(arguments))
+                    }
+                };
+                Ok(GooseMessageContent::tool_request_with_metadata(
                     id.clone(),
-                    Ok(CallToolRequestParams::new(name.clone()).with_arguments(arguments)),
+                    tool_call,
+                    metadata.as_ref(),
                 ))
             }
             MessageContent::ToolResult {
@@ -281,6 +323,59 @@ impl MessageContent {
             MessageContent::RedactedThinking { data } => {
                 Ok(GooseMessageContent::redacted_thinking(data.clone()))
             }
+        }
+    }
+
+    /// Maps provider output back onto the binding surface so callers can replay
+    /// an assistant turn without reparsing `message_json`. Thinking signatures
+    /// and redacted payloads are carried through verbatim: providers reject
+    /// replayed thinking blocks whose signature was dropped or altered.
+    fn from_goose_content(content: &GooseMessageContent) -> Option<Self> {
+        match content {
+            GooseMessageContent::Text(text) => Some(MessageContent::Text {
+                text: text.text.clone(),
+            }),
+            GooseMessageContent::Image(image) => Some(MessageContent::Image {
+                mime_type: image.mime_type.clone(),
+                data: base64::engine::general_purpose::STANDARD
+                    .decode(&image.data)
+                    .ok()?,
+            }),
+            GooseMessageContent::ToolRequest(request) => {
+                let provider_metadata_json = request
+                    .metadata
+                    .as_ref()
+                    .and_then(|metadata| serde_json::to_string(metadata).ok());
+                match &request.tool_call {
+                    Ok(tool_call) => Some(MessageContent::ToolRequest {
+                        id: request.id.clone(),
+                        name: tool_call.name.to_string(),
+                        arguments_json: serde_json::to_string(
+                            &tool_call.arguments.clone().unwrap_or_default(),
+                        )
+                        .ok()?,
+                        provider_metadata_json,
+                        tool_error_json: None,
+                    }),
+                    Err(error) => Some(MessageContent::ToolRequest {
+                        id: request.id.clone(),
+                        name: String::new(),
+                        arguments_json: "{}".to_string(),
+                        provider_metadata_json,
+                        tool_error_json: Some(serde_json::to_string(error).ok()?),
+                    }),
+                }
+            }
+            GooseMessageContent::Thinking(thinking) => Some(MessageContent::Thinking {
+                thinking: thinking.thinking.clone(),
+                signature: thinking.signature.clone(),
+            }),
+            GooseMessageContent::RedactedThinking(redacted) => {
+                Some(MessageContent::RedactedThinking {
+                    data: redacted.data.clone(),
+                })
+            }
+            _ => None,
         }
     }
 }
@@ -389,7 +484,6 @@ pub struct ProviderModelConfig {
 impl ProviderModelConfig {
     fn to_goose_model_config(&self) -> Result<ModelConfig, GooseError> {
         let mut config = ModelConfig::new(&self.model_name)
-            .with_context_limit(self.context_limit.map(|limit| limit.max(0) as usize))
             .with_temperature(self.temperature)
             .with_max_tokens(self.max_tokens)
             .with_toolshim(self.toolshim)
@@ -430,6 +524,9 @@ pub struct Usage {
     pub reasoning_tokens: Option<i32>,
     pub model: String,
     pub provider_metadata_json: Option<String>,
+    /// Provider-specific response fields as a JSON object, present only when the
+    /// provider reported fields with no canonical `Usage` equivalent.
+    pub additional_data_json: Option<String>,
 }
 
 impl Usage {
@@ -443,6 +540,11 @@ impl Usage {
             reasoning_tokens: None,
             model: usage.model.clone(),
             provider_metadata_json: Some(serde_json::to_string(usage)?),
+            additional_data_json: usage
+                .additional_data
+                .as_ref()
+                .map(serde_json::to_string)
+                .transpose()?,
         })
     }
 }
@@ -456,6 +558,9 @@ pub enum StreamChunk {
         id: String,
         name: String,
         arguments_json: String,
+        index: Option<i32>,
+        #[uniffi(default = None)]
+        provider_metadata_json: Option<String>,
     },
     ThinkingChunk {
         thinking: String,
@@ -490,8 +595,8 @@ pub enum GooseStreamErrorKind {
     Generic,
 }
 
-impl From<GooseError> for GooseStreamError {
-    fn from(error: GooseError) -> Self {
+impl From<&GooseError> for GooseStreamError {
+    fn from(error: &GooseError) -> Self {
         match error {
             GooseError::RateLimited {
                 retry_after_ms,
@@ -499,36 +604,36 @@ impl From<GooseError> for GooseStreamError {
             } => Self {
                 kind: GooseStreamErrorKind::RateLimited,
                 message: format!("Rate limit exceeded{retry_after_suffix}"),
-                retry_after_ms,
+                retry_after_ms: *retry_after_ms,
             },
             GooseError::OutputTokenLimitExceeded { details } => Self {
                 kind: GooseStreamErrorKind::OutputTokenLimitExceeded,
-                message: details,
+                message: details.clone(),
                 retry_after_ms: None,
             },
             GooseError::ContextLengthExceeded { details } => Self {
                 kind: GooseStreamErrorKind::ContextLengthExceeded,
-                message: details,
+                message: details.clone(),
                 retry_after_ms: None,
             },
             GooseError::Authentication { details } => Self {
                 kind: GooseStreamErrorKind::Authentication,
-                message: details,
+                message: details.clone(),
                 retry_after_ms: None,
             },
             GooseError::Timeout { details } => Self {
                 kind: GooseStreamErrorKind::Timeout,
-                message: details,
+                message: details.clone(),
                 retry_after_ms: None,
             },
             GooseError::ProviderUnavailable { details } => Self {
                 kind: GooseStreamErrorKind::ProviderUnavailable,
-                message: details,
+                message: details.clone(),
                 retry_after_ms: None,
             },
             GooseError::Generic { details } => Self {
                 kind: GooseStreamErrorKind::Generic,
-                message: details,
+                message: details.clone(),
                 retry_after_ms: None,
             },
         }
@@ -538,6 +643,9 @@ impl From<GooseError> for GooseStreamError {
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct ProviderCompletion {
     pub message_json: String,
+    /// The assistant turn as binding types, ready to append to history and
+    /// replay on the next request without reparsing `message_json`.
+    pub content: Vec<MessageContent>,
     pub usage: Option<Usage>,
 }
 
@@ -546,6 +654,7 @@ pub enum Feature {
     Tools,
     Streaming,
     Images,
+    Documents,
     JsonSchema,
     Reasoning,
 }
@@ -615,6 +724,20 @@ impl ProviderHandle {
         self.provider.get_name().to_string()
     }
 
+    async fn context_limit(&self, model: ProviderModelConfig) -> Result<usize, GooseError> {
+        let normalized_model = ModelConfig::new(&model.model_name);
+        let override_limit = model
+            .context_limit
+            .and_then(|limit| (limit > 0).then_some(limit as usize));
+        let provider = Arc::clone(&self.provider);
+        run_on_runtime(async move {
+            provider
+                .get_context_limit(&normalized_model.model_name, override_limit)
+                .await
+        })
+        .await
+    }
+
     async fn stream(
         &self,
         model: ProviderModelConfig,
@@ -626,11 +749,25 @@ impl ProviderHandle {
         let model = model.to_goose_model_config()?;
         let messages = convert_messages(messages)?;
         let tools = convert_tools(tools)?;
+        let observer = Arc::new(RequestObserver::start(RequestDescriptor {
+            provider: self.provider.get_name(),
+            model: &model.model_name,
+            operation: RequestOperation::Stream,
+            system: &system,
+            messages: &messages,
+            tools: &tools,
+        }));
         let provider = Arc::clone(&self.provider);
-        let stream = run_provider_future(timeout_ms, async move {
+        let stream = match run_provider_future(timeout_ms, async move {
             provider.stream(&model, &system, &messages, &tools).await
         })
-        .await??;
+        .await
+        {
+            Ok(Ok(stream)) => stream,
+            Ok(Err(error)) => return Err(observer.fail(GooseError::from(error))),
+            Err(error) => return Err(observer.fail(error)),
+        };
+        observer.response_started();
 
         Ok(Arc::new(ProviderStream {
             state: Arc::new(tokio::sync::Mutex::new(ProviderStreamState {
@@ -640,6 +777,7 @@ impl ProviderHandle {
                 ended: false,
             })),
             timeout_ms,
+            observer,
         }))
     }
 
@@ -654,16 +792,42 @@ impl ProviderHandle {
         let model = model.to_goose_model_config()?;
         let messages = convert_messages(messages)?;
         let tools = convert_tools(tools)?;
+        let observer = RequestObserver::start(RequestDescriptor {
+            provider: self.provider.get_name(),
+            model: &model.model_name,
+            operation: RequestOperation::Complete,
+            system: &system,
+            messages: &messages,
+            tools: &tools,
+        });
         let provider = Arc::clone(&self.provider);
-        let (message, usage) = run_provider_future(timeout_ms, async move {
+        let (message, usage) = match run_provider_future(timeout_ms, async move {
             provider.complete(&model, &system, &messages, &tools).await
         })
-        .await??;
+        .await
+        {
+            Ok(Ok(completion)) => completion,
+            Ok(Err(error)) => return Err(observer.fail(GooseError::from(error))),
+            Err(error) => return Err(observer.fail(error)),
+        };
+        observer.response_started();
 
-        Ok(ProviderCompletion {
+        let completion = ProviderCompletion {
             message_json: serde_json::to_string(&message)?,
+            content: message
+                .content
+                .iter()
+                .filter_map(MessageContent::from_goose_content)
+                .collect(),
             usage: Some(Usage::from_provider_usage(&usage)?),
-        })
+        };
+        observer.succeeded(
+            completion.usage.clone(),
+            observer
+                .captures_payloads()
+                .then(|| completion.message_json.clone()),
+        );
+        Ok(completion)
     }
 }
 
@@ -729,11 +893,21 @@ impl Provider {
         }
         if matches!(
             name.as_str(),
+            "openai" | "anthropic" | "databricks" | "databricks_v2" | "google"
+        ) {
+            features.push(Feature::Documents);
+        }
+        if matches!(
+            name.as_str(),
             "openai" | "anthropic" | "databricks" | "databricks_v2"
         ) {
             features.push(Feature::Reasoning);
         }
         features
+    }
+
+    pub async fn context_limit(&self, model: ProviderModelConfig) -> Result<u64, GooseError> {
+        Ok(self.handle.context_limit(model).await? as u64)
     }
 
     pub async fn stream(
@@ -785,6 +959,8 @@ impl Provider {
             input_tokens: summary.usage.usage.input_tokens,
             output_tokens: summary.usage.usage.output_tokens,
             total_tokens: summary.usage.usage.total_tokens,
+            cache_read_input_tokens: summary.usage.usage.cache_read_input_tokens,
+            cache_creation_input_tokens: summary.usage.usage.cache_write_input_tokens,
         })
     }
 }
@@ -835,6 +1011,8 @@ pub struct CompactionSummary {
     pub input_tokens: Option<i32>,
     pub output_tokens: Option<i32>,
     pub total_tokens: Option<i32>,
+    pub cache_read_input_tokens: Option<i32>,
+    pub cache_creation_input_tokens: Option<i32>,
 }
 
 #[uniffi::export]
@@ -896,7 +1074,9 @@ pub fn anthropic_provider(
         api_client = api_client.with_header("anthropic-beta", &beta_headers.join(","))?;
     }
 
-    let provider = AnthropicProviderBuilder::new(api_client).build();
+    let provider = AnthropicProviderBuilder::new(api_client)
+        .format_options(goose_providers::formats::anthropic::AnthropicFormatOptions::native())
+        .build();
     Ok(Provider::new(Box::new(provider)))
 }
 
@@ -974,8 +1154,12 @@ pub fn databricks_v2_default_model() -> String {
     goose_providers::databricks_v2::DATABRICKS_V2_DEFAULT_MODEL.to_string()
 }
 
-#[uniffi::export]
-pub fn databricks_v2_provider(host: String, token: String) -> Result<Arc<Provider>, GooseError> {
+#[uniffi::export(default(gateway_path = None))]
+pub fn databricks_v2_provider(
+    host: String,
+    token: String,
+    gateway_path: Option<String>,
+) -> Result<Arc<Provider>, GooseError> {
     let retry_config = GooseDatabricksV2Provider::load_retry_config(|key| std::env::var(key).ok());
     let provider = GooseDatabricksV2Provider::new(
         host,
@@ -987,6 +1171,10 @@ pub fn databricks_v2_provider(host: String, token: String) -> Result<Arc<Provide
         None,
         None,
     )?;
+    let provider = match gateway_path {
+        Some(path) => provider.with_gateway_path(&path)?,
+        None => provider,
+    };
 
     Ok(Provider::new(Box::new(provider)))
 }
@@ -995,6 +1183,7 @@ pub fn databricks_v2_provider(host: String, token: String) -> Result<Arc<Provide
 pub struct ProviderStream {
     state: Arc<tokio::sync::Mutex<ProviderStreamState>>,
     timeout_ms: Option<u64>,
+    observer: Arc<RequestObserver>,
 }
 
 struct ProviderStreamState {
@@ -1009,6 +1198,7 @@ impl ProviderStream {
     pub async fn next_chunk(&self) -> Result<Option<StreamChunk>, GooseError> {
         let state = Arc::clone(&self.state);
         let timeout_ms = self.timeout_ms;
+        let observer = Arc::clone(&self.observer);
         run_on_runtime(async move {
             let mut state = state.lock().await;
             loop {
@@ -1021,11 +1211,19 @@ impl ProviderStream {
                 }
 
                 let next = if let Some(timeout_ms) = timeout_ms {
-                    tokio::time::timeout(Duration::from_millis(timeout_ms), state.stream.next())
-                        .await
-                        .map_err(|_| GooseError::Timeout {
-                            details: format!("request timed out after {timeout_ms}ms"),
-                        })?
+                    match tokio::time::timeout(
+                        Duration::from_millis(timeout_ms),
+                        state.stream.next(),
+                    )
+                    .await
+                    {
+                        Ok(next) => next,
+                        Err(_) => {
+                            return Err(observer.fail(GooseError::Timeout {
+                                details: format!("request timed out after {timeout_ms}ms"),
+                            }))
+                        }
+                    }
                 } else {
                     state.stream.next().await
                 };
@@ -1033,7 +1231,13 @@ impl ProviderStream {
                 match next {
                     Some(Ok((message, usage))) => {
                         if let Some(usage) = usage {
-                            state.final_usage = Some(Usage::from_provider_usage(&usage)?);
+                            match Usage::from_provider_usage(&usage) {
+                                Ok(usage) => state.final_usage = Some(usage),
+                                Err(error) => {
+                                    state.ended = true;
+                                    return Err(observer.fail(error));
+                                }
+                            }
                         }
                         let Some(message) = message else {
                             continue;
@@ -1049,15 +1253,15 @@ impl ProviderStream {
                     }
                     Some(Err(error)) => {
                         state.ended = true;
-                        return Ok(Some(StreamChunk::ErrorChunk {
-                            error: GooseStreamError::from(GooseError::from(error)),
-                        }));
+                        let error = GooseStreamError::from(&GooseError::from(error));
+                        observer.fail_stream(error.clone());
+                        return Ok(Some(StreamChunk::ErrorChunk { error }));
                     }
                     None => {
                         state.ended = true;
-                        return Ok(Some(StreamChunk::EndChunk {
-                            usage: state.final_usage.clone(),
-                        }));
+                        let usage = state.final_usage.clone();
+                        observer.succeeded(usage.clone(), None);
+                        return Ok(Some(StreamChunk::EndChunk { usage }));
                     }
                 }
             }
@@ -1076,21 +1280,32 @@ fn message_to_chunks(message: Message) -> Vec<StreamChunk> {
                     text: text.text.clone(),
                 })
             }
-            GooseMessageContent::ToolRequest(request) => match request.tool_call {
-                Ok(tool_call) => Some(StreamChunk::ToolChunk {
-                    id: request.id,
-                    name: tool_call.name.to_string(),
-                    arguments_json: serde_json::to_string(&tool_call.arguments.unwrap_or_default())
+            GooseMessageContent::ToolRequest(request) => {
+                let index = request.provider_index();
+                let provider_metadata_json = request
+                    .metadata
+                    .as_ref()
+                    .and_then(|metadata| serde_json::to_string(metadata).ok());
+                match request.tool_call {
+                    Ok(tool_call) => Some(StreamChunk::ToolChunk {
+                        index,
+                        id: request.id,
+                        name: tool_call.name.to_string(),
+                        arguments_json: serde_json::to_string(
+                            &tool_call.arguments.unwrap_or_default(),
+                        )
                         .unwrap_or_else(|_| "{}".to_string()),
-                }),
-                Err(error) => Some(StreamChunk::ErrorChunk {
-                    error: GooseStreamError {
-                        kind: GooseStreamErrorKind::Generic,
-                        message: error.to_string(),
-                        retry_after_ms: None,
-                    },
-                }),
-            },
+                        provider_metadata_json,
+                    }),
+                    Err(error) => Some(StreamChunk::ErrorChunk {
+                        error: GooseStreamError {
+                            kind: GooseStreamErrorKind::Generic,
+                            message: error.to_string(),
+                            retry_after_ms: None,
+                        },
+                    }),
+                }
+            }
             GooseMessageContent::Thinking(thinking) => Some(StreamChunk::ThinkingChunk {
                 thinking: thinking.thinking,
                 signature: thinking.signature,
@@ -1126,6 +1341,43 @@ mod tests {
     }
 
     #[test]
+    fn context_limit_override_filters_nonpositive_values() {
+        let none = base_model_config();
+        assert_eq!(
+            none.context_limit
+                .and_then(|limit| (limit > 0).then_some(limit as usize)),
+            None
+        );
+
+        let negative = ProviderModelConfig {
+            context_limit: Some(-1),
+            ..base_model_config()
+        };
+        assert_eq!(
+            negative
+                .context_limit
+                .and_then(|limit| (limit > 0).then_some(limit as usize)),
+            None
+        );
+
+        let positive = ProviderModelConfig {
+            context_limit: Some(64_000),
+            ..base_model_config()
+        };
+        assert_eq!(
+            positive
+                .context_limit
+                .and_then(|limit| (limit > 0).then_some(limit as usize)),
+            Some(64_000)
+        );
+    }
+
+    #[test]
+    fn model_config_normalizes_effort_suffix() {
+        assert_eq!(ModelConfig::new("gpt-5.4-xhigh").model_name, "gpt-5.4");
+    }
+
+    #[test]
     fn model_config_rejects_invalid_request_params_json() {
         let config = ProviderModelConfig {
             request_params_json: Some("not json".to_string()),
@@ -1151,6 +1403,71 @@ mod tests {
     }
 
     #[test]
+    fn provider_message_converts_document_to_base64_content() {
+        let message = ProviderMessage {
+            role: MessageRole::User,
+            content: vec![MessageContent::Document {
+                mime_type: "application/pdf".to_string(),
+                data: b"pdf-bytes".to_vec(),
+                name: Some("q3-report.pdf".to_string()),
+            }],
+        }
+        .to_goose_message()
+        .unwrap()
+        .unwrap();
+
+        let GooseMessageContent::Document(document) = &message.content[0] else {
+            panic!("expected document content");
+        };
+        assert_eq!(document.mime_type, "application/pdf");
+        assert_eq!(document.name.as_deref(), Some("q3-report.pdf"));
+        assert_eq!(
+            base64::engine::general_purpose::STANDARD
+                .decode(&document.data)
+                .unwrap(),
+            b"pdf-bytes"
+        );
+    }
+
+    #[test]
+    fn provider_message_converts_document_serializes_for_anthropic() {
+        let message = ProviderMessage {
+            role: MessageRole::User,
+            content: vec![MessageContent::Document {
+                mime_type: "application/pdf".to_string(),
+                data: b"pdf-bytes".to_vec(),
+                name: Some("q3-report.pdf".to_string()),
+            }],
+        }
+        .to_goose_message()
+        .unwrap()
+        .unwrap();
+
+        let spec = goose_providers::formats::anthropic::format_messages(&[message]);
+        let block = &spec[0]["content"][0];
+
+        assert_eq!(block["type"], "document");
+        assert_eq!(block["title"], "q3-report.pdf");
+        assert_eq!(block["source"]["type"], "base64");
+        assert_eq!(block["source"]["media_type"], "application/pdf");
+        assert_eq!(block["source"]["data"], "cGRmLWJ5dGVz");
+    }
+
+    #[test]
+    fn provider_message_rejects_unsupported_document_media_type() {
+        let error = MessageContent::Document {
+            mime_type: "text/csv".to_string(),
+            data: b"rows".to_vec(),
+            name: Some("rows.csv".to_string()),
+        }
+        .to_goose_content()
+        .unwrap_err();
+
+        assert!(error.to_string().contains("text/csv"), "{error}");
+        assert!(error.to_string().contains("application/pdf"), "{error}");
+    }
+
+    #[test]
     fn tool_config_converts_to_rmcp_tool() {
         let tool = ProviderTool {
             name: "lookup".to_string(),
@@ -1164,6 +1481,43 @@ mod tests {
 
         assert_eq!(tool.name.as_ref(), "lookup");
         assert_eq!(tool.input_schema["type"], "object");
+    }
+
+    #[test]
+    fn usage_exposes_provider_additional_data() {
+        let mut provider_usage = ProviderUsage::new(
+            "claude-sonnet-4-5".to_string(),
+            goose_providers::conversation::token_usage::Usage::new(Some(10), Some(5), None),
+        );
+        provider_usage.additional_data = Some(
+            serde_json::json!({ "service_tier": "fast" })
+                .as_object()
+                .unwrap()
+                .clone(),
+        );
+
+        let additional_data_json = Usage::from_provider_usage(&provider_usage)
+            .unwrap()
+            .additional_data_json
+            .expect("additional data should be exposed");
+
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&additional_data_json).unwrap(),
+            serde_json::json!({ "service_tier": "fast" })
+        );
+    }
+
+    #[test]
+    fn usage_omits_provider_additional_data_when_absent() {
+        let provider_usage = ProviderUsage::new(
+            "claude-sonnet-4-5".to_string(),
+            goose_providers::conversation::token_usage::Usage::new(Some(10), Some(5), None),
+        );
+
+        assert!(Usage::from_provider_usage(&provider_usage)
+            .unwrap()
+            .additional_data_json
+            .is_none());
     }
 
     #[test]
@@ -1182,5 +1536,305 @@ mod tests {
         let result = response.tool_result.unwrap();
         assert_eq!(result.is_error, Some(false));
         assert_eq!(result.content[0].as_text().unwrap().text, "done");
+    }
+
+    fn provider_usage_with_cache(
+        cache_read: Option<i32>,
+        cache_write: Option<i32>,
+    ) -> ProviderUsage {
+        use goose_providers::conversation::token_usage::Usage as GooseUsage;
+
+        ProviderUsage::new(
+            "test-model".to_string(),
+            GooseUsage::new(Some(100), Some(20), Some(120))
+                .with_cache_tokens(cache_read, cache_write),
+        )
+    }
+
+    #[test]
+    fn usage_exposes_reported_cache_tokens() {
+        let usage = Usage::from_provider_usage(&provider_usage_with_cache(Some(80), Some(5)))
+            .expect("conversion");
+
+        assert_eq!(usage.cache_read_input_tokens, Some(80));
+        assert_eq!(usage.cache_creation_input_tokens, Some(5));
+    }
+
+    #[test]
+    fn usage_distinguishes_reported_zero_cache_tokens_from_absence() {
+        let zero =
+            Usage::from_provider_usage(&provider_usage_with_cache(Some(0), Some(0))).unwrap();
+        assert_eq!(zero.cache_read_input_tokens, Some(0));
+        assert_eq!(zero.cache_creation_input_tokens, Some(0));
+
+        let absent = Usage::from_provider_usage(&provider_usage_with_cache(None, None)).unwrap();
+        assert_eq!(absent.cache_read_input_tokens, None);
+        assert_eq!(absent.cache_creation_input_tokens, None);
+    }
+
+    #[test]
+    fn thinking_content_round_trips_with_signature() {
+        let original = MessageContent::Thinking {
+            thinking: "step one, then step two".to_string(),
+            signature: "ErUBCkYIBRgCIkAe0pAQ==".to_string(),
+        };
+
+        let goose = original.to_goose_content().unwrap();
+        let GooseMessageContent::Thinking(thinking) = &goose else {
+            panic!("expected thinking content");
+        };
+        assert_eq!(thinking.thinking, "step one, then step two");
+        assert_eq!(thinking.signature, "ErUBCkYIBRgCIkAe0pAQ==");
+
+        let round_tripped = MessageContent::from_goose_content(&goose).unwrap();
+        let MessageContent::Thinking {
+            thinking,
+            signature,
+        } = round_tripped
+        else {
+            panic!("expected thinking content");
+        };
+        assert_eq!(thinking, "step one, then step two");
+        assert_eq!(signature, "ErUBCkYIBRgCIkAe0pAQ==");
+    }
+
+    #[test]
+    fn redacted_thinking_content_round_trips_opaque_data() {
+        let original = MessageContent::RedactedThinking {
+            data: "EroBCkYIBRgCKkBb0pAQopaque".to_string(),
+        };
+
+        let goose = original.to_goose_content().unwrap();
+        let GooseMessageContent::RedactedThinking(redacted) = &goose else {
+            panic!("expected redacted thinking content");
+        };
+        assert_eq!(redacted.data, "EroBCkYIBRgCKkBb0pAQopaque");
+
+        let round_tripped = MessageContent::from_goose_content(&goose).unwrap();
+        let MessageContent::RedactedThinking { data } = round_tripped else {
+            panic!("expected redacted thinking content");
+        };
+        assert_eq!(data, "EroBCkYIBRgCKkBb0pAQopaque");
+    }
+
+    #[test]
+    fn tool_request_round_trips_provider_metadata() {
+        let original = MessageContent::ToolRequest {
+            id: "call_456".to_string(),
+            name: "test_tool".to_string(),
+            arguments_json: "{}".to_string(),
+            provider_metadata_json: Some(
+                r#"{"extra_content":{"google":{"thought_signature":"nested_sig_xyz789"}}}"#
+                    .to_string(),
+            ),
+            tool_error_json: None,
+        };
+
+        let goose = original.to_goose_content().unwrap();
+        let GooseMessageContent::ToolRequest(request) = &goose else {
+            panic!("expected tool request");
+        };
+        assert_eq!(
+            request.metadata.as_ref().unwrap()["extra_content"]["google"]["thought_signature"],
+            "nested_sig_xyz789"
+        );
+
+        let round_tripped = MessageContent::from_goose_content(&goose).unwrap();
+        let MessageContent::ToolRequest {
+            provider_metadata_json,
+            ..
+        } = &round_tripped
+        else {
+            panic!("expected tool request");
+        };
+        assert_eq!(
+            serde_json::from_str::<Value>(provider_metadata_json.as_ref().unwrap()).unwrap(),
+            serde_json::json!({"extra_content":{"google":{"thought_signature":"nested_sig_xyz789"}}})
+        );
+
+        let messages = convert_messages(vec![ProviderMessage {
+            role: MessageRole::Assistant,
+            content: vec![round_tripped],
+        }])
+        .unwrap();
+        let spec = goose_providers::formats::openai::format_messages(
+            &messages,
+            &goose_providers::images::ImageFormat::OpenAi,
+        );
+        assert_eq!(
+            spec[0]["tool_calls"][0]["extra_content"]["google"]["thought_signature"],
+            "nested_sig_xyz789"
+        );
+    }
+
+    #[test]
+    fn completion_content_preserves_malformed_tool_requests() {
+        let error = rmcp::model::ErrorData {
+            code: rmcp::model::ErrorCode::INVALID_REQUEST,
+            message: std::borrow::Cow::from(
+                "The provided function name was empty; a tool call must name a tool".to_string(),
+            ),
+            data: None,
+        };
+        let message = Message::assistant()
+            .with_tool_request("call_bad_1", Err(error))
+            .with_text("done");
+
+        let content: Vec<MessageContent> = message
+            .content
+            .iter()
+            .filter_map(MessageContent::from_goose_content)
+            .collect();
+
+        assert_eq!(
+            content.len(),
+            2,
+            "the failed tool request must not be dropped"
+        );
+        let MessageContent::ToolRequest {
+            id,
+            tool_error_json,
+            ..
+        } = &content[0]
+        else {
+            panic!("expected tool request");
+        };
+        assert_eq!(id, "call_bad_1");
+        assert!(tool_error_json.is_some());
+
+        let replayed = convert_messages(vec![ProviderMessage {
+            role: MessageRole::Assistant,
+            content,
+        }])
+        .unwrap();
+        let GooseMessageContent::ToolRequest(request) = &replayed[0].content[0] else {
+            panic!("expected tool request");
+        };
+        let replayed_error = request
+            .tool_call
+            .as_ref()
+            .expect_err("replayed request must stay a failed tool call");
+        assert_eq!(replayed_error.code, rmcp::model::ErrorCode::INVALID_REQUEST);
+        assert!(replayed_error.message.contains("must name a tool"));
+    }
+
+    #[test]
+    fn streaming_tool_chunks_carry_provider_metadata() {
+        let mut metadata = goose_providers::conversation::message::ProviderMetadata::new();
+        metadata.insert(
+            "extra_content".to_string(),
+            serde_json::json!({"google": {"thought_signature": "stream_sig_abc123"}}),
+        );
+
+        let message = Message::assistant().with_tool_request_with_metadata(
+            "call_stream_1",
+            Ok(CallToolRequestParams::new("test_tool")),
+            Some(&metadata),
+            None,
+        );
+
+        let chunks = message_to_chunks(message);
+        let StreamChunk::ToolChunk {
+            provider_metadata_json,
+            ..
+        } = chunks
+            .iter()
+            .find(|chunk| matches!(chunk, StreamChunk::ToolChunk { .. }))
+            .expect("expected a tool chunk")
+        else {
+            unreachable!()
+        };
+
+        assert_eq!(
+            serde_json::from_str::<Value>(provider_metadata_json.as_ref().unwrap()).unwrap(),
+            serde_json::json!({"extra_content":{"google":{"thought_signature":"stream_sig_abc123"}}})
+        );
+    }
+
+    #[test]
+    fn thinking_blocks_survive_multi_turn_replay() {
+        let assistant_turn = ProviderMessage {
+            role: MessageRole::Assistant,
+            content: vec![
+                MessageContent::Thinking {
+                    thinking: "the user wants the capital".to_string(),
+                    signature: "sig-abc123".to_string(),
+                },
+                MessageContent::RedactedThinking {
+                    data: "opaque-payload".to_string(),
+                },
+                MessageContent::Text {
+                    text: "Paris".to_string(),
+                },
+            ],
+        };
+
+        let history = vec![
+            ProviderMessage {
+                role: MessageRole::User,
+                content: vec![MessageContent::Text {
+                    text: "what is the capital of France?".to_string(),
+                }],
+            },
+            assistant_turn,
+            ProviderMessage {
+                role: MessageRole::User,
+                content: vec![MessageContent::Text {
+                    text: "and of Spain?".to_string(),
+                }],
+            },
+        ];
+
+        let messages = convert_messages(history).unwrap();
+        assert!(matches!(
+            messages[1].content[0],
+            GooseMessageContent::Thinking(_)
+        ));
+        assert!(matches!(
+            messages[1].content[1],
+            GooseMessageContent::RedactedThinking(_)
+        ));
+
+        let spec = goose_providers::formats::anthropic::format_messages(&messages);
+        let assistant = &spec[1]["content"];
+        assert_eq!(assistant[0]["type"], "thinking");
+        assert_eq!(assistant[0]["thinking"], "the user wants the capital");
+        assert_eq!(assistant[0]["signature"], "sig-abc123");
+        assert_eq!(assistant[1]["type"], "redacted_thinking");
+        assert_eq!(assistant[1]["data"], "opaque-payload");
+        assert!(assistant[1].get("thinking").is_none());
+        assert_eq!(assistant[2]["type"], "text");
+        assert_eq!(assistant[2]["text"], "Paris");
+    }
+
+    #[test]
+    fn completion_content_preserves_thinking_for_the_next_turn() {
+        let message = Message::assistant()
+            .with_thinking("reasoning to replay", "sig-xyz")
+            .with_redacted_thinking("opaque-payload")
+            .with_text("Madrid");
+
+        let content: Vec<MessageContent> = message
+            .content
+            .iter()
+            .filter_map(MessageContent::from_goose_content)
+            .collect();
+
+        assert!(matches!(
+            &content[0],
+            MessageContent::Thinking { thinking, signature }
+                if thinking == "reasoning to replay" && signature == "sig-xyz"
+        ));
+        assert!(matches!(
+            &content[1],
+            MessageContent::RedactedThinking { data } if data == "opaque-payload"
+        ));
+
+        let replayed = convert_messages(vec![ProviderMessage {
+            role: MessageRole::Assistant,
+            content,
+        }])
+        .unwrap();
+        assert_eq!(replayed[0].content, message.content);
     }
 }

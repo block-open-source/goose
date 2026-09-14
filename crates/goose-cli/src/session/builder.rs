@@ -411,7 +411,7 @@ async fn resolve_provider_and_model(
             process::exit(1);
         });
 
-    let model_config = if session_config.resume
+    let mut model_config = if session_config.resume
         && saved_provider_matches
         && saved_model_config
             .as_ref()
@@ -419,6 +419,10 @@ async fn resolve_provider_and_model(
     {
         let mut config = saved_model_config.unwrap();
         config.normalize_effort_suffix();
+        config = goose::model_config::with_rederived_cache_ttl(config).unwrap_or_else(|e| {
+            output::render_error(&format!("Invalid cache TTL configuration: {}", e));
+            process::exit(1);
+        });
         if let Some(temp) = recipe_settings.and_then(|s| s.temperature) {
             config = config.with_temperature(Some(temp));
         }
@@ -435,6 +439,10 @@ async fn resolve_provider_and_model(
         }
         config
     };
+
+    if !session_config.interactive {
+        model_config = model_config.with_cache_ttl_clamped();
+    }
 
     ResolvedProviderConfig {
         provider_name,
@@ -730,7 +738,7 @@ pub async fn build_session(session_config: SessionBuilderConfig) -> CliSession {
                     ))
                     .yellow()
                 );
-                let fallback_model_config =
+                let mut fallback_model_config =
                     model_config_from_user_config(fallback_provider.as_str(), &fallback_model)
                         .unwrap_or_else(|e| {
                             output::render_error(&format!(
@@ -739,6 +747,9 @@ pub async fn build_session(session_config: SessionBuilderConfig) -> CliSession {
                             ));
                             process::exit(1);
                         });
+                if !session_config.interactive {
+                    fallback_model_config = fallback_model_config.with_cache_ttl_clamped();
+                }
                 match create(&fallback_provider, extensions_for_provider.clone()).await {
                     Ok(provider) => (
                         provider,
@@ -1431,6 +1442,86 @@ mod tests {
             .request_params
             .as_ref()
             .is_some_and(|params| params.contains_key("anthropic_beta")));
+    }
+
+    #[tokio::test]
+    async fn resume_rederives_cache_ttl_from_config_not_session() {
+        let _guard = env_lock::lock_env([
+            ("GOOSE_PROVIDER", None::<&str>),
+            ("GOOSE_MODEL", None::<&str>),
+            ("GOOSE_CACHE_TTL", Some("1h")),
+        ]);
+        let temp_dir = TempDir::new().unwrap();
+        let config = test_config(&temp_dir);
+        let saved =
+            goose_providers::model::ModelConfig::new("claude-sonnet-4-6").with_cache_ttl("5m");
+
+        let resolved = resolve_provider_and_model(
+            &SessionBuilderConfig {
+                resume: true,
+                interactive: true,
+                ..SessionBuilderConfig::default()
+            },
+            &config,
+            Some("anthropic".to_string()),
+            Some(saved),
+        )
+        .await;
+
+        assert_eq!(resolved.model_config.cache_ttl().as_deref(), Some("1h"));
+    }
+
+    #[tokio::test]
+    async fn resume_drops_saved_cache_ttl_when_config_absent() {
+        let _guard = env_lock::lock_env([
+            ("GOOSE_PROVIDER", None::<&str>),
+            ("GOOSE_MODEL", None::<&str>),
+            ("GOOSE_CACHE_TTL", None::<&str>),
+        ]);
+        let temp_dir = TempDir::new().unwrap();
+        let config = test_config(&temp_dir);
+        let saved =
+            goose_providers::model::ModelConfig::new("claude-sonnet-4-6").with_cache_ttl("1h");
+
+        let resolved = resolve_provider_and_model(
+            &SessionBuilderConfig {
+                resume: true,
+                interactive: true,
+                ..SessionBuilderConfig::default()
+            },
+            &config,
+            Some("anthropic".to_string()),
+            Some(saved),
+        )
+        .await;
+
+        assert!(resolved.model_config.cache_ttl().is_none());
+    }
+
+    #[tokio::test]
+    async fn headless_resume_clamps_rederived_cache_ttl() {
+        let _guard = env_lock::lock_env([
+            ("GOOSE_PROVIDER", None::<&str>),
+            ("GOOSE_MODEL", None::<&str>),
+            ("GOOSE_CACHE_TTL", Some("1h")),
+        ]);
+        let temp_dir = TempDir::new().unwrap();
+        let config = test_config(&temp_dir);
+        let saved = goose_providers::model::ModelConfig::new("claude-sonnet-4-6");
+
+        let resolved = resolve_provider_and_model(
+            &SessionBuilderConfig {
+                resume: true,
+                interactive: false,
+                ..SessionBuilderConfig::default()
+            },
+            &config,
+            Some("anthropic".to_string()),
+            Some(saved),
+        )
+        .await;
+
+        assert_eq!(resolved.model_config.cache_ttl().as_deref(), Some("5m"));
     }
 
     #[test]

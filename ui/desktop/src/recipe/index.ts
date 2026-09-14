@@ -4,7 +4,7 @@ import type {
   RecipeListEntryDto,
   RecipeParameterDto,
   RecipeSettingsDto,
-} from '@aaif/goose-sdk';
+} from '@aaif/goose-acp-client';
 import {
   decodeRecipe as acpDecodeRecipe,
   encodeRecipe as acpEncodeRecipe,

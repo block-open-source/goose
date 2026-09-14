@@ -3,8 +3,6 @@ use chrono::DateTime;
 use chrono::Utc;
 use indexmap::IndexMap;
 use serde::Serialize;
-use serde_json::Value;
-use std::collections::HashMap;
 
 use crate::agents::{extension::ExtensionInfo, moim};
 use crate::hints::load_hints::build_gitignore;
@@ -46,7 +44,6 @@ pub struct SystemPromptBuilder<'a, M> {
     manager: &'a M,
 
     extensions_info: Vec<ExtensionInfo>,
-    frontend_instructions: Option<String>,
     prompt_extras: IndexMap<String, String>,
     subagents_enabled: bool,
     hints: Option<String>,
@@ -65,11 +62,6 @@ impl<'a> SystemPromptBuilder<'a, PromptManager> {
         for extension in extensions {
             self.extensions_info.push(extension);
         }
-        self
-    }
-
-    pub fn with_frontend_instructions(mut self, frontend_instructions: Option<String>) -> Self {
-        self.frontend_instructions = frontend_instructions;
         self
     }
 
@@ -116,14 +108,6 @@ impl<'a> SystemPromptBuilder<'a, PromptManager> {
     pub fn build(self) -> String {
         let mut extensions_info = self.extensions_info;
 
-        // Add frontend instructions to extensions_info to simplify json rendering
-        if let Some(frontend_instructions) = self.frontend_instructions {
-            extensions_info.push(ExtensionInfo::new(
-                "frontend",
-                &frontend_instructions,
-                false,
-            ));
-        }
         // Stable tool ordering is important for multi session prompt caching.
         extensions_info.sort_by(|a, b| a.name.cmp(&b.name));
 
@@ -272,7 +256,6 @@ impl PromptManager {
             manager: self,
 
             extensions_info: vec![],
-            frontend_instructions: None,
             prompt_extras: IndexMap::new(),
             subagents_enabled: false,
             hints: None,
@@ -280,12 +263,6 @@ impl PromptManager {
             include_extensions: true,
             goose_mode: None,
         }
-    }
-
-    pub async fn get_recipe_prompt(&self) -> String {
-        let context: HashMap<&str, Value> = HashMap::new();
-        prompt_template::render_template("recipe.md", &context)
-            .unwrap_or_else(|_| "The recipe prompt is busted. Tell the user.".to_string())
     }
 }
 

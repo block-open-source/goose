@@ -1,6 +1,10 @@
 use crate::base::ThinkingPreservationFormat;
 use crate::conversation::message::{Message, MessageContentBlock, ProviderMetadata};
 use crate::conversation::token_usage::{CostSource, ProviderUsage, Usage};
+use crate::documents::{
+    convert_document, document_media_type_is_supported, unsupported_document_text, DocumentFormat,
+    ASSISTANT_ROLE_REASON, UNSUPPORTED_MEDIA_TYPE_REASON,
+};
 use crate::errors::ProviderError;
 use crate::images::{convert_image, detect_image_path, load_image_file, ImageFormat};
 use crate::json::{parse_tool_arguments, truncation_error_message};
@@ -426,39 +430,22 @@ pub fn format_messages_with_options(
                         }));
                     }
                 }
-                MessageContentBlock::FrontendToolRequest(request) => match &request.tool_call {
-                    Ok(tool_call) => {
-                        let sanitized_name = sanitize_function_name(&tool_call.name);
-                        let arguments_str = match &tool_call.arguments {
-                            Some(args) => {
-                                serde_json::to_string(args).unwrap_or_else(|_| "{}".to_string())
-                            }
-                            None => "{}".to_string(),
-                        };
-
-                        let tool_calls = converted
-                            .as_object_mut()
-                            .unwrap()
-                            .entry("tool_calls")
-                            .or_insert(json!([]));
-
-                        tool_calls.as_array_mut().unwrap().push(json!({
-                            "id": request.id,
-                            "type": "function",
-                            "function": {
-                                "name": sanitized_name,
-                                "arguments": arguments_str,
-                            }
+                MessageContentBlock::Document(document) => {
+                    if message.role != Role::User {
+                        content_array.push(json!({
+                            "type": "text",
+                            "text": unsupported_document_text(document, ASSISTANT_ROLE_REASON)
+                        }));
+                    } else if document_media_type_is_supported(&document.mime_type) {
+                        has_non_text_content = true;
+                        content_array.push(convert_document(document, &DocumentFormat::OpenAi));
+                    } else {
+                        content_array.push(json!({
+                            "type": "text",
+                            "text": unsupported_document_text(document, UNSUPPORTED_MEDIA_TYPE_REASON)
                         }));
                     }
-                    Err(e) => {
-                        output.push(json!({
-                            "role": "tool",
-                            "content": format!("Error: {}", e),
-                            "tool_call_id": request.id
-                        }));
-                    }
-                },
+                }
             }
         }
 
@@ -920,6 +907,12 @@ pub fn get_usage(usage: &Value) -> Usage {
     let cache_write_input_tokens = usage
         .get("cache_creation_input_tokens")
         .and_then(|v| v.as_i64())
+        .or_else(|| {
+            usage
+                .get("prompt_tokens_details")
+                .and_then(|d| d.get("cache_write_tokens"))
+                .and_then(|v| v.as_i64())
+        })
         .map(|v| v as i32);
 
     let total_tokens = usage
@@ -1388,7 +1381,12 @@ where
                                     if let Some(delta_tool_calls) = &tool_chunk.choices[0].delta.tool_calls {
                                         for delta_call in delta_tool_calls {
                                             if let Some(index) = delta_call.index {
-                                                if let Some((_, _, ref mut args, ref mut extra)) = tool_call_data.get_mut(&index) {
+                                                if let Some((_, ref mut stored_name, ref mut args, ref mut extra)) = tool_call_data.get_mut(&index) {
+                                                    if let Some(new_name) = &delta_call.function.name {
+                                                        if !new_name.is_empty() {
+                                                            *stored_name = new_name.clone();
+                                                        }
+                                                    }
                                                     args.push_str(&delta_call.function.arguments);
                                                     if extra.is_none() && delta_call.extra.is_some() {
                                                         *extra = delta_call.extra.clone();
@@ -1484,23 +1482,26 @@ where
                         };
 
                         let content = if output_token_limit_reached {
-                            MessageContentBlock::tool_request_with_metadata(
+                            MessageContentBlock::tool_request_with_provider_index(
                                 id.clone(),
                                 Err(output_token_limit_tool_error(function_name, id)),
                                 metadata.as_ref(),
+                                index,
                             )
                         } else if arguments.is_empty() {
-                            MessageContentBlock::tool_request_with_metadata(
+                            MessageContentBlock::tool_request_with_provider_index(
                                 id.clone(),
                                 Ok(CallToolRequestParams::new(function_name.clone()).with_arguments(object(json!({})))),
                                 metadata.as_ref(),
+                                index,
                             )
                         } else {
                             match parse_tool_arguments(arguments) {
-                                Some(params) if params.is_object() => MessageContentBlock::tool_request_with_metadata(
+                                Some(params) if params.is_object() => MessageContentBlock::tool_request_with_provider_index(
                                     id.clone(),
                                     Ok(CallToolRequestParams::new(function_name.clone()).with_arguments(object(params))),
                                     metadata.as_ref(),
+                                    index,
                                 ),
                                 // Valid JSON but NOT an object (a bare array/string/number).
                                 // Surface a tool error so the model retries instead of
@@ -1515,7 +1516,7 @@ where
                                         )),
                                         data: None,
                                     };
-                                    MessageContentBlock::tool_request_with_metadata(id.clone(), Err(error), metadata.as_ref())
+                                    MessageContentBlock::tool_request_with_provider_index(id.clone(), Err(error), metadata.as_ref(), index)
                                 }
                                 None => {
                                     let message_text = truncation_error_message(arguments)
@@ -1527,7 +1528,7 @@ where
                                         message: Cow::from(message_text),
                                         data: None,
                                     };
-                                    MessageContentBlock::tool_request_with_metadata(id.clone(), Err(error), metadata.as_ref())
+                                    MessageContentBlock::tool_request_with_provider_index(id.clone(), Err(error), metadata.as_ref(), index)
                                 }
                             }
                         };
@@ -1840,14 +1841,15 @@ pub fn extract_reasoning_effort(model_name: &str) -> (String, Option<String>) {
 /// True when the model should use the OpenAI Responses API.
 ///
 /// The Responses API is backwards-compatible with all OpenAI reasoning
-/// models, so every `o`-series (`o1`, `o3`, `o4`, …) and `gpt-5` variant
+/// models, so every `o`-series (`o1`, `o3`, `o4`, …), `gpt-5`, and `gpt-6` variant
 /// routes here. The matcher intentionally scans the full model identifier so
 /// hosted aliases like `databricks-gpt-5.4`, `goose-o3-mini`, or
 /// `headless-goose-o3-mini` work without provider-specific normalization.
 pub fn is_openai_responses_model(model_name: &str) -> bool {
     static RE: OnceLock<Regex> = OnceLock::new();
-    let re =
-        RE.get_or_init(|| Regex::new(r"(?i)(?:^|[-/])(?:o\d+(?:$|-)|gpt-5(?:$|[-.]))").unwrap());
+    let re = RE.get_or_init(|| {
+        Regex::new(r"(?i)(?:^|[-/])(?:o\d+(?:$|-)|gpt-(?:5|6)(?:$|[-.]))").unwrap()
+    });
     re.is_match(model_name)
 }
 
@@ -1918,7 +1920,7 @@ pub fn openai_reasoning_effort_for_thinking(
 pub(crate) fn openai_reasoning_efforts_for_model(model_name: &str) -> &'static [&'static str] {
     let normalized = model_name.to_ascii_lowercase();
 
-    if normalized.contains("gpt-5") {
+    if normalized.contains("gpt-5") || normalized.contains("gpt-6") {
         if normalized.contains("-pro") || normalized.contains("/pro") {
             &["high"]
         } else if normalized.contains("gpt-5.4")
@@ -1952,6 +1954,73 @@ pub fn is_valid_function_name(name: &str) -> bool {
     static RE: OnceLock<Regex> = OnceLock::new();
     let re = RE.get_or_init(|| Regex::new(r"^[a-zA-Z0-9_-]+$").unwrap());
     re.is_match(name)
+}
+
+#[cfg(test)]
+mod document_tests {
+    use super::*;
+
+    fn format(messages: &[Message]) -> Vec<Value> {
+        format_messages_with_options(
+            messages,
+            &ImageFormat::OpenAi,
+            OpenAiFormatOptions {
+                supports_vision: true,
+                ..Default::default()
+            },
+        )
+    }
+
+    #[test]
+    fn user_document_becomes_a_file_content_part() {
+        let spec = format(&[Message::user().with_document(
+            "cGRmLWJ5dGVz",
+            "application/pdf",
+            Some("q3-report.pdf".to_string()),
+        )]);
+
+        assert_eq!(spec.len(), 1);
+        assert_eq!(
+            spec[0]["content"][0],
+            json!({
+                "type": "file",
+                "file": {
+                    "filename": "q3-report.pdf",
+                    "file_data": "data:application/pdf;base64,cGRmLWJ5dGVz",
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn assistant_document_becomes_a_text_part() {
+        let spec = format(&[Message::assistant().with_document(
+            "cGRmLWJ5dGVz",
+            "application/pdf",
+            Some("q3-report.pdf".to_string()),
+        )]);
+
+        assert_eq!(spec.len(), 1);
+        assert_eq!(spec[0]["role"], "assistant");
+        let text = spec[0]["content"].as_str().unwrap();
+        assert!(text.contains("q3-report.pdf"), "{text}");
+        assert!(text.contains("user messages"), "{text}");
+        assert!(!text.contains("cGRmLWJ5dGVz"), "{text}");
+    }
+
+    #[test]
+    fn unsupported_document_media_type_becomes_an_explicit_text_part() {
+        let spec = format(&[Message::user().with_document(
+            "cm93cw==",
+            "text/csv",
+            Some("rows.csv".to_string()),
+        )]);
+
+        let text = spec[0]["content"].as_str().unwrap();
+        assert!(text.contains("rows.csv"), "{text}");
+        assert!(text.contains("application/pdf"), "{text}");
+        assert!(!text.contains("cm93cw=="), "{text}");
+    }
 }
 
 #[cfg(test)]
@@ -3009,58 +3078,6 @@ mod tests {
     }
 
     #[test]
-    fn test_format_messages_frontend_tool_request_with_none_arguments() -> anyhow::Result<()> {
-        // Test that FrontendToolRequest with None arguments are formatted as "{}" string
-        let message = Message::assistant().with_frontend_tool_request(
-            "frontend_tool1",
-            Ok(CallToolRequestParams::new("frontend_test_tool")),
-        );
-
-        let spec = format_messages(&[message], &ImageFormat::OpenAi);
-
-        assert_eq!(spec.len(), 1);
-        assert_eq!(spec[0]["role"], "assistant");
-        assert!(spec[0]["tool_calls"].is_array());
-
-        let tool_call = &spec[0]["tool_calls"][0];
-        assert_eq!(tool_call["id"], "frontend_tool1");
-        assert_eq!(tool_call["type"], "function");
-        assert_eq!(tool_call["function"]["name"], "frontend_test_tool");
-        // This should be the string "{}", not null
-        assert_eq!(tool_call["function"]["arguments"], "{}");
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_format_messages_frontend_tool_request_with_some_arguments() -> anyhow::Result<()> {
-        // Test that FrontendToolRequest with Some arguments are properly JSON-serialized
-        let message = Message::assistant().with_frontend_tool_request(
-            "frontend_tool1",
-            Ok(CallToolRequestParams::new("frontend_test_tool")
-                .with_arguments(object!({"action": "click", "element": "button"}))),
-        );
-
-        let spec = format_messages(&[message], &ImageFormat::OpenAi);
-
-        assert_eq!(spec.len(), 1);
-        assert_eq!(spec[0]["role"], "assistant");
-        assert!(spec[0]["tool_calls"].is_array());
-
-        let tool_call = &spec[0]["tool_calls"][0];
-        assert_eq!(tool_call["id"], "frontend_tool1");
-        assert_eq!(tool_call["type"], "function");
-        assert_eq!(tool_call["function"]["name"], "frontend_test_tool");
-        // This should be a JSON string representation
-        let args_str = tool_call["function"]["arguments"].as_str().unwrap();
-        let parsed_args: Value = serde_json::from_str(args_str)?;
-        assert_eq!(parsed_args["action"], "click");
-        assert_eq!(parsed_args["element"], "button");
-
-        Ok(())
-    }
-
-    #[test]
     fn test_format_messages_multiple_text_blocks() -> anyhow::Result<()> {
         let message = Message::user()
             .with_text("--- Resource: file:///test.md ---\n# Test\n\n---\n")
@@ -3269,6 +3286,43 @@ mod tests {
     }
 
     #[test]
+    fn test_openai_reasoning_effort_gpt6_does_not_support_none() {
+        for model in [
+            "gpt-6-astra",
+            "data_workflow_tools.goose.goose-gpt-6-astra",
+            "openrouter/openai/gpt-6-astra",
+        ] {
+            assert_eq!(
+                openai_reasoning_effort_for_thinking(model, ThinkingEffort::Off),
+                Some("low".to_string()),
+                "{model} Off should map to low, not none"
+            );
+            assert_eq!(
+                openai_reasoning_effort_for_thinking(model, ThinkingEffort::Medium),
+                Some("medium".to_string()),
+                "{model} medium should remain medium"
+            );
+            assert!(
+                !openai_reasoning_efforts_for_model(model).contains(&"none"),
+                "{model} must not advertise none"
+            );
+        }
+
+        assert_eq!(
+            openai_reasoning_effort_for_thinking("gpt-5.6-luna", ThinkingEffort::Off),
+            Some("none".to_string())
+        );
+        assert_eq!(
+            openai_reasoning_effort_for_thinking("gpt-5.4", ThinkingEffort::Off),
+            Some("none".to_string())
+        );
+        assert_eq!(
+            openai_reasoning_effort_for_thinking("gpt-5", ThinkingEffort::Off),
+            Some("low".to_string())
+        );
+    }
+
+    #[test]
     fn test_create_request_gpt5_pro_max_effort_uses_supported_level() -> anyhow::Result<()> {
         let model_config = test_model_config("gpt-5.2-pro-2025-12-11")
             .with_max_tokens(Some(1024))
@@ -3392,6 +3446,66 @@ mod tests {
         assert_eq!(usage.usage.input_tokens, Some(expected_input));
         assert_eq!(usage.usage.output_tokens, Some(expected_output));
         assert_eq!(usage.usage.total_tokens, Some(expected_total));
+    }
+
+    async fn collect_streamed_tool_requests(
+        response_lines: &str,
+    ) -> Vec<crate::conversation::message::ToolRequest> {
+        let lines: Vec<String> = response_lines.lines().map(|s| s.to_string()).collect();
+        let response_stream = tokio_stream::iter(lines.into_iter().map(Ok));
+        let messages = response_to_streaming_message(response_stream);
+        pin!(messages);
+
+        let mut requests = Vec::new();
+        while let Some(Ok((message, _usage))) = messages.next().await {
+            if let Some(msg) = message {
+                for content in &msg.content {
+                    if let MessageContentBlock::ToolRequest(req) = content {
+                        requests.push(req.clone());
+                    }
+                }
+            }
+        }
+        requests
+    }
+
+    #[tokio::test]
+    async fn test_streaming_reassembles_interleaved_parallel_tool_calls() {
+        let response_lines = concat!(
+            r#"data: {"id":"chatcmpl-par","model":"test-model","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_a","type":"function","function":{"name":"search","arguments":""}},{"index":1,"id":"call_b","type":"function","function":{"name":"write","arguments":""}}]},"finish_reason":null}]}"#,
+            "\n",
+            r#"data: {"id":"chatcmpl-par","model":"test-model","choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"function":{"arguments":"{\"path\":"}}]},"finish_reason":null}]}"#,
+            "\n",
+            r#"data: {"id":"chatcmpl-par","model":"test-model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"query\":"}}]},"finish_reason":null}]}"#,
+            "\n",
+            r#"data: {"id":"chatcmpl-par","model":"test-model","choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"function":{"arguments":"\"/tmp/a.md\"}"}}]},"finish_reason":null}]}"#,
+            "\n",
+            r#"data: {"id":"chatcmpl-par","model":"test-model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"rust\"}"}}]},"finish_reason":"tool_calls"}]}"#,
+            "\n",
+            "data: [DONE]",
+        );
+
+        let requests = collect_streamed_tool_requests(response_lines).await;
+
+        assert_eq!(requests.len(), 2);
+        assert_eq!(
+            requests
+                .iter()
+                .map(|r| r.provider_index())
+                .collect::<Vec<_>>(),
+            vec![Some(0), Some(1)]
+        );
+
+        let search = requests[0].tool_call.as_ref().expect("search args parsed");
+        assert_eq!(search.name, "search");
+        assert_eq!(search.arguments.as_ref().unwrap()["query"], json!("rust"));
+
+        let write = requests[1].tool_call.as_ref().expect("write args parsed");
+        assert_eq!(write.name, "write");
+        assert_eq!(
+            write.arguments.as_ref().unwrap()["path"],
+            json!("/tmp/a.md")
+        );
     }
 
     #[tokio::test]
@@ -5216,7 +5330,7 @@ data: [DONE]"#;
     }
 
     #[test]
-    fn test_is_openai_responses_model_matches_o_and_gpt5_families() {
+    fn test_is_openai_responses_model_matches_openai_reasoning_families() {
         for model in [
             "o3",
             "o3-mini",
@@ -5229,6 +5343,8 @@ data: [DONE]"#;
             "gpt-5-2-pro",
             "databricks-gpt-5.4",
             "goose-gpt-5.4-high",
+            "gpt-6-astra",
+            "data_workflow_tools.goose.goose-gpt-6-astra",
             "headless-goose-o3-mini",
         ] {
             assert!(is_openai_responses_model(model), "{model} should match");

@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { performance } from 'node:perf_hooks';
 import { containsHTML, wrapHTMLInCodeBlock } from '../utils/htmlSecurity';
 
 describe('HTML Security Detection', () => {
@@ -93,6 +94,15 @@ describe('HTML Security Detection', () => {
         expect(containsHTML('<>')).toBe(false);
         expect(containsHTML('< div >')).toBe(false);
       });
+
+      it('rejects unterminated comment prefixes without blocking the renderer', () => {
+        const maliciousContent = '<!--'.repeat(64_000);
+        const startedAt = performance.now();
+
+        expect(containsHTML(maliciousContent)).toBe(false);
+
+        expect(performance.now() - startedAt).toBeLessThan(750);
+      }, 10_000);
     });
   });
 

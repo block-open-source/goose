@@ -201,16 +201,32 @@ async fn load_url_bytes(url: url::Url) -> Result<Vec<u8>, String> {
         .error_for_status()
         .map_err(|error| format!("failed to download image: {error}"))?;
 
+    collect_response_bytes(response, MAX_IMAGE_BYTES).await
+}
+
+async fn collect_response_bytes(
+    mut response: reqwest::Response,
+    max_bytes: u64,
+) -> Result<Vec<u8>, String> {
     if let Some(len) = response.content_length() {
-        ensure_image_size(len)?;
+        ensure_size_limit(len, max_bytes)?;
     }
 
-    let bytes = response
-        .bytes()
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
         .await
-        .map_err(|error| format!("failed to read image response: {error}"))?;
+        .map_err(|error| format!("failed to read image response: {error}"))?
+    {
+        let next_len = bytes
+            .len()
+            .checked_add(chunk.len())
+            .ok_or_else(|| size_limit_error(u64::MAX, max_bytes))?;
+        ensure_size_limit(next_len as u64, max_bytes)?;
+        bytes.extend_from_slice(&chunk);
+    }
 
-    Ok(bytes.to_vec())
+    Ok(bytes)
 }
 
 fn load_file_bytes(path: PathBuf) -> Result<Vec<u8>, String> {
@@ -259,13 +275,19 @@ fn validate_crop(crop: &CropParams, image_width: u32, image_height: u32) -> Resu
 }
 
 fn ensure_image_size(len: u64) -> Result<(), String> {
-    if len > MAX_IMAGE_BYTES {
-        Err(format!(
-            "image is too large: {len} bytes exceeds {MAX_IMAGE_BYTES} byte limit"
-        ))
+    ensure_size_limit(len, MAX_IMAGE_BYTES)
+}
+
+fn ensure_size_limit(len: u64, max_bytes: u64) -> Result<(), String> {
+    if len > max_bytes {
+        Err(size_limit_error(len, max_bytes))
     } else {
         Ok(())
     }
+}
+
+fn size_limit_error(len: u64, max_bytes: u64) -> String {
+    format!("image is too large: {len} bytes exceeds {max_bytes} byte limit")
 }
 
 fn mime_type(format: image::ImageFormat) -> Result<&'static str, String> {
@@ -279,13 +301,11 @@ fn mime_type(format: image::ImageFormat) -> Result<&'static str, String> {
         ),
     }
 }
-
 #[cfg(test)]
 mod local_file_tests {
     use super::*;
 
-    const SMALL_PNG: &str =
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+    const SMALL_PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
 
     #[test]
     fn bounded_reader_accepts_limit_and_detects_extra_byte() {
@@ -363,5 +383,150 @@ mod local_file_tests {
             error,
             "unsupported image format; supported formats are png, jpeg, gif, and webp"
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    const TEST_MAX_BYTES: u64 = 8;
+
+    async fn serve_response(
+        headers: &str,
+        body: Vec<u8>,
+    ) -> (url::Url, tokio::task::JoinHandle<()>) {
+        serve_response_with_version("HTTP/1.1", headers, body).await
+    }
+
+    async fn serve_close_delimited_response(
+        body: Vec<u8>,
+    ) -> (url::Url, tokio::task::JoinHandle<()>) {
+        serve_response_with_version("HTTP/1.0", "Connection: close\r\n", body).await
+    }
+
+    async fn serve_response_with_version(
+        version: &str,
+        headers: &str,
+        body: Vec<u8>,
+    ) -> (url::Url, tokio::task::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let mut response = format!("{version} 200 OK\r\n{headers}\r\n").into_bytes();
+        response.extend_from_slice(&body);
+
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                let mut buffer = [0; 1024];
+                let bytes_read = stream.read(&mut buffer).await.unwrap();
+                if bytes_read == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buffer[..bytes_read]);
+            }
+            stream.write_all(&response).await.unwrap();
+            stream.shutdown().await.unwrap();
+        });
+
+        (
+            url::Url::parse(&format!("http://{address}/image.png")).unwrap(),
+            server,
+        )
+    }
+
+    async fn fetch_response(url: url::Url) -> reqwest::Response {
+        reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .unwrap()
+            .get(url)
+            .send()
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn response_at_limit_without_content_length_is_accepted() {
+        let (url, server) = serve_close_delimited_response(b"12345678".to_vec()).await;
+        let response = fetch_response(url).await;
+
+        let bytes = collect_response_bytes(response, TEST_MAX_BYTES)
+            .await
+            .unwrap();
+        server.await.unwrap();
+
+        assert_eq!(bytes, b"12345678");
+    }
+
+    #[tokio::test]
+    async fn response_over_limit_without_content_length_is_rejected() {
+        let (url, server) = serve_close_delimited_response(b"123456789".to_vec()).await;
+        let response = fetch_response(url).await;
+
+        let error = collect_response_bytes(response, TEST_MAX_BYTES)
+            .await
+            .unwrap_err();
+        server.await.unwrap();
+
+        assert_eq!(error, "image is too large: 9 bytes exceeds 8 byte limit");
+    }
+
+    #[tokio::test]
+    async fn chunked_response_over_limit_is_rejected() {
+        let body = b"4\r\n1234\r\n5\r\n56789\r\n0\r\n\r\n".to_vec();
+        let (url, server) =
+            serve_response("Transfer-Encoding: chunked\r\nConnection: close\r\n", body).await;
+        let response = fetch_response(url).await;
+
+        let error = collect_response_bytes(response, TEST_MAX_BYTES)
+            .await
+            .unwrap_err();
+        server.await.unwrap();
+
+        assert_eq!(error, "image is too large: 9 bytes exceeds 8 byte limit");
+    }
+
+    #[tokio::test]
+    async fn oversized_content_length_is_rejected_before_collection() {
+        let (url, server) =
+            serve_response("Content-Length: 9\r\nConnection: close\r\n", Vec::new()).await;
+        let response = fetch_response(url).await;
+
+        let error = collect_response_bytes(response, TEST_MAX_BYTES)
+            .await
+            .unwrap_err();
+        server.await.unwrap();
+
+        assert_eq!(error, "image is too large: 9 bytes exceeds 8 byte limit");
+    }
+
+    #[tokio::test]
+    async fn small_png_response_still_decodes() {
+        let png = base64::prelude::BASE64_STANDARD
+            .decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
+            .unwrap();
+        let (url, server) = serve_response(
+            &format!(
+                "Content-Type: image/png\r\nContent-Length: {}\r\nConnection: close\r\n",
+                png.len()
+            ),
+            png.clone(),
+        )
+        .await;
+        let params = ImageReadParams {
+            source: url.to_string(),
+            crop: None,
+        };
+
+        let loaded = load_image(&params, None).await.unwrap();
+        server.await.unwrap();
+
+        assert_eq!(loaded.mime_type, "image/png");
+        assert_eq!(loaded.bytes_len, png.len());
+        assert_eq!((loaded.width, loaded.height), (1, 1));
     }
 }

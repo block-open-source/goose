@@ -46,7 +46,7 @@ Commit your code changes early and often. This allows you to rollback any unexpe
 Administrators can use an [allowlist](/docs/guides/allowlist) to restrict goose to approved extensions only. This helps prevent risky installs from unknown MCP servers.
 
 ### Set up starter templates
-You can turn a successful session into a reusable "[recipe](/docs/guides/recipes/session-recipes)" to share with others or use again later—no need to start from scratch.
+Create a reusable [recipe](/docs/guides/recipes/session-recipes) for workflows you want to share or run again later.
 
 ### Embrace an experimental mindset
 You don’t need to get it right the first time. Iterating on prompts and tools is part of the workflow.

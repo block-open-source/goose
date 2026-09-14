@@ -50,12 +50,12 @@ pub(super) async fn compute_compaction_info(
     let context_limit = if let Some(model_config) = session_model_config.as_ref() {
         let provider = extension_manager.get_provider().lock().await.clone();
         match provider {
-            Some(provider) => provider
-                .get_context_limit(model_config)
-                .await
-                .ok()
-                .or_else(|| Some(model_config.context_limit())),
-            None => Some(model_config.context_limit()),
+            Some(provider) => {
+                crate::context_limit::get_context_limit(provider.as_ref(), &model_config.model_name)
+                    .await
+                    .ok()
+            }
+            None => None,
         }
     } else {
         None
@@ -95,12 +95,12 @@ pub async fn turn_context_message(
     let context_limit = if let Some(model_config) = session_model_config.as_ref() {
         let provider = extension_manager.get_provider().lock().await.clone();
         match provider {
-            Some(provider) => provider
-                .get_context_limit(model_config)
-                .await
-                .ok()
-                .or_else(|| Some(model_config.context_limit())),
-            None => Some(model_config.context_limit()),
+            Some(provider) => {
+                crate::context_limit::get_context_limit(provider.as_ref(), &model_config.model_name)
+                    .await
+                    .ok()
+            }
+            None => None,
         }
     } else {
         None

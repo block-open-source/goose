@@ -19,6 +19,7 @@ pub mod state_machine;
 pub mod subagent_execution_tool;
 pub(crate) mod subagent_handler;
 pub(crate) mod subagent_task_config;
+mod tool_confirmation_coordinator;
 mod tool_confirmation_router;
 pub mod tool_execution;
 mod tool_schema_normalize;
@@ -37,7 +38,7 @@ pub use schedule_tool::ScheduleTool;
 pub use subagent_handler::SUBAGENT_TOOL_REQUEST_TYPE;
 pub use subagent_task_config::TaskConfig;
 pub use tool_execution::ToolCallContext;
-pub use types::{FrontendTool, RetryConfig, SessionConfig, SuccessCheck};
+pub use types::{RetryConfig, SessionConfig, SuccessCheck};
 
 pub(crate) fn latest_provider_session_id<'a>(
     messages: &'a [crate::conversation::message::Message],

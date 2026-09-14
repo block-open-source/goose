@@ -28,12 +28,11 @@ pub(super) fn simple_output_json(text: &str) -> String {
 pub(super) fn output_message_json(message: &Message) -> String {
     // Message does not retain provider finish reasons; tool requests are the only
     // distinct completion signal available after streaming.
-    let finish_reason = if message.content.iter().any(|content| {
-        matches!(
-            content,
-            MessageContent::ToolRequest(_) | MessageContent::FrontendToolRequest(_)
-        )
-    }) {
+    let finish_reason = if message
+        .content
+        .iter()
+        .any(|content| matches!(content, MessageContent::ToolRequest(_)))
+    {
         "tool_call"
     } else {
         "stop"
@@ -221,6 +220,13 @@ fn message_part_json(content: &MessageContent) -> Value {
             "mime_type": image.mime_type,
             "content": image.data,
         }),
+        MessageContent::Document(document) => json!({
+            "type": "blob",
+            "modality": "document",
+            "mime_type": document.mime_type,
+            "name": document.name,
+            "content": document.data,
+        }),
         MessageContent::ToolRequest(request) => tool_call_part(&request.id, &request.tool_call),
         MessageContent::ToolResponse(response) => json!({
             "type": "tool_call_response",
@@ -231,9 +237,6 @@ fn message_part_json(content: &MessageContent) -> Value {
                 Err(error) => json!({ "error": error.to_string() }),
             },
         }),
-        MessageContent::FrontendToolRequest(request) => {
-            tool_call_part(&request.id, &request.tool_call)
-        }
         MessageContent::Thinking(thinking) => json!({
             "type": "reasoning",
             "content": thinking.thinking,

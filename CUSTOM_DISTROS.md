@@ -325,7 +325,7 @@ ws://localhost:3284/acp?token=a-long-random-secret
 
 For browser clients served from a non-loopback origin, pass the exact UI origin with `--allowed-origin`. When you pass `--allowed-origin`, it replaces the default loopback origin allowlist, so include every origin the client needs.
 
-For the ACP protocol and client flow, see [Agent Client Protocol clients](documentation/docs/guides/acp-clients.md).
+For the ACP protocol and client flow, see [Use goose as an ACP agent](documentation/docs/gdk/acp/index.md).
 
 ### Option 2: Agent Client Protocol (ACP) over stdio
 

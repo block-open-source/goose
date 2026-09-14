@@ -1,0 +1,38 @@
+name: Buzz automation
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "buzz/**"
+      - "Justfile"
+      - ".github/workflows/buzz-automation.yml"
+  pull_request:
+    paths:
+      - "buzz/**"
+      - "Justfile"
+      - ".github/workflows/buzz-automation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Test Buzz automation
+        run: |
+          node --test buzz/*.test.mjs
+          for file in buzz/create_github_manager buzz/create_issue_channel buzz/list_issue_work buzz/syncissues buzz/github_manager.mjs; do
+            node --check "$file"
+          done

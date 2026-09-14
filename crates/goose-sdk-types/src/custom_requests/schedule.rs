@@ -21,6 +21,7 @@ pub struct ScheduledJobDto {
     pub job_start_time: Option<String>,
 }
 
+/// List scheduled recipe jobs.
 #[derive(Debug, Default, Clone, Serialize, Deserialize, JsonSchema, JsonRpcRequest)]
 #[request(
     method = "_goose/unstable/schedules/list",
@@ -33,6 +34,7 @@ pub struct ListSchedulesResponse {
     pub jobs: Vec<ScheduledJobDto>,
 }
 
+/// Create a scheduled recipe job.
 #[derive(Debug, Default, Clone, Serialize, Deserialize, JsonSchema, JsonRpcRequest)]
 #[request(
     method = "_goose/unstable/schedules/create",
@@ -49,6 +51,7 @@ pub struct CreateScheduleResponse {
     pub job: ScheduledJobDto,
 }
 
+/// Delete a scheduled recipe job.
 #[derive(Debug, Default, Clone, Serialize, Deserialize, JsonSchema, JsonRpcRequest)]
 #[request(method = "_goose/unstable/schedules/delete", response = EmptyResponse)]
 #[serde(rename_all = "camelCase")]
@@ -56,6 +59,7 @@ pub struct DeleteScheduleRequest {
     pub schedule_id: String,
 }
 
+/// Update the cron expression for a scheduled recipe job.
 #[derive(Debug, Default, Clone, Serialize, Deserialize, JsonSchema, JsonRpcRequest)]
 #[request(
     method = "_goose/unstable/schedules/update",
@@ -72,6 +76,7 @@ pub struct UpdateScheduleResponse {
     pub job: ScheduledJobDto,
 }
 
+/// Run a scheduled recipe job immediately.
 #[derive(Debug, Default, Clone, Serialize, Deserialize, JsonSchema, JsonRpcRequest)]
 #[request(
     method = "_goose/unstable/schedules/run-now",
@@ -98,6 +103,7 @@ pub enum RunScheduleNowStatus {
     Cancelled,
 }
 
+/// List recent sessions created by a scheduled recipe job.
 #[derive(Debug, Default, Clone, Serialize, Deserialize, JsonSchema, JsonRpcRequest)]
 #[request(
     method = "_goose/unstable/schedules/sessions/list",
@@ -114,6 +120,7 @@ pub struct ListScheduleSessionsResponse {
     pub sessions: Vec<SessionInfo>,
 }
 
+/// Pause a scheduled recipe job.
 #[derive(Debug, Default, Clone, Serialize, Deserialize, JsonSchema, JsonRpcRequest)]
 #[request(method = "_goose/unstable/schedules/pause", response = EmptyResponse)]
 #[serde(rename_all = "camelCase")]
@@ -121,6 +128,7 @@ pub struct PauseScheduleRequest {
     pub schedule_id: String,
 }
 
+/// Resume a paused scheduled recipe job.
 #[derive(Debug, Default, Clone, Serialize, Deserialize, JsonSchema, JsonRpcRequest)]
 #[request(
     method = "_goose/unstable/schedules/unpause",
@@ -131,6 +139,7 @@ pub struct UnpauseScheduleRequest {
     pub schedule_id: String,
 }
 
+/// Stop a currently running scheduled job.
 #[derive(Debug, Default, Clone, Serialize, Deserialize, JsonSchema, JsonRpcRequest)]
 #[request(
     method = "_goose/unstable/schedules/running-job/kill",
@@ -146,6 +155,7 @@ pub struct KillRunningJobResponse {
     pub message: String,
 }
 
+/// Inspect the current state of a running scheduled job.
 #[derive(Debug, Default, Clone, Serialize, Deserialize, JsonSchema, JsonRpcRequest)]
 #[request(
     method = "_goose/unstable/schedules/running-job/inspect",

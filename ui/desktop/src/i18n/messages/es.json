@@ -617,6 +617,9 @@
   "customProviderForm.add": {
     "defaultMessage": "Agregar"
   },
+  "customProviderForm.alwaysUseToolshim": {
+    "defaultMessage": "Usar siempre Toolshim para este proveedor"
+  },
   "customProviderForm.anthropicCompatible": {
     "defaultMessage": "Compatible con Anthropic"
   },
@@ -926,8 +929,6 @@
   "dirSwitcher.enterPathInvalid": {
     "defaultMessage": "Working directory must be an absolute path"
   },
-
-
   "dirSwitcher.failedToUpdateWorkingDir": {
     "defaultMessage": "No se pudo actualizar el directorio de trabajo"
   },
@@ -1053,9 +1054,6 @@
   },
   "extensionInfoFields.typeLabel": {
     "defaultMessage": "Tipo"
-  },
-  "extensionInfoFields.typeSseUnsupported": {
-    "defaultMessage": "SSE (no compatible)"
   },
   "extensionInfoFields.typeStandardIo": {
     "defaultMessage": "Standard IO (STDIO)"
@@ -1760,13 +1758,10 @@
     "defaultMessage": "¿Eliminar este modelo? Podrás volver a descargarlo más tarde."
   },
   "localInferenceSettings.description": {
-    "defaultMessage": "Descarga y gestiona modelos LLM locales para inferencia sin claves API. Busca cualquier modelo GGUF en HuggingFace o usa las opciones destacadas de abajo."
+    "defaultMessage": "Descarga y gestiona modelos LLM locales para inferencia sin claves API. Busca modelos GGUF o MLX en Hugging Face."
   },
   "localInferenceSettings.dismiss": {
     "defaultMessage": "Descartar"
-  },
-  "localInferenceSettings.download": {
-    "defaultMessage": "Descargar"
   },
   "localInferenceSettings.downloadCancelled": {
     "defaultMessage": "Descarga cancelada"
@@ -1785,9 +1780,6 @@
   },
   "localInferenceSettings.evictFromMemory": {
     "defaultMessage": "Evict from memory"
-  },
-  "localInferenceSettings.featuredModels": {
-    "defaultMessage": "Modelos destacados"
   },
   "localInferenceSettings.huggingFaceSignInNote": {
     "defaultMessage": "Inicia sesión para aumentar los límites de uso al buscar y descargar modelos, y para acceder a repositorios de Hugging Face privados o restringidos."
@@ -1812,12 +1804,6 @@
   },
   "localInferenceSettings.retry": {
     "defaultMessage": "Reintentar"
-  },
-  "localInferenceSettings.showAllFeatured": {
-    "defaultMessage": "Mostrar todos los destacados ({count} más)"
-  },
-  "localInferenceSettings.showRecommendedOnly": {
-    "defaultMessage": "Mostrar solo los recomendados"
   },
   "localInferenceSettings.title": {
     "defaultMessage": "Modelos de inferencia local"
@@ -3173,7 +3159,7 @@
     "defaultMessage": "No hay recetas guardadas"
   },
   "recipesView.noSavedRecipesDescription": {
-    "defaultMessage": "Las recetas guardadas desde los chats aparecerán aquí."
+    "defaultMessage": "Las recetas guardadas aparecerán aquí."
   },
   "recipesView.openInNewWindow": {
     "defaultMessage": "Abrir en una ventana nueva"
@@ -3710,7 +3696,7 @@
     "defaultMessage": "JSON de la sesión copiado"
   },
   "sessionActionsHeader.copiedModelInteractions": {
-    "defaultMessage": "Recent model interactions copied"
+    "defaultMessage": "Interacciones recientes del modelo copiadas"
   },
   "sessionActionsHeader.copiedText": {
     "defaultMessage": "Texto copiado"
@@ -3743,10 +3729,10 @@
     "defaultMessage": "Cargando JSON..."
   },
   "sessionActionsHeader.modelInteractionsFailed": {
-    "defaultMessage": "Failed to load model interactions: {error}"
+    "defaultMessage": "No se pudieron cargar las interacciones del modelo: {error}"
   },
   "sessionActionsHeader.modelInteractionsTitle": {
-    "defaultMessage": "Recent model interactions"
+    "defaultMessage": "Interacciones recientes del modelo"
   },
   "sessionActionsHeader.renameFailed": {
     "defaultMessage": "No se pudo renombrar la sesión: {error}"
@@ -3773,7 +3759,7 @@
     "defaultMessage": "Ver el JSON de la sesión"
   },
   "sessionActionsHeader.viewModelInteractions": {
-    "defaultMessage": "View recent model interactions"
+    "defaultMessage": "Ver interacciones recientes del modelo"
   },
   "sessionIndicators.error": {
     "defaultMessage": "La sesión encontró un error"
@@ -3783,6 +3769,9 @@
   },
   "sessionIndicators.streaming": {
     "defaultMessage": "Streaming"
+  },
+  "sessions.acpBadge": {
+    "defaultMessage": "ACP"
   },
   "sessions.action.delete": {
     "defaultMessage": "Eliminar sesión"
@@ -3861,6 +3850,9 @@
   },
   "sessions.importing": {
     "defaultMessage": "Importando..."
+  },
+  "sessions.includeAcp": {
+    "defaultMessage": "Incluir sesiones ACP"
   },
   "sessions.loadingMore": {
     "defaultMessage": "Cargando más sesiones..."

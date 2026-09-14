@@ -3,7 +3,7 @@ import { createSession } from '../sessions';
 import type { ExtensionConfig } from '../types/extensions';
 import type { Session } from '../types/session';
 import type { FixedExtensionEntry } from '../components/ConfigContext';
-import type { GooseExtension, GooseExtensionEntry } from '@aaif/goose-sdk';
+import type { GooseExtension, GooseExtensionEntry } from '@aaif/goose-acp-client';
 import { getConfiguredGooseExtensions } from '../acp/extensions';
 import { acpChatSessionController } from '../acp/chatSessionController';
 import { beginConfiguredRecipeParameterScope } from '../acp/recipeParamRequests';

@@ -305,6 +305,12 @@ impl ApiClient {
         self.timeout
     }
 
+    pub fn default_header(&self, name: &str) -> Option<&str> {
+        self.default_headers
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+    }
+
     fn client_builder(timeout: Duration) -> reqwest::ClientBuilder {
         Client::builder()
             .connect_timeout(Duration::from_secs(DEFAULT_CONNECT_TIMEOUT_SECS))
@@ -426,6 +432,13 @@ impl ApiClient {
 
     pub fn with_request_builder(mut self, request_builder: RequestBuilderDecorator) -> Self {
         self.request_builder = Some(request_builder);
+        self
+    }
+
+    // Auth is applied fresh on every request, so unlike `with_headers` this
+    // doesn't need to rebuild the underlying `reqwest::Client`.
+    pub fn with_auth(mut self, auth: AuthMethod) -> Self {
+        self.auth = auth;
         self
     }
 

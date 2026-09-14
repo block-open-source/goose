@@ -1416,7 +1416,7 @@ pub async fn run_prompt_model_mismatch<C: Connection>() {
     // Server starts on gpt-4o; client is configured with TEST_MODEL.
     // If session_model is seeded from the response, stream() detects the
     // mismatch and sends set_model(TEST_MODEL) before prompting.
-    let BasicSession { conn: _, .. } = new_basic_session::<C>(config).await;
+    drop(new_basic_session::<C>(config).await);
 }
 
 pub async fn run_prompt_skill<C: Connection>() {

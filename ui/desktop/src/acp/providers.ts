@@ -7,7 +7,7 @@ import type {
   RefreshProviderInventoryResponse_unstable,
   ProviderTemplateCatalogEntryDto,
   ProviderTemplateDto,
-} from '@aaif/goose-sdk';
+} from '@aaif/goose-acp-client';
 import { methods } from '@agentclientprotocol/sdk';
 import type {
   ProviderDetails,
@@ -51,7 +51,6 @@ function providerEntryToDetails(entry: ProviderInventoryEntryDto): ProviderDetai
     deprecated: entry.deprecated,
     replacement: entry.replacement ?? null,
     provider_type: entry.providerType as ProviderDetails['provider_type'],
-    setup_category: entry.category,
     uses_acp: entry.acp ?? false,
     metadata: {
       name: entry.providerId,
@@ -59,7 +58,6 @@ function providerEntryToDetails(entry: ProviderInventoryEntryDto): ProviderDetai
       description: entry.description,
       default_model: entry.defaultModel,
       model_doc_link: '',
-      model_selection_hint: entry.modelSelectionHint ?? null,
       config_keys: entry.configKeys.map((key) => ({
         name: key.name,
         required: key.required,
@@ -71,7 +69,7 @@ function providerEntryToDetails(entry: ProviderInventoryEntryDto): ProviderDetai
       })),
       known_models: entry.models.map((model) => ({
         name: model.id,
-        context_limit: model.contextLimit ?? 0,
+        context_limit: model.contextLimit ?? undefined,
         reasoning: model.reasoning ?? undefined,
       })),
       setup_steps: entry.setupSteps,
@@ -93,6 +91,7 @@ function updateRequestToCreate(
     requiresAuth: request.requires_auth ?? true,
     catalogProviderId: request.catalog_provider_id ?? null,
     basePath: request.base_path ?? null,
+    toolshim: request.toolshim,
     preservesThinking: request.preserves_thinking ?? null,
   };
 }

@@ -65,7 +65,7 @@ If you're ready to see how fast and simple this setup really is, watch the full 
 
 <iframe class="aspect-ratio" src="https://www.youtube.com/embed/Hvu5KDTb6JE" title="Vibe Code with goose: Intro to ACP" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
 
-*Ready to integrate goose directly into your editor? Get started with our [ACP setup guide](https://goose-docs.ai/docs/guides/acp-clients) and share your experience in our [Discord community](http://discord.gg/n8R5VaWDAn).*
+*Ready to integrate goose directly into your editor? Get started with our [ACP setup guide](https://goose-docs.ai/docs/gdk/acp) and share your experience in our [Discord community](http://discord.gg/n8R5VaWDAn).*
 
 
 <head>

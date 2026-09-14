@@ -173,8 +173,6 @@ The `extensions` field allows you to specify which Model Context Protocol (MCP) 
 - **`builtin`**: Built-in extension that is part of the bundled goose MCP server
 - **`platform`**: Platform extensions that run in the agent process
 - **`streamable_http`**: Streamable HTTP client with URI endpoint
-- **`frontend`**: Frontend-provided tools called through the frontend
-- **`inline_python`**: Inline Python code executed using uvx. Requires `code` field; optional `dependencies` for packages.
 
 :::note Summon Extension and Subagents
 The `delegate` and `load` tools are provided by the `summon` platform extension. When a recipe specifies an explicit `extensions` block, only the listed extensions are available — default platform extensions like `summon` are not automatically included. If your recipe needs subagent delegation, add `summon` to your extensions list:
@@ -222,16 +220,6 @@ extensions:
     timeout: 60
     description: "GitHub MCP extension for repository operations"
     
-  - type: inline_python
-    name: data_processor
-    code: |
-      import pandas as pd
-      print("Processing data...")
-    dependencies:
-      - pandas
-      - numpy
-    timeout: 120
-    description: "Process data using pandas"
 ```
 
   </TabItem>
@@ -265,14 +253,6 @@ extensions:
       "env_keys": ["GITHUB_PERSONAL_ACCESS_TOKEN"],
       "timeout": 60,
       "description": "GitHub MCP extension for repository operations"
-    },
-    {
-      "type": "inline_python",
-      "name": "data_processor",
-      "code": "import pandas as pd\nprint(\"Processing data...\")",
-      "dependencies": ["pandas", "numpy"],
-      "timeout": 120,
-      "description": "Process data using pandas"
     }
   ]
 }

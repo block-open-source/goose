@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getAcpClient } from '../acpConnection';
 import {
   acpGetSessionListItem,
+  acpListSessions,
   acpLoadSession,
   acpNewSession,
   sessionInfoToSession,
@@ -42,6 +43,29 @@ describe('ACP sessions', () => {
     const session = sessionInfoToSession(sessionInfo({ title: undefined }));
 
     expect(session.name).toBe('');
+  });
+
+  it('only requests acp session types when explicitly included', async () => {
+    const client = {
+      connection: {
+        agent: {
+          request: vi.fn().mockResolvedValue({ sessions: [] }),
+        },
+      },
+    };
+    vi.mocked(getAcpClient).mockResolvedValue(
+      client as unknown as Awaited<ReturnType<typeof getAcpClient>>
+    );
+
+    await acpListSessions();
+    expect(client.connection.agent.request).toHaveBeenLastCalledWith(methods.agent.session.list, {
+      _meta: { types: ['user', 'scheduled'] },
+    });
+
+    await acpListSessions(undefined, { includeAcp: true });
+    expect(client.connection.agent.request).toHaveBeenLastCalledWith(methods.agent.session.list, {
+      _meta: { types: ['user', 'scheduled', 'acp'] },
+    });
   });
 
   it('returns session info refreshed after loading the ACP session', async () => {

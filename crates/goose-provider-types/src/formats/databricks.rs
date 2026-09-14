@@ -6,6 +6,10 @@ use crate::formats::anthropic::{
 };
 use crate::model::{is_goose_internal_request_param, ModelConfig};
 
+use crate::documents::{
+    convert_document, document_media_type_is_supported, unsupported_document_text, DocumentFormat,
+    ASSISTANT_ROLE_REASON, UNSUPPORTED_MEDIA_TYPE_REASON,
+};
 use crate::formats::openai::{
     extract_reasoning_effort, is_openai_responses_model, is_valid_function_name,
     openai_reasoning_effort_for_thinking, sanitize_function_name, validate_tool_schemas,
@@ -244,16 +248,20 @@ fn format_messages(
                         }));
                     }
                 }
-                MessageContentBlock::FrontendToolRequest(req) => {
-                    let text = match &req.tool_call {
-                        Ok(tool_call) => format!(
-                            "Frontend tool request: {} ({})",
-                            tool_call.name,
-                            serde_json::to_string_pretty(&tool_call.arguments).unwrap()
-                        ),
-                        Err(e) => format!("Frontend tool request error: {}", e),
-                    };
-                    content_array.push(json!({"type": "text", "text": text}));
+                MessageContentBlock::Document(document) => {
+                    if message.role != Role::User {
+                        content_array.push(json!({
+                            "type": "text",
+                            "text": unsupported_document_text(document, ASSISTANT_ROLE_REASON)
+                        }));
+                    } else if document_media_type_is_supported(&document.mime_type) {
+                        content_array.push(convert_document(document, &DocumentFormat::OpenAi));
+                    } else {
+                        content_array.push(json!({
+                            "type": "text",
+                            "text": unsupported_document_text(document, UNSUPPORTED_MEDIA_TYPE_REASON)
+                        }));
+                    }
                 }
                 MessageContentBlock::SystemNotification(_)
                 | MessageContentBlock::Error(_)
@@ -635,6 +643,53 @@ pub fn create_request_for_provider(
     }
 
     Ok(payload)
+}
+
+#[cfg(test)]
+mod document_tests {
+    use super::*;
+    use crate::conversation::message::Message;
+
+    fn format(messages: &[Message]) -> Vec<DatabricksMessage> {
+        format_messages(messages, &ImageFormat::OpenAi, None, true)
+    }
+
+    #[test]
+    fn user_document_becomes_a_file_content_part() {
+        let spec = format(&[Message::user().with_document(
+            "cGRmLWJ5dGVz",
+            "application/pdf",
+            Some("q3-report.pdf".to_string()),
+        )]);
+
+        assert_eq!(spec.len(), 1);
+        assert_eq!(
+            spec[0].content[0],
+            json!({
+                "type": "file",
+                "file": {
+                    "filename": "q3-report.pdf",
+                    "file_data": "data:application/pdf;base64,cGRmLWJ5dGVz",
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn assistant_document_becomes_a_text_part() {
+        let spec = format(&[Message::assistant().with_document(
+            "cGRmLWJ5dGVz",
+            "application/pdf",
+            Some("q3-report.pdf".to_string()),
+        )]);
+
+        assert_eq!(spec.len(), 1);
+        assert_eq!(spec[0].role, "assistant");
+        let text = spec[0].content.as_str().unwrap();
+        assert!(text.contains("q3-report.pdf"), "{text}");
+        assert!(text.contains("user messages"), "{text}");
+        assert!(!text.contains("cGRmLWJ5dGVz"), "{text}");
+    }
 }
 
 #[cfg(test)]

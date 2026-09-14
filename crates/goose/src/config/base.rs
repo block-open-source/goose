@@ -49,18 +49,6 @@ pub enum ConfigError {
     LockError(String),
     #[error("Secret stored using file-based fallback")]
     FallbackToFileStorage,
-    #[error("Timed out reading the system keyring")]
-    KeyringTimeout,
-}
-
-/// Outcome of a bounded keyring read.
-///
-/// A timeout is kept separate from a keyring error so callers never confuse
-/// "the read did not finish" with "there is no entry".
-#[cfg(feature = "system-keyring")]
-enum KeyringReadError {
-    Keyring(keyring::Error),
-    TimedOut,
 }
 
 impl From<serde_json::Error> for ConfigError {
@@ -146,6 +134,16 @@ enum SecretStorage {
     File {
         path: PathBuf,
     },
+}
+
+enum SecretMutation<T> {
+    Write(T),
+    Unchanged(T),
+}
+
+pub(crate) enum SecretUpdate<V, R> {
+    Write(V, R),
+    Unchanged(R),
 }
 
 // Global instance
@@ -788,6 +786,38 @@ impl Config {
         }
     }
 
+    pub(crate) fn get_param_source_values<T: for<'de> Deserialize<'de>>(
+        &self,
+        key: &str,
+    ) -> Result<Vec<T>, ConfigError> {
+        let mut source_values = Vec::new();
+        let env_key = key.to_uppercase();
+        if let Some(value) = env::var_os(&env_key) {
+            let value = value.into_string().map_err(|_| {
+                ConfigError::DeserializeError(format!(
+                    "environment variable {env_key} is not valid UTF-8"
+                ))
+            })?;
+            source_values.push(serde_json::from_value(Self::parse_env_value(&value)?)?);
+        }
+
+        for path in &self.config_paths {
+            let content = match std::fs::read_to_string(path) {
+                Ok(content) => content,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(error.into()),
+            };
+            let mut values = parse_yaml_content(&content)?;
+            crate::config::migrations::run_read_migrations(&mut values);
+            let Some(value) = values.get(key) else {
+                continue;
+            };
+            source_values.push(serde_yaml::from_value(value.clone())?);
+        }
+
+        Ok(source_values)
+    }
+
     /// Read-modify-write a configuration value atomically through the write path.
     pub fn update_param<T, V, F>(&self, key: &str, f: F) -> Result<(), ConfigError>
     where
@@ -924,23 +954,8 @@ impl Config {
         match &self.secrets {
             #[cfg(feature = "system-keyring")]
             SecretStorage::Keyring { service } => {
-                let result = match Self::read_keyring_password_with_timeout(service) {
-                    Ok(content) => Ok(content),
-                    // A timed-out read says nothing about whether secrets
-                    // exist. Surface it instead of falling back, so the
-                    // empty file store is never cached as authoritative and
-                    // a later mutation cannot overwrite the real keyring.
-                    Err(KeyringReadError::TimedOut) => {
-                        tracing::warn!(
-                            "keyring read timed out after 3s; not falling back to file \
-                             storage (set GOOSE_DISABLE_KEYRING=1 to skip the keyring)"
-                        );
-                        Err(ConfigError::KeyringTimeout)
-                    }
-                    Err(KeyringReadError::Keyring(keyring_err)) => {
-                        self.handle_keyring_fallback_error(&keyring_err, None)
-                    }
-                };
+                let result =
+                    self.handle_keyring_operation(|entry| entry.get_password(), service, None);
 
                 match result {
                     Ok(content) => Ok(serde_json::from_str(&content)?),
@@ -1014,15 +1029,20 @@ impl Config {
         Ok(())
     }
 
-    fn mutate_secrets(
+    fn mutate_secrets<T>(
         &self,
-        mutate: impl FnOnce(&mut HashMap<String, Value>),
-    ) -> Result<(), ConfigError> {
+        mutate: impl FnOnce(&mut HashMap<String, Value>) -> Result<SecretMutation<T>, ConfigError>,
+    ) -> Result<T, ConfigError> {
         let _guard = self.guard.lock().unwrap();
         let _storage_lock = self.lock_secrets_for_mutation()?;
         let mut values = self.load_secrets_from_storage()?;
-        mutate(&mut values);
-        self.write_all_secrets(&values)
+        match mutate(&mut values)? {
+            SecretMutation::Write(result) => {
+                self.write_all_secrets(&values)?;
+                Ok(result)
+            }
+            SecretMutation::Unchanged(result) => Ok(result),
+        }
     }
 
     /// Set a secret value in the system keyring.
@@ -1046,6 +1066,33 @@ impl Config {
         let value = serde_json::to_value(value)?;
         self.mutate_secrets(|values| {
             values.insert(key.to_string(), value);
+            Ok(SecretMutation::Write(()))
+        })
+    }
+
+    pub(crate) fn update_secret<T, V, R>(
+        &self,
+        key: &str,
+        update: impl FnOnce(T) -> SecretUpdate<V, R>,
+    ) -> Result<R, ConfigError>
+    where
+        T: for<'de> Deserialize<'de> + Default,
+        V: Serialize,
+    {
+        self.mutate_secrets(|values| {
+            let current = values
+                .get(key)
+                .cloned()
+                .map(serde_json::from_value)
+                .transpose()?
+                .unwrap_or_default();
+            match update(current) {
+                SecretUpdate::Write(updated, result) => {
+                    values.insert(key.to_string(), serde_json::to_value(updated)?);
+                    Ok(SecretMutation::Write(result))
+                }
+                SecretUpdate::Unchanged(result) => Ok(SecretMutation::Unchanged(result)),
+            }
         })
     }
 
@@ -1063,6 +1110,7 @@ impl Config {
             for (key, value) in updates {
                 values.insert(key.clone(), value.clone());
             }
+            Ok(SecretMutation::Write(()))
         })
     }
 
@@ -1079,6 +1127,7 @@ impl Config {
     pub fn delete_secret(&self, key: &str) -> Result<(), ConfigError> {
         self.mutate_secrets(|values| {
             values.remove(key);
+            Ok(SecretMutation::Write(()))
         })
     }
 
@@ -1092,6 +1141,7 @@ impl Config {
             for key in keys {
                 values.remove(key);
             }
+            Ok(SecretMutation::Write(()))
         })
     }
 
@@ -1153,64 +1203,6 @@ impl Config {
     #[cfg(feature = "system-keyring")]
     fn get_keyring_entry(service: &str) -> Result<keyring::Entry, keyring::Error> {
         Entry::new(service, KEYRING_USERNAME)
-    }
-
-    /// Read the keyring password on a dedicated thread with a timeout.
-    ///
-    /// A synchronous keychain read can block indefinitely — e.g. an unsigned
-    /// binary triggers a macOS keychain ACL prompt that can't be answered when
-    /// running headless or over piped stdio (as with `goose acp`). Because this
-    /// read sits on the `session/new` critical path, a block there hangs the
-    /// whole async runtime. Bounding it keeps the runtime responsive.
-    ///
-    /// A timeout is reported distinctly from a keyring error. It must never be
-    /// mistaken for "this user has no secrets": the entry may hold every
-    /// configured credential and simply be waiting on an ACL prompt, so
-    /// treating it as absent would cache an empty secret map and let the next
-    /// mutation overwrite the real keyring contents.
-    #[cfg(feature = "system-keyring")]
-    fn read_keyring_password_with_timeout(service: &str) -> Result<String, KeyringReadError> {
-        use std::sync::mpsc;
-        use std::time::Duration;
-
-        // One long-lived worker performs every keyring read through a
-        // single-slot queue. If a read blocks indefinitely (e.g. a pending
-        // keychain ACL prompt on a headless host), at most one thread is ever
-        // stuck and at most one request is ever queued behind it — later
-        // lookups fail fast with a timeout instead of growing an unbounded
-        // queue. Replies to abandoned requests land in dropped receivers and
-        // are discarded.
-        type ReadRequest = (String, mpsc::Sender<Result<String, keyring::Error>>);
-        static WORKER: std::sync::OnceLock<std::sync::Mutex<mpsc::SyncSender<ReadRequest>>> =
-            std::sync::OnceLock::new();
-
-        let worker = WORKER.get_or_init(|| {
-            let (tx, rx) = mpsc::sync_channel::<ReadRequest>(1);
-            std::thread::Builder::new()
-                .name("goose-keyring-read".to_string())
-                .spawn(move || {
-                    while let Ok((service, reply)) = rx.recv() {
-                        let result = Self::get_keyring_entry(&service)
-                            .and_then(|entry| entry.get_password());
-                        let _ = reply.send(result);
-                    }
-                })
-                .expect("failed to spawn keyring reader thread");
-            std::sync::Mutex::new(tx)
-        });
-
-        let (tx, rx) = mpsc::channel();
-        worker
-            .lock()
-            .unwrap()
-            .try_send((service.to_string(), tx))
-            .map_err(|_| KeyringReadError::TimedOut)?;
-
-        match rx.recv_timeout(Duration::from_secs(3)) {
-            Ok(Ok(password)) => Ok(password),
-            Ok(Err(err)) => Err(KeyringReadError::Keyring(err)),
-            Err(_) => Err(KeyringReadError::TimedOut),
-        }
     }
 
     /// Handle keyring errors with automatic fallback to file storage

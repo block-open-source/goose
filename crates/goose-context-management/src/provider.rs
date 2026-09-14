@@ -4,11 +4,11 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use goose_providers::base::{MessageStream, Provider};
-use goose_providers::conversation::message::Message;
-use goose_providers::conversation::token_usage::ProviderUsage;
-use goose_providers::errors::ProviderError;
-use goose_providers::model::ModelConfig;
+use goose_provider_types::base::{MessageStream, Provider};
+use goose_provider_types::conversation::message::Message;
+use goose_provider_types::conversation::token_usage::ProviderUsage;
+use goose_provider_types::errors::ProviderError;
+use goose_provider_types::model::ModelConfig;
 
 use crate::model::ProviderModel;
 use crate::templates::Templates;
@@ -96,8 +96,8 @@ impl Provider for CompactingProvider {
         }
     }
 
-    async fn get_context_limit(&self, model_config: &ModelConfig) -> Result<usize, ProviderError> {
-        self.inner.get_context_limit(model_config).await
+    async fn get_context_limit(&self, model: &str, override_limit: Option<usize>) -> usize {
+        self.inner.get_context_limit(model, override_limit).await
     }
 
     fn manages_own_context(&self) -> bool {

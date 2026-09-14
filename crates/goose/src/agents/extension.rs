@@ -4,7 +4,6 @@ use crate::config;
 use crate::config::extensions::name_to_key;
 use crate::config::permission::PermissionLevel;
 use crate::config::Config;
-use rmcp::model::Tool;
 use rmcp::service::ClientInitializeError;
 use rmcp::ServiceError as ClientError;
 use serde::Deserializer;
@@ -160,17 +159,6 @@ impl Envs {
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(tag = "type")]
 pub enum ExtensionConfig {
-    /// SSE transport is no longer supported - kept only for config file compatibility
-    #[serde(rename = "sse")]
-    Sse {
-        #[serde(default)]
-        name: String,
-        #[serde(default)]
-        #[serde(deserialize_with = "deserialize_null_with_default")]
-        description: String,
-        #[serde(default)]
-        uri: Option<String>,
-    },
     /// Standard I/O client with command and arguments
     #[serde(rename = "stdio")]
     Stdio {
@@ -275,43 +263,6 @@ pub enum ExtensionConfig {
         #[serde(skip_serializing_if = "Vec::is_empty")]
         available_tools: Vec<String>,
     },
-    /// Frontend-provided tools that will be called through the frontend
-    #[serde(rename = "frontend")]
-    Frontend {
-        /// The name used to identify this extension
-        name: String,
-        #[serde(default)]
-        #[serde(deserialize_with = "deserialize_null_with_default")]
-        description: String,
-        /// The tools provided by the frontend
-        tools: Vec<Tool>,
-        /// Instructions for how to use these tools
-        instructions: Option<String>,
-        #[serde(default)]
-        bundled: Option<bool>,
-        #[serde(default)]
-        #[serde(skip_serializing_if = "Vec::is_empty")]
-        available_tools: Vec<String>,
-    },
-    /// Inline Python code that will be executed using uvx
-    #[serde(rename = "inline_python")]
-    InlinePython {
-        /// The name used to identify this extension
-        name: String,
-        #[serde(default)]
-        #[serde(deserialize_with = "deserialize_null_with_default")]
-        description: String,
-        /// The Python code to execute
-        code: String,
-        /// Timeout in seconds
-        timeout: Option<u64>,
-        /// Python package dependencies required by this extension
-        #[serde(default)]
-        dependencies: Option<Vec<String>>,
-        #[serde(default)]
-        #[serde(skip_serializing_if = "Vec::is_empty")]
-        available_tools: Vec<String>,
-    },
 }
 
 impl Default for ExtensionConfig {
@@ -371,22 +322,6 @@ impl ExtensionConfig {
         }
     }
 
-    pub fn inline_python<S: Into<String>, T: Into<u64>>(
-        name: S,
-        code: S,
-        description: S,
-        timeout: T,
-    ) -> Self {
-        Self::InlinePython {
-            name: name.into(),
-            code: code.into(),
-            description: description.into(),
-            timeout: Some(timeout.into()),
-            dependencies: None,
-            available_tools: Vec::new(),
-        }
-    }
-
     pub fn with_args<I, S>(self, args: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -426,13 +361,10 @@ impl ExtensionConfig {
 
     pub fn name(&self) -> String {
         match self {
-            Self::Sse { name, .. } => name,
             Self::StreamableHttp { name, .. } => name,
             Self::Stdio { name, .. } => name,
             Self::Builtin { name, .. } => name,
             Self::Platform { name, .. } => name,
-            Self::Frontend { name, .. } => name,
-            Self::InlinePython { name, .. } => name,
         }
         .to_string()
     }
@@ -440,7 +372,6 @@ impl ExtensionConfig {
     /// Check if a tool should be available to the LLM
     pub fn is_tool_available(&self, tool_name: &str) -> bool {
         let available_tools = match self {
-            Self::Sse { .. } => return false, // SSE is unsupported
             Self::StreamableHttp {
                 available_tools, ..
             }
@@ -451,12 +382,6 @@ impl ExtensionConfig {
                 available_tools, ..
             }
             | Self::Platform {
-                available_tools, ..
-            }
-            | Self::InlinePython {
-                available_tools, ..
-            }
-            | Self::Frontend {
                 available_tools, ..
             } => available_tools,
         };
@@ -554,9 +479,6 @@ impl ExtensionConfig {
 impl std::fmt::Display for ExtensionConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ExtensionConfig::Sse { name, .. } => {
-                write!(f, "SSE({}: unsupported)", name)
-            }
             ExtensionConfig::StreamableHttp {
                 name, uri, socket, ..
             } => {
@@ -573,12 +495,6 @@ impl std::fmt::Display for ExtensionConfig {
             }
             ExtensionConfig::Builtin { name, .. } => write!(f, "Builtin({})", name),
             ExtensionConfig::Platform { name, .. } => write!(f, "Platform({})", name),
-            ExtensionConfig::Frontend { name, tools, .. } => {
-                write!(f, "Frontend({}: {} tools)", name, tools.len())
-            }
-            ExtensionConfig::InlinePython { name, code, .. } => {
-                write!(f, "InlinePython({}: {} chars)", name, code.len())
-            }
         }
     }
 }

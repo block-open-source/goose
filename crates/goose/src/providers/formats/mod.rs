@@ -29,7 +29,9 @@ pub mod google {
         create_request_with_thinking_budget(model_config, system, messages, tools, thinking_budget)
     }
 }
-pub mod openrouter;
+pub mod openrouter {
+    pub use goose_providers::openrouter_format::*;
+}
 pub mod snowflake {
     pub use goose_providers::formats::snowflake::*;
 }

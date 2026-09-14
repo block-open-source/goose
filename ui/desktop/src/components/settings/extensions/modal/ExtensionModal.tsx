@@ -50,7 +50,8 @@ const i18n = defineMessages({
   },
   unsavedChangesMessage: {
     id: 'extensionModal.unsavedChangesMessage',
-    defaultMessage: 'You have unsaved changes to the extension configuration. Are you sure you want to close without saving?',
+    defaultMessage:
+      'You have unsaved changes to the extension configuration. Are you sure you want to close without saving?',
   },
   closeWithoutSaving: {
     id: 'extensionModal.closeWithoutSaving',
@@ -98,7 +99,6 @@ export default function ExtensionModal({
     // Check if command/endpoint has changed
     const commandChanged =
       (formData.type === 'stdio' && formData.cmd !== initialData.cmd) ||
-      (formData.type === 'sse' && formData.endpoint !== initialData.endpoint) ||
       (formData.type === 'streamable_http' && formData.endpoint !== initialData.endpoint);
 
     // Check if headers have changed
@@ -271,7 +271,6 @@ export default function ExtensionModal({
   const isConfigValid = () => {
     return (
       (formData.type === 'stdio' && !!formData.cmd && formData.cmd.trim() !== '') ||
-      (formData.type === 'sse' && !!formData.endpoint && formData.endpoint.trim() !== '') ||
       (formData.type === 'streamable_http' &&
         !!formData.endpoint &&
         formData.endpoint.trim() !== '')
@@ -373,7 +372,9 @@ export default function ExtensionModal({
   };
 
   // Update title based on current state
-  const modalTitle = showDeleteConfirmation ? intl.formatMessage(i18n.deleteExtensionTitle, { name: formData.name }) : title;
+  const modalTitle = showDeleteConfirmation
+    ? intl.formatMessage(i18n.deleteExtensionTitle, { name: formData.name })
+    : title;
 
   return (
     <>
@@ -385,17 +386,13 @@ export default function ExtensionModal({
               {modalTitle}
             </DialogTitle>
             {showDeleteConfirmation && (
-              <DialogDescription>
-                {intl.formatMessage(i18n.deleteDescription)}
-              </DialogDescription>
+              <DialogDescription>{intl.formatMessage(i18n.deleteDescription)}</DialogDescription>
             )}
           </DialogHeader>
 
           {showDeleteConfirmation ? (
             <div className="py-4">
-              <p className="text-text-primary">
-                {intl.formatMessage(i18n.deleteDescription)}
-              </p>
+              <p className="text-text-primary">{intl.formatMessage(i18n.deleteDescription)}</p>
             </div>
           ) : (
             <div className="py-4 space-y-6">

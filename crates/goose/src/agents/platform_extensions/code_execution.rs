@@ -169,7 +169,7 @@ impl CodeExecutionClient {
                     .clone()
                     .map(|n| format!("{n}__"))
                     .unwrap_or_default(),
-                &cfg.name
+                cfg.name
             );
             let callback = create_tool_callback(
                 ctx.clone(),
@@ -799,7 +799,6 @@ mod tests {
                     available_tools: vec![],
                 },
                 Arc::new(VisibilityClient),
-                None,
                 None,
             )
             .await;

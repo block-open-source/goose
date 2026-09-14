@@ -50,6 +50,10 @@ impl CacheSemantics {
     }
 }
 
+/// Anthropic's cache lookback window, measured in content blocks: a new
+/// breakpoint only finds a cached prefix within this distance of a prior one.
+const LOOKBACK_BLOCKS: usize = 20;
+
 /// Anthropic-dialect breakpoints for OpenAI-style chat payloads (OpenRouter,
 /// LiteLLM, Databricks).
 pub fn apply_chat_payload_breakpoints(payload: &mut Value) {
@@ -57,16 +61,25 @@ pub fn apply_chat_payload_breakpoints(payload: &mut Value) {
         .get_mut("messages")
         .and_then(|messages| messages.as_array_mut())
     {
-        let mut user_count = 0;
-        for message in messages.iter_mut().rev() {
-            if message.get("role") != Some(&json!("user")) {
-                continue;
-            }
-            if mark_last_content_block(message) {
-                user_count += 1;
-                if user_count >= 2 {
-                    break;
-                }
+        // On this envelope tool results are `role: "tool"` and tool calls ride
+        // on `role: "assistant"`, so anchoring by role would pin both message
+        // breakpoints to the last human turn and re-bill the growing agentic
+        // tail on every iteration.
+        let offsets = cumulative_block_offsets(messages);
+        if let Some(primary) = (0..messages.len())
+            .rev()
+            .find(|&index| has_cacheable_content(&messages[index]))
+        {
+            mark_last_content_block(&mut messages[primary]);
+            // A trailing anchor ~LOOKBACK_BLOCKS behind keeps the next
+            // request's tail breakpoint within the lookback window even when
+            // one iteration appends many blocks (e.g. parallel tool calls).
+            let target = offsets[primary].saturating_sub(LOOKBACK_BLOCKS);
+            if let Some(secondary) = (0..primary)
+                .rev()
+                .find(|&index| offsets[index] <= target && has_cacheable_content(&messages[index]))
+            {
+                mark_last_content_block(&mut messages[secondary]);
             }
         }
 
@@ -89,9 +102,63 @@ pub fn apply_chat_payload_breakpoints(payload: &mut Value) {
     }
 }
 
-fn mark_last_content_block(message: &mut Value) -> bool {
+/// Maps each message index to the cumulative content-block count through the
+/// end of that message. Each `tool_calls` entry becomes a `tool_use` content
+/// block on the Anthropic side and retained `reasoning_content` a thinking
+/// block, so they occupy lookback positions too.
+fn cumulative_block_offsets(messages: &[Value]) -> Vec<usize> {
+    let mut total = 0;
+    messages
+        .iter()
+        .map(|message| {
+            total += match message.get("content") {
+                Some(Value::Array(blocks)) => blocks.len(),
+                Some(Value::String(_)) => 1,
+                _ => 0,
+            };
+            total += message
+                .get("tool_calls")
+                .and_then(Value::as_array)
+                .map_or(0, Vec::len);
+            if message.get("reasoning_content").is_some() {
+                total += 1;
+            }
+            total
+        })
+        .collect()
+}
+
+/// Whether a breakpoint can attach to the message's last content block.
+/// Anthropic rejects `cache_control` on empty text (empty tool results
+/// serialize to `content: ""`) and on thinking blocks (Databricks emits them
+/// as `type: "reasoning"`); assistant tool-call messages carry their payload
+/// in `tool_calls` with `content: null`.
+fn has_cacheable_content(message: &Value) -> bool {
+    match message.get("content") {
+        Some(Value::String(text)) => !text.trim().is_empty(),
+        Some(Value::Array(blocks)) => {
+            blocks
+                .last()
+                .and_then(Value::as_object)
+                .is_some_and(|block| match block.get("type").and_then(Value::as_str) {
+                    Some("text") => block
+                        .get("text")
+                        .and_then(Value::as_str)
+                        .is_some_and(|text| !text.trim().is_empty()),
+                    Some("image_url") => true,
+                    _ => false,
+                })
+        }
+        _ => false,
+    }
+}
+
+fn mark_last_content_block(message: &mut Value) {
+    if !has_cacheable_content(message) {
+        return;
+    }
     let Some(content) = message.get_mut("content") else {
-        return false;
+        return;
     };
     if let Some(text) = content.as_str() {
         *content = json!([{
@@ -99,7 +166,7 @@ fn mark_last_content_block(message: &mut Value) -> bool {
             "text": text,
             "cache_control": { "type": "ephemeral" }
         }]);
-        return true;
+        return;
     }
     if let Some(block) = content
         .as_array_mut()
@@ -107,9 +174,7 @@ fn mark_last_content_block(message: &mut Value) -> bool {
         .and_then(Value::as_object_mut)
     {
         block.insert("cache_control".to_string(), json!({ "type": "ephemeral" }));
-        return true;
     }
-    false
 }
 
 #[cfg(test)]
@@ -147,8 +212,47 @@ mod tests {
         }
     }
 
+    fn tool_heavy_messages(iterations: usize) -> Vec<Value> {
+        let mut messages = vec![json!({"role": "user", "content": "start"})];
+        for i in 0..iterations {
+            messages.push(json!({
+                "role": "assistant",
+                "content": null,
+                "reasoning_content": format!("thinking {i}"),
+                "tool_calls": [{
+                    "id": format!("call_{i}"),
+                    "type": "function",
+                    "function": {"name": "read_file", "arguments": "{}"}
+                }]
+            }));
+            messages.push(json!({
+                "role": "tool",
+                "content": format!("result {i}"),
+                "tool_call_id": format!("call_{i}")
+            }));
+        }
+        messages
+    }
+
+    fn marked_message_indices(payload: &Value) -> Vec<usize> {
+        payload["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .enumerate()
+            .filter(|(_, message)| {
+                message["content"].as_array().is_some_and(|blocks| {
+                    blocks
+                        .iter()
+                        .any(|block| block.get("cache_control").is_some())
+                })
+            })
+            .map(|(index, _)| index)
+            .collect()
+    }
+
     #[test]
-    fn breakpoints_cover_system_tools_and_last_two_user_messages() {
+    fn breakpoints_cover_system_tools_and_the_tail_message() {
         let mut payload = json!({
             "model": "anthropic/claude-sonnet-4-5",
             "messages": [
@@ -171,11 +275,8 @@ mod tests {
             messages[0]["content"][0]["cache_control"]["type"],
             "ephemeral"
         );
-        assert!(messages[1]["content"].is_string(), "only last two users");
-        assert_eq!(
-            messages[3]["content"][0]["cache_control"]["type"],
-            "ephemeral"
-        );
+        assert!(messages[1]["content"].is_string());
+        assert!(messages[3]["content"].is_string());
         assert_eq!(
             messages[5]["content"][0]["cache_control"]["type"],
             "ephemeral"
@@ -183,6 +284,44 @@ mod tests {
         let tools = payload["tools"].as_array().unwrap();
         assert!(tools[0]["function"].get("cache_control").is_none());
         assert_eq!(tools[1]["function"]["cache_control"]["type"], "ephemeral");
+    }
+
+    #[test]
+    fn unmarkable_tail_falls_back_to_the_last_markable_message() {
+        let mut payload = json!({
+            "messages": [
+                {"role": "tool", "content": "result", "tool_call_id": "call_0"},
+                {"role": "assistant", "content": null, "tool_calls": [{
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {"name": "noop", "arguments": "{}"}
+                }]},
+                {"role": "tool", "content": "", "tool_call_id": "call_1"}
+            ]
+        });
+        apply_chat_payload_breakpoints(&mut payload);
+
+        let messages = payload["messages"].as_array().unwrap();
+        assert_eq!(messages[2]["content"], json!(""));
+        assert_eq!(marked_message_indices(&payload), vec![0]);
+    }
+
+    #[test]
+    fn secondary_anchor_trails_the_tail_and_total_stays_within_budget() {
+        let mut messages = vec![json!({"role": "system", "content": "be careful"})];
+        messages.extend(tool_heavy_messages(25));
+        let mut payload = json!({
+            "messages": messages,
+            "tools": [{"type": "function", "function": {"name": "read_file"}}]
+        });
+        apply_chat_payload_breakpoints(&mut payload);
+
+        // 77 cumulative blocks (each iteration is one thinking block, one
+        // tool_use, and one tool result); the trailing anchor must sit on the
+        // last message at or below 77 - LOOKBACK_BLOCKS = 57 cumulative
+        // blocks: the eighteenth tool result, at message index 37.
+        assert_eq!(marked_message_indices(&payload), vec![0, 37, 51]);
+        assert_eq!(payload.to_string().matches("cache_control").count(), 4);
     }
 
     #[test]

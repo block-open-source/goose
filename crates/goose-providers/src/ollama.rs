@@ -1,5 +1,5 @@
 use super::api_client::ApiClient;
-use super::base::{ConfigKey, MessageStream, Provider, ProviderMetadata};
+use super::base::{ConfigKey, MessageStream, ModelInfo, Provider, ProviderMetadata};
 use super::openai_compatible::handle_status;
 use super::retry::{ProviderRetry, RetryConfig};
 use crate::api_client::{AuthMethod, TlsConfig};
@@ -55,8 +55,8 @@ const OLLAMA_MAX_RETRY_INTERVAL_MS: u64 = 15_000;
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct OllamaOptions {
     /// Explicit context window override from `GOOSE_INPUT_LIMIT`.
-    /// `None` when unset, zero, or invalid; the model's context limit is then
-    /// used as the fallback.
+    /// `None` when unset, zero, or invalid; `num_ctx` is then omitted so Ollama
+    /// uses its model default.
     pub input_limit: Option<usize>,
     /// Whether to keep `stream_options` in the request (`OLLAMA_STREAM_USAGE`,
     /// default `true`).
@@ -82,7 +82,7 @@ pub struct OllamaProvider {
     #[serde(skip)]
     api_client: ApiClient,
     name: String,
-    custom_models: Option<Vec<String>>,
+    custom_models: Option<Vec<ModelInfo>>,
     dynamic_models: Option<bool>,
     skip_canonical_filtering: bool,
     options: OllamaOptions,
@@ -91,7 +91,7 @@ pub struct OllamaProvider {
 pub struct OllamaProviderBuilder {
     api_client: ApiClient,
     name: String,
-    custom_models: Option<Vec<String>>,
+    custom_models: Option<Vec<ModelInfo>>,
     dynamic_models: Option<bool>,
     skip_canonical_filtering: bool,
     options: OllamaOptions,
@@ -132,7 +132,7 @@ impl OllamaProviderBuilder {
         self
     }
 
-    pub fn custom_models(mut self, custom_models: Option<Vec<String>>) -> Self {
+    pub fn custom_models(mut self, custom_models: Option<Vec<ModelInfo>>) -> Self {
         self.custom_models = custom_models;
         self
     }
@@ -230,11 +230,11 @@ pub async fn fetch_ollama_model_names(
     Ok(Some(names))
 }
 
-fn resolve_ollama_num_ctx(options: &OllamaOptions, model_config: &ModelConfig) -> Option<usize> {
-    options.input_limit.or(model_config.context_limit)
+fn resolve_ollama_num_ctx(options: &OllamaOptions) -> Option<usize> {
+    options.input_limit
 }
 
-fn apply_ollama_options(payload: &mut Value, options: &OllamaOptions, model_config: &ModelConfig) {
+fn apply_ollama_options(payload: &mut Value, options: &OllamaOptions, _model_config: &ModelConfig) {
     if let Some(obj) = payload.as_object_mut() {
         // Gate stream_options behind OLLAMA_STREAM_USAGE (default: true).
         // Older Ollama builds that don't support stream_options may stall before
@@ -257,8 +257,8 @@ fn apply_ollama_options(payload: &mut Value, options: &OllamaOptions, model_conf
             }
         }
 
-        // Apply num_ctx from context limit settings.
-        if let Some(limit) = resolve_ollama_num_ctx(options, model_config) {
+        // Only an explicit GOOSE_INPUT_LIMIT overrides Ollama's num_ctx.
+        if let Some(limit) = resolve_ollama_num_ctx(options) {
             let options_value = obj.entry("options").or_insert_with(|| json!({}));
             if let Some(options_obj) = options_value.as_object_mut() {
                 options_obj.insert("num_ctx".to_string(), json!(limit));
@@ -273,13 +273,7 @@ pub fn from_declarative_config(
     key_resolver: impl KeyResolver,
 ) -> Result<OllamaProviderBuilder> {
     let custom_models = if !config.models.is_empty() {
-        Some(
-            config
-                .models
-                .iter()
-                .map(|m| m.name.clone())
-                .collect::<Vec<String>>(),
-        )
+        Some(config.models.clone())
     } else {
         None
     };
@@ -312,6 +306,8 @@ pub fn from_declarative_config(
             .set_port(Some(OLLAMA_DEFAULT_PORT))
             .map_err(|_| anyhow::anyhow!("Failed to set default port"))?;
     }
+
+    config.validate_auth()?;
 
     let api_key = if config.api_key_env.is_empty() {
         None
@@ -440,10 +436,27 @@ impl Provider for OllamaProvider {
         stream_ollama(response, self.options.chunk_timeout_secs, log)
     }
 
+    async fn get_context_limit(&self, model: &str, override_limit: Option<usize>) -> usize {
+        let configured_limits = self
+            .custom_models
+            .iter()
+            .flatten()
+            .filter_map(|model| model.context_limit.map(|limit| (model.name.clone(), limit)));
+        crate::context_limit::ContextLimitResolver::new(&self.name)
+            .with_configured_limits(configured_limits)
+            .resolve(model, override_limit, || async {
+                Ok(self.options.input_limit)
+            })
+            .await
+    }
+
     async fn fetch_supported_models(&self) -> Result<Vec<String>, ProviderError> {
         if let Some(custom_models) = &self.custom_models {
             if self.dynamic_models == Some(false) {
-                return Ok(custom_models.clone());
+                return Ok(custom_models
+                    .iter()
+                    .map(|model| model.name.clone())
+                    .collect());
             }
 
             match self.fetch_models_from_api().await {
@@ -454,7 +467,10 @@ impl Provider for OllamaProvider {
                         self.name,
                         e
                     );
-                    return Ok(custom_models.clone());
+                    return Ok(custom_models
+                        .iter()
+                        .map(|model| model.name.clone())
+                        .collect());
                 }
                 Err(e) => return Err(e),
             }
@@ -561,17 +577,19 @@ mod tests {
             base_url: base_url.to_string(),
             models,
             headers: None,
+            session_id_header_override: None,
             timeout_seconds: None,
             supports_streaming: None,
             requires_auth: false,
             catalog_provider_id: None,
             base_path: None,
             env_vars: None,
+            auth: None,
             dynamic_models,
             skip_canonical_filtering: false,
             model_doc_link: None,
             setup_steps: vec![],
-            fast_model: None,
+            toolshim: false,
             preserves_thinking: false,
             emit_clear_thinking: false,
             setup: None,
@@ -581,7 +599,10 @@ mod tests {
     #[tokio::test]
     async fn fetch_supported_models_uses_static_models_when_dynamic_models_false() {
         let provider = from_declarative_config(
-            ollama_config(Some(false), vec![ModelInfo::new("static-model", 4096)]),
+            ollama_config(
+                Some(false),
+                vec![ModelInfo::new("static-model").with_context_limit(4096)],
+            ),
             None,
             crate::declarative::EnvKeyResolver,
         )
@@ -625,7 +646,7 @@ mod tests {
         let provider = from_declarative_config(
             ollama_config_with_base_url(
                 None,
-                vec![ModelInfo::new("static-model", 4096)],
+                vec![ModelInfo::new("static-model").with_context_limit(4096)],
                 &server.uri(),
             ),
             None,
@@ -653,19 +674,9 @@ mod tests {
     }
 
     #[test]
-    fn test_apply_ollama_options_falls_back_to_context_limit() {
+    fn test_apply_ollama_options_ignores_context_management_limit() {
         let options = OllamaOptions::default();
         let model_config = ModelConfig::new("qwen3").with_context_limit(Some(12_000));
-        let mut payload = json!({});
-        apply_ollama_options(&mut payload, &options, &model_config);
-        assert_eq!(payload["options"]["num_ctx"], 12_000);
-    }
-
-    #[test]
-    fn test_apply_ollama_options_skips_when_no_limit() {
-        let options = OllamaOptions::default();
-        let mut model_config = ModelConfig::new("qwen3");
-        model_config.context_limit = None;
         let mut payload = json!({});
         apply_ollama_options(&mut payload, &options, &model_config);
         assert!(payload.get("options").is_none());

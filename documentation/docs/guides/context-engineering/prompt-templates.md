@@ -96,7 +96,6 @@ The following default templates can be customized.
 | [compaction.md](https://github.com/aaif-goose/goose/blob/main/crates/goose/src/prompts/compaction.md) | Prompt for summarizing conversation history when context limits are reached | Desktop and CLI |
 | [permission_judge.md](https://github.com/aaif-goose/goose/blob/main/crates/goose/src/prompts/permission_judge.md) | Prompt for analyzing tool operations for read-only detection | Desktop and CLI |
 | [plan.md](https://github.com/aaif-goose/goose/blob/main/crates/goose/src/prompts/plan.md) | Instructions for creating detailed, actionable plans with clarifying questions | CLI only |
-| [recipe.md](https://github.com/aaif-goose/goose/blob/main/crates/goose/src/prompts/recipe.md) | Prompt for generating recipe files from conversations | Desktop and CLI |
 | [subagent_system.md](https://github.com/aaif-goose/goose/blob/main/crates/goose/src/prompts/subagent_system.md) | System prompt for subagents spawned to handle specific tasks | Desktop and CLI |
 | [tiny_model_system.md](https://github.com/aaif-goose/goose/blob/main/crates/goose/src/prompts/tiny_model_system.md) | System prompt for tiny local models using shell command emulation | CLI |
 | [session_name.md](https://github.com/aaif-goose/goose/blob/main/crates/goose/src/prompts/session_name.md) | Prompt for generating short session names from conversation history | Desktop and CLI |

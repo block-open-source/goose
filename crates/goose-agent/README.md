@@ -18,6 +18,13 @@ is a function of the persisted conversation, not of in-memory loop state.
 - **`Inference<S, E>`** — the step that reaches the provider. Before calling it,
   the machine collects tools and prompt parts from *every* operation in the list
   into an `InferenceInput`.
+- **`ToolOperation<S>`** — adapts caller-defined `rmcp` tools into one operation.
+  Register `SyncTool<S>` and `AsyncTool<S>` implementations with the typed builder
+  methods, or implement `ToolProvider<S>` for tools discovered dynamically per
+  session. Dynamic providers are queried before inference and again before
+  execution, so their tool names and handlers must remain stable between those
+  boundaries. Their schemas are sent to inference and matching calls are
+  dispatched against the current session.
 - **`StateMachine<'a, S, E>`** — holds `Vec<Step<..>>` and a `CancellationToken`.
   `step()` runs one pass, `apply()` writes effects back, `run()` loops until a
   step yields to the client or no step applies.

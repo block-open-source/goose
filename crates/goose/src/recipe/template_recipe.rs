@@ -12,6 +12,40 @@ const CURRENT_TEMPLATE_NAME: &str = "recipe";
 const OPEN_BRACE: &str = "{{";
 const CLOSE_BRACE: &str = "}}";
 
+pub(crate) struct ParsedRecipeTemplate {
+    recipe: Recipe,
+    template_variables: HashSet<String>,
+    environment: Environment<'static>,
+}
+
+impl ParsedRecipeTemplate {
+    pub(crate) fn recipe(&self) -> &Recipe {
+        &self.recipe
+    }
+
+    pub(crate) fn template_variables(&self) -> &HashSet<String> {
+        &self.template_variables
+    }
+
+    pub(crate) fn into_recipe(self) -> Recipe {
+        self.recipe
+    }
+
+    pub(crate) fn render(
+        mut self,
+        params: &HashMap<String, String>,
+    ) -> Result<(String, HashSet<String>)> {
+        self.environment
+            .set_undefined_behavior(UndefinedBehavior::Strict);
+        self.environment.set_loader(|_| Ok(None));
+        let template = self.environment.get_template(CURRENT_TEMPLATE_NAME)?;
+        let rendered = template
+            .render(params)
+            .map_err(|error| anyhow::anyhow!("Failed to render the recipe {error}"))?;
+        Ok((rendered, self.template_variables))
+    }
+}
+
 fn preprocess_template_variables(content: &str) -> Result<String> {
     let all_template_variables = extract_template_variables(content);
     let complex_template_variables = filter_complex_variables(&all_template_variables);
@@ -93,12 +127,8 @@ pub fn render_recipe_content_with_params(
     content: &str,
     params: &HashMap<String, String>,
 ) -> Result<String> {
-    // Pre-process content to replace empty double quotes with single quotes
-    // This prevents MiniJinja from escaping "" to "\"\"" which would break YAML parsing
-    let re = Regex::new(r#":\s*"""#).unwrap();
-    let content_with_empty_quotes_replaced = re.replace_all(content, ": ''");
-
-    // Pre-process template variables to convert invalid variable names to raw content
+    let empty_quotes = Regex::new(r#":\s*"""#).unwrap();
+    let content_with_empty_quotes_replaced = empty_quotes.replace_all(content, ": ''");
     let content_with_safe_variables =
         preprocess_template_variables(&content_with_empty_quotes_replaced)?;
 
@@ -118,7 +148,7 @@ fn add_template_in_env(
     content: &str,
     recipe_dir: Option<String>,
     undefined_behavior: UndefinedBehavior,
-) -> Result<Environment<'_>> {
+) -> Result<Environment<'static>> {
     let mut env = minijinja::Environment::new();
     env.set_undefined_behavior(undefined_behavior);
 
@@ -128,7 +158,7 @@ fn add_template_in_env(
         });
     }
 
-    env.add_template(CURRENT_TEMPLATE_NAME, content)?;
+    env.add_template_owned(CURRENT_TEMPLATE_NAME, content.to_string())?;
     Ok(env)
 }
 
@@ -185,7 +215,7 @@ fn get_env_with_template_variables(
     content: &str,
     recipe_dir: Option<String>,
     undefined_behavior: UndefinedBehavior,
-) -> Result<(Environment<'_>, HashSet<String>)> {
+) -> Result<(Environment<'static>, HashSet<String>)> {
     let env = add_template_in_env(content, recipe_dir, undefined_behavior)?;
     let template_variables = {
         let template = env.get_template(CURRENT_TEMPLATE_NAME).unwrap();
@@ -209,7 +239,14 @@ pub fn parse_recipe_content(
     content: &str,
     recipe_dir: Option<String>,
 ) -> Result<(Recipe, HashSet<String>)> {
-    // Pre-process template variables to handle invalid variable names
+    let parsed = parse_recipe_template(content, recipe_dir)?;
+    Ok((parsed.recipe, parsed.template_variables))
+}
+
+pub(crate) fn parse_recipe_template(
+    content: &str,
+    recipe_dir: Option<String>,
+) -> Result<ParsedRecipeTemplate> {
     let preprocessed_content = preprocess_template_variables(content)?;
 
     let (env, template_variables) = get_env_with_template_variables(
@@ -231,12 +268,78 @@ pub fn parse_recipe_content(
     };
 
     let recipe = Recipe::from_content(&recipe_content)?;
-    // return recipe (without loading any variables) and the variable names that are in the recipe
-    Ok((recipe, template_variables))
+    Ok(ParsedRecipeTemplate {
+        recipe,
+        template_variables,
+        environment: env,
+    })
 }
 
 #[cfg(test)]
 mod tests {
+    mod parse_recipe_content_tests {
+        use crate::recipe::{validate_recipe::validate_recipe_template_from_content, Recipe};
+
+        #[test]
+        fn preserves_empty_string_json_in_instruction_block_scalar() {
+            let content = r#"version: 1.0.0
+title: Empty string example
+description: Empty string example
+instructions: |
+  Return this JSON unchanged:
+  {"value": ""}
+  Example: ""
+"#;
+
+            let expected = Recipe::from_content(content).unwrap();
+            let recipe = validate_recipe_template_from_content(content, None).unwrap();
+
+            assert_eq!(recipe.instructions, expected.instructions);
+        }
+
+        #[test]
+        fn preserves_empty_string_in_bare_sequence_block_scalar() {
+            let content = r#"version: 1.0.0
+title: Activity empty string example
+description: Activity empty string example
+instructions: Keep activities unchanged
+activities:
+  - |
+    value: ""
+"#;
+
+            let expected = Recipe::from_content(content).unwrap();
+            let recipe = validate_recipe_template_from_content(content, None).unwrap();
+
+            assert_eq!(recipe.activities, expected.activities);
+        }
+
+        #[test]
+        fn preserves_empty_strings_in_multiline_quoted_instructions() {
+            let single_quoted = r#"version: 1.0.0
+title: Single quoted empty string example
+description: Single quoted empty string example
+instructions: 'Return:
+  value: ""
+  done'
+"#;
+            let double_quoted = r#"version: 1.0.0
+title: Double quoted empty string example
+description: Double quoted empty string example
+instructions: "Return:
+  value: \"\"
+  done"
+"#;
+
+            for content in [single_quoted, double_quoted] {
+                let expected = Recipe::from_content(content).unwrap();
+                let recipe = validate_recipe_template_from_content(content, None).unwrap();
+
+                assert_eq!(recipe.instructions, expected.instructions);
+            }
+        }
+    }
+
     mod template_loader_tests {
         use std::{collections::HashMap, fs};
 

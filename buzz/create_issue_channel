@@ -1,0 +1,557 @@
+#!/usr/bin/env node
+
+import { accessSync, constants, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
+import {
+  bestMatchingIssueChannels,
+  readCoreTeam,
+  repositoryFromIssueUrl,
+} from "./github_manager.mjs";
+
+const scriptDirectory = dirname(fileURLToPath(import.meta.url));
+const coreTeamPath =
+  process.env.BUZZ_CORE_TEAM_FILE || join(scriptDirectory, "core-team.json");
+const options = parseArguments(process.argv.slice(2));
+if (options.help) {
+  printHelp();
+  process.exit(0);
+}
+
+const relayUrl = process.env.BUZZ_RELAY_URL || "https://buzz.gdk.so";
+const configHome =
+  process.env.XDG_CONFIG_HOME || join(homedir(), ".config");
+const buzzHome =
+  process.env.GOOSE_BUZZ_HOME || join(configHome, "goose", "buzz");
+const privateKeyPath = join(
+  buzzHome,
+  "github-manager",
+  "private-key.nsec",
+);
+const privateKey = readRequiredFile(privateKeyPath);
+const buzz = findBuzz();
+const gh = process.env.GH_BIN || "gh";
+const buzzEnvironment = {
+  ...process.env,
+  BUZZ_PRIVATE_KEY: privateKey,
+  BUZZ_RELAY_URL: relayUrl,
+};
+
+const issue = getIssue();
+const coreTeam = readCoreTeamOrFail();
+const requestedOwners = resolveParticipants(options.owners, "owner");
+const requestedPeople = resolveParticipants(options.people, "member");
+const requestedBots = resolveParticipants(options.bots, "bot");
+const owners = mergeParticipants(
+  options.coreTeam ? coreTeam.owners : [],
+  requestedOwners,
+);
+const ownerPubkeys = new Set(owners.map((owner) => owner.pubkey));
+const people = mergeParticipants(
+  options.coreTeam ? coreTeam.members : [],
+  requestedPeople,
+).filter((person) => !ownerPubkeys.has(person.pubkey));
+const associatedBots = [...owners, ...people].flatMap(
+  (participant) => coreTeam.botsByPerson.get(participant.pubkey) || [],
+);
+const bots = mergeParticipants(associatedBots, requestedBots);
+const requestedAssociatedBots = [...requestedOwners, ...requestedPeople].flatMap(
+  (participant) => coreTeam.botsByPerson.get(participant.pubkey) || [],
+);
+const botsForExistingChannel = mergeParticipants(
+  requestedAssociatedBots,
+  requestedBots,
+);
+rejectRoleConflicts(owners, people, bots);
+
+const channelPrefix = `${issue.number}`;
+const existingChannels = runBuzz([
+  "channels",
+  "search",
+  "--query",
+  channelPrefix,
+  "--include-archived",
+  "--limit",
+  String(options.channelLimit),
+]);
+if (existingChannels.length >= options.channelLimit) {
+  fail(
+    `Buzz returned ${existingChannels.length} channels at the ` +
+      "--channel-limit boundary. Raise the limit.",
+  );
+}
+const matchingChannels = bestMatchingIssueChannels(existingChannels, issue);
+if (matchingChannels.length > 1) {
+  fail(
+    `More than one channel matches ${JSON.stringify(channelPrefix)}. Refusing to choose one.`,
+  );
+}
+
+if (matchingChannels.length === 1) {
+  if (
+    requestedOwners.length === 0 &&
+    requestedPeople.length === 0 &&
+    botsForExistingChannel.length === 0
+  ) {
+    fail(
+      `A channel already matches ${JSON.stringify(channelPrefix)}. Pass participants to update its roster.`,
+    );
+  }
+  const existingChannel = matchingChannels[0];
+  if (existingChannel.archived) {
+    runBuzz(["channels", "unarchive", "--channel", existingChannel.channel_id]);
+  }
+  for (const owner of requestedOwners) {
+    runBuzz([
+      "channels",
+      "add-member",
+      "--channel",
+      existingChannel.channel_id,
+      "--pubkey",
+      owner.pubkey,
+      "--role",
+      "owner",
+    ]);
+  }
+  for (const person of requestedPeople.filter(
+    (participant) =>
+      !requestedOwners.some((owner) => owner.pubkey === participant.pubkey),
+  )) {
+    runBuzz([
+      "channels",
+      "add-member",
+      "--channel",
+      existingChannel.channel_id,
+      "--pubkey",
+      person.pubkey,
+      "--role",
+      "member",
+    ]);
+  }
+  for (const bot of botsForExistingChannel) {
+    runBuzz([
+      "channels",
+      "add-member",
+      "--channel",
+      existingChannel.channel_id,
+      "--pubkey",
+      bot.pubkey,
+      "--role",
+      "bot",
+    ]);
+  }
+  console.log(
+    JSON.stringify(
+      {
+        issue,
+        channel: {
+          id: existingChannel.channel_id,
+          name: existingChannel.name,
+          archived: false,
+          existing: true,
+        },
+        owners_promoted: requestedOwners,
+        people_added: requestedPeople,
+        bots_added: botsForExistingChannel,
+      },
+      null,
+      2,
+    ),
+  );
+  process.exit(0);
+}
+
+const channelName = `${channelPrefix} ${truncate(
+  issue.title,
+  100 - channelPrefix.length - 1,
+)}`;
+const createdChannel = runBuzz([
+  "channels",
+  "create",
+  "--name",
+  channelName,
+  "--type",
+  "stream",
+  "--visibility",
+  "open",
+  "--description",
+  `Discussion for ${issue.repository}#${issue.number}: ${issue.url}`,
+]);
+const channelId = createdChannel.channel_id;
+if (!channelId) {
+  fail("Buzz created a channel but did not return its channel ID.");
+}
+const initialTopic = "⚪ GitHub phase: Inbox";
+let postedMessage;
+try {
+  runBuzzOrThrow([
+    "channels",
+    "topic",
+    "--channel",
+    channelId,
+    "--topic",
+    initialTopic,
+  ]);
+
+  for (const participant of [...owners, ...people, ...bots]) {
+    runBuzzOrThrow([
+      "channels",
+      "add-member",
+      "--channel",
+      channelId,
+      "--pubkey",
+      participant.pubkey,
+      "--role",
+      participant.role,
+    ]);
+  }
+
+  const message = [
+    `## ${issue.title}`,
+    "",
+    options.summary,
+    "",
+    `[View the issue on GitHub](${issue.url})`,
+  ].join("\n");
+  postedMessage = runBuzzOrThrow(
+    [
+      "messages",
+      "send",
+      "--channel",
+      channelId,
+      "--content",
+      "-",
+    ],
+    message,
+  );
+} catch (error) {
+  try {
+    runBuzzOrThrow(["channels", "delete", "--channel", channelId]);
+  } catch (cleanupError) {
+    fail(
+      `${error.message} Could not delete the incomplete channel: ${cleanupError.message}`,
+    );
+  }
+  fail(
+    `${error.message} Deleted the incomplete channel so creation can be retried.`,
+  );
+}
+
+console.log(
+  JSON.stringify(
+    {
+      issue: {
+        repository: issue.repository,
+        number: issue.number,
+        title: issue.title,
+        url: issue.url,
+      },
+      channel: {
+        id: channelId,
+        name: channelName,
+        topic: initialTopic,
+        event_id: createdChannel.event_id,
+      },
+      message_event_id: postedMessage.event_id,
+      owners,
+      people,
+      bots,
+    },
+    null,
+    2,
+  ),
+);
+
+function parseArguments(arguments_) {
+  const parsed = {
+    issue: null,
+    repository: "aaif-goose/goose",
+    summary: null,
+    owners: [],
+    people: [],
+    bots: [],
+    coreTeam: true,
+    channelLimit: 1000,
+    help: false,
+  };
+
+  for (let index = 0; index < arguments_.length; index += 1) {
+    const argument = arguments_[index];
+
+    if (argument === "--help" || argument === "-h") {
+      parsed.help = true;
+      continue;
+    }
+
+    if (argument === "--repo") {
+      parsed.repository = requiredValue(arguments_, ++index, argument);
+      continue;
+    }
+
+    if (argument === "--summary") {
+      parsed.summary = requiredValue(arguments_, ++index, argument).trim();
+      continue;
+    }
+
+    if (argument === "--summary-file") {
+      const path = requiredValue(arguments_, ++index, argument);
+      parsed.summary =
+        path === "-" ? readFileSync(0, "utf8").trim() : readRequiredFile(path);
+      continue;
+    }
+
+    if (argument === "--person") {
+      parsed.people.push(requiredValue(arguments_, ++index, argument));
+      continue;
+    }
+
+    if (argument === "--owner") {
+      parsed.owners.push(requiredValue(arguments_, ++index, argument));
+      continue;
+    }
+
+    if (argument === "--bot") {
+      parsed.bots.push(requiredValue(arguments_, ++index, argument));
+      continue;
+    }
+
+    if (argument === "--no-core-team") {
+      parsed.coreTeam = false;
+      continue;
+    }
+
+    if (argument === "--channel-limit") {
+      parsed.channelLimit = positiveInteger(
+        requiredValue(arguments_, ++index, argument),
+        argument,
+      );
+      continue;
+    }
+
+    if (argument.startsWith("-")) {
+      fail(`Unknown option: ${argument}`);
+    }
+
+    if (parsed.issue) {
+      fail(`Unexpected argument: ${argument}`);
+    }
+    parsed.issue = argument;
+  }
+
+  if (!parsed.help && !parsed.issue) {
+    fail("An issue number or URL is required.");
+  }
+  if (!parsed.help && !parsed.summary) {
+    fail("A non-empty --summary or --summary-file is required.");
+  }
+
+  return parsed;
+}
+
+function requiredValue(arguments_, index, option) {
+  const value = arguments_[index];
+  if (!value || value.startsWith("--")) {
+    fail(`${option} requires a value.`);
+  }
+  return value;
+}
+
+function positiveInteger(value, option) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isSafeInteger(parsed) || parsed < 1) {
+    fail(`${option} must be a positive integer.`);
+  }
+  return parsed;
+}
+
+function getIssue() {
+  const arguments_ = [
+    "issue",
+    "view",
+    options.issue,
+    "--json",
+    "number,title,url",
+  ];
+  if (!options.issue.startsWith("http://") && !options.issue.startsWith("https://")) {
+    arguments_.push("--repo", options.repository);
+  }
+
+  const issue = runJson(gh, arguments_);
+  const repository = repositoryFromIssueUrl(issue.url);
+  if (!repository) {
+    fail(`${issue.url || options.issue} is not a GitHub issue.`);
+  }
+  return { ...issue, repository };
+}
+
+function readCoreTeamOrFail() {
+  try {
+    return readCoreTeam(coreTeamPath);
+  } catch (error) {
+    fail(error.message);
+  }
+}
+
+function mergeParticipants(...groups) {
+  const participants = new Map();
+  for (const group of groups) {
+    for (const participant of group) {
+      participants.set(participant.pubkey, participant);
+    }
+  }
+  return [...participants.values()];
+}
+
+function resolveParticipants(values, role) {
+  const participants = new Map();
+
+  for (const value of values) {
+    const nameOrPubkey = value.trim();
+    const pubkey = /^[0-9a-f]{64}$/i.test(nameOrPubkey)
+      ? nameOrPubkey.toLowerCase()
+      : resolveDisplayName(nameOrPubkey);
+    participants.set(pubkey, { name: nameOrPubkey, pubkey, role });
+  }
+
+  return [...participants.values()];
+}
+
+function resolveDisplayName(name) {
+  const users = runBuzz(["users", "get", "--name", name]);
+  const exactMatches = users.filter(
+    (user) => user.display_name?.trim().toLowerCase() === name.toLowerCase(),
+  );
+
+  if (exactMatches.length === 0) {
+    fail(
+      `No Buzz identity has the exact display name ${JSON.stringify(name)}. Pass its 64-character hex public key instead.`,
+    );
+  }
+  if (exactMatches.length > 1) {
+    fail(
+      `More than one Buzz identity is named ${JSON.stringify(name)}. Pass the intended 64-character hex public key instead.`,
+    );
+  }
+
+  return exactMatches[0].pubkey.toLowerCase();
+}
+
+function rejectRoleConflicts(...groups) {
+  const roles = new Map();
+  for (const group of groups) {
+    for (const participant of group) {
+      const existingRole = roles.get(participant.pubkey);
+      if (existingRole && existingRole !== participant.role) {
+        fail(
+          `${JSON.stringify(participant.name)} was supplied with both ${existingRole} and ${participant.role} roles.`,
+        );
+      }
+      roles.set(participant.pubkey, participant.role);
+    }
+  }
+}
+
+function runBuzz(arguments_, input) {
+  try {
+    return runBuzzOrThrow(arguments_, input);
+  } catch (error) {
+    fail(error.message);
+  }
+}
+
+function runBuzzOrThrow(arguments_, input) {
+  return runJsonOrThrow(buzz, arguments_, {
+    env: buzzEnvironment,
+    input,
+  });
+}
+
+function runJson(command, arguments_, options = {}) {
+  try {
+    return runJsonOrThrow(command, arguments_, options);
+  } catch (error) {
+    fail(error.message);
+  }
+}
+
+function runJsonOrThrow(command, arguments_, options = {}) {
+  const result = spawnSync(command, arguments_, {
+    encoding: "utf8",
+    ...options,
+  });
+
+  if (result.error) {
+    throw new Error(`Could not run ${command}: ${result.error.message}`);
+  }
+  if (result.status !== 0) {
+    const message = result.stderr.trim() || result.stdout.trim();
+    throw new Error(`${command} failed${message ? `: ${message}` : "."}`);
+  }
+
+  try {
+    return JSON.parse(result.stdout);
+  } catch {
+    throw new Error(`${command} returned invalid JSON: ${result.stdout.trim()}`);
+  }
+}
+
+function findBuzz() {
+  if (process.env.BUZZ_BIN) {
+    return process.env.BUZZ_BIN;
+  }
+
+  const bundledBuzz = "/Applications/Buzz.app/Contents/MacOS/buzz";
+  try {
+    accessSync(bundledBuzz, constants.X_OK);
+    return bundledBuzz;
+  } catch {
+    return "buzz";
+  }
+}
+
+function readRequiredFile(path) {
+  try {
+    return readFileSync(path, "utf8").trim();
+  } catch (error) {
+    fail(`Could not read ${path}: ${error.message}`);
+  }
+}
+
+function truncate(value, maximumLength) {
+  if (value.length <= maximumLength) {
+    return value;
+  }
+  return `${value.slice(0, maximumLength - 1).trimEnd()}…`;
+}
+
+function fail(message) {
+  console.error(message);
+  process.exit(1);
+}
+
+function printHelp() {
+  console.log(`Usage:
+  create_issue_channel <issue-number-or-url> --summary <text> [options]
+
+Options:
+  --repo <owner/repo>       Repository for an issue number (default: aaif-goose/goose)
+  --summary <text>          Summary posted as the channel's first message
+  --summary-file <path|->   Read the summary from a file or stdin
+  --owner <name|pubkey>     Add a Buzz identity as an owner; repeatable
+  --person <name|pubkey>    Add a Buzz identity as a member; repeatable
+  --bot <name|pubkey>       Add a Buzz identity as a bot; repeatable
+  --no-core-team            Do not add the default people from the core team file
+  --channel-limit <number>  Maximum duplicate-search results (default: 1000)
+  -h, --help                Show this help
+
+Owners and members from ${coreTeamPath} are added by default, along with their
+associated bots. Set BUZZ_CORE_TEAM_FILE to use another file. Names passed on
+the command line must exactly match a Buzz display name. Public keys must be
+64-character hex.
+If a matching channel already exists, explicitly supplied participants update
+its roster instead of creating a duplicate or posting the summary again. The
+script reads the issue from GitHub but never changes it.`);
+}

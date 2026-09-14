@@ -9,6 +9,7 @@ use rmcp::model::{CallToolRequestParams, CallToolResult, ContentBlock, ErrorData
 
 use crate::agents::extension_manager::ExtensionManager;
 use crate::agents::platform_extensions::MANAGE_EXTENSIONS_TOOL_NAME_COMPLETE;
+use crate::agents::state_machine::ops_llm::{ADVERTISED_TOOLS_NOTE, LLM_OPERATION_NAME};
 use crate::agents::state_machine::ops_tool_approval::request_executable;
 use crate::agents::state_machine::{
     applied, messages_since_kickoff, not_applicable, yielded_with, ConversationEffect, Emitter,
@@ -647,6 +648,7 @@ pub(super) fn pending_tool_requests(messages: &[Message]) -> Vec<(ToolRequest, T
         .filter(|message| message.role == Role::Assistant)
         .flat_map(|message| {
             message.content.iter().filter_map(|c| match c {
+                MessageContent::ToolRequest(req) if req.was_executed_externally() => None,
                 MessageContent::ToolRequest(req) if !answered.contains(&req.id) => {
                     if let Err(parse_error) = &req.tool_call {
                         return Some((
@@ -671,6 +673,43 @@ pub(super) fn pending_tool_requests(messages: &[Message]) -> Vec<(ToolRequest, T
             })
         })
         .collect()
+}
+
+pub(super) fn pending_advertised_tool_requests(
+    messages: &[Message],
+) -> Vec<(ToolRequest, ToolDisposition)> {
+    pending_tool_requests(messages)
+        .into_iter()
+        .filter(|(request, _)| request_was_advertised(messages, request))
+        .collect()
+}
+
+pub(super) fn request_was_advertised(messages: &[Message], request: &ToolRequest) -> bool {
+    let Some(tool_call) = request.tool_call.as_ref().ok() else {
+        return true;
+    };
+    let Some(message) = messages.iter().find(|message| {
+        message.role == Role::Assistant
+            && message.content.iter().any(|content| {
+                content
+                    .as_tool_request()
+                    .is_some_and(|item| item.id == request.id)
+            })
+    }) else {
+        return false;
+    };
+    if message.metadata.inference.is_none() {
+        return true;
+    }
+    message
+        .metadata
+        .operation_note(LLM_OPERATION_NAME, ADVERTISED_TOOLS_NOTE)
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|tools| {
+            tools
+                .iter()
+                .any(|tool| tool.as_str() == Some(tool_call.name.as_ref()))
+        })
 }
 
 #[derive(Clone, Eq, PartialEq)]
@@ -796,7 +835,8 @@ impl Operation<Session, GooseEffect> for ToolExecutionOperation<'_> {
         conversation: &Conversation,
         emit: &Emitter,
     ) -> Result<OperationResult<GooseEffect>> {
-        let mut pending = pending_tool_requests(messages_since_kickoff(conversation)?);
+        let messages = messages_since_kickoff(conversation)?;
+        let mut pending = pending_advertised_tool_requests(messages);
         if pending.is_empty() {
             return not_applicable();
         }
@@ -988,6 +1028,33 @@ impl Operation<Session, GooseEffect> for ToolExecutionOperation<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn externally_dispatched_observations_are_not_pending_execution() {
+        use crate::conversation::message::TOOL_META_EXTERNAL_DISPATCH_KEY;
+
+        let message = Message::assistant().with_tool_request_with_metadata(
+            "external",
+            Ok(CallToolRequestParams::new("registered__tool")),
+            None,
+            Some(serde_json::json!({ TOOL_META_EXTERNAL_DISPATCH_KEY: true })),
+        );
+
+        assert!(pending_tool_requests(&[message]).is_empty());
+    }
+
+    #[test]
+    fn operation_generated_requests_without_inference_remain_executable() {
+        let message = Message::assistant().with_tool_request(
+            "operation-generated",
+            Ok(CallToolRequestParams::new("registered__tool")),
+        );
+
+        let pending = pending_advertised_tool_requests(&[message]);
+
+        assert_eq!(pending.len(), 1);
+        assert!(matches!(pending[0].1, ToolDisposition::Execute));
+    }
 
     #[test]
     fn reads_platform_notification_from_tool_result() {

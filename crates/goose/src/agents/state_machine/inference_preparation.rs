@@ -22,7 +22,6 @@ pub struct GooseInferenceRequestPreparer<'a> {
     pub(crate) goose_mode: &'a Mutex<GooseMode>,
     pub(crate) prompt_manager: &'a Mutex<PromptManager>,
     pub(crate) tool_inspection_manager: &'a ToolInspectionManager,
-    pub(crate) frontend_instructions: &'a Mutex<Option<String>>,
     pub(crate) context_limit: usize,
 }
 
@@ -32,7 +31,7 @@ impl InferenceRequestPreparer<Session> for GooseInferenceRequestPreparer<'_> {
         &self,
         session: &Session,
         conversation: &Conversation,
-        mut input: InferenceInput,
+        input: InferenceInput,
     ) -> Result<PreparedInferenceRequest> {
         #[cfg(feature = "code-mode")]
         let code_execution_mode = self
@@ -51,11 +50,6 @@ impl InferenceRequestPreparer<Session> for GooseInferenceRequestPreparer<'_> {
         }
         let tools =
             crate::agents::reply_parts::prepare_inference_tools(input.tools, code_execution_mode);
-        if let Some(frontend_instructions) = self.frontend_instructions.lock().await.clone() {
-            input
-                .prompt_parts
-                .push(("frontend".to_string(), frontend_instructions));
-        }
         let system_prompt = self.prompt_manager.lock().await.build_system_prompt(
             &session.working_dir,
             input.prompt_parts,

@@ -41,7 +41,6 @@ impl goose_providers::base::ProviderDescriptor for AmpAcpProvider {
                 .with_docs_url("https://ampcode.com")
                 .with_capabilities(true, true, true),
         )
-        .with_model_selection_hint("Use the Amp CLI to configure models")
     }
 }
 

@@ -1,4 +1,4 @@
-use goose_providers::conversation::message::{ActionRequiredData, Message, MessageContent};
+use goose_provider_types::conversation::message::{ActionRequiredData, Message, MessageContent};
 use rmcp::model::Role;
 
 pub fn format_message_for_compacting(msg: &Message) -> String {
@@ -8,6 +8,10 @@ pub fn format_message_for_compacting(msg: &Message) -> String {
         .filter_map(|content| match content {
             MessageContent::Text(text) => Some(text.text.clone()),
             MessageContent::Image(img) => Some(format!("[image: {}]", img.mime_type)),
+            MessageContent::Document(doc) => Some(match &doc.name {
+                Some(name) => format!("[document: {} ({})]", name, doc.mime_type),
+                None => format!("[document: {}]", doc.mime_type),
+            }),
             MessageContent::ToolRequest(req) => {
                 if let Ok(call) = &req.tool_call {
                     Some(format!(
@@ -57,13 +61,6 @@ pub fn format_message_for_compacting(msg: &Message) -> String {
                     id
                 )),
             },
-            MessageContent::FrontendToolRequest(req) => {
-                if let Ok(call) = &req.tool_call {
-                    Some(format!("frontend_tool_request: {}", call.name))
-                } else {
-                    Some("frontend_tool_request: [error]".to_string())
-                }
-            }
             MessageContent::Thinking(_) => None,
             MessageContent::RedactedThinking(_) => None,
             MessageContent::SystemNotification(notification) => {

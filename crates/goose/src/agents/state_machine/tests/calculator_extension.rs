@@ -18,6 +18,7 @@ use crate::agents::mcp_client::{Error as McpError, McpClientTrait};
 use crate::agents::tool_execution::ToolCallContext;
 
 pub(super) const ADD: &str = "calculator__add";
+pub(super) const APP_ONLY: &str = "calculator__app_only";
 pub(super) const ADD_VALUES: &str = "calculator__add_values";
 pub(super) const ADD_WITH_AUDIENCE: &str = "calculator__add_with_audience";
 pub(super) const DIVIDE: &str = "calculator__divide";
@@ -130,6 +131,17 @@ impl McpClientTrait for CalculatorExtension {
                 Arc::new(schema.clone()),
             ),
             Tool::new(
+                "app_only",
+                "Add a value from an app",
+                Arc::new(schema.clone()),
+            )
+            .with_meta(rmcp::model::MetaObject(
+                json!({ "ui": { "visibility": ["app"] } })
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+            )),
+            Tool::new(
                 "add_values",
                 "Add named values to the running total",
                 Arc::new(add_values_schema),
@@ -229,7 +241,7 @@ impl McpClientTrait for CalculatorExtension {
                 (i64::checked_add, value, 0)
             } else {
                 let calculate = match name {
-                    "add" | "add_with_audience" => i64::checked_add,
+                    "add" | "add_with_audience" | "app_only" => i64::checked_add,
                     "divide" => i64::checked_div,
                     "multiply" => i64::checked_mul,
                     "subtract" => i64::checked_sub,

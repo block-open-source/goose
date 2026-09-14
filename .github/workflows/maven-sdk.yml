@@ -1,12 +1,29 @@
 name: Maven GDK
 
 on:
+  workflow_call:
+    inputs:
+      publish:
+        description: "Publish gdk to Maven Central after building"
+        required: false
+        default: false
+        type: boolean
+      smoke-test:
+        description: "Run the Kotlin GDK smoke test"
+        required: false
+        default: true
+        type: boolean
   workflow_dispatch:
     inputs:
       publish:
         description: "Publish gdk to Maven Central after building"
         required: true
         default: false
+        type: boolean
+      smoke-test:
+        description: "Run the Kotlin GDK smoke test"
+        required: true
+        default: true
         type: boolean
 
 permissions:
@@ -28,6 +45,10 @@ jobs:
             os: ubuntu-latest
             container: quay.io/pypa/manylinux_2_28_x86_64@sha256:441c35fdc6ee809ff9260894f8468ab4fea8c15dc880f8700a3f81b7922c1cda
             resource-prefix: linux-x86-64
+          - name: linux-aarch64
+            os: ubuntu-22.04-arm
+            container: quay.io/pypa/manylinux_2_28_aarch64@sha256:8b5f2b4e8c072ae5aefeb659f22c03e1ff46e6a82f154b6c904b106c87e65ff7
+            resource-prefix: linux-aarch64
           - name: win32-x86-64
             os: windows-latest
             resource-prefix: win32-x86-64
@@ -37,10 +58,10 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set up Rust
-        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
+        uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
 
       - name: Cache Cargo artifacts
-        uses: Swatinem/rust-cache@258712b0b7b1ddf8bddc9fc3b0faca682b2736c3 # v2
+        uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
 
       - name: Build native library
         shell: bash
@@ -69,15 +90,17 @@ jobs:
     name: Package Maven artifact
     needs: build-native
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.value }}
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set up Rust
-        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
+        uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
 
       - name: Set up Java
-        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
         with:
           distribution: temurin
           java-version: "17"
@@ -108,12 +131,20 @@ jobs:
         working-directory: crates/goose-sdk/maven
         run: gradle --no-daemon publishToMavenLocal
 
-      - name: Stage Maven local artifacts
+      - name: Resolve Maven version
+        id: version
         shell: bash
         run: |
           version=$(grep -m1 '^version =' crates/goose-sdk/Cargo.toml | sed -E 's/version = "([^"]+)"/\1/')
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Stage Maven local artifacts
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
           mkdir -p maven-artifacts
-          cp -R "$HOME/.m2/repository/io/github/aaif-goose/gdk/$version" maven-artifacts/
+          cp -R "$HOME/.m2/repository/io/github/aaif-goose/gdk/$VERSION" maven-artifacts/
 
       - name: Upload Maven artifact bundle
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -122,21 +153,70 @@ jobs:
           path: maven-artifacts/**
           if-no-files-found: error
 
+  smoke-test-linux-aarch64:
+    name: Smoke test Kotlin GDK (linux-aarch64)
+    needs: package
+    if: inputs.smoke-test
+    runs-on: ubuntu-22.04-arm
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Java
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+
+      - name: Download Maven artifact bundle
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: goose-sdk-maven
+          path: maven-artifacts
+
+      - name: Install Maven artifact bundle into local repository
+        shell: bash
+        run: |
+          version=$(grep -m1 '^version =' crates/goose-sdk/Cargo.toml | sed -E 's/version = "([^"]+)"/\1/')
+          target="$HOME/.m2/repository/io/github/aaif-goose/gdk/$version"
+          mkdir -p "$target"
+          find maven-artifacts -type f -exec cp -t "$target" {} +
+
+      - name: Load native library in an ARM64 JVM
+        shell: bash
+        working-directory: crates/goose-sdk/examples/uniffi/kotlin
+        run: |
+          gradle --no-daemon installDist
+          cat > "$RUNNER_TEMP/LoadNativeLibrary.java" <<'JAVA'
+          public class LoadNativeLibrary {
+              public static void main(String[] args) {
+                  System.out.println(io.github.aaif_goose.GooseKt.openaiDefaultModel());
+              }
+          }
+          JAVA
+          java -cp "$(find build/install -name '*.jar' | paste -sd: -)" "$RUNNER_TEMP/LoadNativeLibrary.java"
+
   publish:
     name: Publish to Maven Central
-    needs: package
+    needs: [package, smoke-test-linux-aarch64]
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' && inputs.publish
+    if: inputs.publish && !cancelled() && needs.package.result == 'success' && (!inputs.smoke-test || needs.smoke-test-linux-aarch64.result == 'success')
     environment: maven-central
+    concurrency:
+      group: gdk-maven-release-${{ needs.package.outputs.version }}
+      cancel-in-progress: false
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set up Rust
-        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
+        uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
 
       - name: Set up Java
-        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
         with:
           distribution: temurin
           java-version: "17"

@@ -6,22 +6,21 @@ use std::collections::HashMap;
 use crate::config::declarative_providers::DeclarativeProviderConfig;
 use crate::config::Config;
 use crate::providers::base::{ProviderDef, DEFAULT_PROVIDER_TIMEOUT_SECS};
+use crate::providers::command_auth::CommandAuthProvider;
 use crate::providers::custom_provider_config::ConfigKeyResolver;
+use crate::session_context::{
+    session_id_request_builder, session_id_request_builder_with_header_override,
+};
 use goose_providers::api_client::{ApiClient, AuthMethod};
 use goose_providers::openai::{
     parse_custom_headers, parse_openai_base_url, OpenAiProvider, OpenAiProviderBuilder,
-    OPEN_AI_DEFAULT_BASE_PATH, OPEN_AI_DEFAULT_FAST_MODEL, OPEN_AI_VERSIONLESS_BASE_PATH,
+    OPEN_AI_DEFAULT_BASE_PATH, OPEN_AI_VERSIONLESS_BASE_PATH,
 };
 
 pub struct OpenAiProviderDef;
 
 impl ProviderDescriptor for OpenAiProviderDef {
     fn metadata() -> goose_providers::base::ProviderMetadata {
-        // The default fast model is resolved live in `live_fast_model` rather
-        // than baked into metadata here: registry metadata is snapshotted at
-        // init time, but the OpenAI base URL can change at runtime (e.g.
-        // switching to an OpenAI-compatible endpoint), which would otherwise
-        // leave the cached fast model stale.
         OpenAiProvider::metadata().with_setup(
             crate::providers::catalog::ProviderSetupMetadata::new(
                 crate::providers::catalog::ProviderSetupCategory::Model,
@@ -36,15 +35,6 @@ impl ProviderDescriptor for OpenAiProviderDef {
                 None,
             ),
         )
-    }
-}
-
-pub fn live_fast_model() -> Option<String> {
-    match resolve_base_url(crate::config::Config::global()) {
-        Ok(parsed) if is_direct_openai_host(&parsed.host) => {
-            Some(OPEN_AI_DEFAULT_FAST_MODEL.to_string())
-        }
-        _ => None,
     }
 }
 
@@ -128,7 +118,7 @@ pub async fn from_env(
         std::time::Duration::from_secs(timeout_secs),
         tls_config,
     )?
-    .with_request_builder(crate::session_context::session_id_request_builder());
+    .with_request_builder(session_id_request_builder());
 
     if !parsed.query_params.is_empty() {
         api_client = api_client.with_query(parsed.query_params);
@@ -217,6 +207,10 @@ pub fn from_custom_config(
     config: DeclarativeProviderConfig,
     tls_config: Option<goose_providers::api_client::TlsConfig>,
 ) -> Result<OpenAiProvider> {
+    let auth_override = config.auth.clone();
+    let request_builder = session_id_request_builder_with_header_override(
+        config.session_id_header_override.as_deref(),
+    )?;
     goose_providers::openai::from_declarative_config(
         config,
         tls_config,
@@ -225,8 +219,13 @@ pub fn from_custom_config(
     .map(|builder| {
         builder
             .map_api_client(|api_client| {
-                api_client
-                    .with_request_builder(crate::session_context::session_id_request_builder())
+                let api_client = api_client.with_request_builder(request_builder);
+                match auth_override {
+                    Some(auth_config) => api_client.with_auth(AuthMethod::Custom(Box::new(
+                        CommandAuthProvider::new(&auth_config, "Authorization", "Bearer "),
+                    ))),
+                    None => api_client,
+                }
             })
             .build()
     })

@@ -3,14 +3,15 @@
 # Enable strict mode to exit on errors and unset variables
 set -euo pipefail
 
+ORIGINAL_CWD="$(pwd -P)"
+
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Source the common setup script
 source "${SCRIPT_DIR}/node-setup-common.sh"
+cd -- "${ORIGINAL_CWD}"
 
 # Final step: Execute node with passed arguments
 log "Executing 'node' command with arguments: ${*}"
-node "${@}" || log "Failed to execute 'node' with arguments: ${*}"
-
-log "node script completed successfully."
+exec node "${@}"

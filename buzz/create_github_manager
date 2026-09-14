@@ -1,0 +1,268 @@
+#!/usr/bin/env node
+
+import { createECDH, randomBytes } from "node:crypto";
+import {
+  accessSync,
+  chmodSync,
+  constants,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
+const identityName = "Github Manager";
+const relayUrl = process.env.BUZZ_RELAY_URL || "https://buzz.gdk.so";
+const configHome =
+  process.env.XDG_CONFIG_HOME || join(homedir(), ".config");
+const buzzHome =
+  process.env.GOOSE_BUZZ_HOME || join(configHome, "goose", "buzz");
+const identityDirectory = join(buzzHome, "github-manager");
+const privateKeyPath = join(identityDirectory, "private-key.nsec");
+const publicKeyPath = join(identityDirectory, "public-key.npub");
+const publicKeyHexPath = join(identityDirectory, "public-key.hex");
+const profileCreatedPath = join(identityDirectory, "profile-created");
+const keyPaths = [privateKeyPath, publicKeyPath, publicKeyHexPath];
+const avatarPath = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "assets",
+  "GithubManager.png",
+);
+
+const existingKeyPaths = keyPaths.filter(existsSync);
+let nsec;
+let npub;
+let publicKeyHex;
+if (existingKeyPaths.length > 0) {
+  if (existingKeyPaths.length !== keyPaths.length) {
+    console.error(
+      `Refusing to change the incomplete Github Manager key pair in ${identityDirectory}`,
+    );
+    process.exit(1);
+  }
+
+  chmodSync(identityDirectory, 0o700);
+  for (const keyPath of keyPaths) {
+    chmodSync(keyPath, 0o600);
+  }
+
+  nsec = readFileSync(privateKeyPath, "utf8").trim();
+  npub = readFileSync(publicKeyPath, "utf8").trim();
+  publicKeyHex = readFileSync(publicKeyHexPath, "utf8").trim();
+  console.log(`Github Manager keys already exist: ${npub}`);
+  console.log(`Keys: ${identityDirectory}`);
+  if (existsSync(profileCreatedPath)) {
+    chmodSync(profileCreatedPath, 0o600);
+    console.log("No key or profile changes were made.");
+    process.exit(0);
+  }
+  console.log("The profile marker is missing; recreating the Buzz profile.");
+} else {
+  mkdirSync(identityDirectory, { recursive: true, mode: 0o700 });
+  chmodSync(identityDirectory, 0o700);
+
+  const { privateKey, publicKey } = generateKeyPair();
+  publicKeyHex = publicKey.toString("hex");
+  nsec = bech32Encode("nsec", privateKey);
+  npub = bech32Encode("npub", publicKey);
+
+  writeSecret(privateKeyPath, nsec);
+  writeSecret(publicKeyPath, npub);
+  writeSecret(publicKeyHexPath, publicKeyHex);
+
+  console.log(`Generated ${identityName}: ${npub}`);
+  console.log(`Public key (hex): ${publicKeyHex}`);
+  console.log(`Keys: ${identityDirectory}`);
+}
+
+const buzz = findBuzz();
+const buzzEnvironment = {
+  ...process.env,
+  BUZZ_PRIVATE_KEY: nsec,
+};
+const uploadResult = spawnSync(
+  buzz,
+  ["--relay", relayUrl, "upload", "file", "--file", avatarPath],
+  {
+    encoding: "utf8",
+    env: buzzEnvironment,
+  },
+);
+
+if (uploadResult.error) {
+  console.error("The Github Manager avatar was not uploaded.");
+  console.error(`Could not run Buzz: ${uploadResult.error.message}`);
+  process.exit(1);
+}
+
+if (uploadResult.status !== 0) {
+  console.error("The Github Manager avatar was not uploaded.");
+  process.stderr.write(uploadResult.stderr);
+  process.exit(uploadResult.status || 1);
+}
+
+let avatarUrl;
+try {
+  avatarUrl = JSON.parse(uploadResult.stdout).url;
+} catch {
+  console.error("Buzz returned an invalid response after uploading the avatar.");
+  process.exit(1);
+}
+
+if (!avatarUrl) {
+  console.error("Buzz did not return a URL for the uploaded avatar.");
+  process.exit(1);
+}
+
+const profileResult = spawnSync(
+  buzz,
+  [
+    "--relay",
+    relayUrl,
+    "users",
+    "set-profile",
+    "--name",
+    identityName,
+    "--avatar",
+    avatarUrl,
+  ],
+  {
+    encoding: "utf8",
+    env: buzzEnvironment,
+  },
+);
+
+if (profileResult.error) {
+  console.error("The Buzz profile was not created.");
+  console.error(`Could not run Buzz: ${profileResult.error.message}`);
+  process.exit(1);
+}
+
+if (profileResult.status !== 0) {
+  console.error("The Buzz profile was not created.");
+  process.stderr.write(profileResult.stderr);
+  process.exit(profileResult.status || 1);
+}
+
+writeSecret(profileCreatedPath, new Date().toISOString());
+
+if (profileResult.stdout) {
+  process.stdout.write(profileResult.stdout);
+}
+console.log(`Created the ${identityName} Buzz profile.`);
+
+function writeSecret(path, value) {
+  writeFileSync(path, `${value}\n`, { flag: "wx", mode: 0o600 });
+  chmodSync(path, 0o600);
+}
+
+function generateKeyPair() {
+  while (true) {
+    const privateKey = randomBytes(32);
+    const ecdh = createECDH("secp256k1");
+
+    try {
+      ecdh.setPrivateKey(privateKey);
+      const compressedPublicKey = ecdh.getPublicKey(undefined, "compressed");
+      return {
+        privateKey,
+        publicKey: compressedPublicKey.subarray(1),
+      };
+    } catch {
+      continue;
+    }
+  }
+}
+
+function findBuzz() {
+  if (process.env.BUZZ_BIN) {
+    return process.env.BUZZ_BIN;
+  }
+
+  const bundledBuzz = "/Applications/Buzz.app/Contents/MacOS/buzz";
+  try {
+    accessSync(bundledBuzz, constants.X_OK);
+    return bundledBuzz;
+  } catch {
+    return "buzz";
+  }
+}
+
+function bech32Encode(prefix, bytes) {
+  const alphabet = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
+  const words = convertBits(bytes, 8, 5);
+  const checksumInput = [
+    ...expandPrefix(prefix),
+    ...words,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+  ];
+  const checksum = polymod(checksumInput) ^ 1;
+  const checksumWords = Array.from(
+    { length: 6 },
+    (_, index) => (checksum >> (5 * (5 - index))) & 31,
+  );
+
+  return `${prefix}1${[...words, ...checksumWords]
+    .map((word) => alphabet[word])
+    .join("")}`;
+}
+
+function convertBits(bytes, fromBits, toBits) {
+  let accumulator = 0;
+  let bitCount = 0;
+  const result = [];
+  const mask = (1 << toBits) - 1;
+
+  for (const byte of bytes) {
+    accumulator = (accumulator << fromBits) | byte;
+    bitCount += fromBits;
+
+    while (bitCount >= toBits) {
+      bitCount -= toBits;
+      result.push((accumulator >> bitCount) & mask);
+    }
+  }
+
+  if (bitCount > 0) {
+    result.push((accumulator << (toBits - bitCount)) & mask);
+  }
+
+  return result;
+}
+
+function expandPrefix(prefix) {
+  return [
+    ...Array.from(prefix, (character) => character.charCodeAt(0) >> 5),
+    0,
+    ...Array.from(prefix, (character) => character.charCodeAt(0) & 31),
+  ];
+}
+
+function polymod(values) {
+  const generators = [
+    0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3,
+  ];
+  let checksum = 1;
+
+  for (const value of values) {
+    const top = checksum >>> 25;
+    checksum = ((checksum & 0x1ffffff) << 5) ^ value;
+
+    for (let index = 0; index < generators.length; index += 1) {
+      if ((top >> index) & 1) {
+        checksum ^= generators[index];
+      }
+    }
+  }
+
+  return checksum;
+}

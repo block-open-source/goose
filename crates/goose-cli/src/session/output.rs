@@ -1,5 +1,5 @@
 use crate::session::builder::ExtensionFailure;
-use anstream::{adapter::strip_str, println};
+use anstream::{adapter::strip_str, eprintln, println};
 use bat::WrappingMode;
 use console::{measure_text_width, style, Color, StyledObject, Term};
 use goose::config::Config;
@@ -118,6 +118,27 @@ pub fn set_theme(theme: Theme) {
     if let Err(e) = config.set_param("GOOSE_CLI_THEME", theme_str) {
         eprintln!("Failed to save theme setting to config: {}", e);
     }
+}
+
+/// Ring the terminal bell so an unfocused terminal can badge or chime.
+/// Opt-in via `GOOSE_CLI_BELL=true` (environment or config); terminals
+/// decide how to surface it, typically only when the window lacks focus.
+pub fn emit_attention_bell() {
+    if !bell_enabled() {
+        return;
+    }
+    let mut stdout = std::io::stdout();
+    if !stdout.is_terminal() {
+        return;
+    }
+    let _ = stdout.write_all(b"\x07");
+    let _ = stdout.flush();
+}
+
+fn bell_enabled() -> bool {
+    Config::global()
+        .get_param::<bool>("GOOSE_CLI_BELL")
+        .unwrap_or(false)
 }
 
 pub fn get_theme() -> Theme {
@@ -561,7 +582,7 @@ fn should_show_thinking() -> bool {
 }
 
 fn render_thinking(text: &str, theme: Theme) {
-    if should_show_thinking() {
+    if should_show_thinking() && !text.is_empty() {
         println!("\n{}", style("Thinking:").dim().italic());
         print_markdown(text, theme);
     }
@@ -573,7 +594,7 @@ fn render_thinking_streaming(
     header_shown: &mut bool,
     theme: Theme,
 ) {
-    if should_show_thinking() {
+    if should_show_thinking() && !text.is_empty() {
         flush_markdown_buffer(buffer, theme);
         if !*header_shown {
             println!("\n{}", style("Thinking:").dim().italic());
@@ -650,6 +671,68 @@ pub(super) fn sanitize_terminal_line(line: &str) -> String {
         .flat_map(str::chars)
         .filter(|character| *character == '\t' || !character.is_control())
         .collect()
+}
+
+fn sanitize_tool_confirmation_line(line: &str) -> String {
+    let mut sanitized = String::with_capacity(line.len());
+    for character in sanitize_terminal_line(line).chars() {
+        if matches!(
+            character,
+            '\u{061c}'
+                | '\u{200e}'
+                | '\u{200f}'
+                | '\u{202a}'..='\u{202e}'
+                | '\u{2066}'..='\u{2069}'
+        ) {
+            sanitized.push_str(&format!("\\u{:04x}", character as u32));
+        } else {
+            sanitized.push(character);
+        }
+    }
+    sanitized
+}
+
+fn sanitize_tool_confirmation_text(text: &str) -> String {
+    text.split('\n')
+        .map(sanitize_tool_confirmation_line)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+pub(super) fn format_tool_confirmation(tool_name: &str, arguments: &JsonObject) -> String {
+    let mut request = JsonObject::new();
+    request.insert(
+        "tool_name".to_string(),
+        Value::String(tool_name.to_string()),
+    );
+    request.insert("arguments".to_string(), Value::Object(arguments.clone()));
+
+    serde_json::to_string_pretty(&Value::Object(request))
+        .expect("tool confirmation request must serialize")
+        .lines()
+        .map(sanitize_tool_confirmation_line)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+pub(super) fn render_tool_confirmation(
+    tool_name: &str,
+    arguments: &JsonObject,
+    security_prompt: Option<&str>,
+) {
+    eprintln!();
+    if let Some(security_prompt) = security_prompt {
+        eprintln!("  {}", style("Provider-provided approval notice").bold());
+        for line in sanitize_tool_confirmation_text(security_prompt).split('\n') {
+            eprintln!("    {}", style(line).dim());
+        }
+        eprintln!();
+    }
+    eprintln!("  {}", style("Tool approval request").bold());
+    for line in format_tool_confirmation(tool_name, arguments).lines() {
+        eprintln!("    {}", style(line).dim());
+    }
+    eprintln!();
 }
 
 fn print_tool_output_line(line: &str) {
@@ -1707,6 +1790,171 @@ mod tests {
             sanitize_terminal_line("goose 🪿\t日本語"),
             "goose 🪿\t日本語"
         );
+    }
+
+    #[test]
+    fn tool_confirmation_shows_execute_code_and_graph() {
+        let arguments = json!({
+            "code": "await developer.shell({ command: \"cat ~/.ssh/id_rsa\" });",
+            "tool_graph": [{
+                "tool": "developer/read",
+                "description": "read package manifest",
+                "depends_on": []
+            }]
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+
+        let rendered = format_tool_confirmation("execute_typescript", &arguments);
+
+        assert!(rendered.contains("execute_typescript"));
+        assert!(rendered.contains("read package manifest"));
+        assert!(rendered.contains("cat ~/.ssh/id_rsa"));
+    }
+
+    #[test]
+    fn tool_confirmation_shows_load_arguments() {
+        let arguments = json!({"source": "private-recipe", "cancel": true})
+            .as_object()
+            .unwrap()
+            .clone();
+
+        let rendered = format_tool_confirmation("load", &arguments);
+
+        assert!(rendered.contains("\"tool_name\": \"load\""));
+        assert!(rendered.contains("\"source\": \"private-recipe\""));
+        assert!(rendered.contains("\"cancel\": true"));
+    }
+
+    #[test]
+    fn tool_confirmation_does_not_truncate_delegate_instructions() {
+        let instructions = format!("{} then run the final delegated command", "A".repeat(120));
+        let arguments = json!({"instructions": instructions.clone()})
+            .as_object()
+            .unwrap()
+            .clone();
+
+        let rendered = format_tool_confirmation("delegate", &arguments);
+
+        assert!(rendered.contains(&instructions));
+        assert!(!rendered.contains('…'));
+    }
+
+    #[test]
+    fn tool_confirmation_escapes_terminal_controls() {
+        let arguments = json!({
+            "command": "echo safe\u{1b}[2J\u{1b}]0;spoofed title\u{7}"
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+
+        let rendered = format_tool_confirmation("Bash\u{1b}[31m", &arguments);
+
+        assert!(rendered.contains("Bash\\u001b[31m"));
+        assert!(rendered.contains("safe\\u001b[2J"));
+        assert!(rendered.contains("title\\u0007"));
+        assert!(!rendered.contains('\u{1b}'));
+        assert!(!rendered.contains('\u{7}'));
+    }
+
+    #[test]
+    fn tool_confirmation_escapes_bidi_controls() {
+        let controls = [
+            '\u{061c}', '\u{200e}', '\u{200f}', '\u{202a}', '\u{202b}', '\u{202c}', '\u{202d}',
+            '\u{202e}', '\u{2066}', '\u{2067}', '\u{2068}', '\u{2069}',
+        ];
+        let untrusted = controls.iter().collect::<String>();
+        let arguments = json!({"command": format!("before{untrusted}after")})
+            .as_object()
+            .unwrap()
+            .clone();
+
+        let rendered = format_tool_confirmation(&format!("tool{untrusted}"), &arguments);
+
+        for control in controls {
+            assert!(!rendered.contains(control));
+            assert!(rendered.contains(&format!("\\u{:04x}", control as u32)));
+        }
+    }
+
+    #[test]
+    fn tool_confirmation_preserves_plain_unicode_text() {
+        let arguments = json!({"query": "שלום مرحبا 日本語 🪿"})
+            .as_object()
+            .unwrap()
+            .clone();
+
+        let rendered = format_tool_confirmation("検索", &arguments);
+
+        assert!(rendered.contains("שלום مرحبا 日本語 🪿"));
+        assert!(rendered.contains("検索"));
+    }
+
+    #[test]
+    fn tool_confirmation_sanitizes_unterminated_control_strings() {
+        let rendered = sanitize_tool_confirmation_text(
+            "visible bidi\u{202e}\nvisible OSC\u{1b}]unterminated\nvisible DCS\u{1b}Punterminated",
+        );
+
+        assert!(rendered.contains("visible OSC"));
+        assert!(rendered.contains("visible DCS"));
+        assert!(!rendered.contains('\u{1b}'));
+        assert!(!rendered.contains('\u{202e}'));
+        assert!(rendered.contains("\\u202e"));
+    }
+
+    #[test]
+    fn tool_confirmation_renders_authoritative_details_on_stderr() {
+        const CHILD_ENV: &str = "GOOSE_TEST_TOOL_CONFIRMATION_STDERR_CHILD";
+        const AUTHORITATIVE_TOKEN: &str = "authoritative-redirect-token";
+        const PROVIDER_TOKEN: &str = "provider-prompt-token";
+
+        if env::var_os(CHILD_ENV).is_some() {
+            let forged_request = (0..80)
+                .map(|line| format!("forged safe request line {line}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let provider_prompt = format!(
+                "{forged_request}\n{PROVIDER_TOKEN} OSC\u{1b}]unterminated\nDCS\u{1b}Punterminated"
+            );
+            let arguments = json!({"command": AUTHORITATIVE_TOKEN})
+                .as_object()
+                .unwrap()
+                .clone();
+            render_tool_confirmation("shell", &arguments, Some(&provider_prompt));
+            return;
+        }
+
+        let output = std::process::Command::new(env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "session::output::tests::tool_confirmation_renders_authoritative_details_on_stderr",
+                "--nocapture",
+            ])
+            .env(CHILD_ENV, "1")
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(!stdout.contains(AUTHORITATIVE_TOKEN));
+        assert!(!stdout.contains(PROVIDER_TOKEN));
+        assert!(stderr.contains(AUTHORITATIVE_TOKEN));
+        assert!(stderr.contains(PROVIDER_TOKEN));
+        assert!(stderr.contains("forged safe request line 79"));
+        let provider_notice = stderr.find("Provider-provided approval notice").unwrap();
+        let provider_content = stderr.find(PROVIDER_TOKEN).unwrap();
+        let authoritative_block = stderr.find("Tool approval request").unwrap();
+        assert!(provider_notice < provider_content);
+        assert!(provider_content < authoritative_block);
+        let authoritative_tail = stderr.get(authoritative_block..).unwrap();
+        assert!(authoritative_tail.contains(AUTHORITATIVE_TOKEN));
+        assert!(!authoritative_tail.contains(PROVIDER_TOKEN));
+        assert!(!stderr.contains("\u{1b}]"));
+        assert!(!stderr.contains("\u{1b}P"));
     }
 
     #[test]

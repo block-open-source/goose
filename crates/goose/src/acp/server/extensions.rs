@@ -59,20 +59,6 @@ impl GooseAcpAgent {
         })
     }
 
-    pub(super) async fn on_get_available_extensions(
-        &self,
-    ) -> Result<GetAvailableExtensionsResponse, agent_client_protocol::Error> {
-        let extensions = crate::config::get_available_extensions()
-            .into_iter()
-            .map(|config| config_to_goose_extension(&config))
-            .collect::<Result<Vec<_>, _>>()?
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>();
-
-        Ok(GetAvailableExtensionsResponse { extensions })
-    }
-
     pub(super) async fn on_add_config_extension(
         &self,
         req: AddConfigExtensionRequest,
@@ -245,9 +231,6 @@ fn config_to_goose_extension(
                 available_tools: available_tools_to_wire(available_tools),
             }
         }
-        ExtensionConfig::Frontend { .. }
-        | ExtensionConfig::InlinePython { .. }
-        | ExtensionConfig::Sse { .. } => return Ok(None),
     };
     Ok(Some(extension))
 }
@@ -642,64 +625,6 @@ mod tests {
         assert_eq!(http.headers.len(), 1);
         assert_eq!(http.headers[0].name, "Authorization");
         assert_eq!(http.headers[0].value, "Bearer ${API_TOKEN}");
-    }
-
-    #[test]
-    fn inline_python_config_is_skipped() {
-        let config = ExtensionConfig::InlinePython {
-            name: "python-tools".to_string(),
-            description: "Python tools".to_string(),
-            code: "print('hello')".to_string(),
-            timeout: Some(12),
-            dependencies: Some(vec!["requests".to_string()]),
-            available_tools: vec!["fetch".to_string()],
-        };
-
-        let extension = config_to_goose_extension(&config).expect("conversion should succeed");
-
-        assert!(extension.is_none());
-    }
-
-    #[test]
-    fn frontend_config_is_skipped() {
-        let tool = rmcp::model::Tool::new(
-            "pick_color",
-            "Pick a color",
-            serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "hex": { "type": "string" }
-                }
-            })
-            .as_object()
-            .expect("schema should be object")
-            .clone(),
-        );
-        let config = ExtensionConfig::Frontend {
-            name: "frontend-tools".to_string(),
-            description: "Frontend tools".to_string(),
-            tools: vec![tool],
-            instructions: Some("Use frontend tools carefully".to_string()),
-            bundled: None,
-            available_tools: vec!["pick_color".to_string()],
-        };
-
-        let extension = config_to_goose_extension(&config).expect("conversion should succeed");
-
-        assert!(extension.is_none());
-    }
-
-    #[test]
-    fn sse_config_is_skipped() {
-        let config = ExtensionConfig::Sse {
-            name: "legacy-sse".to_string(),
-            description: "Legacy SSE".to_string(),
-            uri: Some("https://example.com/sse".to_string()),
-        };
-
-        let extension = config_to_goose_extension(&config).expect("conversion should succeed");
-
-        assert!(extension.is_none());
     }
 
     #[test]

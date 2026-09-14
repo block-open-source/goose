@@ -18,6 +18,7 @@ import ToolCallConfirmation from './ToolCallConfirmation';
 import ElicitationRequest from './ElicitationRequest';
 import MessageCopyLink from './MessageCopyLink';
 import MessageUsageStats from './MessageUsageStats';
+import { getTextDirection } from '../utils/textDirection';
 import { cn } from '../utils';
 import type { ToolRenderState } from './messageRowContext';
 import {
@@ -78,6 +79,7 @@ function GooseMessage({
     streamingRenderCooldownMs
   );
   const toolConfirmationContent = getToolConfirmationContent(message);
+  const messageDir = useMemo(() => getTextDirection(displayText) ?? undefined, [displayText]);
   const elicitationContent = getElicitationContent(message);
   const hasToolConfirmation = toolConfirmationContent !== undefined;
   const hasElicitation = elicitationContent !== undefined;
@@ -110,7 +112,7 @@ function GooseMessage({
         {(displayText.trim() || imagePaths.length > 0) && (
           <div className="flex flex-col group">
             {displayText.trim() && (
-              <div ref={contentRef} className="agent-message-bubble w-full">
+              <div ref={contentRef} className="agent-message-bubble w-full" dir={messageDir}>
                 <MarkdownContent content={markdownText} />
               </div>
             )}

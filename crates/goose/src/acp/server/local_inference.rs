@@ -87,6 +87,7 @@ impl GooseAcpAgent {
         {
             crate::providers::local_inference::configure_huggingface_auth();
             crate::providers::local_inference::management::delete_model(&req.model_id)
+                .await
                 .invalid_params_err()?;
             Ok(EmptyResponse {})
         }

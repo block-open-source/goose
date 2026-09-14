@@ -1,13 +1,17 @@
 use super::api_client::{ApiClient, AuthMethod, AuthProvider};
 use super::base::{
-    ConfigKey, MessageStream, Provider, ProviderDef, ProviderMetadata,
+    ConfigKey, MessageStream, ModelInfo, Provider, ProviderDef, ProviderMetadata,
     DEFAULT_PROVIDER_TIMEOUT_SECS,
 };
+use super::command_auth::CommandAuthProvider;
 use super::huggingface_auth;
 use super::openai_compatible::OpenAiCompatibleProvider;
 use crate::config::declarative_providers::DeclarativeProviderConfig;
 use crate::config::{Config, ConfigError};
 use crate::conversation::message::Message;
+use crate::session_context::{
+    session_id_request_builder, session_id_request_builder_with_header_override,
+};
 use anyhow::{anyhow, Result};
 use futures::future::BoxFuture;
 use goose_providers::errors::ProviderError;
@@ -48,7 +52,7 @@ type EndpointParts = (String, String, QueryParams);
 
 pub struct HuggingFaceProvider {
     inner: OpenAiCompatibleProvider,
-    custom_models: Option<Vec<String>>,
+    custom_models: Option<Vec<ModelInfo>>,
     dynamic_models: Option<bool>,
 }
 
@@ -75,7 +79,7 @@ impl HuggingFaceProvider {
         config: DeclarativeProviderConfig,
         tls_config: Option<crate::providers::api_client::TlsConfig>,
     ) -> Result<Self> {
-        let custom_models = static_model_names(&config);
+        let custom_models = static_models(&config);
         if config.dynamic_models == Some(false) && custom_models.is_none() {
             return Err(anyhow!(
                 "Provider '{}' has dynamic_models: false but no static models listed; \
@@ -84,10 +88,21 @@ impl HuggingFaceProvider {
             ));
         }
 
-        let auth_method = custom_auth_method(&config)?;
+        config.validate_auth()?;
+        let auth_method = match config.auth.as_ref() {
+            Some(auth_config) => AuthMethod::Custom(Box::new(CommandAuthProvider::new(
+                auth_config,
+                "Authorization",
+                "Bearer ",
+            ))),
+            None => custom_auth_method(&config)?,
+        };
         let (host, completions_prefix, query_params) =
             openai_compatible_endpoint_parts(&config.base_url, config.base_path.as_deref())?;
 
+        let request_builder = session_id_request_builder_with_header_override(
+            config.session_id_header_override.as_deref(),
+        )?;
         let timeout_secs = config
             .timeout_seconds
             .unwrap_or(DEFAULT_PROVIDER_TIMEOUT_SECS);
@@ -97,7 +112,7 @@ impl HuggingFaceProvider {
             std::time::Duration::from_secs(timeout_secs),
             tls_config,
         )?
-        .with_request_builder(crate::session_context::session_id_request_builder())
+        .with_request_builder(request_builder)
         .with_query(query_params);
 
         if let Some(headers) = &config.headers {
@@ -133,10 +148,25 @@ impl Provider for HuggingFaceProvider {
         self.inner.get_name()
     }
 
+    async fn get_context_limit(&self, model: &str, override_limit: Option<usize>) -> usize {
+        let configured_limits = self
+            .custom_models
+            .iter()
+            .flatten()
+            .filter_map(|model| model.context_limit.map(|limit| (model.name.clone(), limit)));
+        goose_providers::context_limit::ContextLimitResolver::new(self.get_name())
+            .with_configured_limits(configured_limits)
+            .resolve(model, override_limit, || async { Ok(None) })
+            .await
+    }
+
     async fn fetch_supported_models(&self) -> Result<Vec<String>, ProviderError> {
         if let Some(custom_models) = &self.custom_models {
             if self.dynamic_models == Some(false) {
-                return Ok(custom_models.clone());
+                return Ok(custom_models
+                    .iter()
+                    .map(|model| model.name.clone())
+                    .collect());
             }
 
             match self.inner.fetch_supported_models().await {
@@ -147,7 +177,10 @@ impl Provider for HuggingFaceProvider {
                         self.inner.get_name(),
                         e
                     );
-                    return Ok(custom_models.clone());
+                    return Ok(custom_models
+                        .iter()
+                        .map(|model| model.name.clone())
+                        .collect());
                 }
                 Err(e) => return Err(e),
             }
@@ -214,7 +247,7 @@ impl ProviderDef for HuggingFaceProvider {
                 .get_param("HF_HOST")
                 .unwrap_or_else(|_| HUGGINGFACE_API_HOST.to_string());
             let api_client = ApiClient::new_with_tls(host, auth_method, tls_config)?
-                .with_request_builder(crate::session_context::session_id_request_builder());
+                .with_request_builder(session_id_request_builder());
 
             Ok(Self {
                 inner: OpenAiCompatibleProvider::new(
@@ -247,14 +280,8 @@ fn configured_api_key(config: &DeclarativeProviderConfig) -> Result<Option<Strin
     }
 }
 
-fn static_model_names(config: &DeclarativeProviderConfig) -> Option<Vec<String>> {
-    (!config.models.is_empty()).then(|| {
-        config
-            .models
-            .iter()
-            .map(|model| model.name.clone())
-            .collect()
-    })
+fn static_models(config: &DeclarativeProviderConfig) -> Option<Vec<ModelInfo>> {
+    (!config.models.is_empty()).then(|| config.models.clone())
 }
 
 fn custom_auth_method(config: &DeclarativeProviderConfig) -> Result<AuthMethod> {
@@ -439,8 +466,8 @@ mod tests {
         config.requires_auth = false;
         config.dynamic_models = Some(false);
         config.models = vec![
-            ModelInfo::new("static-a".to_string(), 128000),
-            ModelInfo::new("static-b".to_string(), 128000),
+            ModelInfo::new("static-a").with_context_limit(128000),
+            ModelInfo::new("static-b").with_context_limit(128000),
         ];
 
         let provider = HuggingFaceProvider::from_custom_config(config, None).unwrap();
@@ -449,6 +476,22 @@ mod tests {
             provider.fetch_supported_models().await.unwrap(),
             vec!["static-a".to_string(), "static-b".to_string()]
         );
+        assert_eq!(provider.get_context_limit("static-a", None).await, 128_000);
+    }
+
+    #[test]
+    fn custom_provider_accepts_command_auth_without_huggingface_token() {
+        let mut config = test_config();
+        config.api_key_env.clear();
+        config.auth = Some(goose_providers::declarative::AuthConfig {
+            command: "echo".to_string(),
+            args: vec!["token".to_string()],
+            refresh_interval: 3600,
+            timeout_seconds: None,
+            cwd: None,
+        });
+
+        HuggingFaceProvider::from_custom_config(config, None).unwrap();
     }
 
     #[test]
@@ -533,17 +576,19 @@ mod tests {
             base_url: HUGGINGFACE_API_HOST.to_string(),
             models: Vec::new(),
             headers: None,
+            session_id_header_override: None,
             timeout_seconds: None,
             supports_streaming: Some(true),
             requires_auth: true,
             catalog_provider_id: None,
             base_path: None,
             env_vars: None,
+            auth: None,
             dynamic_models: None,
             skip_canonical_filtering: false,
             model_doc_link: None,
             setup_steps: vec![],
-            fast_model: None,
+            toolshim: false,
             preserves_thinking: true,
             emit_clear_thinking: false,
             setup: None,

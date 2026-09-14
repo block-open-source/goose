@@ -177,7 +177,19 @@ def parse_variants(block: str) -> list[dict]:
     return variants
 
 
-def parse_signature(signature: str, docs: str) -> Func:
+def parse_arg_defaults(attrs: str) -> dict[str, str]:
+    """Reads argument defaults from `#[uniffi::export(default(arg = value))]`."""
+    defaults: dict[str, str] = {}
+    for group in re.findall(r"default\s*\(([^()]*)\)", attrs):
+        for part in split_top_level(group):
+            name, _, value = part.partition("=")
+            if value:
+                defaults[name.strip()] = value.strip()
+    return defaults
+
+
+def parse_signature(signature: str, docs: str, defaults: dict[str, str] | None = None) -> Func:
+    defaults = defaults or {}
     signature = re.sub(r"\s+", " ", signature).strip().rstrip("{;").strip()
     is_async = " async fn " in f" {signature} "
     match = re.search(r"fn\s+(\w+)\s*\((.*)\)\s*(?:->\s*(.+))?$", signature, re.DOTALL)
@@ -191,7 +203,8 @@ def parse_signature(signature: str, docs: str) -> Func:
             continue
         param_name, _, type_text = part.partition(":")
         if type_text:
-            params.append(Param(param_name.strip(), clean_type(type_text)))
+            name_text = param_name.strip()
+            params.append(Param(name_text, clean_type(type_text), defaults.get(name_text)))
 
     returns, throws = None, None
     if raw_return:
@@ -270,7 +283,7 @@ def parse_bindings(source: str) -> dict[str, list[Item] | list[Func]]:
             continue
         if exported and re.match(r"pub\s+(async\s+)?fn", stripped):
             block = scanner.block()
-            functions.append(parse_signature(block.split("{")[0], docs))
+            functions.append(parse_signature(block.split("{")[0], docs, parse_arg_defaults(attrs)))
             continue
 
         scanner.index += 1

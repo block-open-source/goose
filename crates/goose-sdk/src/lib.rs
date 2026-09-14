@@ -17,3 +17,6 @@ uniffi::setup_scaffolding!("goose");
 
 #[cfg(feature = "uniffi")]
 pub mod bindings;
+
+#[cfg(feature = "uniffi")]
+pub mod observability;

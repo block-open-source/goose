@@ -43,11 +43,11 @@ impl Operation<Session, GooseEffect> for StatusOperation {
         if command.command != "status" {
             return not_applicable();
         }
-        let context_limit = self
-            .provider
-            .get_context_limit(&self.model_config)
-            .await
-            .unwrap_or_else(|_| self.model_config.context_limit());
+        let context_limit = crate::context_limit::get_context_limit(
+            self.provider.as_ref(),
+            &self.model_config.model_name,
+        )
+        .await?;
         let context_tokens = session.usage.total_tokens.unwrap_or(0);
         let lifetime_tokens = session.accumulated_usage.total_tokens.unwrap_or(0);
         let context_pct = if context_limit > 0 {

@@ -141,6 +141,9 @@ function getSubagentSessionId(
 }
 
 function getToolResultContent(toolResult: Record<string, unknown>): ContentBlock[] {
+  if (toolResult.status === 'error') {
+    return typeof toolResult.error === 'string' ? [{ type: 'text', text: toolResult.error }] : [];
+  }
   if (toolResult.status !== 'success') {
     return [];
   }
@@ -534,12 +537,14 @@ function ToolCallView({
   // This is a workaround for cases where the backend doesn't send tool responses
   const isStreamingComplete = !isStreamingMessage;
   const shouldShowAsComplete = isStreamingComplete && !toolResponse;
+  const toolResult = toolResponse?.toolResult as Record<string, unknown> | undefined;
+  const toolResultValue = toolResult?.value as ToolResultValue | undefined;
 
   const loadingStatus: LoadingStatus = !toolResponse
     ? shouldShowAsComplete
       ? 'success'
       : 'loading'
-    : (toolResponse.toolResult as Record<string, unknown>).status === 'error'
+    : toolResult?.status === 'error' || toolResultValue?.isError
       ? 'error'
       : 'success';
 
@@ -553,10 +558,7 @@ function ToolCallView({
     }
   }, [toolResponse, startTime]);
 
-  const toolResults =
-    loadingStatus === 'success' && toolResponse?.toolResult
-      ? getToolResultContent(toolResponse.toolResult)
-      : [];
+  const toolResults = toolResult ? getToolResultContent(toolResult) : [];
   const liveOutput = toolResponse ? '' : liveOutputToString(notifications);
 
   const logs = notifications

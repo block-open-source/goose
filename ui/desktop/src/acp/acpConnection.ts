@@ -1,4 +1,4 @@
-import { DEFAULT_GOOSE_MCP_HOST_CAPABILITIES } from '@aaif/goose-sdk';
+import { DEFAULT_GOOSE_MCP_HOST_CAPABILITIES } from '@aaif/goose-acp-client';
 import { methods, PROTOCOL_VERSION, type InitializeResponse } from '@agentclientprotocol/sdk';
 import { createWebSocketStream } from '@agentclientprotocol/sdk/experimental/ws-client';
 import packageJson from '../../package.json';

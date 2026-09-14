@@ -13,45 +13,19 @@ This directory contains the npm package scaffolding for distributing the
 | `@aaif/goose-binary-linux-x64` | Linux x64 |
 | `@aaif/goose-binary-win32-x64` | Windows x64 |
 
-## Building
-
-From the repository root:
-
-```bash
-# Build for current platform only
-cd ui/sdk
-npm run build:native
-
-# Build for all platforms (requires cross-compilation toolchains)
-npm run build:native:all
-
-# Build for specific platform(s)
-npx tsx scripts/build-native.ts darwin-arm64 linux-x64
-```
-
-The built binaries are placed into `ui/goose-binary/goose-binary-{platform}/bin/`.
-These directories are git-ignored.
-
-Linux native binaries are built with local inference Vulkan support. Linux build
-hosts need Vulkan headers and `glslc`; Linux runtime hosts need the Vulkan loader
-package, such as `libvulkan1` on Debian/Ubuntu or `vulkan-loader` on RPM-based
-distributions.
-
-## Publishing
-
-Publishing is handled by GitHub Actions. See `.github/workflows/publish-npm.yml`.
-
-For manual publishing:
-
-```bash
-# From repository root
-./ui/scripts/publish.sh --real
-```
-
-This will publish all native packages along with `@aaif/goose-sdk`.
-
 ## Usage
 
-These packages are installed as optional dependencies by `@aaif/goose-sdk`, which
-resolves the appropriate package for the user's platform automatically. See
-`ui/sdk/src/resolve-binary.ts` for how the binary path is resolved.
+These are platform-specific implementation dependencies and are not intended
+to be installed directly. Install `@aaif/goose-acp` instead. It installs the
+appropriate package automatically and provides the `goose` command. Each
+binary package contains its native executable. Its platform-specific internal
+command preserves executable permissions during npm packing;
+`@aaif/goose-acp` remains the sole owner of the supported `goose` command.
+
+## Release preparation
+
+The `.github/workflows/publish-npm.yml` workflow downloads the binaries from an
+exact versioned Goose release and prepares the platform package tarballs.
+By default it only uploads the verified tarballs as a workflow artifact. Set
+the manual `publish` input to publish them through the protected npm production
+environment.

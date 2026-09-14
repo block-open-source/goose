@@ -43,6 +43,5 @@
     "Register at portal.salad.com and enable access to the AI Gateway.",
     "Copy your API key from https://portal.salad.com/api-key and paste it above as SALAD_CLOUD_API_KEY.",
     "Select a supported model such as qwen3.6-35b-a3b."
-  ],
-  "fast_model": "qwen3.5-9b"
+  ]
 }

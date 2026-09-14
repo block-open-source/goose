@@ -37,7 +37,7 @@ acp_providers = {
 
 What flows through ACP goes beyond prompts. Editors can delegate file reads (including files you haven't saved yet), run terminal commands, and present permission dialogs natively. Any MCP servers configured in your editor are automatically added as extensions for that goose session, so you don't have to configure them in two places.
 
-See the [ACP clients guide](/docs/guides/acp-clients) for more.
+See the [ACP clients guide](/docs/gdk/acp) for more.
 
 ## Use Any Agent with Goose
 
@@ -79,7 +79,7 @@ I'm walking through this architecture at [AI Native DevCon](https://tessl.io/spe
 
 Pick the UI you like. Pick the agent you like. They don't have to be the same thing.
 
-- [ACP clients guide](/docs/guides/acp-clients)
+- [ACP clients guide](/docs/gdk/acp)
 - [ACP providers guide](/docs/guides/acp-providers)
 - [Goose on GitHub](https://github.com/aaif-goose/goose)
 - [Discord community](https://discord.gg/n8R5VaWDAn)

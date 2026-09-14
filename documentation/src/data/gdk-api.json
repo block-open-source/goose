@@ -1,7 +1,7 @@
 {
   "versions": [
     {
-      "version": "0.1.0-alpha.6",
+      "version": "0.1.0-alpha.9",
       "docVersion": "0.1",
       "source": "crates/goose-sdk/src/bindings.rs",
       "functions": [
@@ -91,6 +91,12 @@
               "name": "token",
               "type": "String",
               "default": null,
+              "docs": ""
+            },
+            {
+              "name": "gateway_path",
+              "type": "Option<String>",
+              "default": "None",
               "docs": ""
             }
           ],
@@ -391,6 +397,29 @@
               ]
             },
             {
+              "name": "Document",
+              "fields": [
+                {
+                  "name": "mime_type",
+                  "type": "String",
+                  "default": null,
+                  "docs": ""
+                },
+                {
+                  "name": "data",
+                  "type": "Vec<u8>",
+                  "default": null,
+                  "docs": ""
+                },
+                {
+                  "name": "name",
+                  "type": "Option<String>",
+                  "default": null,
+                  "docs": ""
+                }
+              ]
+            },
+            {
               "name": "ToolRequest",
               "fields": [
                 {
@@ -408,6 +437,18 @@
                 {
                   "name": "arguments_json",
                   "type": "String",
+                  "default": null,
+                  "docs": ""
+                },
+                {
+                  "name": "provider_metadata_json",
+                  "type": "Option<String>",
+                  "default": null,
+                  "docs": ""
+                },
+                {
+                  "name": "tool_error_json",
+                  "type": "Option<String>",
                   "default": null,
                   "docs": ""
                 }
@@ -627,6 +668,12 @@
               "type": "Option<String>",
               "default": null,
               "docs": ""
+            },
+            {
+              "name": "additional_data_json",
+              "type": "Option<String>",
+              "default": null,
+              "docs": "Provider-specific response fields as a JSON object, present only when the provider reported fields with no canonical `Usage` equivalent."
             }
           ],
           "variants": [],
@@ -667,6 +714,18 @@
                 {
                   "name": "arguments_json",
                   "type": "String",
+                  "default": null,
+                  "docs": ""
+                },
+                {
+                  "name": "index",
+                  "type": "Option<i32>",
+                  "default": null,
+                  "docs": ""
+                },
+                {
+                  "name": "provider_metadata_json",
+                  "type": "Option<String>",
                   "default": null,
                   "docs": ""
                 }
@@ -801,6 +860,12 @@
               "docs": ""
             },
             {
+              "name": "content",
+              "type": "Vec<MessageContent>",
+              "default": null,
+              "docs": "The assistant turn as binding types, ready to append to history and replay on the next request without reparsing `message_json`."
+            },
+            {
               "name": "usage",
               "type": "Option<Usage>",
               "default": null,
@@ -826,6 +891,10 @@
             },
             {
               "name": "Images",
+              "fields": []
+            },
+            {
+              "name": "Documents",
               "fields": []
             },
             {
@@ -861,6 +930,21 @@
               "returns": "Vec<Feature>",
               "throws": null,
               "isAsync": false
+            },
+            {
+              "name": "context_limit",
+              "docs": "",
+              "params": [
+                {
+                  "name": "model",
+                  "type": "ProviderModelConfig",
+                  "default": null,
+                  "docs": ""
+                }
+              ],
+              "returns": "u64",
+              "throws": "GooseError",
+              "isAsync": true
             },
             {
               "name": "stream",
@@ -1024,6 +1108,18 @@
             },
             {
               "name": "total_tokens",
+              "type": "Option<i32>",
+              "default": null,
+              "docs": ""
+            },
+            {
+              "name": "cache_read_input_tokens",
+              "type": "Option<i32>",
+              "default": null,
+              "docs": ""
+            },
+            {
+              "name": "cache_creation_input_tokens",
               "type": "Option<i32>",
               "default": null,
               "docs": ""

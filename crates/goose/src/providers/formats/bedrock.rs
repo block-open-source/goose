@@ -23,6 +23,7 @@ use crate::providers::formats::anthropic::{
 };
 use crate::utils::{sanitize_unicode_tags, strip_unicode_tags};
 use goose_providers::conversation::token_usage::Usage;
+use goose_providers::documents::{unsupported_document_text, UNSUPPORTED_PROVIDER_REASON};
 use goose_providers::model::ModelConfig;
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -204,6 +205,9 @@ pub fn to_bedrock_message_content(content: &MessageContent) -> Result<bedrock::C
         MessageContent::Image(image) => {
             bedrock::ContentBlock::Image(to_bedrock_image(&image.data, &image.mime_type)?)
         }
+        MessageContent::Document(document) => bedrock::ContentBlock::Text(
+            unsupported_document_text(document, UNSUPPORTED_PROVIDER_REASON),
+        ),
         MessageContent::Thinking(thinking) => {
             let mut builder = bedrock::ReasoningTextBlock::builder().text(&thinking.thinking);
             if !thinking.signature.is_empty() {
@@ -230,27 +234,6 @@ pub fn to_bedrock_message_content(content: &MessageContent) -> Result<bedrock::C
             bail!("Error content should not get passed to the provider")
         }
         MessageContent::ToolRequest(tool_req) => {
-            let tool_use_id = tool_req.id.to_string();
-            let tool_use = if let Ok(call) = tool_req.tool_call.as_ref() {
-                bedrock::ToolUseBlock::builder()
-                    .tool_use_id(tool_use_id)
-                    .name(call.name.to_string())
-                    .input(to_bedrock_json(&args_to_value(call.arguments.clone())))
-                    .build()
-            } else {
-                // Unparseable tool call: emit a placeholder tool_use so the paired
-                // tool_result isn't orphaned — Bedrock rejects a tool_use with no name
-                // and a tool_result with no matching tool_use. Mirrors the
-                // OpenAI/Databricks/Anthropic formatters.
-                bedrock::ToolUseBlock::builder()
-                    .tool_use_id(tool_use_id)
-                    .name("unparseable_tool_call")
-                    .input(to_bedrock_json(&args_to_value(None)))
-                    .build()
-            }?;
-            bedrock::ContentBlock::ToolUse(tool_use)
-        }
-        MessageContent::FrontendToolRequest(tool_req) => {
             let tool_use_id = tool_req.id.to_string();
             let tool_use = if let Ok(call) = tool_req.tool_call.as_ref() {
                 bedrock::ToolUseBlock::builder()
@@ -1670,25 +1653,7 @@ mod tests {
 
     #[test]
     fn test_bedrock_inference_config_omits_temperature_for_unsupported_model() {
-        // The Anthropic canonical registry maps this id and reports whether a
-        // custom temperature may be sent; when it cannot, temperature is left
-        // unset so the server default is used.
-        let mut config = ModelConfig::new("us.anthropic.claude-sonnet-4-5-20250929-v1:0");
-        config.temperature = Some(0.5);
-
-        let supported = bedrock_model_supports_temperature(&config);
-        let inference_config = bedrock_inference_config(&config);
-
-        if supported {
-            assert_eq!(inference_config.temperature(), Some(0.5));
-        } else {
-            assert_eq!(inference_config.temperature(), None);
-        }
-    }
-
-    #[test]
-    fn test_bedrock_inference_config_omits_temperature_for_bedrock_registry_unsupported_model() {
-        let mut config = ModelConfig::new("openai.gpt-5.4");
+        let mut config = ModelConfig::new("global.anthropic.claude-sonnet-5");
         config.temperature = Some(0.5);
 
         let inference_config = bedrock_inference_config(&config);

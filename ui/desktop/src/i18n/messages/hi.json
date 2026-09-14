@@ -617,6 +617,9 @@
   "customProviderForm.add": {
     "defaultMessage": "जोड़ें"
   },
+  "customProviderForm.alwaysUseToolshim": {
+    "defaultMessage": "इस प्रदाता के लिए हमेशा Toolshim का उपयोग करें"
+  },
   "customProviderForm.anthropicCompatible": {
     "defaultMessage": "Anthropic संगत"
   },
@@ -926,8 +929,6 @@
   "dirSwitcher.enterPathInvalid": {
     "defaultMessage": "Working directory must be an absolute path"
   },
-
-
   "dirSwitcher.failedToUpdateWorkingDir": {
     "defaultMessage": "कार्यशील निर्देशिका अद्यतन करने में विफल"
   },
@@ -1053,9 +1054,6 @@
   },
   "extensionInfoFields.typeLabel": {
     "defaultMessage": "प्रकार"
-  },
-  "extensionInfoFields.typeSseUnsupported": {
-    "defaultMessage": "SSE (असमर्थित)"
   },
   "extensionInfoFields.typeStandardIo": {
     "defaultMessage": "मानक आईओ (एसटीडीआईओ)"
@@ -1760,13 +1758,10 @@
     "defaultMessage": "यह मॉडल हटाएं? आप इसे बाद में पुनः डाउनलोड कर सकते हैं."
   },
   "localInferenceSettings.description": {
-    "defaultMessage": "API कुंजियों के बिना अनुमान के लिए स्थानीय एलएलएम मॉडल डाउनलोड और प्रबंधित करें। किसी भी जीजीयूएफ मॉडल के लिए हगिंगफेस खोजें या नीचे दिए गए चुनिंदा विकल्पों का उपयोग करें।"
+    "defaultMessage": "API कुंजियों के बिना अनुमान के लिए स्थानीय एलएलएम मॉडल डाउनलोड और प्रबंधित करें। Hugging Face पर GGUF या MLX मॉडल खोजें।"
   },
   "localInferenceSettings.dismiss": {
     "defaultMessage": "खारिज करें"
-  },
-  "localInferenceSettings.download": {
-    "defaultMessage": "डाउनलोड करें"
   },
   "localInferenceSettings.downloadCancelled": {
     "defaultMessage": "डाउनलोड रद्द किया गया"
@@ -1785,9 +1780,6 @@
   },
   "localInferenceSettings.evictFromMemory": {
     "defaultMessage": "Evict from memory"
-  },
-  "localInferenceSettings.featuredModels": {
-    "defaultMessage": "विशेष रुप से प्रदर्शित मॉडल"
   },
   "localInferenceSettings.huggingFaceSignInNote": {
     "defaultMessage": "मॉडल खोजते और डाउनलोड करते समय दर सीमा बढ़ाने के लिए और निजी या गेटेड हगिंग फेस रिपॉजिटरी तक पहुंचने के लिए साइन इन करें।"
@@ -1812,12 +1804,6 @@
   },
   "localInferenceSettings.retry": {
     "defaultMessage": "पुनः प्रयास करें"
-  },
-  "localInferenceSettings.showAllFeatured": {
-    "defaultMessage": "सभी विशेष रुप से प्रदर्शित दिखाएँ ({count} अधिक)"
-  },
-  "localInferenceSettings.showRecommendedOnly": {
-    "defaultMessage": "केवल अनुशंसित दिखाएं"
   },
   "localInferenceSettings.title": {
     "defaultMessage": "स्थानीय अनुमान मॉडल"
@@ -3173,7 +3159,7 @@
     "defaultMessage": "कोई सहेजी गई रेसिपी नहीं"
   },
   "recipesView.noSavedRecipesDescription": {
-    "defaultMessage": "चैट से सहेजी गई रेसिपी यहां दिखाई देगी."
+    "defaultMessage": "सहेजी गई रेसिपी यहां दिखाई देगी."
   },
   "recipesView.openInNewWindow": {
     "defaultMessage": "नई विंडो में खोलें"
@@ -3698,82 +3684,82 @@
     "defaultMessage": "WARP से कनेक्ट होने पर कमांड इंजेक्शन डिटेक्शन सबसे अच्छा काम करता है (वर्गीकरण सेवा तक पहुंचने के लिए आवश्यक)।"
   },
   "sessionActionsHeader.actionsLabel": {
-    "defaultMessage": "Session actions"
+    "defaultMessage": "सत्र क्रियाएँ"
   },
   "sessionActionsHeader.cancel": {
-    "defaultMessage": "Cancel"
+    "defaultMessage": "रद्द करें"
   },
   "sessionActionsHeader.close": {
-    "defaultMessage": "Close"
+    "defaultMessage": "बंद करें"
   },
   "sessionActionsHeader.copiedJson": {
-    "defaultMessage": "Session JSON copied"
+    "defaultMessage": "सत्र JSON कॉपी किया गया"
   },
   "sessionActionsHeader.copiedModelInteractions": {
-    "defaultMessage": "Recent model interactions copied"
+    "defaultMessage": "हाल की मॉडल इंटरैक्शन कॉपी की गईं"
   },
   "sessionActionsHeader.copiedText": {
-    "defaultMessage": "Text copied"
+    "defaultMessage": "टेक्स्ट कॉपी किया गया"
   },
   "sessionActionsHeader.copyJson": {
-    "defaultMessage": "Copy JSON"
+    "defaultMessage": "JSON कॉपी करें"
   },
   "sessionActionsHeader.copyText": {
-    "defaultMessage": "Copy text"
+    "defaultMessage": "टेक्स्ट कॉपी करें"
   },
   "sessionActionsHeader.duplicateFailed": {
-    "defaultMessage": "Failed to duplicate session: {error}"
+    "defaultMessage": "सत्र डुप्लिकेट करने में विफल: {error}"
   },
   "sessionActionsHeader.duplicateSession": {
-    "defaultMessage": "Duplicate session"
+    "defaultMessage": "डुप्लिकेट सत्र"
   },
   "sessionActionsHeader.duplicated": {
-    "defaultMessage": "Session duplicated"
+    "defaultMessage": "सत्र डुप्लिकेट किया गया"
   },
   "sessionActionsHeader.fullTextTitle": {
-    "defaultMessage": "Text value"
+    "defaultMessage": "टेक्स्ट मान"
   },
   "sessionActionsHeader.jsonFailed": {
-    "defaultMessage": "Failed to load session JSON: {error}"
+    "defaultMessage": "सत्र JSON लोड करने में विफल: {error}"
   },
   "sessionActionsHeader.jsonTitle": {
-    "defaultMessage": "Session JSON"
+    "defaultMessage": "सत्र JSON"
   },
   "sessionActionsHeader.loadingJson": {
-    "defaultMessage": "Loading JSON..."
+    "defaultMessage": "JSON लोड हो रहा है..."
   },
   "sessionActionsHeader.modelInteractionsFailed": {
-    "defaultMessage": "Failed to load model interactions: {error}"
+    "defaultMessage": "मॉडल इंटरैक्शन लोड करने में विफल: {error}"
   },
   "sessionActionsHeader.modelInteractionsTitle": {
-    "defaultMessage": "Recent model interactions"
+    "defaultMessage": "हाल की मॉडल इंटरैक्शन"
   },
   "sessionActionsHeader.renameFailed": {
-    "defaultMessage": "Failed to rename session: {error}"
+    "defaultMessage": "सत्र का नाम बदलने में विफल: {error}"
   },
   "sessionActionsHeader.renamePlaceholder": {
-    "defaultMessage": "Enter session name"
+    "defaultMessage": "सत्र का नाम दर्ज करें"
   },
   "sessionActionsHeader.renameSession": {
-    "defaultMessage": "Rename session"
+    "defaultMessage": "सत्र का नाम बदलें"
   },
   "sessionActionsHeader.renameTitle": {
-    "defaultMessage": "Rename Session"
+    "defaultMessage": "सत्र का नाम बदलें"
   },
   "sessionActionsHeader.renamed": {
-    "defaultMessage": "Session renamed"
+    "defaultMessage": "सत्र का नाम बदला गया"
   },
   "sessionActionsHeader.save": {
-    "defaultMessage": "Save"
+    "defaultMessage": "सहेजें"
   },
   "sessionActionsHeader.saving": {
-    "defaultMessage": "Saving..."
+    "defaultMessage": "सहेजा जा रहा है..."
   },
   "sessionActionsHeader.viewJson": {
-    "defaultMessage": "View session JSON"
+    "defaultMessage": "सत्र JSON देखें"
   },
   "sessionActionsHeader.viewModelInteractions": {
-    "defaultMessage": "View recent model interactions"
+    "defaultMessage": "हाल की मॉडल इंटरैक्शन देखें"
   },
   "sessionIndicators.error": {
     "defaultMessage": "सत्र में एक त्रुटि आई"
@@ -3783,6 +3769,9 @@
   },
   "sessionIndicators.streaming": {
     "defaultMessage": "स्ट्रीमिंग"
+  },
+  "sessions.acpBadge": {
+    "defaultMessage": "ACP"
   },
   "sessions.action.delete": {
     "defaultMessage": "सत्र हटाएँ"
@@ -3861,6 +3850,9 @@
   },
   "sessions.importing": {
     "defaultMessage": "आयात किया जा रहा है..."
+  },
+  "sessions.includeAcp": {
+    "defaultMessage": "ACP सत्र शामिल करें"
   },
   "sessions.loadingMore": {
     "defaultMessage": "अधिक सत्र लोड हो रहे हैं..."

@@ -476,13 +476,6 @@ fn fix_tool_calling(mut messages: Vec<Message>) -> (Vec<Message>, Vec<String>) {
                                 resp.id
                             ));
                         }
-                        MessageContentBlock::FrontendToolRequest(req) => {
-                            content_to_remove.push(idx);
-                            issues.push(format!(
-                                "Removed frontend tool request '{}' from assistant message",
-                                req.id
-                            ));
-                        }
                         MessageContentBlock::ToolRequest(req) => {
                             pending_tool_requests.insert(req.id.clone());
                         }

@@ -617,6 +617,9 @@
   "customProviderForm.add": {
     "defaultMessage": "Thêm"
   },
+  "customProviderForm.alwaysUseToolshim": {
+    "defaultMessage": "Luôn sử dụng Toolshim cho nhà cung cấp này"
+  },
   "customProviderForm.anthropicCompatible": {
     "defaultMessage": "Tương thích Anthropic"
   },
@@ -926,8 +929,6 @@
   "dirSwitcher.enterPathInvalid": {
     "defaultMessage": "Working directory must be an absolute path"
   },
-
-
   "dirSwitcher.failedToUpdateWorkingDir": {
     "defaultMessage": "Không thể cập nhật thư mục làm việc"
   },
@@ -1053,9 +1054,6 @@
   },
   "extensionInfoFields.typeLabel": {
     "defaultMessage": "Loại"
-  },
-  "extensionInfoFields.typeSseUnsupported": {
-    "defaultMessage": "SSE (không được hỗ trợ)"
   },
   "extensionInfoFields.typeStandardIo": {
     "defaultMessage": "Standard IO (STDIO)"
@@ -1760,13 +1758,10 @@
     "defaultMessage": "Xóa mô hình này? Bạn có thể tải lại sau."
   },
   "localInferenceSettings.description": {
-    "defaultMessage": "Tải xuống và quản lý các mô hình LLM cục bộ để suy luận mà không cần khóa API. Tìm kiếm các mô hình GGUF hoặc MLX trên HuggingFace, hoặc sử dụng các lựa chọn nổi bật bên dưới."
+    "defaultMessage": "Tải xuống và quản lý các mô hình LLM cục bộ để suy luận mà không cần khóa API. Tìm kiếm các mô hình GGUF hoặc MLX trên Hugging Face."
   },
   "localInferenceSettings.dismiss": {
     "defaultMessage": "Bỏ qua"
-  },
-  "localInferenceSettings.download": {
-    "defaultMessage": "Tải xuống"
   },
   "localInferenceSettings.downloadCancelled": {
     "defaultMessage": "Đã hủy tải xuống"
@@ -1785,9 +1780,6 @@
   },
   "localInferenceSettings.evictFromMemory": {
     "defaultMessage": "Evict from memory"
-  },
-  "localInferenceSettings.featuredModels": {
-    "defaultMessage": "Mô hình nổi bật"
   },
   "localInferenceSettings.huggingFaceSignInNote": {
     "defaultMessage": "Đăng nhập để tăng giới hạn tốc độ khi tìm kiếm và tải xuống mô hình, và để truy cập các kho lưu trữ Hugging Face riêng tư hoặc bị giới hạn."
@@ -1812,12 +1804,6 @@
   },
   "localInferenceSettings.retry": {
     "defaultMessage": "Thử lại"
-  },
-  "localInferenceSettings.showAllFeatured": {
-    "defaultMessage": "Hiển thị tất cả nổi bật (thêm {count})"
-  },
-  "localInferenceSettings.showRecommendedOnly": {
-    "defaultMessage": "Chỉ hiển thị được đề xuất"
   },
   "localInferenceSettings.title": {
     "defaultMessage": "Mô hình suy luận cục bộ"
@@ -3173,7 +3159,7 @@
     "defaultMessage": "Chưa có công thức nào được lưu"
   },
   "recipesView.noSavedRecipesDescription": {
-    "defaultMessage": "Các công thức được lưu từ cuộc trò chuyện sẽ hiển thị ở đây."
+    "defaultMessage": "Các công thức đã lưu sẽ hiển thị ở đây."
   },
   "recipesView.openInNewWindow": {
     "defaultMessage": "Mở trong cửa sổ mới"
@@ -3710,7 +3696,7 @@
     "defaultMessage": "Đã sao chép JSON của phiên"
   },
   "sessionActionsHeader.copiedModelInteractions": {
-    "defaultMessage": "Recent model interactions copied"
+    "defaultMessage": "Đã sao chép tương tác mô hình gần đây"
   },
   "sessionActionsHeader.copiedText": {
     "defaultMessage": "Đã sao chép văn bản"
@@ -3743,10 +3729,10 @@
     "defaultMessage": "Đang tải JSON..."
   },
   "sessionActionsHeader.modelInteractionsFailed": {
-    "defaultMessage": "Failed to load model interactions: {error}"
+    "defaultMessage": "Không thể tải tương tác mô hình: {error}"
   },
   "sessionActionsHeader.modelInteractionsTitle": {
-    "defaultMessage": "Recent model interactions"
+    "defaultMessage": "Tương tác mô hình gần đây"
   },
   "sessionActionsHeader.renameFailed": {
     "defaultMessage": "Không thể đổi tên phiên: {error}"
@@ -3773,7 +3759,7 @@
     "defaultMessage": "Xem JSON của phiên"
   },
   "sessionActionsHeader.viewModelInteractions": {
-    "defaultMessage": "View recent model interactions"
+    "defaultMessage": "Xem tương tác mô hình gần đây"
   },
   "sessionIndicators.error": {
     "defaultMessage": "Phiên gặp lỗi"
@@ -3783,6 +3769,9 @@
   },
   "sessionIndicators.streaming": {
     "defaultMessage": "Đang truyền phát"
+  },
+  "sessions.acpBadge": {
+    "defaultMessage": "ACP"
   },
   "sessions.action.delete": {
     "defaultMessage": "Xóa phiên"
@@ -3861,6 +3850,9 @@
   },
   "sessions.importing": {
     "defaultMessage": "Đang nhập..."
+  },
+  "sessions.includeAcp": {
+    "defaultMessage": "Bao gồm phiên ACP"
   },
   "sessions.loadingMore": {
     "defaultMessage": "Đang tải thêm phiên..."

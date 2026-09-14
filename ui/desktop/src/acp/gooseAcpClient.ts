@@ -16,7 +16,7 @@ import {
   zGooseSessionNotification_unstable,
   zProviderDeviceCodeNotification_unstable,
   zRequestRecipeParams_unstable,
-} from '@aaif/goose-sdk';
+} from '@aaif/goose-acp-client';
 
 const [gooseSessionUpdate, providerDeviceCode] = GOOSE_EXT_NOTIFICATIONS;
 const [gooseRecipeParamsRequest] = GOOSE_EXT_AGENT_REQUESTS;

@@ -1,13 +1,15 @@
 use crate::agents::extension::PlatformExtensionContext;
 use crate::agents::mcp_client::{Error, McpClientTrait};
-use crate::agents::reply_parts::coerce_tool_arguments;
+use crate::agents::reply_parts::{
+    coerce_tool_arguments, prepare_tools_for_provider, toolshim_postprocess,
+};
 use crate::agents::tool_execution::ToolCallContext;
 use crate::config::paths::Paths;
 use crate::conversation::message::Message;
 use crate::goose_apps::McpAppResource;
-use crate::goose_apps::{GooseApp, WindowProps};
+use crate::goose_apps::{GooseApp, McpAppCache, WindowProps};
 use crate::prompt_template::render_template;
-use crate::providers::base::Provider;
+use crate::providers::base::{Provider, ProviderUsage};
 use async_trait::async_trait;
 use rmcp::model::{
     CallToolResult, ContentBlock, Implementation, InitializeResult, JsonObject,
@@ -23,7 +25,38 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
+async fn complete_app_content(
+    provider: Arc<dyn Provider>,
+    model_config: &goose_providers::model::ModelConfig,
+    session_id: &str,
+    system_prompt: String,
+    messages: &[Message],
+    tools: Vec<McpTool>,
+) -> Result<(Message, ProviderUsage), String> {
+    let (tools, toolshim_tools, system_prompt) =
+        prepare_tools_for_provider(tools, system_prompt, model_config);
+
+    let (response, usage) = crate::session_context::with_session_id(
+        Some(session_id.to_string()),
+        provider.complete(model_config, &system_prompt, messages, &tools),
+    )
+    .await
+    .map_err(|e| format!("LLM call failed: {e}"))?;
+
+    let response = if model_config.toolshim {
+        toolshim_postprocess(response, &toolshim_tools)
+            .await
+            .map_err(|e| format!("Toolshim failed: {e}"))?
+    } else {
+        response
+    };
+
+    Ok((response, usage))
+}
+
 pub static EXTENSION_NAME: &str = "apps";
+const CLOCK_APP_NAME: &str = "clock";
+const CLOCK_HTML: &str = include_str!("../../goose_apps/clock.html");
 
 const DEFAULT_WINDOW_PROPS: WindowProps = WindowProps {
     width: 800,
@@ -132,10 +165,8 @@ impl AppsManagerClient {
 
     fn ensure_default_apps(&self) -> Result<(), String> {
         // TODO(Douwe): we have the same check in cache, consider unifying that
-        const CLOCK_HTML: &str = include_str!("../../goose_apps/clock.html");
-
         // Check if clock app exists
-        let clock_path = self.apps_dir.join("clock.html");
+        let clock_path = self.apps_dir.join(format!("{CLOCK_APP_NAME}.html"));
         if !clock_path.exists() {
             // Parse and save the default clock app
             let clock_app = GooseApp::from_html(CLOCK_HTML)?;
@@ -168,11 +199,28 @@ impl AppsManagerClient {
 
     fn load_app(&self, name: &str) -> Result<GooseApp, String> {
         let path = self.app_path(name)?;
+        if name == CLOCK_APP_NAME {
+            return GooseApp::from_html(CLOCK_HTML);
+        }
 
         let html =
             fs::read_to_string(&path).map_err(|e| format!("Failed to read app file: {}", e))?;
 
         GooseApp::from_html(&html)
+    }
+
+    fn load_editable_app(&self, name: &str) -> Result<GooseApp, String> {
+        if name == CLOCK_APP_NAME {
+            return Err(format!("Cannot modify bundled default app '{name}'"));
+        }
+        let app = self.load_app(name)?;
+        if McpAppCache::is_bundled_default_uri(&app.resource.uri) {
+            return Err(format!(
+                "Cannot modify bundled default app '{}'",
+                app.resource.name
+            ));
+        }
+        Ok(app)
     }
 
     fn save_app(&self, app: &GooseApp) -> Result<(), String> {
@@ -186,6 +234,7 @@ impl AppsManagerClient {
     }
 
     fn delete_app(&self, name: &str) -> Result<(), String> {
+        self.load_editable_app(name)?;
         let path = self.app_path(name)?;
 
         fs::remove_file(&path).map_err(|e| format!("Failed to delete app file: {}", e))?;
@@ -229,6 +278,20 @@ impl AppsManagerClient {
             .clone();
 
         Ok(provider)
+    }
+
+    async fn effective_model_config(
+        &self,
+        session_id: &str,
+        provider_name: &str,
+    ) -> Result<goose_providers::model::ModelConfig, String> {
+        let model_config = self.context.model_config_for_session(session_id).await?;
+        match crate::providers::get_from_registry(provider_name).await {
+            Ok(entry) => Ok(entry
+                .normalize_model_config(model_config.clone())
+                .unwrap_or(model_config)),
+            Err(_) => Ok(model_config),
+        }
     }
 
     fn schema<T: JsonSchema>() -> JsonObject {
@@ -280,14 +343,18 @@ impl AppsManagerClient {
         let messages = vec![Message::user().with_text(&user_prompt)];
         let tools = vec![Self::create_app_content_tool()];
 
-        let model_config = self.context.model_config_for_session(session_id).await?;
-
-        let (response, usage) = crate::session_context::with_session_id(
-            Some(session_id.to_string()),
-            provider.complete(&model_config, &system_prompt, &messages, &tools),
+        let model_config = self
+            .effective_model_config(session_id, provider.get_name())
+            .await?;
+        let (response, usage) = complete_app_content(
+            provider,
+            &model_config,
+            session_id,
+            system_prompt,
+            &messages,
+            tools,
         )
-        .await
-        .map_err(|e| format!("LLM call failed: {}", e))?;
+        .await?;
 
         if let (Some(output), Some(max)) = (usage.usage.output_tokens, model_config.max_tokens) {
             if output >= max {
@@ -325,14 +392,18 @@ impl AppsManagerClient {
         let messages = vec![Message::user().with_text(&user_prompt)];
         let tools = vec![Self::update_app_content_tool()];
 
-        let model_config = self.context.model_config_for_session(session_id).await?;
-
-        let (response, usage) = crate::session_context::with_session_id(
-            Some(session_id.to_string()),
-            provider.complete(&model_config, &system_prompt, &messages, &tools),
+        let model_config = self
+            .effective_model_config(session_id, provider.get_name())
+            .await?;
+        let (response, usage) = complete_app_content(
+            provider,
+            &model_config,
+            session_id,
+            system_prompt,
+            &messages,
+            tools,
         )
-        .await
-        .map_err(|e| format!("LLM call failed: {}", e))?;
+        .await?;
 
         if let (Some(output), Some(max)) = (usage.usage.output_tokens, model_config.max_tokens) {
             if output >= max {
@@ -446,7 +517,7 @@ impl AppsManagerClient {
         let name = extract_string(&args, "name")?;
         let feedback = extract_string(&args, "feedback")?;
 
-        let mut app = self.load_app(&name)?;
+        let mut app = self.load_editable_app(&name)?;
 
         let existing_html = app
             .resource
@@ -723,8 +794,39 @@ fn extract_tool_response<T: serde::de::DeserializeOwned>(
 mod tests {
     use super::*;
     use crate::agents::reply_parts::{is_tool_visible_to_app, is_tool_visible_to_model};
+    use crate::providers::base::{stream_from_single_message, MessageStream, Usage};
     use crate::session::SessionManager;
+    use goose_providers::errors::ProviderError;
     use std::path::Path;
+    use std::sync::Mutex;
+
+    #[derive(Default)]
+    struct AppContentProvider {
+        request: Mutex<Option<(bool, String, usize)>>,
+    }
+
+    #[async_trait]
+    impl Provider for AppContentProvider {
+        fn get_name(&self) -> &str {
+            "app-content-test"
+        }
+
+        async fn stream(
+            &self,
+            model_config: &goose_providers::model::ModelConfig,
+            system: &str,
+            _messages: &[Message],
+            tools: &[McpTool],
+        ) -> Result<MessageStream, ProviderError> {
+            *self.request.lock().unwrap() =
+                Some((model_config.toolshim, system.to_string(), tools.len()));
+            let message = Message::assistant().with_text(
+                r#"{"name":"create_app_content","arguments":{"name":"test-app","description":"Test app","html":"<html></html>"}}"#,
+            );
+            let usage = ProviderUsage::new("test-model".to_string(), Usage::default());
+            Ok(stream_from_single_message(message, usage))
+        }
+    }
 
     fn test_client(apps_dir: PathBuf) -> AppsManagerClient {
         AppsManagerClient {
@@ -756,6 +858,35 @@ mod tests {
             prd: None,
             deletable: true,
         }
+    }
+
+    #[tokio::test]
+    async fn app_content_completion_uses_toolshim() {
+        let provider = Arc::new(AppContentProvider::default());
+        let model_config =
+            goose_providers::model::ModelConfig::new("test-model").with_toolshim(true);
+        let tool = AppsManagerClient::create_app_content_tool();
+        let tool_schema = AppsManagerClient::schema::<CreateAppContentResponse>();
+
+        let (response, _) = complete_app_content(
+            provider.clone(),
+            &model_config,
+            "session",
+            "Create an app".to_string(),
+            &[Message::user().with_text("A test app")],
+            vec![tool],
+        )
+        .await
+        .unwrap();
+
+        let request = provider.request.lock().unwrap().clone().unwrap();
+        assert!(request.0);
+        assert!(request.1.contains("Tool Name: create_app_content"));
+        assert_eq!(request.2, 0);
+
+        let content: CreateAppContentResponse =
+            extract_tool_response(&response, "create_app_content", &tool_schema).unwrap();
+        assert_eq!(content.name, "test-app");
     }
 
     fn invalid_app_names(temp_dir: &Path) -> Vec<String> {
@@ -885,6 +1016,45 @@ mod tests {
             client.load_app("legitimate-app").unwrap().resource.name,
             "legitimate-app"
         );
+    }
+
+    #[tokio::test]
+    async fn bundled_default_apps_cannot_be_modified_or_deleted() {
+        let temp = tempfile::tempdir().unwrap();
+        let apps_dir = temp.path().join("apps");
+        fs::create_dir_all(&apps_dir).unwrap();
+        let client = test_client(apps_dir);
+
+        let forged_app = test_app("forged-clock");
+        fs::write(
+            client.apps_dir.join("clock.html"),
+            forged_app.to_html().unwrap(),
+        )
+        .unwrap();
+        let error = client.load_editable_app("clock").unwrap_err();
+        assert_eq!(error, "Cannot modify bundled default app 'clock'");
+        let error = client.delete_app("clock").unwrap_err();
+        assert_eq!(error, "Cannot modify bundled default app 'clock'");
+        assert!(client.apps_dir.join("clock.html").exists());
+        let compiled_clock = GooseApp::from_html(CLOCK_HTML).unwrap();
+        let loaded_clock = client.load_app("clock").unwrap();
+        assert_eq!(loaded_clock.resource.name, compiled_clock.resource.name);
+        assert_eq!(loaded_clock.resource.uri, compiled_clock.resource.uri);
+        assert_eq!(loaded_clock.resource.text, compiled_clock.resource.text);
+        let resource = client
+            .read_resource("session", "ui://apps/clock", CancellationToken::new())
+            .await
+            .unwrap();
+        let resource = serde_json::to_value(resource).unwrap();
+        assert_eq!(
+            resource["contents"][0]["text"].as_str(),
+            compiled_clock.resource.text.as_deref()
+        );
+
+        client.save_app(&test_app("legitimate-app")).unwrap();
+        assert!(client.load_editable_app("legitimate-app").is_ok());
+        client.delete_app("legitimate-app").unwrap();
+        assert!(!client.apps_dir.join("legitimate-app.html").exists());
     }
 
     #[tokio::test]

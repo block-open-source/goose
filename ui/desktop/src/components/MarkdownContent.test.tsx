@@ -172,6 +172,41 @@ console.log('Hello, World!');
         expect(screen.getByText('console.log()')).toBeInTheDocument();
       });
     });
+
+    it('renders untagged fenced code blocks (no language) through the same CodeBlock component as tagged blocks', async () => {
+      const plainTextBlock = [
+        'first line of plain text',
+        'second line of plain text',
+        '',
+        'line after a blank line',
+      ].join('\n');
+      const content = ['```', plainTextBlock, '```'].join('\n');
+
+      const { container } = renderWithIntl(<MarkdownContent content={content} />);
+
+      await waitFor(() => {
+        expect(screen.getByText(/first line of plain text/)).toBeInTheDocument();
+      });
+
+      // There should be exactly one <pre> element wrapping exactly one <code>
+      // element that contains the entire multi-line block as a single node,
+      // rather than one <code>/<pre> pairing per line.
+      const preElements = container.querySelectorAll('pre');
+      expect(preElements).toHaveLength(1);
+
+      const codeElementsInsidePre = preElements[0].querySelectorAll('code');
+      expect(codeElementsInsidePre).toHaveLength(1);
+      expect(codeElementsInsidePre[0].textContent).toContain('first line of plain text');
+      expect(codeElementsInsidePre[0].textContent).toContain('line after a blank line');
+
+      // The block should NOT use the small single-line "inline code" badge
+      // style - that would indicate the bug regressed.
+      expect(codeElementsInsidePre[0].className).not.toContain('bg-inline-code');
+
+      // It should get the same hover "copy" button that tagged code blocks
+      // get, since it now renders through the shared CodeBlock component.
+      expect(preElements[0].querySelector('[data-testid="copy-icon"]')).toBeInTheDocument();
+    });
   });
 
   describe('Markdown Features', () => {

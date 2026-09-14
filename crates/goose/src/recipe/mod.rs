@@ -661,53 +661,6 @@ sub_recipes:
     }
 
     #[test]
-    fn test_inline_python_extension() {
-        let content = r#"{
-            "version": "1.0.0",
-            "title": "Test Recipe",
-            "description": "A test recipe",
-            "instructions": "Test instructions",
-            "extensions": [
-                {
-                    "type": "inline_python",
-                    "name": "test_python",
-                    "code": "print('hello world')",
-                    "timeout": 300,
-                    "description": "Test python extension",
-                    "dependencies": ["numpy", "matplotlib"]
-                }
-            ]
-        }"#;
-
-        let recipe = Recipe::from_content(content).unwrap();
-
-        assert!(recipe.extensions.is_some());
-        let extensions = recipe.extensions.unwrap();
-        assert_eq!(extensions.len(), 1);
-
-        match &extensions[0] {
-            ExtensionConfig::InlinePython {
-                name,
-                code,
-                description,
-                timeout,
-                dependencies,
-                ..
-            } => {
-                assert_eq!(name, "test_python");
-                assert_eq!(code, "print('hello world')");
-                assert_eq!(description, "Test python extension");
-                assert_eq!(timeout, &Some(300));
-                assert!(dependencies.is_some());
-                let deps = dependencies.as_ref().unwrap();
-                assert!(deps.contains(&"numpy".to_string()));
-                assert!(deps.contains(&"matplotlib".to_string()));
-            }
-            _ => panic!("Expected InlinePython extension"),
-        }
-    }
-
-    #[test]
     fn test_from_content_with_activities() {
         let content = r#"{
             "version": "1.0.0",

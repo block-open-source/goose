@@ -13,6 +13,7 @@ export type TokenState = {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
+  contextLimit?: number;
 };
 
 export interface ChatType {

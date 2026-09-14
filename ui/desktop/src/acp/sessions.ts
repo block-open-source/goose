@@ -6,7 +6,7 @@ import {
   type NewSessionRequest,
   type SessionInfo,
 } from '@agentclientprotocol/sdk';
-import type { GooseExtension, SessionExportFormat, SessionImportSource } from '@aaif/goose-sdk';
+import type { GooseExtension, SessionExportFormat, SessionImportSource } from '@aaif/goose-acp-client';
 import { getAcpClient } from './acpConnection';
 import type { ExtensionLoadResult } from '../types/extensions';
 import type { Session } from '../types/session';
@@ -135,21 +135,25 @@ function sessionInfoToListItem(s: SessionInfo): SessionListItem {
 
 export interface SessionListFilter {
   keyword?: string;
+  includeAcp: boolean;
 }
 
 const SESSION_LIST_TYPES = ['user', 'scheduled'] as const;
+const SESSION_LIST_TYPES_WITH_ACP = [...SESSION_LIST_TYPES, 'acp'] as const;
 
 export async function acpListSessions(
   cursor?: string | null,
-  filter?: SessionListFilter
+  filter: SessionListFilter = { includeAcp: false }
 ): Promise<SessionListPage> {
   const client = await getAcpClient();
   const request: ListSessionsRequest = {};
   if (cursor) {
     request.cursor = cursor;
   }
-  const meta: Record<string, unknown> = { types: SESSION_LIST_TYPES };
-  const keyword = filter?.keyword?.trim();
+  const meta: Record<string, unknown> = {
+    types: filter.includeAcp ? SESSION_LIST_TYPES_WITH_ACP : SESSION_LIST_TYPES,
+  };
+  const keyword = filter.keyword?.trim();
   if (keyword) {
     meta.query = keyword;
   }

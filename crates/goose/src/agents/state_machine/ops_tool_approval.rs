@@ -5,6 +5,7 @@ use std::collections::{HashMap, HashSet};
 use anyhow::Result;
 use async_trait::async_trait;
 
+use crate::agents::state_machine::ops_toolcalling::request_was_advertised;
 use crate::agents::state_machine::{
     applied, messages_since_kickoff, not_applicable, ConversationEffect, Emitter, GooseEffect,
     Operation, OperationResult,
@@ -49,7 +50,7 @@ impl Operation<Session, GooseEffect> for ToolApprovalOperation<'_> {
         &self,
         session: &Session,
         conversation: &Conversation,
-        emit: &Emitter,
+        _emit: &Emitter,
     ) -> Result<OperationResult<GooseEffect>> {
         let goose_mode = *self.goose_mode.lock().await;
         if goose_mode == GooseMode::Chat {
@@ -129,7 +130,6 @@ impl Operation<Session, GooseEffect> for ToolApprovalOperation<'_> {
                         security_message,
                     )
                     .user_only();
-                let action_required = emit.message(action_required).await;
                 effects.push(action_required.into());
 
                 if let Some(finding_id) =
@@ -161,7 +161,7 @@ struct PendingResponse {
     executable: Option<bool>,
 }
 
-struct ApprovalState {
+pub(super) struct ApprovalState {
     answered: HashSet<String>,
     approval_requests: HashSet<String>,
     approval_responses: HashMap<String, Permission>,
@@ -169,7 +169,7 @@ struct ApprovalState {
 }
 
 impl ApprovalState {
-    fn from_messages(messages: &[Message]) -> Self {
+    pub(super) fn from_messages(messages: &[Message]) -> Self {
         let mut answered = HashSet::new();
         let mut approval_requests = HashSet::new();
         let mut approval_responses = HashMap::new();
@@ -181,7 +181,9 @@ impl ApprovalState {
                     MessageContent::ToolResponse(response) => {
                         answered.insert(response.id.clone());
                     }
-                    MessageContent::ToolRequest(request) => {
+                    MessageContent::ToolRequest(request)
+                        if request_was_advertised(messages, request) =>
+                    {
                         tool_requests.push(request.clone());
                     }
                     MessageContent::ActionRequired(action) => match &action.data {
@@ -236,6 +238,7 @@ impl ApprovalState {
                 if self.answered.contains(&request.id)
                     || self.approval_requests.contains(&request.id)
                     || self.approval_responses.contains_key(&request.id)
+                    || request.was_executed_externally()
                     || request_executable(request) == Some(false)
                     || request.tool_call.is_err()
                 {
@@ -244,6 +247,30 @@ impl ApprovalState {
                 Some(request.clone())
             })
             .collect()
+    }
+
+    pub(super) fn has_confirmation_request(&self, request_id: &str) -> bool {
+        self.approval_requests.contains(request_id)
+            && self
+                .tool_requests
+                .iter()
+                .any(|request| request.id == request_id)
+    }
+
+    pub(super) fn has_unapplied_confirmation_response(&self) -> bool {
+        self.tool_requests.iter().any(|request| {
+            !self.answered.contains(&request.id)
+                && self.approval_requests.contains(&request.id)
+                && self.approval_responses.contains_key(&request.id)
+        })
+    }
+
+    pub(super) fn confirmation_response(&self, request_id: &str) -> Option<&Permission> {
+        self.approval_responses.get(request_id)
+    }
+
+    pub(super) fn has_tool_response(&self, request_id: &str) -> bool {
+        self.answered.contains(request_id)
     }
 }
 

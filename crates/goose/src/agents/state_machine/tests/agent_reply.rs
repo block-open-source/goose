@@ -13,12 +13,16 @@ use anyhow::Result;
 use futures::StreamExt;
 use tokio_util::sync::CancellationToken;
 
+use super::calculator_extension::{value, CalculatorExtension, ADD};
 use super::dummy_api::{DummyApi, ProviderFeatures};
 use crate::acp::server::GooseAcpAgent;
+use crate::agents::extension::ExtensionConfig;
+use crate::agents::mcp_client::McpClientTrait;
 use crate::agents::{Agent, AgentConfig, AgentEvent, GoosePlatform, SessionConfig};
 use crate::config::permission::PermissionManager;
 use crate::config::GooseMode;
-use crate::conversation::message::{Message, MessageContent};
+use crate::conversation::message::{ActionRequiredData, Message, MessageContent};
+use crate::permission::Permission;
 use crate::providers::base::Provider;
 use crate::session::{SessionManager, SessionType};
 use goose_providers::model::ModelConfig;
@@ -48,7 +52,7 @@ async fn agent_with_dummy_api() -> Result<(Agent, Arc<DummyApi>, String, tempfil
         .await?;
     let agent = Agent::with_config(AgentConfig::new(
         session_manager,
-        PermissionManager::instance(),
+        Arc::new(PermissionManager::new(temp_dir.path().join("permissions"))),
         None,
         GooseMode::Auto,
         true,
@@ -64,6 +68,220 @@ async fn agent_with_dummy_api() -> Result<(Agent, Arc<DummyApi>, String, tempfil
         .await?;
 
     Ok((agent, api, session.id, temp_dir))
+}
+
+async fn agent_with_calculator() -> Result<(
+    Agent,
+    Arc<DummyApi>,
+    String,
+    Arc<CalculatorExtension>,
+    tempfile::TempDir,
+)> {
+    let (agent, api, session_id, temp_dir) = agent_with_dummy_api().await?;
+    agent
+        .update_goose_mode(GooseMode::Approve, &session_id)
+        .await?;
+    let calculator = Arc::new(CalculatorExtension::new(
+        agent.config.session_manager.action_required(),
+    ));
+    agent
+        .extension_manager
+        .add_client(
+            "calculator".to_string(),
+            ExtensionConfig::Platform {
+                name: "calculator".to_string(),
+                description: "Stateful test calculator".to_string(),
+                display_name: None,
+                bundled: None,
+                available_tools: vec![],
+            },
+            calculator.clone(),
+            calculator.get_info().cloned(),
+        )
+        .await;
+    Ok((agent, api, session_id, calculator, temp_dir))
+}
+
+fn confirmation_ids(messages: &[Message]) -> Vec<String> {
+    messages
+        .iter()
+        .flat_map(|message| &message.content)
+        .filter_map(|content| match content {
+            MessageContent::ActionRequired(action) => match &action.data {
+                ActionRequiredData::ToolConfirmation { id, .. } => Some(id.clone()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect()
+}
+
+async fn stream_messages(
+    mut stream: futures::stream::BoxStream<'_, Result<AgentEvent>>,
+) -> Result<Vec<Message>> {
+    let mut messages = Vec::new();
+    while let Some(event) = stream.next().await {
+        if let AgentEvent::Message(message) = event? {
+            messages.push(message);
+        }
+    }
+    Ok(messages)
+}
+
+#[tokio::test]
+async fn state_machine_confirmation_through_agent_resumes_tool_call() -> Result<()> {
+    let _guard = env_lock::lock_env([("GOOSE_STATE_MACHINE", Some("1"))]);
+    let (agent, api, session_id, calculator, _temp_dir) = agent_with_calculator().await?;
+    let agent = Arc::new(agent);
+
+    api.on("add one").call(ADD, value(1));
+    api.on("result: 1").reply("the result is one");
+
+    let session_config = SessionConfig {
+        id: session_id,
+        schedule_id: None,
+        max_turns: Some(2),
+        retry_config: None,
+    };
+    let mut stream = agent
+        .reply(
+            Message::user().with_text("add one"),
+            session_config.clone(),
+            Some(CancellationToken::new()),
+        )
+        .await?;
+    let mut messages = Vec::new();
+    let confirmation_id = loop {
+        let event = stream
+            .next()
+            .await
+            .expect("state machine should request confirmation")?;
+        if let AgentEvent::Message(message) = event {
+            let confirmation_id = confirmation_ids(std::slice::from_ref(&message)).pop();
+            messages.push(message);
+            if let Some(confirmation_id) = confirmation_id {
+                break confirmation_id;
+            }
+        }
+    };
+    assert_eq!(calculator.total(), 0);
+    {
+        let session = agent
+            .config
+            .session_manager
+            .get_session(&session_config.id, true)
+            .await?;
+        assert!(confirmation_ids(
+            session
+                .conversation
+                .as_ref()
+                .expect("session conversation")
+                .messages()
+        )
+        .contains(&confirmation_id));
+    }
+
+    agent
+        .submit_tool_confirmation(&session_config.id, &confirmation_id, Permission::AllowOnce)
+        .await?;
+    {
+        let session = agent
+            .config
+            .session_manager
+            .get_session(&session_config.id, true)
+            .await?;
+        assert!(session
+            .conversation
+            .as_ref()
+            .expect("session conversation")
+            .messages()
+            .iter()
+            .any(|message| {
+                message.content.iter().any(|content| {
+                    matches!(
+                        content,
+                        MessageContent::ActionRequired(action)
+                            if matches!(
+                                &action.data,
+                                ActionRequiredData::ToolConfirmationResponse { id, permission }
+                                    if id == &confirmation_id && permission == &Permission::AllowOnce
+                            )
+                    )
+                })
+            }));
+    }
+    agent
+        .submit_tool_confirmation(&session_config.id, &confirmation_id, Permission::AllowOnce)
+        .await?;
+    assert!(agent
+        .submit_tool_confirmation(&session_config.id, &confirmation_id, Permission::DenyOnce)
+        .await
+        .is_err());
+    drop(stream);
+    let stream = agent
+        .resume_state_machine_turn(session_config.clone(), CancellationToken::new())
+        .await?
+        .expect("persisted confirmation response should resume the state-machine turn");
+    messages.extend(stream_messages(stream).await?);
+    assert!(messages.iter().any(|message| message
+        .get_tool_response_ids()
+        .contains(&confirmation_id.as_str())));
+    assert_eq!(calculator.total(), 1);
+    assert_eq!(api.call_count(), 2);
+
+    assert!(agent
+        .submit_tool_confirmation(&session_config.id, &confirmation_id, Permission::AllowOnce)
+        .await
+        .is_err());
+    assert_eq!(calculator.total(), 1);
+
+    assert!(agent
+        .submit_tool_confirmation(&session_config.id, "stale-request", Permission::AllowOnce)
+        .await
+        .is_err());
+
+    let session = agent
+        .config
+        .session_manager
+        .get_session(&session_config.id, true)
+        .await?;
+    let messages = session
+        .conversation
+        .as_ref()
+        .expect("session conversation")
+        .messages();
+    let confirmation_responses = messages
+        .iter()
+        .filter(|message| {
+            message.content.iter().any(|content| {
+                matches!(
+                    content,
+                    MessageContent::ActionRequired(action)
+                        if matches!(
+                            &action.data,
+                            ActionRequiredData::ToolConfirmationResponse { id, .. }
+                                if id == &confirmation_id
+                        )
+                )
+            })
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(confirmation_responses.len(), 1);
+    assert!(!confirmation_responses[0].is_user_visible());
+    assert!(!confirmation_responses[0].is_agent_visible());
+    assert_eq!(
+        messages
+            .iter()
+            .filter(|message| {
+                message.role == rmcp::model::Role::User
+                    && message.is_user_visible()
+                    && !message.is_tool_response()
+            })
+            .count(),
+        1
+    );
+
+    Ok(())
 }
 
 #[tokio::test]

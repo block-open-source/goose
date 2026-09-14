@@ -2984,6 +2984,12 @@
   "recipeExecutionDetails.socket": {
     "defaultMessage": "Socket"
   },
+  "recipeExecutionDetails.clientId": {
+    "defaultMessage": "ID Klien"
+  },
+  "recipeExecutionDetails.scopes": {
+    "defaultMessage": "Cakupan"
+  },
   "recipeExecutionDetails.subRecipesHeading": {
     "defaultMessage": "Sub-resep yang dimuat dari disk"
   },

@@ -2984,6 +2984,12 @@
   "recipeExecutionDetails.socket": {
     "defaultMessage": "Socket"
   },
+  "recipeExecutionDetails.clientId": {
+    "defaultMessage": "ID client"
+  },
+  "recipeExecutionDetails.scopes": {
+    "defaultMessage": "Ambiti"
+  },
   "recipeExecutionDetails.subRecipesHeading": {
     "defaultMessage": "Sotto-ricette caricate dal disco"
   },

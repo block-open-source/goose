@@ -2978,6 +2978,9 @@
   "recipeExecutionDetails.argument": {
     "defaultMessage": "Argument {index}"
   },
+  "recipeExecutionDetails.clientId": {
+    "defaultMessage": "Client ID"
+  },
   "recipeExecutionDetails.command": {
     "defaultMessage": "Command"
   },
@@ -3025,6 +3028,9 @@
   },
   "recipeExecutionDetails.retryHeading": {
     "defaultMessage": "Shell commands run between attempts"
+  },
+  "recipeExecutionDetails.scopes": {
+    "defaultMessage": "Scopes"
   },
   "recipeExecutionDetails.secretsFromKeychain": {
     "defaultMessage": "Secrets read from your keychain"

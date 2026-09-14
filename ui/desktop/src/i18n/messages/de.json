@@ -2984,6 +2984,12 @@
   "recipeExecutionDetails.socket": {
     "defaultMessage": "Socket"
   },
+  "recipeExecutionDetails.clientId": {
+    "defaultMessage": "Client-ID"
+  },
+  "recipeExecutionDetails.scopes": {
+    "defaultMessage": "Berechtigungen"
+  },
   "recipeExecutionDetails.subRecipesHeading": {
     "defaultMessage": "Von der Festplatte geladene Unterrezepte"
   },

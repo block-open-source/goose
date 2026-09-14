@@ -2984,6 +2984,12 @@
   "recipeExecutionDetails.socket": {
     "defaultMessage": "सॉकेट"
   },
+  "recipeExecutionDetails.clientId": {
+    "defaultMessage": "क्लाइंट आईडी"
+  },
+  "recipeExecutionDetails.scopes": {
+    "defaultMessage": "स्कोप"
+  },
   "recipeExecutionDetails.subRecipesHeading": {
     "defaultMessage": "डिस्क से लोड की गई सब-रेसिपी"
   },

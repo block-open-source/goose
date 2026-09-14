@@ -2984,6 +2984,12 @@
   "recipeExecutionDetails.socket": {
     "defaultMessage": "Socket"
   },
+  "recipeExecutionDetails.clientId": {
+    "defaultMessage": "ID client"
+  },
+  "recipeExecutionDetails.scopes": {
+    "defaultMessage": "Portées"
+  },
   "recipeExecutionDetails.subRecipesHeading": {
     "defaultMessage": "Sous-recettes chargées depuis le disque"
   },

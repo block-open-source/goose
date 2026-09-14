@@ -2984,6 +2984,12 @@
   "recipeExecutionDetails.socket": {
     "defaultMessage": "Сокет"
   },
+  "recipeExecutionDetails.clientId": {
+    "defaultMessage": "ID клиента"
+  },
+  "recipeExecutionDetails.scopes": {
+    "defaultMessage": "Области доступа"
+  },
   "recipeExecutionDetails.subRecipesHeading": {
     "defaultMessage": "Подрецепты, загружаемые с диска"
   },

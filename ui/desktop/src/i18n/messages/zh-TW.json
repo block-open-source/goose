@@ -2984,6 +2984,12 @@
   "recipeExecutionDetails.socket": {
     "defaultMessage": "Socket"
   },
+  "recipeExecutionDetails.clientId": {
+    "defaultMessage": "用戶端 ID"
+  },
+  "recipeExecutionDetails.scopes": {
+    "defaultMessage": "權限範圍"
+  },
   "recipeExecutionDetails.subRecipesHeading": {
     "defaultMessage": "從磁碟載入的子配方"
   },

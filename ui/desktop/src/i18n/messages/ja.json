@@ -2984,6 +2984,12 @@
   "recipeExecutionDetails.socket": {
     "defaultMessage": "ソケット"
   },
+  "recipeExecutionDetails.clientId": {
+    "defaultMessage": "クライアント ID"
+  },
+  "recipeExecutionDetails.scopes": {
+    "defaultMessage": "スコープ"
+  },
   "recipeExecutionDetails.subRecipesHeading": {
     "defaultMessage": "ディスクから読み込まれるサブレシピ"
   },

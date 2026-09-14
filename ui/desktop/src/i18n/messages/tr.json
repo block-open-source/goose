@@ -2984,6 +2984,12 @@
   "recipeExecutionDetails.socket": {
     "defaultMessage": "Soket"
   },
+  "recipeExecutionDetails.clientId": {
+    "defaultMessage": "İstemci Kimliği"
+  },
+  "recipeExecutionDetails.scopes": {
+    "defaultMessage": "Kapsamlar"
+  },
   "recipeExecutionDetails.subRecipesHeading": {
     "defaultMessage": "Diskten yüklenen alt tarifler"
   },

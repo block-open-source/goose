@@ -2984,6 +2984,12 @@
   "recipeExecutionDetails.socket": {
     "defaultMessage": "소켓"
   },
+  "recipeExecutionDetails.clientId": {
+    "defaultMessage": "클라이언트 ID"
+  },
+  "recipeExecutionDetails.scopes": {
+    "defaultMessage": "범위"
+  },
   "recipeExecutionDetails.subRecipesHeading": {
     "defaultMessage": "디스크에서 로드되는 하위 레시피"
   },

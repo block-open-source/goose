@@ -2984,6 +2984,12 @@
   "recipeExecutionDetails.socket": {
     "defaultMessage": "Socket"
   },
+  "recipeExecutionDetails.clientId": {
+    "defaultMessage": "ID ứng dụng khách"
+  },
+  "recipeExecutionDetails.scopes": {
+    "defaultMessage": "Phạm vi"
+  },
   "recipeExecutionDetails.subRecipesHeading": {
     "defaultMessage": "Công thức con được tải từ đĩa"
   },

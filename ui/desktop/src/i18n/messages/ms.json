@@ -2984,6 +2984,12 @@
   "recipeExecutionDetails.socket": {
     "defaultMessage": "Soket"
   },
+  "recipeExecutionDetails.clientId": {
+    "defaultMessage": "ID Klien"
+  },
+  "recipeExecutionDetails.scopes": {
+    "defaultMessage": "Skop"
+  },
   "recipeExecutionDetails.subRecipesHeading": {
     "defaultMessage": "Sub-resipi yang dimuatkan daripada cakera"
   },

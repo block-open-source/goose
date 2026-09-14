@@ -54,6 +54,14 @@ const i18n = defineMessages({
     id: 'recipeExecutionDetails.socket',
     defaultMessage: 'Socket',
   },
+  clientId: {
+    id: 'recipeExecutionDetails.clientId',
+    defaultMessage: 'Client ID',
+  },
+  scopes: {
+    id: 'recipeExecutionDetails.scopes',
+    defaultMessage: 'Scopes',
+  },
   retryHeading: {
     id: 'recipeExecutionDetails.retryHeading',
     defaultMessage: 'Shell commands run between attempts',
@@ -163,6 +171,15 @@ function ExtensionDetails({ extension }: { extension: RecipeExtension }) {
           {extension.socket && (
             <Field label={intl.formatMessage(i18n.socket)} value={extension.socket} />
           )}
+          {extension.client_id && (
+            <Field label={intl.formatMessage(i18n.clientId)} value={extension.client_id} />
+          )}
+          {(extension.scopes ?? []).length > 0 && (
+            <Field
+              label={intl.formatMessage(i18n.scopes)}
+              value={(extension.scopes ?? []).join(' ')}
+            />
+          )}
           <KeyValueFields
             label={intl.formatMessage(i18n.environment)}
             entries={extension.envs ?? {}}
@@ -170,6 +187,12 @@ function ExtensionDetails({ extension }: { extension: RecipeExtension }) {
           {(extension.env_keys ?? []).map((key) => (
             <Field key={key} label={intl.formatMessage(i18n.secretsFromKeychain)} value={key} />
           ))}
+          {extension.client_secret_key && (
+            <Field
+              label={intl.formatMessage(i18n.secretsFromKeychain)}
+              value={extension.client_secret_key}
+            />
+          )}
         </>
       )}
     </li>
@@ -186,6 +209,8 @@ function collectAuthoredText(recipe: Recipe): string[] {
     } else if (extension.type === 'streamable_http') {
       text.push(extension.uri, extension.socket ?? '');
       text.push(...Object.entries(extension.headers ?? {}).flat());
+      text.push(extension.client_id ?? '', extension.client_secret_key ?? '');
+      text.push(...(extension.scopes ?? []));
       text.push(...Object.entries(extension.envs ?? {}).flat(), ...(extension.env_keys ?? []));
     }
   }

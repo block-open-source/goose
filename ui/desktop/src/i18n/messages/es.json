@@ -2984,6 +2984,12 @@
   "recipeExecutionDetails.socket": {
     "defaultMessage": "Socket"
   },
+  "recipeExecutionDetails.clientId": {
+    "defaultMessage": "ID de cliente"
+  },
+  "recipeExecutionDetails.scopes": {
+    "defaultMessage": "Ámbitos"
+  },
   "recipeExecutionDetails.subRecipesHeading": {
     "defaultMessage": "Subrecetas cargadas desde el disco"
   },

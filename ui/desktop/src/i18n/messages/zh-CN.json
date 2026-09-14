@@ -2984,6 +2984,12 @@
   "recipeExecutionDetails.socket": {
     "defaultMessage": "套接字"
   },
+  "recipeExecutionDetails.clientId": {
+    "defaultMessage": "客户端 ID"
+  },
+  "recipeExecutionDetails.scopes": {
+    "defaultMessage": "权限范围"
+  },
   "recipeExecutionDetails.subRecipesHeading": {
     "defaultMessage": "从磁盘加载的子配方"
   },

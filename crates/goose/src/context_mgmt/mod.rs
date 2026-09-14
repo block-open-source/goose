@@ -1441,12 +1441,63 @@ mod tests {
 
         assert_eq!(
             provider.call_count(),
-            2,
-            "the estimate said it fits, so exactly one rejection then one escalation"
+            5,
+            "escalation stays graduated: the estimator undercounts thinking and images, \
+             so a bad estimate must not cost every tool response on the second attempt"
         );
         let request = provider.captured_messages.lock().unwrap().clone().unwrap();
         assert!(serde_json::to_string(&request).unwrap().len() <= 12_000);
         assert_eq!(elided_response_count(&request), 10);
+    }
+
+    /// The header is measured too. When no request that keeps it can fit, the
+    /// headerless one must be the first attempt rather than the second: the
+    /// alternative is uploading a request the estimator already rejected.
+    #[tokio::test]
+    async fn header_is_dropped_without_a_doomed_first_attempt() {
+        let conversation = Conversation::new_unvalidated(vec![
+            Message::user().with_text("the quick brown fox jumps over the lazy dog ".repeat(400)),
+            Message::assistant().with_text("acknowledged"),
+        ]);
+        let counter = create_token_counter().await.unwrap();
+        let transcript_tokens = counter.count_chat_tokens("", conversation.messages(), &[]);
+
+        // A budget the transcript alone clears but the header pushes past, and
+        // no tool responses to elide, so nothing but dropping the header fits.
+        let session_id = "header-is-dropped-session";
+        request_header::record(
+            session_id,
+            request_header::RequestHeader {
+                system_prompt: "you are a helpful assistant ".repeat(400),
+                tools: vec![],
+                toolshim_tools: vec![],
+            },
+        );
+        let provider = MockProvider::new(
+            Message::assistant().with_text("<mock summary>"),
+            transcript_tokens * 7 / 6,
+        );
+
+        compact_messages(
+            &provider,
+            &provider.config.clone(),
+            session_id,
+            &conversation,
+            false,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            provider.call_count(),
+            1,
+            "the with-header request was already measured as too big to send"
+        );
+        assert_eq!(
+            provider.captured_system.lock().unwrap().clone().unwrap(),
+            "",
+            "the attempt that was made must be the headerless one"
+        );
     }
 
     #[test]

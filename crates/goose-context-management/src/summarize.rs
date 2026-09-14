@@ -279,9 +279,13 @@ async fn elisions_covering(
 
 /// The escalation sequence to try, least destructive first. The first entry is
 /// the measured one; the rest cover estimator error, since the provider is the
-/// final authority on what fits. When nothing is projected to fit, only the
-/// smallest request is attempted: the resolved context limit can itself be
-/// wrong, so the provider gets to disagree, but it gets one chance, not five.
+/// final authority on what fits. The estimator undercounts thinking blocks and
+/// images, so the fallback rungs stay graduated rather than jumping straight to
+/// eliding everything.
+///
+/// When the estimate says no request keeping the header can fit, only the
+/// headerless one is attempted: the resolved context limit can itself be wrong,
+/// so the provider gets to disagree, but it gets one chance, not five.
 async fn fit_plans(
     estimator: Option<&dyn TokenEstimator>,
     budget: Option<usize>,
@@ -289,43 +293,43 @@ async fn fit_plans(
     tools: &[Tool],
     messages: &[Message],
 ) -> Vec<FitPlan> {
-    let all_tool_responses = middle_out_tool_response_indices(messages, 100);
     let headerless = FitPlan {
         drop_header: true,
-        elide: all_tool_responses.clone(),
+        elide: middle_out_tool_response_indices(messages, 100),
     };
 
-    let mut plans = Vec::new();
-    match estimator.zip(budget) {
-        None => plans.push(FitPlan::as_is()),
+    let measured = match estimator.zip(budget) {
+        None => FitPlan::as_is(),
         Some((estimator, budget)) => {
             let total = estimator
                 .count_chat_tokens_with_tools(system, messages, tools)
                 .await;
             if total <= budget {
-                plans.push(FitPlan::as_is());
+                FitPlan::as_is()
             } else {
-                let smallest = elide_tool_responses_at(messages, &all_tool_responses);
-                if estimator.count_chat_tokens("", &smallest).await > budget {
-                    return vec![headerless];
-                }
-                if let Some(elide) =
-                    elisions_covering(estimator, total - budget, messages, &all_tool_responses)
-                        .await
-                {
-                    plans.push(FitPlan {
+                let candidates = middle_out_tool_response_indices(messages, 100);
+                match elisions_covering(estimator, total - budget, messages, &candidates).await {
+                    Some(elide) => FitPlan {
                         drop_header: false,
                         elide,
-                    });
+                    },
+                    None => return vec![headerless],
                 }
             }
         }
-    }
+    };
 
-    plans.push(FitPlan {
-        drop_header: false,
-        elide: all_tool_responses,
-    });
+    let measured_count = measured.elide.len();
+    let mut plans = vec![measured];
+    plans.extend(
+        REMOVAL_PERCENTAGES
+            .iter()
+            .map(|&percent| FitPlan {
+                drop_header: false,
+                elide: middle_out_tool_response_indices(messages, percent),
+            })
+            .filter(|plan| plan.elide.len() > measured_count),
+    );
     plans.push(headerless);
     plans.dedup();
     plans

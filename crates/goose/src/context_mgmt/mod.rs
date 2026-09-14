@@ -359,6 +359,17 @@ impl goose_context_management::CompactionModel for GooseCompactionModel<'_> {
             other => other,
         }
     }
+
+    async fn context_limit(&self) -> Option<usize> {
+        Some(
+            self.provider
+                .get_context_limit(
+                    &self.compaction_config.model_name,
+                    self.compaction_config.context_limit,
+                )
+                .await,
+        )
+    }
 }
 
 struct GooseTokenEstimator;
@@ -802,7 +813,7 @@ mod tests {
     #[tokio::test]
     async fn test_keeps_tool_request() {
         let response_message = Message::assistant().with_text("<mock summary>");
-        let provider = MockProvider::new(response_message, 1);
+        let provider = MockProvider::new(response_message, 100_000);
         let basic_conversation = vec![
             Message::user().with_text("read hello.txt"),
             Message::assistant()
@@ -1327,11 +1338,10 @@ mod tests {
         assert_eq!(provider.call_count(), 5);
     }
 
-    #[tokio::test]
-    async fn test_progressive_elision_on_context_exceeded() {
-        let response_message = Message::assistant().with_text("<mock summary>");
-        let provider = MockProvider::new(response_message, 1000).with_max_request_bytes(12_000);
-
+    /// Prose rather than a repeated character: a run of one character
+    /// collapses to almost nothing under BPE, which would leave the fixture
+    /// far inside any realistic budget.
+    fn conversation_with_bulky_tool_responses() -> Conversation {
         let mut messages = vec![Message::user().with_text("start")];
         for i in 0..10 {
             messages.push(Message::assistant().with_tool_request(
@@ -1341,36 +1351,64 @@ mod tests {
             messages.push(Message::user().with_tool_response(
                 format!("tool_{}", i),
                 Ok(rmcp::model::CallToolResult::success(vec![
-                    ContentBlock::text(format!("response {i}: {}", "x".repeat(2000))),
+                    ContentBlock::text(format!(
+                        "response {i}: {}",
+                        "the quick brown fox jumps over the lazy dog ".repeat(400)
+                    )),
                 ])),
             ));
         }
+        Conversation::new_unvalidated(messages)
+    }
 
-        let conversation = Conversation::new_unvalidated(messages);
-        let model_config = provider.config.clone();
-        let result = compact_messages(
+    fn elided_response_count(request: &[Message]) -> usize {
+        request
+            .iter()
+            .flat_map(|message| &message.content)
+            .filter(|content| match content {
+                MessageContent::ToolResponse(response) => response
+                    .tool_result
+                    .as_ref()
+                    .is_ok_and(|result| format!("{result:?}").contains("tool response elided")),
+                _ => false,
+            })
+            .count()
+    }
+
+    #[tokio::test]
+    async fn oversized_request_is_elided_to_fit_before_it_is_sent() {
+        let conversation = conversation_with_bulky_tool_responses();
+        // Calibrated off the real tokenizer so the fixture stays about a third
+        // over budget however the tokenizer changes.
+        let counter = create_token_counter().await.unwrap();
+        let transcript_tokens = counter.count_chat_tokens("", conversation.messages(), &[]);
+        let context_limit = transcript_tokens * 2 / 3;
+        let provider = MockProvider::new(
+            Message::assistant().with_text("<mock summary>"),
+            context_limit,
+        );
+
+        compact_messages(
             &provider,
-            &model_config,
+            &provider.config.clone(),
             "test-session-id",
             &conversation,
             false,
         )
-        .await;
+        .await
+        .unwrap();
 
-        assert!(
-            result.is_ok(),
-            "Should succeed with progressive elision: {:?}",
-            result.err()
+        assert_eq!(
+            provider.call_count(),
+            1,
+            "the request must be sized before it is sent, not probed"
         );
         let request = provider.captured_messages.lock().unwrap().clone().unwrap();
-        let request_json = serde_json::to_string(&request).unwrap();
+        let elided = elided_response_count(&request);
+        assert!(elided > 0, "an oversized request must be elided");
         assert!(
-            request_json.len() <= 12_000,
-            "the successful attempt must fit the provider's window"
-        );
-        assert!(
-            request_json.contains("tool response elided"),
-            "oversized tool responses must be elided"
+            elided < 10,
+            "eliding must stop once the request fits, not sacrifice every response"
         );
         assert_eq!(
             request
@@ -1381,6 +1419,34 @@ mod tests {
             10,
             "every tool request must keep its (elided) response"
         );
+    }
+
+    /// The estimator is approximate and the resolved context limit can be
+    /// wrong, so a provider that rejects anyway must still be recovered from.
+    #[tokio::test]
+    async fn provider_overflow_escalates_past_the_estimate() {
+        let provider = MockProvider::new(Message::assistant().with_text("<mock summary>"), 100_000)
+            .with_max_request_bytes(12_000);
+        let conversation = conversation_with_bulky_tool_responses();
+
+        compact_messages(
+            &provider,
+            &provider.config.clone(),
+            "test-session-id",
+            &conversation,
+            false,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            provider.call_count(),
+            2,
+            "the estimate said it fits, so exactly one rejection then one escalation"
+        );
+        let request = provider.captured_messages.lock().unwrap().clone().unwrap();
+        assert!(serde_json::to_string(&request).unwrap().len() <= 12_000);
+        assert_eq!(elided_response_count(&request), 10);
     }
 
     #[test]

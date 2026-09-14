@@ -27,6 +27,12 @@ pub trait CompactionModel: Send + Sync {
         messages: &[Message],
         tools: &[Tool],
     ) -> Result<(Message, ProviderUsage), ProviderError>;
+
+    /// Context window the summarization request has to fit. `None` leaves the
+    /// request unmeasured, which costs a round trip per overflow.
+    async fn context_limit(&self) -> Option<usize> {
+        None
+    }
 }
 
 /// Counts tokens for usage estimation and retained-context reporting.
@@ -81,5 +87,16 @@ impl CompactionModel for ProviderModel {
         self.provider
             .complete(&self.model_config, system, messages, tools)
             .await
+    }
+
+    async fn context_limit(&self) -> Option<usize> {
+        Some(
+            self.provider
+                .get_context_limit(
+                    &self.model_config.model_name,
+                    self.model_config.context_limit,
+                )
+                .await,
+        )
     }
 }

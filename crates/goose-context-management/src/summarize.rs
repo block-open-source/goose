@@ -16,6 +16,17 @@ const REMOVAL_PERCENTAGES: [u32; 5] = [0, 10, 20, 50, 100];
 const ELIDED_TOOL_RESPONSE_TEXT: &str =
     "[tool response elided: the conversation exceeded the summarizer's context window]";
 
+/// Room left for the summary itself and for the estimator being approximate.
+const SUMMARY_RESERVE_FRACTION: f64 = 0.1;
+
+/// Kept in wording from the standalone path (#10500): the actions that
+/// actually recover a session are the same ones.
+const CONTEXT_EXHAUSTED_TEXT: &str =
+    "Failed to compact: the conversation exceeds the model's effective context window even with \
+     every tool response elided and the system prompt and tool schemas dropped. Use a model or \
+     configuration with a larger usable context, disable some extensions to reduce the \
+     tool-schema payload, or start a new session.";
+
 const TOOL_CALL_NOT_EXECUTED_TEXT: &str =
     "This tool call was not executed: tools are unavailable while summarizing.";
 
@@ -87,26 +98,31 @@ fn filter_tool_responses(messages: &[Message], remove_percent: u32) -> Vec<&Mess
         .collect()
 }
 
-/// Unlike dropping whole messages, eliding response contents keeps every tool
+/// Unlike dropping the message, eliding its response contents keeps the tool
 /// request/response pair intact, which providers require of a native-shape
 /// request.
+fn elide_tool_responses(msg: &Message) -> Message {
+    let mut msg = msg.clone();
+    for content in &mut msg.content {
+        if let MessageContent::ToolResponse(response) = content {
+            response.tool_result = Ok(rmcp::model::CallToolResult::success(vec![
+                rmcp::model::ContentBlock::text(ELIDED_TOOL_RESPONSE_TEXT),
+            ]));
+        }
+    }
+    msg
+}
+
 fn elide_tool_responses_at(messages: &[Message], indices_to_elide: &[usize]) -> Vec<Message> {
     messages
         .iter()
         .enumerate()
         .map(|(i, msg)| {
-            if !indices_to_elide.contains(&i) {
-                return msg.clone();
+            if indices_to_elide.contains(&i) {
+                elide_tool_responses(msg)
+            } else {
+                msg.clone()
             }
-            let mut msg = msg.clone();
-            for content in &mut msg.content {
-                if let MessageContent::ToolResponse(response) = content {
-                    response.tool_result = Ok(rmcp::model::CallToolResult::success(vec![
-                        rmcp::model::ContentBlock::text(ELIDED_TOOL_RESPONSE_TEXT),
-                    ]));
-                }
-            }
-            msg
         })
         .collect()
 }
@@ -209,12 +225,119 @@ impl std::fmt::Display for CompactionFailure {
 
 impl std::error::Error for CompactionFailure {}
 
+/// One way of making the summarization request fit, ordered by what it costs.
+/// Eliding tool responses forfeits the provider's cache only from the first
+/// elided message onwards; dropping the header forfeits all of it.
+#[derive(PartialEq, Eq)]
+struct FitPlan {
+    drop_header: bool,
+    elide: Vec<usize>,
+}
+
+impl FitPlan {
+    fn as_is() -> Self {
+        Self {
+            drop_header: false,
+            elide: Vec::new(),
+        }
+    }
+
+    fn apply(&self, messages: &[Message]) -> Vec<Message> {
+        if self.elide.is_empty() {
+            messages.to_vec()
+        } else {
+            elide_tool_responses_at(messages, &self.elide)
+        }
+    }
+}
+
+/// Elides tool responses from the middle outwards until the request is
+/// projected to fit, so the number elided follows the overflow rather than a
+/// fixed percentage. `None` when eliding every one of them is not enough.
+async fn elisions_covering(
+    estimator: &dyn TokenEstimator,
+    deficit: usize,
+    messages: &[Message],
+    candidates: &[usize],
+) -> Option<Vec<usize>> {
+    let mut saved = 0;
+    let mut chosen = Vec::new();
+    for &index in candidates {
+        if saved >= deficit {
+            break;
+        }
+        let message = std::slice::from_ref(&messages[index]);
+        let elided = [elide_tool_responses(&messages[index])];
+        saved += estimator
+            .count_chat_tokens("", message)
+            .await
+            .saturating_sub(estimator.count_chat_tokens("", &elided).await);
+        chosen.push(index);
+    }
+    (saved >= deficit).then_some(chosen)
+}
+
+/// The escalation sequence to try, least destructive first. The first entry is
+/// the measured one; the rest cover estimator error, since the provider is the
+/// final authority on what fits. When nothing is projected to fit, only the
+/// smallest request is attempted: the resolved context limit can itself be
+/// wrong, so the provider gets to disagree, but it gets one chance, not five.
+async fn fit_plans(
+    estimator: Option<&dyn TokenEstimator>,
+    budget: Option<usize>,
+    system: &str,
+    tools: &[Tool],
+    messages: &[Message],
+) -> Vec<FitPlan> {
+    let all_tool_responses = middle_out_tool_response_indices(messages, 100);
+    let headerless = FitPlan {
+        drop_header: true,
+        elide: all_tool_responses.clone(),
+    };
+
+    let mut plans = Vec::new();
+    match estimator.zip(budget) {
+        None => plans.push(FitPlan::as_is()),
+        Some((estimator, budget)) => {
+            let total = estimator
+                .count_chat_tokens_with_tools(system, messages, tools)
+                .await;
+            if total <= budget {
+                plans.push(FitPlan::as_is());
+            } else {
+                let smallest = elide_tool_responses_at(messages, &all_tool_responses);
+                if estimator.count_chat_tokens("", &smallest).await > budget {
+                    return vec![headerless];
+                }
+                if let Some(elide) =
+                    elisions_covering(estimator, total - budget, messages, &all_tool_responses)
+                        .await
+                {
+                    plans.push(FitPlan {
+                        drop_header: false,
+                        elide,
+                    });
+                }
+            }
+        }
+    }
+
+    plans.push(FitPlan {
+        drop_header: false,
+        elide: all_tool_responses,
+    });
+    plans.push(headerless);
+    plans.dedup();
+    plans
+}
+
 /// Summarizes by replaying the conversation's own request prefix (system,
 /// tools, messages as the provider last saw them, instruction last) so the
-/// provider's prompt cache is reused. When the summarizer itself overflows,
-/// retries with progressively more tool-response contents elided. A response
-/// that isn't a summary (a tool call, or no text) gets one corrective retry
-/// before failing; usage of rejected attempts is carried into the outcome.
+/// provider's prompt cache is reused. The request is measured against the
+/// model's context window first and elided to fit before it is sent. A
+/// response that isn't a summary (a tool call, or no text) gets one corrective
+/// retry before failing; usage of rejected attempts is carried into the
+/// outcome.
 pub async fn summarize_as_prefix(
     model: &dyn CompactionModel,
     estimator: Option<&dyn TokenEstimator>,
@@ -223,22 +346,23 @@ pub async fn summarize_as_prefix(
     tools: &[Tool],
     request_messages: &[Message],
 ) -> Result<Summary, CompactionFailure> {
+    let budget = model
+        .context_limit()
+        .await
+        .map(|limit| limit - (limit as f64 * SUMMARY_RESERVE_FRACTION) as usize);
+    let plans = fit_plans(estimator, budget, system, tools, request_messages).await;
+
     let mut last_overflow = None;
-    let mut attempted_elisions = std::collections::HashSet::new();
     let mut corrected = false;
     let mut correction_in_flight = false;
     let mut rejected_usage: Vec<ProviderUsage> = Vec::new();
-    for &remove_percent in &REMOVAL_PERCENTAGES {
-        let indices = middle_out_tool_response_indices(request_messages, remove_percent);
-        // Skip rungs whose elision would resend the same bytes.
-        if !attempted_elisions.insert(indices.len()) {
-            continue;
-        }
-        let mut request = if indices.is_empty() {
-            request_messages.to_vec()
+    for plan in plans {
+        let (system, tools): (&str, &[Tool]) = if plan.drop_header {
+            ("", &[])
         } else {
-            elide_tool_responses_at(request_messages, &indices)
+            (system, tools)
         };
+        let mut request = plan.apply(request_messages);
 
         loop {
             let (mut response, mut usage) =
@@ -247,7 +371,7 @@ pub async fn summarize_as_prefix(
                     Err(ProviderError::ContextLengthExceeded(error)) => {
                         last_overflow = Some(error);
                         // An overflowing corrective request must not use up
-                        // the correction: the next rung retries uncorrected.
+                        // the correction: the next plan retries uncorrected.
                         if correction_in_flight {
                             corrected = false;
                             correction_in_flight = false;
@@ -321,7 +445,7 @@ pub async fn summarize_as_prefix(
         error: anyhow::Error::new(ProviderError::ContextLengthExceeded(
             last_overflow.unwrap_or_default(),
         ))
-        .context("context length exceeded even after eliding tool responses"),
+        .context(CONTEXT_EXHAUSTED_TEXT),
         billed_usage: rejected_usage,
     })
 }

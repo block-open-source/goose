@@ -6,6 +6,9 @@ export const Select = (props: React.ComponentProps<typeof ReactSelect>) => {
     <ReactSelect
       {...props}
       unstyled
+      // react-select opens downwards by default, so a control near the bottom of the
+      // window puts the last options past its edge. 'auto' flips the menu up instead.
+      menuPlacement={props.menuPlacement ?? 'auto'}
       isSearchable={props.isSearchable !== false}
       closeMenuOnSelect={props.closeMenuOnSelect !== false}
       blurInputOnSelect={props.blurInputOnSelect !== false}

@@ -1,0 +1,108 @@
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.tabs {
+  display: flex;
+  gap: 0.25rem;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: var(--ifm-global-radius);
+  padding: 0.25rem;
+}
+
+.tab,
+.tabActive {
+  border: 0;
+  border-radius: var(--ifm-global-radius);
+  padding: 0.35rem 0.9rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  background: transparent;
+  color: var(--ifm-color-emphasis-700);
+}
+
+.tab:hover {
+  background: var(--ifm-color-emphasis-200);
+}
+
+.tabActive {
+  background: var(--ifm-color-primary);
+  color: var(--ifm-color-primary-contrast-background);
+}
+
+.version {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.version select {
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: var(--ifm-global-radius);
+  background: var(--ifm-background-color);
+  color: var(--ifm-font-color-base);
+  padding: 0.35rem 0.5rem;
+  font: inherit;
+}
+
+.meta {
+  font-size: 0.9rem;
+  color: var(--ifm-color-emphasis-700);
+}
+
+.item {
+  margin-bottom: 2.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--ifm-color-emphasis-200);
+}
+
+.itemTitle {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  background: var(--ifm-color-emphasis-200);
+  color: var(--ifm-color-emphasis-800);
+}
+
+.entry {
+  margin: 1.25rem 0 1.75rem;
+}
+
+.entryTitle {
+  margin-bottom: 0.5rem;
+}
+
+.table {
+  display: table;
+  width: 100%;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+
+.table th,
+.table td {
+  vertical-align: top;
+}
+
+/* Keeps a row's hash link on the same line as the name it anchors. */
+.nameCell {
+  white-space: nowrap;
+}

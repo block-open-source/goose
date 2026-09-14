@@ -617,6 +617,9 @@
   "customProviderForm.add": {
     "defaultMessage": "Tambah"
   },
+  "customProviderForm.alwaysUseToolshim": {
+    "defaultMessage": "Sentiasa gunakan Toolshim untuk pembekal ini"
+  },
   "customProviderForm.anthropicCompatible": {
     "defaultMessage": "Serasi Anthropic"
   },
@@ -917,6 +920,15 @@
   "dirSwitcher.currentDirectory": {
     "defaultMessage": "Direktori semasa"
   },
+  "dirSwitcher.enterPath": {
+    "defaultMessage": "Enter path"
+  },
+  "dirSwitcher.enterPathPlaceholder": {
+    "defaultMessage": "Enter an absolute path (e.g. /home/goose/workspace)"
+  },
+  "dirSwitcher.enterPathInvalid": {
+    "defaultMessage": "Working directory must be an absolute path"
+  },
   "dirSwitcher.failedToUpdateWorkingDir": {
     "defaultMessage": "Gagal mengemas kini direktori kerja"
   },
@@ -1042,9 +1054,6 @@
   },
   "extensionInfoFields.typeLabel": {
     "defaultMessage": "Jenis"
-  },
-  "extensionInfoFields.typeSseUnsupported": {
-    "defaultMessage": "SSE (tidak disokong)"
   },
   "extensionInfoFields.typeStandardIo": {
     "defaultMessage": "Standard IO (STDIO)"
@@ -1749,13 +1758,10 @@
     "defaultMessage": "Padam model ini? Anda boleh memuat turunnya semula kemudian."
   },
   "localInferenceSettings.description": {
-    "defaultMessage": "Muat turun dan urus model LLM tempatan untuk inferens tanpa kunci API. Cari HuggingFace untuk model GGUF atau MLX, atau gunakan pilihan utama di bawah."
+    "defaultMessage": "Muat turun dan urus model LLM tempatan untuk inferens tanpa kunci API. Cari model GGUF atau MLX di Hugging Face."
   },
   "localInferenceSettings.dismiss": {
     "defaultMessage": "Ketepikan"
-  },
-  "localInferenceSettings.download": {
-    "defaultMessage": "Muat turun"
   },
   "localInferenceSettings.downloadCancelled": {
     "defaultMessage": "Muat turun dibatalkan"
@@ -1774,9 +1780,6 @@
   },
   "localInferenceSettings.evictFromMemory": {
     "defaultMessage": "Evict from memory"
-  },
-  "localInferenceSettings.featuredModels": {
-    "defaultMessage": "Model Pilihan"
   },
   "localInferenceSettings.huggingFaceSignInNote": {
     "defaultMessage": "Log masuk untuk meningkatkan had kadar semasa mencari dan memuat turun model, dan untuk mengakses repositori Hugging Face peribadi atau berpagar."
@@ -1801,12 +1804,6 @@
   },
   "localInferenceSettings.retry": {
     "defaultMessage": "Cuba semula"
-  },
-  "localInferenceSettings.showAllFeatured": {
-    "defaultMessage": "Tunjukkan semua pilihan ({count} lagi)"
-  },
-  "localInferenceSettings.showRecommendedOnly": {
-    "defaultMessage": "Tunjukkan yang disyorkan sahaja"
   },
   "localInferenceSettings.title": {
     "defaultMessage": "Model Inferens Tempatan"
@@ -3162,7 +3159,7 @@
     "defaultMessage": "Tiada resipi disimpan"
   },
   "recipesView.noSavedRecipesDescription": {
-    "defaultMessage": "Resipi yang disimpan daripada sembang akan dipaparkan di sini."
+    "defaultMessage": "Resipi yang disimpan akan dipaparkan di sini."
   },
   "recipesView.openInNewWindow": {
     "defaultMessage": "Buka dalam tetingkap baharu"
@@ -3699,7 +3696,7 @@
     "defaultMessage": "JSON sesi disalin"
   },
   "sessionActionsHeader.copiedModelInteractions": {
-    "defaultMessage": "Recent model interactions copied"
+    "defaultMessage": "Interaksi model terkini disalin"
   },
   "sessionActionsHeader.copiedText": {
     "defaultMessage": "Teks disalin"
@@ -3732,10 +3729,10 @@
     "defaultMessage": "Memuatkan JSON..."
   },
   "sessionActionsHeader.modelInteractionsFailed": {
-    "defaultMessage": "Failed to load model interactions: {error}"
+    "defaultMessage": "Gagal memuatkan interaksi model: {error}"
   },
   "sessionActionsHeader.modelInteractionsTitle": {
-    "defaultMessage": "Recent model interactions"
+    "defaultMessage": "Interaksi model terkini"
   },
   "sessionActionsHeader.renameFailed": {
     "defaultMessage": "Gagal menamakan semula sesi: {error}"
@@ -3762,7 +3759,7 @@
     "defaultMessage": "Lihat JSON sesi"
   },
   "sessionActionsHeader.viewModelInteractions": {
-    "defaultMessage": "View recent model interactions"
+    "defaultMessage": "Lihat interaksi model terkini"
   },
   "sessionIndicators.error": {
     "defaultMessage": "Sesi mengalami ralat"
@@ -3772,6 +3769,9 @@
   },
   "sessionIndicators.streaming": {
     "defaultMessage": "Penstriman"
+  },
+  "sessions.acpBadge": {
+    "defaultMessage": "ACP"
   },
   "sessions.action.delete": {
     "defaultMessage": "Padam sesi"
@@ -3850,6 +3850,9 @@
   },
   "sessions.importing": {
     "defaultMessage": "Mengimport..."
+  },
+  "sessions.includeAcp": {
+    "defaultMessage": "Sertakan sesi ACP"
   },
   "sessions.loadingMore": {
     "defaultMessage": "Memuatkan lebih banyak sesi..."
@@ -4520,9 +4523,6 @@
   "updateSection.autoDownloadDisabledNote": {
     "defaultMessage": "Muat turun automatik dilumpuhkan. Klik \"Muat Turun Sekarang\" untuk memuat turun secara manual."
   },
-  "updateSection.autoInstallNote": {
-    "defaultMessage": "Tiada pemasangan manual diperlukan."
-  },
   "updateSection.checkForUpdates": {
     "defaultMessage": "Semak Kemas Kini"
   },
@@ -4553,26 +4553,11 @@
   "updateSection.installAndRestart": {
     "defaultMessage": "Pasang & Mula Semula"
   },
-  "updateSection.installNowHint": {
-    "defaultMessage": "Klik \"Pasang & Mula Semula\" untuk mengemas kini sekarang."
-  },
   "updateSection.latestVersion": {
     "defaultMessage": "Anda sedang menjalankan versi terkini!"
   },
   "updateSection.loading": {
     "defaultMessage": "Memuatkan..."
-  },
-  "updateSection.manualInstallNote": {
-    "defaultMessage": "Selepas muat turun, anda perlu memasang kemas kini secara manual."
-  },
-  "updateSection.manualInstallRequired": {
-    "defaultMessage": "Pemasangan manual diperlukan untuk kaedah kemas kini ini."
-  },
-  "updateSection.readyInstallAuto": {
-    "defaultMessage": "✓ Kemas kini sudah sedia. Mula semula Goose untuk menyelesaikan pemasangannya, atau keluar apabila anda selesai."
-  },
-  "updateSection.readyInstallManual": {
-    "defaultMessage": "✓ Kemas kini sudah sedia! Klik \"Pasang & Mula Semula\" untuk arahan pemasangan."
   },
   "updateSection.upToDate": {
     "defaultMessage": "(terkini)"

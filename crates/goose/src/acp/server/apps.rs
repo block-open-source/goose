@@ -30,6 +30,8 @@ impl GooseAcpAgent {
                     .data(format!("Failed to list apps: {}", error.message))
             })?;
 
+        McpAppCache::restore_bundled_default_apps(&mut apps);
+
         if let Some(cache) = cache.as_ref() {
             let active_extensions = apps
                 .iter()

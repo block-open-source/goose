@@ -47,6 +47,7 @@ export async function addToAgent(
 }
 
 export async function removeFromAgent(
+  extensionKey: string,
   extensionName: string,
   sessionId: string,
   showToast: boolean
@@ -59,7 +60,7 @@ export async function removeFromAgent(
     : 0;
 
   try {
-    await removeSessionExtension(sessionId, extensionName);
+    await removeSessionExtension(sessionId, extensionKey);
 
     if (showToast) {
       toastService.dismiss(toastId);

@@ -26,8 +26,10 @@ path = "src/bin/mcp_conformance_driver.rs"
 [dependencies]
 clap_mangen = { version = "0.3", default-features = false }
 goose = { path = "../goose", default-features = false }
+agent-client-protocol = { workspace = true, features = ["unstable"], optional = true }
 goose-mcp = { path = "../goose-mcp", default-features = false }
 goose-providers = { path = "../goose-providers", default-features = false }
+goose-roaming = { path = "../goose-roaming", optional = true }
 rmcp = { workspace = true }
 clap = { workspace = true }
 cliclack = { version = "0.5", default-features = false }
@@ -72,6 +74,8 @@ snap = { workspace = true, optional = true }
 axum.workspace = true
 axum-server = { workspace = true, optional = true }
 clap_complete_nushell = { version = "4", default-features = false }
+qrcode = { version = "0.14.1", optional = true }
+fs2 = { workspace = true, optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 anstream = { version = "1", default-features = false, features = ["wincon"] }
@@ -90,7 +94,6 @@ libc = { version = "0.2.182", default-features = false, features = ["std"] }
 default = [
     "code-mode",
     "local-inference",
-    "tui",
     "aws-providers",
     "telemetry",
     "nostr",
@@ -99,6 +102,7 @@ default = [
     "system-keyring",
     "update",
 ]
+roaming = ["dep:goose-roaming", "dep:qrcode", "dep:fs2", "dep:agent-client-protocol"]
 code-mode = ["goose/code-mode"]
 local-inference = ["goose/local-inference"]
 aws-providers = ["goose/aws-providers"]
@@ -109,9 +113,8 @@ telemetry = ["goose/telemetry"]
 nostr = ["goose/nostr"]
 otel = ["goose/otel"]
 system-keyring = ["goose/system-keyring"]
-tui = []
 update = ["dep:sigstore-verify", "dep:snap"]
-portable-default = ["rustls-tls", "aws-providers", "telemetry", "otel", "tui"]
+portable-default = ["rustls-tls", "aws-providers", "telemetry", "otel"]
 # disables the update command
 disable-update = []
 rustls-tls = [
@@ -132,7 +135,6 @@ native-tls = [
     "goose-mcp/native-tls",
     "goose-providers/native-tls",
 ]
-
 [dev-dependencies]
 env-lock.workspace = true
 tempfile = { workspace = true }

@@ -106,7 +106,7 @@ impl CodeExecutionClient {
                 namespace,
                 description: tool.description.as_ref().map(|d| d.to_string()),
                 input_schema: Some(json!(tool.input_schema)),
-                output_schema: tool.output_schema.as_ref().map(|s| json!(s)),
+                output_schema: None,
             })
         }
         Some(cfgs)
@@ -169,7 +169,7 @@ impl CodeExecutionClient {
                     .clone()
                     .map(|n| format!("{n}__"))
                     .unwrap_or_default(),
-                &cfg.name
+                cfg.name
             );
             let callback = create_tool_callback(
                 ctx.clone(),
@@ -384,51 +384,7 @@ fn create_tool_callback(
                     .await
                 {
                     Ok(dispatch_result) => match dispatch_result.result.await {
-                        Ok(result) => {
-                            if let Some(sc) = &result.structured_content {
-                                Ok(serde_json::to_value(sc).unwrap_or(Value::Null))
-                            } else {
-                                let text: String = result
-                                    .content
-                                    .iter()
-                                    .filter(|c| {
-                                        let audience = match c {
-                                            ContentBlock::Text(t) => t
-                                                .annotations
-                                                .as_ref()
-                                                .and_then(|a| a.audience.as_ref()),
-                                            ContentBlock::Image(i) => i
-                                                .annotations
-                                                .as_ref()
-                                                .and_then(|a| a.audience.as_ref()),
-                                            ContentBlock::Audio(a) => a
-                                                .annotations
-                                                .as_ref()
-                                                .and_then(|a| a.audience.as_ref()),
-                                            ContentBlock::Resource(r) => r
-                                                .annotations
-                                                .as_ref()
-                                                .and_then(|a| a.audience.as_ref()),
-                                            ContentBlock::ResourceLink(r) => r
-                                                .annotations
-                                                .as_ref()
-                                                .and_then(|a| a.audience.as_ref()),
-                                            _ => None,
-                                        };
-                                        audience.is_none_or(|audiences| {
-                                            audiences.is_empty()
-                                                || audiences.contains(&Role::Assistant)
-                                        })
-                                    })
-                                    .filter_map(|c| match c {
-                                        ContentBlock::Text(t) => Some(t.text.clone()),
-                                        _ => None,
-                                    })
-                                    .collect::<Vec<_>>()
-                                    .join("\n");
-                                Ok(serde_json::from_str(&text).unwrap_or(Value::String(text)))
-                            }
-                        }
+                        Ok(result) => Ok(callback_result_to_value(&result)),
                         Err(e) => Err(format!("Tool error: {}", e.message)),
                     },
                     Err(e) => Err(format!("Dispatch error: {e}")),
@@ -447,6 +403,29 @@ fn create_tool_callback(
                 .unwrap_or_else(|e| Err(format!("Callback task failed: {e}")))
         }) as Pin<Box<dyn Future<Output = Result<Value, String>> + Send>>
     })
+}
+
+fn callback_result_to_value(result: &CallToolResult) -> Value {
+    let text = result
+        .content
+        .iter()
+        .filter_map(|content| match content {
+            ContentBlock::Text(text)
+                if text
+                    .annotations
+                    .as_ref()
+                    .and_then(|annotations| annotations.audience.as_ref())
+                    .is_none_or(|audiences| {
+                        audiences.is_empty() || audiences.contains(&Role::Assistant)
+                    }) =>
+            {
+                Some(text.text.clone())
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    serde_json::from_str(&text).unwrap_or(Value::String(text))
 }
 
 #[async_trait]
@@ -696,7 +675,51 @@ mod tests {
     use crate::agents::extension::ExtensionConfig;
     use crate::agents::extension_manager::ExtensionManager;
     use pctx_code_mode::model::FunctionId;
-    use rmcp::model::MetaObject;
+    use rmcp::model::{Annotations, EmbeddedResource, MetaObject, ResourceContents, TextContent};
+
+    #[test]
+    fn callback_result_ignores_hidden_structured_content_and_meta() {
+        let mut result = CallToolResult::success(vec![ContentBlock::text("visible text")]);
+        result.structured_content = Some(json!({"hidden": "structured secret"}));
+        result.meta = Some(MetaObject(
+            json!({"hidden": "metadata secret"})
+                .as_object()
+                .unwrap()
+                .clone(),
+        ));
+
+        assert_eq!(
+            callback_result_to_value(&result),
+            Value::String("visible text".to_string())
+        );
+    }
+
+    #[test]
+    fn callback_result_uses_assistant_visible_text_and_preserves_json_parsing() {
+        let user_only = ContentBlock::Text(
+            TextContent::new(r#"false,"hidden":"user secret","ignored":"#)
+                .with_annotations(Annotations::default().with_audience(vec![Role::User])),
+        );
+        let assistant_only = ContentBlock::Text(
+            TextContent::new("true}")
+                .with_annotations(Annotations::default().with_audience(vec![Role::Assistant])),
+        );
+        let resource = ResourceContents::TextResourceContents {
+            uri: "file:///hidden.txt".to_string(),
+            mime_type: Some("text/plain".to_string()),
+            text: "resource secret".to_string(),
+            meta: None,
+        };
+        let result = CallToolResult::success(vec![
+            ContentBlock::text(r#"{"visible":"#),
+            user_only,
+            ContentBlock::image("image secret", "image/png"),
+            ContentBlock::Resource(EmbeddedResource::new(resource)),
+            assistant_only,
+        ]);
+
+        assert_eq!(callback_result_to_value(&result), json!({"visible": true}));
+    }
 
     struct VisibilityClient;
 
@@ -724,6 +747,7 @@ mod tests {
                 "Model-visible tool".to_string(),
                 JsonObject::new(),
             )
+            .with_output_schema::<ToolGraphNode>()
             .with_meta(MetaObject(
                 json!({ "ui": { "visibility": ["model"] } })
                     .as_object()
@@ -776,7 +800,6 @@ mod tests {
                 },
                 Arc::new(VisibilityClient),
                 None,
-                None,
             )
             .await;
 
@@ -792,6 +815,7 @@ mod tests {
         assert!(!names.contains(&"app_only"));
         assert!(names.contains(&"model_visible"));
         assert!(names.contains(&"ordinary"));
+        assert!(configs.iter().all(|config| config.output_schema.is_none()));
     }
 
     #[tokio::test]

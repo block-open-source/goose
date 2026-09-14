@@ -165,6 +165,41 @@ describe('CustomProviderForm transitions', () => {
     expect(screen.queryByText(/Failed to save provider/)).not.toBeInTheDocument();
   });
 
+  it.each([
+    ['anthropic_compatible', 'anthropic_compatible'],
+    ['ollama_compatible', 'ollama_compatible'],
+    ['openai_compatible', 'openai_compatible'],
+    ['anthropic', 'anthropic_compatible'],
+    ['ollama', 'ollama_compatible'],
+    ['openai', 'openai_compatible'],
+  ])('saves a provider stored as %s with engine %s', async (engine, expectedEngine) => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    render(
+      <CustomProviderForm
+        initialData={{
+          engine,
+          display_name: 'Existing Provider',
+          api_url: 'https://existing.example.com',
+          api_key: '',
+          models: ['model-a'],
+          supports_streaming: true,
+          requires_auth: true,
+          toolshim: false,
+        }}
+        isEditable
+        onSubmit={onSubmit}
+        onCancel={vi.fn()}
+      />,
+      { wrapper: IntlTestWrapper }
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Update Provider' }));
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ engine: expectedEngine }));
+  });
+
   it('clears form validation when returning to the setup choice', async () => {
     const user = userEvent.setup();
     renderForm();

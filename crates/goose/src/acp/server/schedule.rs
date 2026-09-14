@@ -375,6 +375,7 @@ mod tests {
             config_dir: root.path().join("config"),
             goose_platform: GoosePlatform::GooseCli,
             additional_source_roots: Vec::new(),
+            session_cwd: None,
             enable_scheduler: false,
         });
         let agent = server.create_agent().await.unwrap();

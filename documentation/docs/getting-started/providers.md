@@ -22,6 +22,7 @@ goose is compatible with a wide range of LLM providers, allowing you to choose a
 
 | Provider                                                                    | Description                                                                                                                                                                                                               | Parameters                                                                                                                                                                          |
 |-----------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| [AI/ML API](https://aimlapi.com/)                                           | One API key for 300+ chat, image, video, audio, and embedding models from many providers, OpenAI-compatible. | `AIMLAPI_API_KEY` |
 | [Amazon Bedrock](https://aws.amazon.com/bedrock/)                           | Offers a variety of foundation models, including Claude, Jurassic-2, and others. **AWS environment variables must be set in advance, not configured through `goose configure`**                                           | Credential auth: `AWS_PROFILE`, or `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`<br /><br />Bearer token auth: `AWS_BEARER_TOKEN_BEDROCK` and `AWS_REGION`, `AWS_DEFAULT_REGION`, or `AWS_PROFILE` |
 | [Amazon SageMaker TGI](https://docs.aws.amazon.com/sagemaker/latest/dg/realtime-endpoints.html) | Run Text Generation Inference models through Amazon SageMaker endpoints. **AWS credentials must be configured in advance.** | `SAGEMAKER_ENDPOINT_NAME`, `AWS_REGION` (optional), `AWS_PROFILE` (optional)  |
 | [Anthropic](https://www.anthropic.com/)                                     | Offers Claude, an advanced AI model for natural language tasks.                                                                                                                                                           | `ANTHROPIC_API_KEY`, `ANTHROPIC_HOST` (optional)                                                                                                                                                                 |
@@ -62,6 +63,7 @@ goose is compatible with a wide range of LLM providers, allowing you to choose a
 | [Snowflake](https://docs.snowflake.com/user-guide/snowflake-cortex/aisql#choosing-a-model) | Access the latest models using Snowflake Cortex services, including Claude models. **Requires a Snowflake account and programmatic access token (PAT)**.                                                     | `SNOWFLAKE_HOST`, `SNOWFLAKE_TOKEN`                                                                                                                                                                 |
 | [VMware Tanzu Platform](https://techdocs.broadcom.com/us/en/vmware-tanzu/platform/ai-services/10-3/ai/index.html) | Enterprise-managed LLM access through AI Services on VMware Tanzu Platform. Models are fetched dynamically from the endpoint. | `TANZU_AI_API_KEY`, `TANZU_AI_ENDPOINT` |
 | [Tetrate Agent Router Service](https://router.tetrate.ai)                   | Unified API gateway for AI models including Claude, Gemini, GPT, open-weight models, and others. Supports PKCE authentication flow for secure API key generation.                                                                                | `TETRATE_API_KEY`, `TETRATE_HOST` (optional)                                                                                                                                        |
+| [TrustedRouter](https://trustedrouter.com)                                  | Models from OpenAI, Anthropic, Google, DeepSeek and others via TrustedRouter's OpenAI-compatible API, with per-request routing and failover.                                                                                                     | `TRUSTEDROUTER_API_KEY`                                                                                                                                                             |
 | [Venice AI](https://venice.ai/home)                                         | Provides access to open source models like Llama, Mistral, and Qwen while prioritizing user privacy. **Requires an account and an [API key](https://docs.venice.ai/overview/guides/generating-api-key)**.                 | `VENICE_API_KEY`, `VENICE_HOST` (optional), `VENICE_BASE_PATH` (optional), `VENICE_MODELS_PATH` (optional)                                                                          |
 | [Cerebras](https://cerebras.ai/)                                            | Fast inference on Cerebras wafer-scale engines with models like Llama, Qwen, and others.                                                                                                                                  | `CEREBRAS_API_KEY`                                                                                                                                                                  |
 | [xAI](https://x.ai/)                                                        | Access to xAI's Grok models including grok-3, grok-3-mini, and grok-3-fast with 131,072 token context window.                                                                                                            | `XAI_API_KEY`, `XAI_HOST` (optional)                                                                                                                                                |
@@ -464,7 +466,9 @@ Custom providers must use OpenAI, Anthropic, or Ollama compatible API formats. T
        - **Name**: A friendly name for the provider
        - **API URL**: The base URL of the API endpoint
        - **Authentication Required**: Answer "Yes" if your provider needs an API key, or "No" if authentication is not required
-         - If Yes: You'll be prompted to enter your **API Key** (stored securely in the keychain, or in `secrets.yaml` if the keyring is disabled or cannot be accessed)
+         - If Yes: Choose how goose should obtain the credential:
+           - **Static API key**: You'll be prompted to enter your **API Key** (stored securely in the keychain, or in `secrets.yaml` if the keyring is disabled or cannot be accessed)
+           - **Command (refreshable)**: You'll be prompted for a **command** (and optional arguments) that goose runs to fetch the credential, plus a **refresh interval** in seconds. Use this for short-lived credentials issued by an IdP or key vault, so goose can refresh them automatically instead of requiring a restart when they expire. See [Command-Based Authentication](#command-based-authentication) below.
          - If No: The API key prompt is skipped
        - **Available Models**: Comma-separated list of available model names
        - **Streaming Support**: Whether the API supports streaming responses
@@ -518,6 +522,50 @@ Custom providers must use OpenAI, Anthropic, or Ollama compatible API formats. T
     :::tip Keychain Key Storage
     If you want to store the API key in the `goose` keychain, update the provider in goose Desktop and enter the key. This provides secure, persistent storage and allows goose to connect natively to the provider.
     :::
+
+  </TabItem>
+</Tabs>
+
+### Command-Based Authentication
+
+Instead of a static `api_key_env`, a custom provider can be configured to run a command to obtain its credential. This is useful for short-lived credentials issued by an IdP or key vault: goose re-runs the command to refresh the credential instead of requiring a restart when it expires.
+
+Add an `auth` object to the provider's JSON configuration in place of `api_key_env` (the two are mutually exclusive):
+
+```json
+{
+  "name": "custom_corp_api",
+  "engine": "openai",
+  "display_name": "Corporate API",
+  "base_url": "https://api.company.com/v1/chat/completions",
+  "models": [{ "name": "gpt-4o", "context_limit": 128000 }],
+  "requires_auth": true,
+  "auth": {
+    "command": "/path/to/get-token.sh",
+    "args": [],
+    "refresh_interval": 3600,
+    "timeout_seconds": 10
+  }
+}
+```
+
+- **`command`**: The executable to run. It is spawned directly, without a shell — none of `command`/`args` are shell-interpolated. If your script needs shell features (pipes, variable expansion), invoke an interpreter explicitly, e.g. `"command": "/bin/bash", "args": ["-c", "..."]`. A bare name (no path separator, e.g. `"get-token"`) is looked up on `PATH`; a relative path (e.g. `"./scripts/get-token.sh"`) is resolved against `cwd`.
+- **`args`** (optional): Arguments passed to `command`.
+- **`refresh_interval`** (optional, defaults to `3600`): How long, in seconds, a fetched credential is cached before the command is re-run. Set to `0` to disable proactive refresh entirely — the command then only reruns reactively, after the provider's API rejects a request with an auth error.
+- **`timeout_seconds`** (optional, defaults to `10`): How long to wait for the command before treating it as failed.
+- **`cwd`** (optional): Working directory for the command, and the base a relative `command` path is resolved against. Defaults to goose's current directory.
+
+The command's trimmed standard output is used as the credential. It must exit successfully and print a non-empty value; on failure, goose surfaces an error rather than silently reusing a stale credential. The command inherits goose's full environment, since the same user configures goose and writes the script.
+
+<Tabs groupId="interface">
+  <TabItem value="cli" label="goose CLI" default>
+
+    In `goose configure`, choose **Command (refreshable)** when prompted for how to obtain credentials for a custom provider (see [above](#configure-custom-provider)).
+
+  </TabItem>
+  <TabItem value="config" label="Config File">
+
+    Add the `auth` object shown above to the provider's JSON file instead of setting `api_key_env`.
 
   </TabItem>
 </Tabs>

@@ -1,5 +1,5 @@
 use crate::backend::LocalInferenceBackend;
-use crate::local_model_registry::ModelSettings;
+use crate::model::ModelSettings;
 use crate::multimodal::ExtractedImage;
 use goose_provider_types::errors::ProviderError;
 use goose_provider_types::request_log::{LoggerHandleExt, RequestLogHandle};
@@ -165,7 +165,7 @@ pub(super) fn estimate_max_context_for_memory(
 }
 
 pub(super) fn context_cap(
-    settings: &crate::local_model_registry::ModelSettings,
+    settings: &crate::model::ModelSettings,
     context_limit: usize,
     n_ctx_train: usize,
     memory_max_ctx: Option<usize>,
@@ -195,7 +195,7 @@ pub(super) fn context_cap(
 
 pub(super) fn effective_context_size(
     prompt_token_count: usize,
-    settings: &crate::local_model_registry::ModelSettings,
+    settings: &crate::model::ModelSettings,
     context_limit: usize,
     n_ctx_train: usize,
     memory_max_ctx: Option<usize>,
@@ -215,7 +215,7 @@ pub(super) fn effective_context_size(
 
 pub(super) fn build_context_params(
     ctx_size: u32,
-    settings: &crate::local_model_registry::ModelSettings,
+    settings: &crate::model::ModelSettings,
 ) -> LlamaContextParams {
     let mut params = LlamaContextParams::default().with_n_ctx(NonZeroU32::new(ctx_size));
 
@@ -234,8 +234,8 @@ pub(super) fn build_context_params(
     params
 }
 
-pub(super) fn build_sampler(settings: &crate::local_model_registry::ModelSettings) -> LlamaSampler {
-    use crate::local_model_registry::SamplingConfig;
+pub(super) fn build_sampler(settings: &crate::model::ModelSettings) -> LlamaSampler {
+    use crate::model::SamplingConfig;
 
     let has_penalties = settings.repeat_penalty != 1.0
         || settings.frequency_penalty != 0.0
@@ -288,7 +288,7 @@ pub(super) fn validate_and_compute_context(
     backend: &LlamaCppBackend,
     prompt_token_count: usize,
     context_limit: usize,
-    settings: &crate::local_model_registry::ModelSettings,
+    settings: &crate::model::ModelSettings,
 ) -> Result<(usize, usize), ProviderError> {
     let n_ctx_train = loaded.model.n_ctx_train() as usize;
     let mmproj_overhead = if loaded.mtmd_ctx.is_some() {
@@ -329,7 +329,7 @@ pub(super) fn create_and_prefill_context<'model>(
     backend: &LlamaCppBackend,
     tokens: &[llama_cpp_2::token::LlamaToken],
     effective_ctx: usize,
-    settings: &crate::local_model_registry::ModelSettings,
+    settings: &crate::model::ModelSettings,
 ) -> Result<llama_cpp_2::context::LlamaContext<'model>, ProviderError> {
     let ctx_params = build_context_params(effective_ctx as u32, settings);
     let mut ctx = loaded
@@ -550,7 +550,7 @@ pub(super) enum TokenAction {
 pub(super) fn generation_loop(
     model: &LlamaModel,
     ctx: &mut llama_cpp_2::context::LlamaContext<'_>,
-    settings: &crate::local_model_registry::ModelSettings,
+    settings: &crate::model::ModelSettings,
     prompt_token_count: usize,
     effective_ctx: usize,
     mut on_piece: impl FnMut(&str) -> Result<TokenAction, ProviderError>,
@@ -612,7 +612,7 @@ pub(super) fn generation_loop(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::local_model_registry::ModelSettings;
+    use crate::model::ModelSettings;
 
     fn default_settings() -> ModelSettings {
         ModelSettings::default()

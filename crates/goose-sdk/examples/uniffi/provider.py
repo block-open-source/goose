@@ -1,5 +1,5 @@
 #!/usr/bin/env -S uv run --script
-"""Goose SDK demo: build a declarative provider and stream a completion."""
+"""GDK demo: build a declarative provider and stream a completion."""
 import asyncio
 import sys
 from pathlib import Path

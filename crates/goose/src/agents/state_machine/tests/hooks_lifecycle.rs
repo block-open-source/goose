@@ -338,6 +338,14 @@ type HookSpec<'a> = (&'a str, &'a str, &'a str, &'a str);
 
 impl RecordingHookEnv {
     fn new(specs: &[HookSpec<'_>]) -> Self {
+        Self::with_on_failure(specs, "")
+    }
+
+    fn blocking_on_failure(specs: &[HookSpec<'_>]) -> Self {
+        Self::with_on_failure(specs, r#", "on_failure": "block""#)
+    }
+
+    fn with_on_failure(specs: &[HookSpec<'_>], on_failure: &str) -> Self {
         let temp_dir = tempfile::tempdir().unwrap();
         let plugin_dir = temp_dir.path().join("test-plugin");
         std::fs::create_dir_all(plugin_dir.join("hooks")).unwrap();
@@ -350,7 +358,7 @@ impl RecordingHookEnv {
                     format!(r#""matcher": "{matcher}", "#)
                 };
                 format!(
-                    r#""{event}": [{{{matcher}"hooks": [{{"type": "command", "command": "sh ${{PLUGIN_ROOT}}/{script}"}}]}}]"#
+                    r#""{event}": [{{{matcher}"hooks": [{{"type": "command", "command": "sh ${{PLUGIN_ROOT}}/{script}"{on_failure}}}]}}]"#
                 )
             })
             .collect();
@@ -403,6 +411,10 @@ const DENY_AND_RECORD_SCRIPT: &str =
 /// non-zero. That is a hook that ran but never returned a decision.
 const ABNORMAL_EXIT_AND_RECORD_SCRIPT: &str =
     "#!/bin/sh\ncat >> \"$PLUGIN_ROOT/pre.log\"\nprintf '\\n' >> \"$PLUGIN_ROOT/pre.log\"\necho boom >&2\nexit 3\n";
+const HOOK_FAILURE_REFUSAL: &str =
+    "Tool call blocked because policy hook `test-plugin` could not complete: \
+     the hook exited with status 3 and no usable decision. \
+     That hook is configured to block on failure.";
 
 /// deny-invisible: the tool never dispatches, neither post event fires, and a
 /// PreToolUseResult subscriber still sees the denial with blocked_by and reason.
@@ -988,10 +1000,8 @@ async fn load_skill_denied_by_hook_does_not_execute() -> Result<()> {
     Ok(())
 }
 
-/// Unknown-tool parity: a valid unadvertised call still emits `PreToolUse` and
-/// `PreToolUseResult`, correlated by one `tool_call_id`.
 #[tokio::test]
-async fn unknown_tool_emits_pre_tool_use_and_result_with_matching_id() -> Result<()> {
+async fn unadvertised_unknown_tool_skips_pre_tool_hooks() -> Result<()> {
     let env = RecordingHookEnv::new(&[
         ("PreToolUse", "", "pre.sh", RECORD_PRE_SCRIPT),
         ("PreToolUseResult", "", "result.sh", RECORD_RESULT_SCRIPT),
@@ -1004,32 +1014,13 @@ async fn unknown_tool_emits_pre_tool_use_and_result_with_matching_id() -> Result
 
     pipeline.run(["try the missing tool"]).await?;
 
-    let pres = env.payloads("pre.log");
-    let results = env.payloads("result.log");
-    assert_eq!(pres.len(), 1, "PreToolUse must fire for an unknown tool");
-    assert_eq!(
-        results.len(),
-        1,
-        "PreToolUseResult must fire for an unknown tool"
-    );
-    assert_eq!(pres[0]["tool_name"], "missing__tool");
-    assert_eq!(results[0]["tool_name"], "missing__tool");
-    assert_eq!(results[0]["event"], "PreToolUseResult");
-    assert_eq!(results[0]["decision"], "allow");
-    assert_eq!(
-        pres[0]["tool_call_id"], results[0]["tool_call_id"],
-        "PreToolUse and PreToolUseResult must carry the same tool_call_id"
-    );
-    assert!(pres[0]["tool_call_id"]
-        .as_str()
-        .is_some_and(|id| !id.is_empty()));
+    assert!(env.payloads("pre.log").is_empty());
+    assert!(env.payloads("result.log").is_empty());
     Ok(())
 }
 
-/// Unknown-tool parity: the unavailable result is a failed tool outcome and
-/// carries the same id as the pre event.
 #[tokio::test]
-async fn unknown_tool_emits_post_tool_failure_event() -> Result<()> {
+async fn unadvertised_unknown_tool_skips_post_tool_hooks() -> Result<()> {
     let env = RecordingHookEnv::new(&[
         ("PreToolUse", "", "pre.sh", RECORD_PRE_SCRIPT),
         ("PostToolUse", "", "post.sh", RECORD_POST_SCRIPT),
@@ -1048,29 +1039,14 @@ async fn unknown_tool_emits_post_tool_failure_event() -> Result<()> {
 
     pipeline.run(["try the missing tool"]).await?;
 
-    let pres = env.payloads("pre.log");
-    let post_failures = env.payloads("postfail.log");
-    assert_eq!(pres.len(), 1);
-    assert!(
-        env.payloads("post.log").is_empty(),
-        "PostToolUse must not fire for an unavailable tool"
-    );
-    assert_eq!(
-        post_failures.len(),
-        1,
-        "PostToolUseFailure must fire for an unavailable tool"
-    );
-    assert_eq!(post_failures[0]["event"], "PostToolUseFailure");
-    assert_eq!(post_failures[0]["tool_name"], "missing__tool");
-    assert_eq!(
-        post_failures[0]["tool_call_id"], pres[0]["tool_call_id"],
-        "the post event must carry the same tool_call_id as the pre events"
-    );
+    assert!(env.payloads("pre.log").is_empty());
+    assert!(env.payloads("post.log").is_empty());
+    assert!(env.payloads("postfail.log").is_empty());
     Ok(())
 }
 
 #[tokio::test]
-async fn inactive_final_output_emits_failure_without_unclaimed_metadata() -> Result<()> {
+async fn unadvertised_inactive_final_output_skips_hooks() -> Result<()> {
     let env = RecordingHookEnv::new(&[(
         "PostToolUseFailure",
         "",
@@ -1083,15 +1059,12 @@ async fn inactive_final_output_emits_failure_without_unclaimed_metadata() -> Res
         FINAL_OUTPUT_TOOL_NAME,
         serde_json::json!({ "answer": "unused" }),
     );
-    api.on("Final output tool not defined")
-        .reply("inactive call handled");
+    api.on("not available").reply("inactive call handled");
 
     let result = pipeline.run(["call inactive final output"]).await?;
 
-    result.assert_message(-2, ToolResponse, "Final output tool not defined");
-    let failures = env.payloads("postfail.log");
-    assert_eq!(failures.len(), 1);
-    assert_eq!(failures[0]["tool_name"], FINAL_OUTPUT_TOOL_NAME);
+    result.assert_message(-2, ToolResponse, "not available");
+    assert!(env.payloads("postfail.log").is_empty());
     let response_metadata = result
         .conversation()
         .messages()
@@ -1101,12 +1074,17 @@ async fn inactive_final_output_emits_failure_without_unclaimed_metadata() -> Res
             MessageContent::ToolResponse(response) => response.metadata.as_ref(),
             _ => None,
         });
-    assert!(response_metadata.is_none_or(|metadata| !metadata.contains_key(UNCLAIMED_TOOL_ERROR)));
+    assert!(response_metadata.is_some_and(|metadata| {
+        metadata
+            .get(UNCLAIMED_TOOL_ERROR)
+            .and_then(serde_json::Value::as_bool)
+            == Some(true)
+    }));
     Ok(())
 }
 
 #[tokio::test]
-async fn unknown_shell_and_read_tools_emit_extended_pre_hooks() -> Result<()> {
+async fn unadvertised_shell_and_read_tools_skip_extended_pre_hooks() -> Result<()> {
     let shell = RecordingHookEnv::new(&[(
         "BeforeShellExecution",
         "echo lifecycle",
@@ -1123,11 +1101,7 @@ async fn unknown_shell_and_read_tools_emit_extended_pre_hooks() -> Result<()> {
 
     pipeline.run(["probe unknown shell"]).await?;
 
-    let shell_events = shell.payloads("extended.log");
-    assert_eq!(shell_events.len(), 1);
-    assert_eq!(shell_events[0]["event"], "BeforeShellExecution");
-    assert_eq!(shell_events[0]["tool_name"], "missing__shell");
-    assert_eq!(shell_events[0]["tool_input"]["command"], "echo lifecycle");
+    assert!(shell.payloads("extended.log").is_empty());
 
     let read = RecordingHookEnv::new(&[(
         "BeforeReadFile",
@@ -1145,21 +1119,12 @@ async fn unknown_shell_and_read_tools_emit_extended_pre_hooks() -> Result<()> {
 
     pipeline.run(["probe unknown read"]).await?;
 
-    let read_events = read.payloads("extended.log");
-    assert_eq!(read_events.len(), 1);
-    assert_eq!(read_events[0]["event"], "BeforeReadFile");
-    assert_eq!(read_events[0]["tool_name"], "missing__read");
-    assert_eq!(
-        read_events[0]["tool_input"]["path"],
-        "/tmp/missing-lifecycle-file"
-    );
+    assert!(read.payloads("extended.log").is_empty());
     Ok(())
 }
 
-/// Unknown-tool parity: a denying hook returns before the unknown-tool handler
-/// creates its unavailable result, and no post event fires.
 #[tokio::test]
-async fn unknown_tool_denied_by_hook_does_not_resolve_as_unavailable() -> Result<()> {
+async fn unadvertised_unknown_tool_is_not_intercepted_by_hooks() -> Result<()> {
     let env = RecordingHookEnv::new(&[
         ("PreToolUse", "", "pre.sh", DENY_AND_RECORD_SCRIPT),
         ("PreToolUseResult", "", "result.sh", RECORD_RESULT_SCRIPT),
@@ -1175,35 +1140,15 @@ async fn unknown_tool_denied_by_hook_does_not_resolve_as_unavailable() -> Result
     let pipeline = pipeline.with_hook_manager(env.hook_manager());
     api.on("try the missing tool")
         .unadvertised_call("missing__tool", serde_json::json!({}));
-    api.on("denied by policy hook").reply("understood");
+    api.on("not available").reply("understood");
 
     let result = pipeline.run(["try the missing tool"]).await?;
 
-    let results = env.payloads("result.log");
-    assert_eq!(results.len(), 1);
-    assert_eq!(results[0]["decision"], "deny");
-    assert_eq!(results[0]["blocked_by"], "test-plugin");
-    assert_eq!(results[0]["tool_name"], "missing__tool");
-    assert!(
-        env.payloads("post.log").is_empty(),
-        "PostToolUse must not fire for a denied unknown tool"
-    );
-    assert!(
-        env.payloads("postfail.log").is_empty(),
-        "PostToolUseFailure must not fire for a denied unknown tool"
-    );
-    let tool_error = result
-        .conversation()
-        .messages()
-        .iter()
-        .flat_map(|message| &message.content)
-        .find_map(|content| match content {
-            MessageContent::ToolResponse(response) => response.tool_result.as_ref().err(),
-            _ => None,
-        })
-        .expect("denied unknown tool response");
-    assert!(tool_error.message.contains("denied by policy hook"));
-    assert!(!tool_error.message.contains("is not available"));
+    assert!(env.payloads("pre.log").is_empty());
+    assert!(env.payloads("result.log").is_empty());
+    assert!(env.payloads("post.log").is_empty());
+    assert!(env.payloads("postfail.log").is_empty());
+    result.assert_message(-2, ToolResponse, "Tool 'missing__tool' is not available.");
     Ok(())
 }
 
@@ -1267,7 +1212,7 @@ async fn chat_mode_does_not_collect_skipped_recipe_final_output_or_run_hooks() -
 }
 
 #[tokio::test]
-async fn chat_mode_skips_unknown_tool_without_tool_hooks() -> Result<()> {
+async fn chat_mode_rejects_unadvertised_unknown_tool_without_hooks() -> Result<()> {
     let env = RecordingHookEnv::new(&[
         ("PreToolUse", "", "pre.sh", RECORD_PRE_SCRIPT),
         ("PreToolUseResult", "", "result.sh", RECORD_RESULT_SCRIPT),
@@ -1286,13 +1231,12 @@ async fn chat_mode_skips_unknown_tool_without_tool_hooks() -> Result<()> {
         .await;
     api.on("try the missing tool")
         .unadvertised_call("missing__tool", serde_json::json!({}));
-    api.on(CHAT_MODE_TOOL_SKIPPED_RESPONSE)
-        .reply("continued without the missing tool");
+    api.on("not available").reply("hidden tool rejected");
 
     let result = pipeline.run(["try the missing tool"]).await?;
 
-    result.assert_message(-2, ToolResponse, CHAT_MODE_TOOL_SKIPPED_RESPONSE);
-    result.assert_message(-1, Agent, "continued without the missing tool");
+    result.assert_message(-2, ToolResponse, "Tool 'missing__tool' is not available.");
+    result.assert_message(-1, Agent, "hidden tool rejected");
     assert!(env.payloads("pre.log").is_empty());
     assert!(env.payloads("result.log").is_empty());
     assert!(env.payloads("post.log").is_empty());
@@ -1301,7 +1245,7 @@ async fn chat_mode_skips_unknown_tool_without_tool_hooks() -> Result<()> {
 }
 
 #[tokio::test]
-async fn denied_unknown_tool_reports_policy_decline_without_tool_hooks() -> Result<()> {
+async fn unadvertised_unknown_tool_skips_permission_and_tool_hooks() -> Result<()> {
     let env = RecordingHookEnv::new(&[
         ("PreToolUse", "", "pre.sh", RECORD_PRE_SCRIPT),
         ("PreToolUseResult", "", "result.sh", RECORD_RESULT_SCRIPT),
@@ -1321,11 +1265,11 @@ async fn denied_unknown_tool_reports_policy_decline_without_tool_hooks() -> Resu
     pipeline.set_permission("missing__tool", PermissionLevel::NeverAllow);
     api.on("try the missing tool")
         .unadvertised_call("missing__tool", serde_json::json!({}));
-    api.on(DECLINED_RESPONSE).reply("understood");
+    api.on("not available").reply("understood");
 
     let result = pipeline.run(["try the missing tool"]).await?;
 
-    result.assert_message(-2, ToolResponse, DECLINED_RESPONSE);
+    result.assert_message(-2, ToolResponse, "Tool 'missing__tool' is not available.");
     assert!(env.payloads("pre.log").is_empty());
     assert!(env.payloads("result.log").is_empty());
     assert!(env.payloads("post.log").is_empty());
@@ -1595,6 +1539,79 @@ async fn final_output_waits_for_ordinary_sibling_and_answers_every_request() -> 
     assert!(
         sibling_answer < published,
         "final output must wait until the ordinary sibling finishes"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn pre_tool_use_hook_failure_allows_by_default() -> Result<()> {
+    let env = RecordingHookEnv::new(&[
+        ("PreToolUse", "", "pre.sh", ABNORMAL_EXIT_AND_RECORD_SCRIPT),
+        ("PreToolUseResult", "", "result.sh", RECORD_RESULT_SCRIPT),
+        ("PostToolUse", "", "post.sh", RECORD_POST_SCRIPT),
+    ]);
+    let (pipeline, api) = test_pipeline().await?;
+    let pipeline = pipeline.with_hook_manager(env.hook_manager());
+    api.on("add one").call(ADD, value(1));
+    api.on("result: 1").reply("done");
+
+    pipeline.run(["add one"]).await?;
+
+    assert_eq!(
+        pipeline.calculator_total(),
+        1,
+        "a broken hook must not block"
+    );
+    assert_eq!(env.payloads("post.log").len(), 1);
+    let results = env.payloads("result.log");
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0]["decision"], "allow");
+    assert_eq!(results[0]["cause"], "hook_failure");
+    assert_eq!(results[0]["policy_evaluated"], false);
+    Ok(())
+}
+
+#[tokio::test]
+async fn pre_tool_use_hook_failure_blocks_when_configured() -> Result<()> {
+    let env = RecordingHookEnv::blocking_on_failure(&[
+        ("PreToolUse", "", "pre.sh", ABNORMAL_EXIT_AND_RECORD_SCRIPT),
+        ("PreToolUseResult", "", "result.sh", RECORD_RESULT_SCRIPT),
+        ("PostToolUse", "", "post.sh", RECORD_POST_SCRIPT),
+    ]);
+    let (pipeline, api) = test_pipeline().await?;
+    let pipeline = pipeline.with_hook_manager(env.hook_manager());
+    api.on("add one").call(ADD, value(1));
+    api.on("could not complete").reply("understood");
+
+    let result = pipeline.run(["add one"]).await?;
+
+    assert_eq!(pipeline.calculator_total(), 0, "tool must not dispatch");
+    assert!(
+        env.payloads("post.log").is_empty(),
+        "PostToolUse must not fire for a blocked call"
+    );
+
+    let results = env.payloads("result.log");
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0]["decision"], "deny");
+    assert_eq!(results[0]["cause"], "hook_failure");
+    assert_eq!(results[0]["policy_evaluated"], false);
+    assert_eq!(results[0]["blocked_by"], "test-plugin");
+
+    let tool_error = result
+        .conversation()
+        .messages()
+        .iter()
+        .flat_map(|message| &message.content)
+        .find_map(|content| match content {
+            MessageContent::ToolResponse(response) => response.tool_result.as_ref().err(),
+            _ => None,
+        })
+        .expect("blocked tool response");
+    assert!(
+        tool_error.message.ends_with(HOOK_FAILURE_REFUSAL),
+        "expected the shared refusal, got {}",
+        tool_error.message
     );
     Ok(())
 }

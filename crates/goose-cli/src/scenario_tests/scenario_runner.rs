@@ -225,7 +225,6 @@ where
             },
             Arc::new(mock_client),
             None,
-            None,
         )
         .await;
 
@@ -251,7 +250,7 @@ where
         .await?;
 
     let mut cli_session = CliSession::new(
-        agent,
+        Arc::new(agent),
         session.id,
         false,
         None,
@@ -260,6 +259,8 @@ where
         None,
         "text".to_string(),
         false,
+        false,
+        None,
     )
     .await;
 

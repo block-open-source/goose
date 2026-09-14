@@ -402,29 +402,6 @@ describe('Extension Utils', () => {
       });
     });
 
-    it('should create sse extension config', () => {
-      const formData = {
-        name: 'test-sse',
-        description: 'Test SSE extension',
-        type: 'sse' as const,
-        cmd: '',
-        endpoint: 'http://api.example.com/sse',
-        enabled: true,
-        timeout: 300,
-        envVars: [],
-        headers: [],
-      };
-
-      const config = createExtensionConfig(formData);
-
-      expect(config).toEqual({
-        type: 'sse',
-        name: 'test-sse',
-        description: 'Test SSE extension',
-        uri: 'http://api.example.com/sse',
-      });
-    });
-
     it('should preserve available tools metadata', () => {
       const formData = {
         name: 'developer',

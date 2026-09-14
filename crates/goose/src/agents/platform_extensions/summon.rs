@@ -16,10 +16,11 @@ use crate::sources::parse_frontmatter;
 use crate::utils::safe_truncate;
 use anyhow::Result;
 use async_trait::async_trait;
+use goose_agent::operation::messages_since_kickoff;
 use goose_sdk_types::custom_requests::{SourceEntry, SourceType};
 use rmcp::model::{
     CallToolResult, ContentBlock, Implementation, InitializeResult, JsonObject, ListToolsResult,
-    MetaObject, ServerCapabilities, ServerNotification, Tool,
+    MetaObject, Role, ServerCapabilities, ServerNotification, Tool,
 };
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -39,6 +40,31 @@ pub static EXTENSION_NAME: &str = "summon";
 const SUBAGENT_DESCRIPTION_BUDGET: usize = 160;
 
 const TASK_LABEL_BUDGET: usize = 60;
+
+fn durable_assistant_turn_count(conversation: &crate::conversation::Conversation) -> u32 {
+    let Ok(messages) = messages_since_kickoff(conversation) else {
+        return 0;
+    };
+    let mut turns = 0;
+    let mut in_assistant_block = false;
+    for message in messages.iter().rev() {
+        // Compaction summaries and continuation prompts are assistant-role
+        // scaffolding, but are not user-visible task turns. Ignore them
+        // without merging across a hidden user replay below.
+        if message.role == Role::Assistant && !message.is_user_visible() {
+            continue;
+        }
+        if message.role == Role::Assistant {
+            if !in_assistant_block {
+                turns += 1;
+                in_assistant_block = true;
+            }
+        } else {
+            in_assistant_block = false;
+        }
+    }
+    turns
+}
 
 fn kind_plural(kind: SourceType) -> &'static str {
     match kind {
@@ -73,7 +99,21 @@ pub struct BackgroundTask {
     pub last_activity: Arc<AtomicU64>,
     pub handle: JoinHandle<Result<String>>,
     pub cancellation_token: CancellationToken,
+    completion_token: CancellationToken,
     notification_sink: SharedNotificationSink,
+}
+
+fn spawn_background_task<F>(future: F) -> (JoinHandle<Result<String>>, CancellationToken)
+where
+    F: Future<Output = Result<String>> + Send + 'static,
+{
+    let completion_token = CancellationToken::new();
+    let completion_guard = completion_token.clone().drop_guard();
+    let handle = tokio::spawn(async move {
+        let _completion_guard = completion_guard;
+        future.await
+    });
+    (handle, completion_token)
 }
 
 pub struct CompletedTask {
@@ -658,7 +698,7 @@ impl SummonClient {
                 "peek": {
                     "type": "boolean",
                     "default": false,
-                    "description": "For running background tasks: check progress without blocking. Returns turn count, idle time, and recent tool activity."
+                    "description": "For running background tasks: check progress without blocking. Returns durable assistant-turn count, idle time, and recent tool activity."
                 }
             }
         });
@@ -1064,21 +1104,28 @@ impl SummonClient {
             });
         }
 
-        drop(completed);
-
         let mut running = self.background_tasks.lock().await;
+        drop(completed);
         if running.contains_key(task_id) {
             if peek {
                 let task = running.get(task_id).unwrap();
                 let elapsed = task.started_at.elapsed();
-                let turns_taken = task.turns.load(Ordering::Relaxed);
-                let now = current_epoch_millis();
-                let idle_ms = now.saturating_sub(task.last_activity.load(Ordering::Relaxed));
+                let turns = Arc::clone(&task.turns);
+                let last_activity = Arc::clone(&task.last_activity);
                 let description = task.description.clone();
-
-                let buffered_count = task.notification_sink.lock().await.buffered_len();
+                let notification_sink = Arc::clone(&task.notification_sink);
 
                 drop(running);
+
+                let turns_taken = self.refresh_task_turns(task_id, &turns).await;
+                let now = current_epoch_millis();
+                let last_activity_at = last_activity.load(Ordering::Relaxed);
+                let idle_ms = if last_activity_at == 0 {
+                    u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX)
+                } else {
+                    now.saturating_sub(last_activity_at)
+                };
+                let buffered_count = notification_sink.lock().await.buffered_len();
 
                 let mut output = format!(
                     "# Background Task Status: {}\n\n**Task:** {}\n**Status:** ⏳ Running\n**Elapsed:** {}\n**Turns taken:** {}\n**Idle:** {}\n**Buffered tool calls:** {}",
@@ -1090,7 +1137,7 @@ impl SummonClient {
                     buffered_count,
                 );
 
-                if buffered_count == 0 && turns_taken == 0 {
+                if buffered_count == 0 && last_activity_at == 0 {
                     output.push_str("\n\n_Task is initialising (no tool activity yet)._");
                 }
 
@@ -1110,9 +1157,6 @@ impl SummonClient {
                 drop(running);
                 task.cancellation_token.cancel();
 
-                let duration = task.started_at.elapsed();
-                let turns_taken = task.turns.load(Ordering::Relaxed);
-
                 let mut handle = task.handle;
                 let output = tokio::select! {
                     result = &mut handle => {
@@ -1127,6 +1171,8 @@ impl SummonClient {
                         "Task did not stop in time (aborted)".to_string()
                     }
                 };
+                let duration = task.started_at.elapsed();
+                let turns_taken = self.refresh_task_turns(task_id, &task.turns).await;
 
                 return Ok(TaskLoadResult {
                     content: vec![ContentBlock::text(format!(
@@ -1149,48 +1195,22 @@ impl SummonClient {
 
             // Wait for the running task to complete, keeping the tool call
             // alive so notifications (subagent tool calls) stream in real time.
-            let notification_sink = Arc::clone(&running.get(task_id).unwrap().notification_sink);
-            Self::attach_notification_emitter(&notification_sink, notification_emitter).await;
-            let mut task = running.remove(task_id).unwrap();
+            let task = running.get(task_id).unwrap();
+            let notification_sink = Arc::clone(&task.notification_sink);
+            let completion_token = task.completion_token.clone();
             drop(running);
+            Self::attach_notification_emitter(&notification_sink, notification_emitter).await;
 
             tokio::select! {
-                result = &mut task.handle => {
-                    let (output, status_key) = match result {
-                        Ok(Ok(s)) => (s, "completed"),
-                        Ok(Err(e)) => (format!("Error: {}", e), "failed"),
-                        Err(e) => (format!("Task panicked: {}", e), "panicked"),
-                    };
-
-                    let turns_taken = task.turns.load(Ordering::Relaxed);
-                    let elapsed = task.started_at.elapsed();
-                    let status_display = match status_key {
-                        "completed" => "✓ Completed",
-                        "panicked" => "✗ Panicked",
-                        _ => "✗ Failed",
-                    };
-                    return Ok(TaskLoadResult {
-                        content: vec![ContentBlock::text(format!(
-                            "# Background Task Result: {}\n\n\
-                             **Task:** {}\n\
-                             **Status:** {}\n\
-                             **Duration:** {} ({} turns)\n\n\
-                             ## Output\n\n{}",
-                            task_id,
-                            task.description,
-                            status_display,
-                            round_duration(elapsed),
-                            turns_taken,
-                            output
-                        ))],
-                        status: status_key,
-                        turns: Some(turns_taken),
-                        duration_secs: Some(elapsed.as_secs()),
-                    });
+                _ = self.wait_for_background_task_completion(task_id, &completion_token) => {
+                    self.cleanup_completed_tasks().await;
+                    return Box::pin(
+                        self.handle_load_task_result(task_id, false, false, None)
+                    )
+                    .await;
                 }
                 _ = tokio::time::sleep(Duration::from_secs(300)) => {
-                    task.notification_sink.lock().await.detach();
-                    self.background_tasks.lock().await.insert(task_id.to_string(), task);
+                    notification_sink.lock().await.detach();
 
                     return Err(format!(
                         "Task '{task_id}' is still running after waiting 5 min. \
@@ -1876,24 +1896,99 @@ impl SummonClient {
             .unwrap_or(DEFAULT_SUBAGENT_MAX_TURNS)
     }
 
+    /// Count durable, user-visible assistant blocks in the active task turn,
+    /// excluding assistant-only compaction scaffolding.
+    async fn refresh_task_turns(&self, task_id: &str, cached_turns: &AtomicU32) -> u32 {
+        match self
+            .context
+            .session_manager
+            .get_session(task_id, true)
+            .await
+        {
+            Ok(session) => {
+                let turns = session
+                    .conversation
+                    .as_ref()
+                    .map(durable_assistant_turn_count)
+                    .unwrap_or_default();
+                cached_turns.store(turns, Ordering::Relaxed);
+                turns
+            }
+            Err(error) => {
+                warn!(
+                    "Failed to refresh turn count for background task {}: {}",
+                    task_id, error
+                );
+                cached_turns.load(Ordering::Relaxed)
+            }
+        }
+    }
+
+    async fn refresh_running_task_turns(&self) -> HashMap<String, u32> {
+        let tasks: Vec<_> = self
+            .background_tasks
+            .lock()
+            .await
+            .values()
+            .map(|task| (task.id.clone(), Arc::clone(&task.turns)))
+            .collect();
+        let mut refreshed = HashMap::with_capacity(tasks.len());
+        for (id, turns) in tasks {
+            let count = self.refresh_task_turns(&id, &turns).await;
+            refreshed.insert(id, count);
+        }
+        refreshed
+    }
+
+    async fn wait_for_background_task_completion(
+        &self,
+        task_id: &str,
+        completion_token: &CancellationToken,
+    ) {
+        completion_token.cancelled().await;
+        loop {
+            let finished_or_moved = self
+                .background_tasks
+                .lock()
+                .await
+                .get(task_id)
+                .map(|task| task.handle.is_finished())
+                .unwrap_or(true);
+            if finished_or_moved {
+                return;
+            }
+            tokio::task::yield_now().await;
+        }
+    }
+
     async fn cleanup_completed_tasks(&self) {
-        let finished: Vec<(String, BackgroundTask)> = {
-            let mut tasks = self.background_tasks.lock().await;
-            let ids: Vec<String> = tasks
-                .iter()
-                .filter(|(_, t)| t.handle.is_finished())
-                .map(|(id, _)| id.clone())
-                .collect();
-            ids.into_iter()
-                .filter_map(|id| tasks.remove(&id).map(|t| (id, t)))
-                .collect()
-        };
+        let finished: Vec<(String, Arc<AtomicU32>)> = self
+            .background_tasks
+            .lock()
+            .await
+            .iter()
+            .filter(|(_, task)| task.handle.is_finished())
+            .map(|(id, task)| (id.clone(), Arc::clone(&task.turns)))
+            .collect();
 
+        let mut refreshed = HashMap::with_capacity(finished.len());
+        for (id, turns) in &finished {
+            let count = self.refresh_task_turns(id, turns).await;
+            refreshed.insert(id.clone(), count);
+        }
+
+        // Keep the same lock order as task lookup so the running -> completed
+        // transition is atomic from callers' perspective.
         let mut completed = self.completed_tasks.lock().await;
-
-        for (id, task) in finished {
+        let mut tasks = self.background_tasks.lock().await;
+        for (id, _) in finished {
+            let Some(task) = tasks.remove(&id) else {
+                continue;
+            };
+            let turns_taken = refreshed
+                .remove(&id)
+                .unwrap_or_else(|| task.turns.load(Ordering::Relaxed));
             let duration = task.started_at.elapsed();
-            let turns_taken = task.turns.load(Ordering::Relaxed);
 
             let result = match task.handle.await {
                 Ok(Ok(output)) => {
@@ -1991,13 +2086,11 @@ impl SummonClient {
         let task_id = subagent_session.id.clone();
 
         let turns = Arc::new(AtomicU32::new(0));
-        let last_activity = Arc::new(AtomicU64::new(current_epoch_millis()));
+        let last_activity = Arc::new(AtomicU64::new(0));
 
-        let turns_clone = Arc::clone(&turns);
         let last_activity_clone = Arc::clone(&last_activity);
 
         let on_message: OnMessageCallback = Arc::new(move |_msg| {
-            turns_clone.fetch_add(1, Ordering::Relaxed);
             last_activity_clone.store(current_epoch_millis(), Ordering::Relaxed);
         });
 
@@ -2007,7 +2100,7 @@ impl SummonClient {
         let notification_sink = Self::notification_sink(None);
         let task_notification_sink = Arc::clone(&notification_sink);
 
-        let handle = tokio::spawn(async move {
+        let (handle, completion_token) = spawn_background_task(async move {
             let params = SubagentRunParams {
                 config: agent_config,
                 recipe,
@@ -2034,6 +2127,7 @@ impl SummonClient {
             last_activity,
             handle,
             cancellation_token: task_token,
+            completion_token,
             notification_sink,
         };
 
@@ -2141,9 +2235,10 @@ impl McpClientTrait for SummonClient {
 
     async fn get_moim(&self, _session_id: &str) -> Option<String> {
         self.cleanup_completed_tasks().await;
+        let refreshed_turns = self.refresh_running_task_turns().await;
 
-        let running = self.background_tasks.lock().await;
         let completed = self.completed_tasks.lock().await;
+        let running = self.background_tasks.lock().await;
 
         if running.is_empty() && completed.is_empty() {
             return None;
@@ -2153,24 +2248,32 @@ impl McpClientTrait for SummonClient {
         let now = current_epoch_millis();
 
         let mut sorted_running: Vec<_> = running.values().collect();
-        sorted_running.sort_by_key(|t| &t.id);
+        sorted_running.sort_by_key(|task| &task.id);
 
         for task in sorted_running {
             let elapsed = task.started_at.elapsed();
-            let idle_ms = now.saturating_sub(task.last_activity.load(Ordering::Relaxed));
+            let last_activity_at = task.last_activity.load(Ordering::Relaxed);
+            let idle_ms = if last_activity_at == 0 {
+                u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX)
+            } else {
+                now.saturating_sub(last_activity_at)
+            };
 
             lines.push(format!(
                 "• {}: \"{}\" - running {}, {} turns, idle {}",
                 task.id,
                 task.description,
                 round_duration(elapsed),
-                task.turns.load(Ordering::Relaxed),
+                refreshed_turns
+                    .get(&task.id)
+                    .copied()
+                    .unwrap_or_else(|| task.turns.load(Ordering::Relaxed)),
                 round_duration(Duration::from_millis(idle_ms)),
             ));
         }
 
         let mut sorted_completed: Vec<_> = completed.values().collect();
-        sorted_completed.sort_by_key(|t| &t.id);
+        sorted_completed.sort_by_key(|task| &task.id);
 
         for task in sorted_completed {
             let status = if task.result.is_ok() {
@@ -2231,6 +2334,7 @@ fn resolve_working_dir(parent_dir: &Path, requested: &str) -> Result<PathBuf, an
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::conversation::message::Message;
     use futures::StreamExt;
     use serial_test::serial;
     use std::collections::{HashMap, HashSet};
@@ -2239,13 +2343,44 @@ mod tests {
     use tempfile::TempDir;
 
     fn create_test_context() -> PlatformExtensionContext {
+        create_test_context_with_session_manager(Arc::new(
+            crate::session::SessionManager::instance(),
+        ))
+    }
+
+    fn create_test_context_with_session_manager(
+        session_manager: Arc<crate::session::SessionManager>,
+    ) -> PlatformExtensionContext {
         PlatformExtensionContext {
             extension_manager: None,
-            session_manager: Arc::new(crate::session::SessionManager::instance()),
+            session_manager,
             scheduler: None,
             session: None,
             use_login_shell_path: false,
         }
+    }
+
+    async fn create_test_subagent_session(
+        session_manager: &crate::session::SessionManager,
+        working_dir: &Path,
+        messages: &[Message],
+    ) -> String {
+        let session = session_manager
+            .create_session(
+                working_dir.to_path_buf(),
+                "Background task".to_string(),
+                SessionType::SubAgent,
+                GooseMode::Auto,
+            )
+            .await
+            .unwrap();
+        for message in messages {
+            session_manager
+                .add_message(&session.id, message)
+                .await
+                .unwrap();
+        }
+        session.id
     }
 
     #[test]
@@ -2860,6 +2995,7 @@ You review code."#;
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_resolve_provider_reuses_unregistered_parent_provider() {
         let temp_dir = TempDir::new().unwrap();
         let parent_provider: Arc<dyn crate::providers::base::Provider> = Arc::new(
@@ -2979,13 +3115,11 @@ You review code."#;
         let parent = parent_config();
         let overridden = goose_providers::model::ModelConfig::new(OVERRIDE_MODEL)
             .with_canonical_limits(PROVIDER);
-        assert_ne!(parent.context_limit, overridden.context_limit);
         assert_ne!(parent.reasoning, overridden.reasoning);
 
         let resolved = resolve_with_override(Some(OVERRIDE_MODEL), parent);
 
         assert_eq!(resolved.model_name, OVERRIDE_MODEL);
-        assert_eq!(resolved.context_limit, overridden.context_limit);
         assert_eq!(resolved.max_tokens, overridden.max_tokens);
         assert_eq!(resolved.reasoning, overridden.reasoning);
     }
@@ -3591,6 +3725,10 @@ You review code."#;
         {
             let notification_sink =
                 buffered_notification_sink(vec![test_tool_notification("req1", "20260204_1")]);
+            let (handle, completion_token) = spawn_background_task(async {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                Ok("done".to_string())
+            });
 
             let mut running = client.background_tasks.lock().await;
             running.insert(
@@ -3601,11 +3739,9 @@ You review code."#;
                     started_at: Instant::now(),
                     turns: Arc::new(AtomicU32::new(2)),
                     last_activity: Arc::new(AtomicU64::new(current_epoch_millis())),
-                    handle: tokio::spawn(async {
-                        tokio::time::sleep(Duration::from_millis(50)).await;
-                        Ok("done".to_string())
-                    }),
+                    handle,
                     cancellation_token: CancellationToken::new(),
+                    completion_token,
                     notification_sink,
                 },
             );
@@ -3716,33 +3852,179 @@ You review code."#;
     }
 
     #[tokio::test]
+    async fn test_completed_task_uses_durable_tool_turns_in_metadata() {
+        let temp_dir = TempDir::new().unwrap();
+        let session_manager = Arc::new(crate::session::SessionManager::new(
+            temp_dir.path().join("sessions"),
+        ));
+        let task_id = create_test_subagent_session(
+            &session_manager,
+            temp_dir.path(),
+            &[
+                Message::user().with_text("Inspect the project"),
+                Message::assistant().with_tool_request(
+                    "tool-1",
+                    Ok(rmcp::model::CallToolRequestParams::new("test_tool")),
+                ),
+                Message::user().with_tool_response(
+                    "tool-1",
+                    Ok(CallToolResult::success(vec![ContentBlock::text("done")])),
+                ),
+                Message::assistant().with_text("Inspection complete"),
+            ],
+        )
+        .await;
+        let client =
+            SummonClient::new(create_test_context_with_session_manager(session_manager)).unwrap();
+
+        let handle = tokio::spawn(async { Ok("Inspection complete".to_string()) });
+        while !handle.is_finished() {
+            tokio::task::yield_now().await;
+        }
+        client.background_tasks.lock().await.insert(
+            task_id.clone(),
+            BackgroundTask {
+                id: task_id.clone(),
+                description: "Inspect the project".to_string(),
+                started_at: Instant::now(),
+                // Simulate hundreds of streamed message events for two durable turns.
+                turns: Arc::new(AtomicU32::new(554)),
+                last_activity: Arc::new(AtomicU64::new(current_epoch_millis())),
+                handle,
+                cancellation_token: CancellationToken::new(),
+                completion_token: CancellationToken::new(),
+                notification_sink: buffered_notification_sink(Vec::new()),
+            },
+        );
+
+        let arguments = serde_json::json!({"source": task_id})
+            .as_object()
+            .unwrap()
+            .clone();
+        let result = client
+            .handle_load("parent", Some(arguments), None)
+            .await
+            .unwrap();
+        let text = extract_text(&result.content[0]);
+        let meta = result.meta.unwrap();
+
+        assert!(text.contains("(2 turns)"));
+        assert_eq!(meta.0.get("turns_taken"), Some(&serde_json::json!(2)));
+        assert_eq!(
+            meta.0.get("task_status"),
+            Some(&serde_json::json!("completed"))
+        );
+    }
+
+    #[test]
+    fn test_durable_turn_count_ignores_compaction_scaffolding() {
+        let compacted_tool_loop = crate::conversation::Conversation::new_unvalidated(vec![
+            Message::user()
+                .with_text("Previous task")
+                .with_visibility(true, false),
+            Message::assistant()
+                .with_text("Previous result")
+                .with_visibility(true, false),
+            Message::user()
+                .with_text("Inspect the project")
+                .with_visibility(true, false),
+            Message::assistant()
+                .with_tool_request(
+                    "tool-1",
+                    Ok(rmcp::model::CallToolRequestParams::new("test_tool")),
+                )
+                .with_visibility(true, false),
+            Message::user()
+                .with_tool_response(
+                    "tool-1",
+                    Ok(CallToolResult::success(vec![ContentBlock::text("done")])),
+                )
+                .with_visibility(true, false),
+            // A later compaction archives its earlier agent-only scaffold.
+            Message::assistant()
+                .with_text("<older summary>")
+                .with_visibility(false, false),
+            Message::user()
+                .with_text("Inspect the project")
+                .with_visibility(false, false),
+            Message::assistant()
+                .with_text("<summary of earlier work>")
+                .with_text("Continue from the compacted context")
+                .agent_only(),
+            Message::user()
+                .with_text("Inspect the project")
+                .agent_only(),
+            Message::assistant().with_text("Inspection complete"),
+        ]);
+        assert_eq!(durable_assistant_turn_count(&compacted_tool_loop), 2);
+
+        // Keep the hidden projected user message as a role boundary. Dropping
+        // every agent-only message would merge the failed and retried replies.
+        let compacted_retry = crate::conversation::Conversation::new_unvalidated(vec![
+            Message::user()
+                .with_text("Inspect the project")
+                .with_visibility(true, false),
+            Message::assistant()
+                .with_text("Context window exceeded")
+                .with_visibility(true, false),
+            Message::assistant().with_text("<summary>").agent_only(),
+            Message::user()
+                .with_text("Inspect the project")
+                .agent_only(),
+            Message::assistant().with_text("Inspection complete"),
+        ]);
+        assert_eq!(durable_assistant_turn_count(&compacted_retry), 2);
+    }
+
+    #[tokio::test]
     async fn test_cancel_running_task() {
-        let client = SummonClient::new(create_test_context()).unwrap();
+        let temp_dir = TempDir::new().unwrap();
+        let session_manager = Arc::new(crate::session::SessionManager::new(
+            temp_dir.path().join("sessions"),
+        ));
+        let task_id = create_test_subagent_session(
+            &session_manager,
+            temp_dir.path(),
+            &[Message::user().with_text("Analyse the project")],
+        )
+        .await;
+        let task_session_manager = Arc::clone(&session_manager);
+        let client =
+            SummonClient::new(create_test_context_with_session_manager(session_manager)).unwrap();
         let token = CancellationToken::new();
-        let task_id = "20260204_1";
         let notification_sink = buffered_notification_sink(Vec::new());
         let task_notification_sink = Arc::clone(&notification_sink);
         let task_token = token.clone();
+        let task_notification_id = task_id.clone();
 
         {
             let mut running = client.background_tasks.lock().await;
             running.insert(
-                task_id.to_string(),
+                task_id.clone(),
                 BackgroundTask {
-                    id: task_id.to_string(),
+                    id: task_id.clone(),
                     description: "Cancellable task".to_string(),
                     started_at: Instant::now(),
+                    // This stale event count must be replaced after cancellation.
                     turns: Arc::new(AtomicU32::new(3)),
                     last_activity: Arc::new(AtomicU64::new(current_epoch_millis())),
                     handle: tokio::spawn(async move {
                         task_token.cancelled().await;
+                        task_session_manager
+                            .add_message(
+                                &task_notification_id,
+                                &Message::assistant().with_text("Partial result"),
+                            )
+                            .await
+                            .unwrap();
                         task_notification_sink
                             .lock()
                             .await
-                            .route(test_tool_notification("cancel", task_id));
+                            .route(test_tool_notification("cancel", &task_notification_id));
                         Ok("cancelled gracefully".to_string())
                     }),
                     cancellation_token: token.clone(),
+                    completion_token: CancellationToken::new(),
                     notification_sink,
                 },
             );
@@ -3750,23 +4032,23 @@ You review code."#;
 
         let (emitter, mut notifications) = notification_channel();
         let (result, notification) = tokio::join!(
-            client.handle_load_task_result(task_id, true, false, Some(emitter)),
+            client.handle_load_task_result(&task_id, true, false, Some(emitter)),
             notifications.recv()
         );
         let result = result.unwrap();
         let text = extract_text(&result.content[0]);
         assert!(text.contains("Cancelled"));
-        assert!(text.contains(task_id));
+        assert!(text.contains(&task_id));
         assert!(text.contains("Cancellable task"));
         assert!(text.contains("cancelled gracefully"));
         assert_eq!(result.status, "cancelled");
-        assert_eq!(result.turns, Some(3));
+        assert_eq!(result.turns, Some(1));
         assert_eq!(
             notification_subagent_id(&notification.unwrap()).as_deref(),
-            Some(task_id)
+            Some(task_id.as_str())
         );
         assert!(token.is_cancelled());
-        assert!(!client.background_tasks.lock().await.contains_key(task_id));
+        assert!(!client.background_tasks.lock().await.contains_key(&task_id));
     }
 
     #[tokio::test]
@@ -3789,6 +4071,7 @@ You review code."#;
                     Ok("cancelled gracefully".to_string())
                 }),
                 cancellation_token: token.clone(),
+                completion_token: CancellationToken::new(),
                 notification_sink: buffered_notification_sink(vec![
                     test_tool_notification("inner-0", task_id),
                     test_tool_notification("inner-1", task_id),
@@ -3835,6 +4118,10 @@ You review code."#;
         let client = Arc::new(SummonClient::new(create_test_context()).unwrap());
         let task_id = "20260204_1";
         let (finish_tx, finish_rx) = tokio::sync::oneshot::channel();
+        let (handle, completion_token) = spawn_background_task(async move {
+            finish_rx.await.unwrap();
+            Ok("done".to_string())
+        });
 
         client.background_tasks.lock().await.insert(
             task_id.to_string(),
@@ -3844,11 +4131,9 @@ You review code."#;
                 started_at: Instant::now(),
                 turns: Arc::new(AtomicU32::new(1)),
                 last_activity: Arc::new(AtomicU64::new(current_epoch_millis())),
-                handle: tokio::spawn(async move {
-                    finish_rx.await.unwrap();
-                    Ok("done".to_string())
-                }),
+                handle,
                 cancellation_token: CancellationToken::new(),
+                completion_token,
                 notification_sink: buffered_notification_sink(vec![
                     test_tool_notification("inner-0", task_id),
                     test_tool_notification("inner-1", task_id),
@@ -3890,45 +4175,159 @@ You review code."#;
     }
 
     #[tokio::test]
+    async fn test_dropped_waiting_load_during_turn_refresh_remains_retrievable() {
+        let temp_dir = TempDir::new().unwrap();
+        let session_manager = Arc::new(crate::session::SessionManager::new(
+            temp_dir.path().join("sessions"),
+        ));
+        let task_id = create_test_subagent_session(
+            &session_manager,
+            temp_dir.path(),
+            &[
+                Message::user().with_text("Analyse the project"),
+                Message::assistant().with_text("done"),
+            ],
+        )
+        .await;
+        let client = SummonClient::new(create_test_context_with_session_manager(Arc::clone(
+            &session_manager,
+        )))
+        .unwrap();
+
+        let (handle, completion_token) = spawn_background_task(async { Ok("done".to_string()) });
+        while !handle.is_finished() {
+            tokio::task::yield_now().await;
+        }
+        client.background_tasks.lock().await.insert(
+            task_id.clone(),
+            BackgroundTask {
+                id: task_id.clone(),
+                description: "Finished task".to_string(),
+                started_at: Instant::now(),
+                turns: Arc::new(AtomicU32::new(1)),
+                last_activity: Arc::new(AtomicU64::new(current_epoch_millis())),
+                handle,
+                cancellation_token: CancellationToken::new(),
+                completion_token,
+                notification_sink: buffered_notification_sink(Vec::new()),
+            },
+        );
+
+        let pool = session_manager.storage().pool().await.unwrap().clone();
+        let mut held_connections = Vec::new();
+        for _ in 0..pool.options().get_max_connections() {
+            held_connections.push(pool.acquire().await.unwrap());
+        }
+        tokio::task::yield_now().await;
+
+        let mut load = Box::pin(client.handle_load_task_result(&task_id, false, false, None));
+        let first_poll = std::future::poll_fn(|cx| {
+            std::task::Poll::Ready(std::future::Future::poll(load.as_mut(), cx))
+        })
+        .await;
+        assert!(first_poll.is_pending());
+        drop(load);
+
+        assert!(
+            client.completed_tasks.lock().await.contains_key(&task_id)
+                || client.background_tasks.lock().await.contains_key(&task_id),
+            "cancelling a load must not orphan a completed task"
+        );
+
+        drop(held_connections);
+        let result = client
+            .handle_load_task_result(&task_id, false, false, None)
+            .await
+            .unwrap();
+        assert_eq!(result.status, "completed");
+        assert_eq!(result.turns, Some(1));
+        assert!(extract_text(&result.content[0]).contains("done"));
+        assert!(!client.completed_tasks.lock().await.contains_key(&task_id));
+        assert!(!client.background_tasks.lock().await.contains_key(&task_id));
+    }
+
+    #[tokio::test]
     async fn test_peek_running_task() {
-        let client = SummonClient::new(create_test_context()).unwrap();
+        let temp_dir = TempDir::new().unwrap();
+        let session_manager = Arc::new(crate::session::SessionManager::new(
+            temp_dir.path().join("sessions"),
+        ));
+        let task_id = create_test_subagent_session(
+            &session_manager,
+            temp_dir.path(),
+            &[Message::user().with_text("Analyse the project")],
+        )
+        .await;
+        let client = SummonClient::new(create_test_context_with_session_manager(Arc::clone(
+            &session_manager,
+        )))
+        .unwrap();
+        let last_activity = Arc::new(AtomicU64::new(0));
 
         {
             let mut running = client.background_tasks.lock().await;
             running.insert(
-                "20260204_1".to_string(),
+                task_id.clone(),
                 BackgroundTask {
-                    id: "20260204_1".to_string(),
+                    id: task_id.clone(),
                     description: "Long running analysis".to_string(),
                     started_at: Instant::now(),
+                    // Simulate the old stream-event counter after seven fragments.
                     turns: Arc::new(AtomicU32::new(7)),
-                    last_activity: Arc::new(AtomicU64::new(current_epoch_millis())),
+                    last_activity: Arc::clone(&last_activity),
                     handle: tokio::spawn(async {
                         tokio::time::sleep(Duration::from_secs(1000)).await;
                         Ok("eventual result".to_string())
                     }),
                     cancellation_token: CancellationToken::new(),
+                    completion_token: CancellationToken::new(),
                     notification_sink: buffered_notification_sink(Vec::new()),
                 },
             );
         }
 
+        let result = client
+            .handle_load_task_result(&task_id, false, true, None)
+            .await
+            .unwrap();
+        assert!(extract_text(&result.content[0]).contains("Task is initialising"));
+
+        // Activity can arrive before the assistant block is durably persisted.
+        last_activity.store(current_epoch_millis(), Ordering::Relaxed);
+        let result = client
+            .handle_load_task_result(&task_id, false, true, None)
+            .await
+            .unwrap();
+        let text = extract_text(&result.content[0]);
+        assert_eq!(result.turns, Some(0));
+        assert!(!text.contains("Task is initialising"));
+
+        for index in 0..7 {
+            session_manager
+                .add_message(
+                    &task_id,
+                    &Message::assistant().with_text(format!("fragment {index}")),
+                )
+                .await
+                .unwrap();
+        }
+
         // Peek should return status without removing the task
         let result = client
-            .handle_load_task_result("20260204_1", false, true, None)
+            .handle_load_task_result(&task_id, false, true, None)
             .await
             .unwrap();
         let text = extract_text(&result.content[0]);
         assert!(text.contains("Running"));
         assert!(text.contains("Long running analysis"));
-        assert!(text.contains("7")); // turns taken
+        assert!(text.contains("**Turns taken:** 1"));
+        assert_eq!(result.turns, Some(1));
+
+        let moim = client.get_moim("test").await.unwrap();
+        assert!(moim.contains("1 turns"));
 
         // Task should still be in background_tasks (not consumed)
-        assert!(client
-            .background_tasks
-            .lock()
-            .await
-            .contains_key("20260204_1"));
+        assert!(client.background_tasks.lock().await.contains_key(&task_id));
     }
 
     #[tokio::test]

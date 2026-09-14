@@ -2,6 +2,7 @@ use super::*;
 use crate::agents::extension::Envs;
 use crate::config::extensions::ExtensionEntry;
 use agent_client_protocol::schema::v1::{HttpHeader, McpServer, McpServerHttp, McpServerStdio};
+use std::collections::HashSet;
 
 impl GooseAcpAgent {
     pub(super) async fn on_add_session_extension(
@@ -24,10 +25,14 @@ impl GooseAcpAgent {
     ) -> Result<EmptyResponse, agent_client_protocol::Error> {
         let session_id = &req.session_id;
         let agent = self.get_session_agent(&req.session_id).await?;
-        agent
-            .remove_extension(&req.name, session_id)
+        let removed = agent
+            .remove_extension_by_key(&req.extension_key, session_id)
             .await
             .internal_err()?;
+        if !removed {
+            return Err(agent_client_protocol::Error::invalid_params()
+                .data(format!("Extension '{}' not found", req.extension_key)));
+        }
         Ok(EmptyResponse {})
     }
 
@@ -52,20 +57,6 @@ impl GooseAcpAgent {
             extensions,
             warnings,
         })
-    }
-
-    pub(super) async fn on_get_available_extensions(
-        &self,
-    ) -> Result<GetAvailableExtensionsResponse, agent_client_protocol::Error> {
-        let extensions = crate::config::get_available_extensions()
-            .into_iter()
-            .map(|config| config_to_goose_extension(&config))
-            .collect::<Result<Vec<_>, _>>()?
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>();
-
-        Ok(GetAvailableExtensionsResponse { extensions })
     }
 
     pub(super) async fn on_add_config_extension(
@@ -123,16 +114,31 @@ impl GooseAcpAgent {
             crate::config::Config::global(),
         );
 
-        let extensions = extensions
-            .into_iter()
-            .map(|config| config_to_goose_extension(&config))
-            .collect::<Result<Vec<_>, _>>()?
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>();
-
-        Ok(GetSessionExtensionsResponse { extensions })
+        Ok(GetSessionExtensionsResponse {
+            extensions: session_configs_to_entries(extensions)?,
+        })
     }
+}
+
+fn session_configs_to_entries(
+    configs: Vec<ExtensionConfig>,
+) -> Result<Vec<SessionExtensionEntry>, agent_client_protocol::Error> {
+    let mut extension_keys = HashSet::with_capacity(configs.len());
+    let mut entries = Vec::with_capacity(configs.len());
+    for config in configs {
+        let extension_key = config.key();
+        if !extension_keys.insert(extension_key.clone()) {
+            return Err(agent_client_protocol::Error::internal_error()
+                .data(format!("Duplicate session extension key '{extension_key}'")));
+        }
+        if let Some(extension) = config_to_goose_extension(&config)? {
+            entries.push(SessionExtensionEntry {
+                extension,
+                extension_key,
+            });
+        }
+    }
+    Ok(entries)
 }
 
 fn config_to_goose_extension(
@@ -225,9 +231,6 @@ fn config_to_goose_extension(
                 available_tools: available_tools_to_wire(available_tools),
             }
         }
-        ExtensionConfig::Frontend { .. }
-        | ExtensionConfig::InlinePython { .. }
-        | ExtensionConfig::Sse { .. } => return Ok(None),
     };
     Ok(Some(extension))
 }
@@ -405,6 +408,34 @@ mod tests {
     use crate::agents::extension::Envs;
     use agent_client_protocol::schema::v1::{McpServer, McpServerSse};
     use std::collections::HashMap;
+
+    fn builtin_config(name: &str) -> ExtensionConfig {
+        ExtensionConfig::Builtin {
+            name: name.to_string(),
+            description: String::new(),
+            display_name: None,
+            timeout: None,
+            bundled: None,
+            available_tools: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn session_entries_preserve_backend_distinct_unicode_keys() {
+        let entries =
+            session_configs_to_entries(vec![builtin_config("\u{130}"), builtin_config("i\u{307}")])
+                .expect("backend-distinct keys should be listed");
+
+        assert_eq!(entries[0].extension_key, "_");
+        assert_eq!(entries[1].extension_key, "i_");
+    }
+
+    #[test]
+    fn session_entries_reject_duplicate_authoritative_keys() {
+        let result = session_configs_to_entries(vec![builtin_config("a.b"), builtin_config("a/b")]);
+
+        assert!(result.is_err());
+    }
 
     #[test]
     fn builtin_config_converts_to_goose_builtin_extension() {
@@ -594,64 +625,6 @@ mod tests {
         assert_eq!(http.headers.len(), 1);
         assert_eq!(http.headers[0].name, "Authorization");
         assert_eq!(http.headers[0].value, "Bearer ${API_TOKEN}");
-    }
-
-    #[test]
-    fn inline_python_config_is_skipped() {
-        let config = ExtensionConfig::InlinePython {
-            name: "python-tools".to_string(),
-            description: "Python tools".to_string(),
-            code: "print('hello')".to_string(),
-            timeout: Some(12),
-            dependencies: Some(vec!["requests".to_string()]),
-            available_tools: vec!["fetch".to_string()],
-        };
-
-        let extension = config_to_goose_extension(&config).expect("conversion should succeed");
-
-        assert!(extension.is_none());
-    }
-
-    #[test]
-    fn frontend_config_is_skipped() {
-        let tool = rmcp::model::Tool::new(
-            "pick_color",
-            "Pick a color",
-            serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "hex": { "type": "string" }
-                }
-            })
-            .as_object()
-            .expect("schema should be object")
-            .clone(),
-        );
-        let config = ExtensionConfig::Frontend {
-            name: "frontend-tools".to_string(),
-            description: "Frontend tools".to_string(),
-            tools: vec![tool],
-            instructions: Some("Use frontend tools carefully".to_string()),
-            bundled: None,
-            available_tools: vec!["pick_color".to_string()],
-        };
-
-        let extension = config_to_goose_extension(&config).expect("conversion should succeed");
-
-        assert!(extension.is_none());
-    }
-
-    #[test]
-    fn sse_config_is_skipped() {
-        let config = ExtensionConfig::Sse {
-            name: "legacy-sse".to_string(),
-            description: "Legacy SSE".to_string(),
-            uri: Some("https://example.com/sse".to_string()),
-        };
-
-        let extension = config_to_goose_extension(&config).expect("conversion should succeed");
-
-        assert!(extension.is_none());
     }
 
     #[test]

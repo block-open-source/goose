@@ -36,7 +36,7 @@ dependencies {
 tasks.jar {
     manifest {
         attributes(
-            "Implementation-Title" to "Goose SDK",
+            "Implementation-Title" to "Goose GDK",
             "Implementation-Version" to project.version,
         )
     }
@@ -56,7 +56,7 @@ mavenPublishing {
 
     pom {
         name.set("Goose GDK")
-        description.set("Kotlin/JVM bindings for the Goose SDK")
+        description.set("Kotlin/JVM bindings for the goose Development Kit (GDK)")
         inceptionYear.set("2026")
         url.set("https://github.com/aaif-goose/goose")
         licenses {

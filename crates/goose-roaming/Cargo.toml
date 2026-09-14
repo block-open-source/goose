@@ -1,0 +1,33 @@
+[package]
+name = "goose-roaming"
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Peer-to-peer roaming transport for goose agents (iroh-based)"
+
+[dependencies]
+anyhow = { workspace = true }
+base64 = { workspace = true }
+fs2.workspace = true
+futures = { workspace = true }
+iroh = { workspace = true, features = ["tls-aws-lc-rs"] }
+iroh-relay = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2.workspace = true
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt", "sync", "macros", "time", "io-util"] }
+tokio-util = { workspace = true, features = ["compat"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+iroh = { workspace = true, features = ["test-utils"] }
+iroh-relay = { version = "1.0.3", default-features = false, features = ["server", "test-utils"] }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
+
+[lints]
+workspace = true

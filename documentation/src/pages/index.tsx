@@ -222,7 +222,7 @@ function StandardsSection() {
               an ACP server — connect from Zed, JetBrains, or VS Code — and can
               use ACP agents like Claude Code and Codex as providers.
             </p>
-            <Link to="/docs/guides/acp-clients">goose as ACP server →</Link>
+            <Link to="/docs/gdk/acp">goose as ACP server →</Link>
           </div>
           <div className={styles.standardCard}>
             <h3>Agentic AI Foundation</h3>

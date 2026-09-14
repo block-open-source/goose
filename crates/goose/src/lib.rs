@@ -10,6 +10,7 @@ pub mod agents;
 pub mod builtin_extension;
 pub mod checks;
 pub mod config;
+pub mod context_limit;
 pub mod context_mgmt;
 pub mod conversation {
     pub use goose_providers::conversation::*;

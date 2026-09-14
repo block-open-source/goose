@@ -1,0 +1,46 @@
+[workspace]
+release = false
+pr_name = "chore(GDK): release{% if version %} v{{ version }}{% endif %}"
+git_tag_enable = false
+git_tag_name = "gdk-v{{ version }}"
+git_release_enable = false
+
+[[package]]
+name = "goose-provider-types"
+release = true
+version_group = "gdk"
+
+[[package]]
+name = "goose-sdk-types"
+release = true
+version_group = "gdk"
+
+[[package]]
+name = "goose-download-manager"
+release = true
+version_group = "gdk"
+
+[[package]]
+name = "goose-local-inference"
+release = true
+version_group = "gdk"
+
+[[package]]
+name = "goose-providers"
+release = true
+version_group = "gdk"
+
+[[package]]
+name = "goose-agent"
+release = true
+version_group = "gdk"
+
+[[package]]
+name = "goose-context-management"
+release = true
+version_group = "gdk"
+
+[[package]]
+name = "goose-sdk"
+release = true
+version_group = "gdk"

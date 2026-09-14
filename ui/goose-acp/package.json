@@ -1,0 +1,52 @@
+{
+  "name": "@aaif/goose-acp",
+  "version": "1.50.0",
+  "description": "Install and resolve the Goose executable through npm",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aaif-goose/goose.git"
+  },
+  "keywords": [
+    "goose",
+    "ai",
+    "agent",
+    "acp",
+    "binary"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "goose": "./bin/goose.mjs"
+  },
+  "files": [
+    "bin",
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "lint": "tsc --noEmit",
+    "format": "prettier --write src/ test/ bin/",
+    "prepack": "npm run build"
+  },
+  "optionalDependencies": {
+    "@aaif/goose-binary-darwin-arm64": "workspace:*",
+    "@aaif/goose-binary-darwin-x64": "workspace:*",
+    "@aaif/goose-binary-linux-arm64": "workspace:*",
+    "@aaif/goose-binary-linux-x64": "workspace:*",
+    "@aaif/goose-binary-win32-x64": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "prettier": "^3.9.6",
+    "typescript": "~5.9.3"
+  }
+}

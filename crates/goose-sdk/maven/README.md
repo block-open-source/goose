@@ -1,4 +1,4 @@
-# Goose SDK Maven package
+# GDK Maven package
 
 This project packages the UniFFI-generated Kotlin/JVM bindings for `goose-sdk`
 as the Maven artifact `io.github.aaif-goose:gdk`.

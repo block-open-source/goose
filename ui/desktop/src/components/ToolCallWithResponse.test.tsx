@@ -69,6 +69,23 @@ const toolResponse: ToolResponseMessageContent = {
   },
 };
 
+const failedToolResponse: ToolResponseMessageContent = {
+  type: 'toolResponse',
+  id: 'tool-1',
+  toolResult: {
+    status: 'success',
+    value: {
+      content: [
+        {
+          type: 'text',
+          text: 'this output is important',
+        },
+      ],
+      isError: true,
+    },
+  },
+};
+
 function renderToolCall(response?: ToolResponseMessageContent) {
   return render(
     <ToolCallWithResponse
@@ -107,6 +124,12 @@ describe('ToolCallWithResponse live output', () => {
 
     expect(screen.queryByText(/starting/)).not.toBeInTheDocument();
     expect(await screen.findByText('final result')).toBeInTheDocument();
+  });
+
+  it('renders output from a failed tool call', async () => {
+    renderToolCall(failedToolResponse);
+
+    expect(await screen.findByText('this output is important')).toBeInTheDocument();
   });
 
   it('passes the current ACP permission generation through inline approval', async () => {

@@ -1,6 +1,6 @@
 [package]
 name = "goose-providers"
-version = "0.1.0-alpha.6"
+version = "0.1.0-alpha.9"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
@@ -14,6 +14,7 @@ workspace = true
 [features]
 default = []
 local-inference = ["dep:goose-local-inference"]
+local-inference-hf-hub = ["local-inference", "goose-local-inference/hf-hub"]
 cuda = ["local-inference", "goose-local-inference/cuda"]
 vulkan = ["local-inference", "goose-local-inference/vulkan"]
 mlx = ["local-inference", "goose-local-inference/mlx"]
@@ -34,8 +35,8 @@ anyhow = { workspace = true }
 async-stream = { workspace = true }
 chrono = { workspace = true }
 futures = { workspace = true }
-goose-provider-types = { version = "0.1.0-alpha.6", path = "../goose-provider-types", default-features = false }
-goose-local-inference = { version = "0.1.0-alpha.6", path = "../goose-local-inference", default-features = false, optional = true }
+goose-provider-types = { version = "0.1.0-alpha.9", path = "../goose-provider-types", default-features = false }
+goose-local-inference = { version = "0.1.0-alpha.9", path = "../goose-local-inference", default-features = false, optional = true }
 reqwest = { workspace = true }
 rmcp = { workspace = true, features = ["server", "macros"] }
 serde = { workspace = true }
@@ -59,6 +60,8 @@ tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-th
 tokio-stream = { workspace = true }
 env-lock = { workspace = true }
 wiremock.workspace = true
+flate2 = "1.1.9"
+reqwest = { workspace = true, features = ["gzip"] }
 
 [[example]]
 name = "streaming"

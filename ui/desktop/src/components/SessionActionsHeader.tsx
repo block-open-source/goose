@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { flushSync } from 'react-dom';
 import {
   Activity,
   ChevronDown,
@@ -385,13 +386,14 @@ export default function SessionActionsHeader({
     setIsRenaming(true);
     try {
       await acpRenameSession(session.id, trimmedName);
+      flushSync(() => setIsRenameOpen(false));
+      document.body.style.removeProperty('pointer-events');
       onSessionChange((current) => ({ ...current, name: trimmedName, user_set_name: true }));
       window.dispatchEvent(
         new CustomEvent(AppEvents.SESSION_RENAMED, {
           detail: { sessionId: session.id, newName: trimmedName, userInitiated: true },
         })
       );
-      setIsRenameOpen(false);
       toast.success(intl.formatMessage(i18n.renamed));
     } catch (error) {
       toast.error(
@@ -555,7 +557,7 @@ export default function SessionActionsHeader({
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="center" className="w-56">
-            <DropdownMenuItem onSelect={() => setIsRenameOpen(true)}>
+            <DropdownMenuItem onSelect={() => setTimeout(() => setIsRenameOpen(true), 0)}>
               <Edit2 className="size-4" />
               {intl.formatMessage(i18n.renameSession)}
             </DropdownMenuItem>

@@ -2,8 +2,8 @@ use super::*;
 #[cfg(feature = "local-inference")]
 use crate::dictation::providers::transcribe_local;
 use crate::dictation::providers::{
-    all_providers, get_provider_def, is_configured, transcribe_with_model,
-    transcribe_with_provider, DictationProvider,
+    all_providers, is_configured, transcribe_with_model, transcribe_with_provider,
+    DictationProvider,
 };
 #[cfg(feature = "local-inference")]
 use crate::dictation::whisper;
@@ -137,30 +137,6 @@ impl GooseAcpAgent {
         }
 
         Ok(DictationConfigResponse { providers })
-    }
-
-    pub(super) async fn on_dictation_secret_save(
-        &self,
-        req: DictationSecretSaveRequest,
-    ) -> Result<EmptyResponse, agent_client_protocol::Error> {
-        let provider = parse_dictation_provider(&req.provider)?;
-        let key = dictation_secret_config_key(provider)?;
-        let config = self.config()?;
-        config.set_secret(key, &req.value).internal_err()?;
-        Config::global().invalidate_secrets_cache();
-        Ok(EmptyResponse {})
-    }
-
-    pub(super) async fn on_dictation_secret_delete(
-        &self,
-        req: DictationSecretDeleteRequest,
-    ) -> Result<EmptyResponse, agent_client_protocol::Error> {
-        let provider = parse_dictation_provider(&req.provider)?;
-        let key = dictation_secret_config_key(provider)?;
-        let config = self.config()?;
-        config.delete_secret(key).internal_err()?;
-        Config::global().invalidate_secrets_cache();
-        Ok(EmptyResponse {})
     }
 
     pub(super) async fn on_dictation_models_list(
@@ -324,82 +300,6 @@ impl GooseAcpAgent {
         #[cfg(not(feature = "local-inference"))]
         Err(agent_client_protocol::Error::invalid_params().data("Local inference not enabled"))
     }
-
-    pub(super) async fn on_dictation_model_select(
-        &self,
-        req: DictationModelSelectRequest,
-    ) -> Result<EmptyResponse, agent_client_protocol::Error> {
-        #[cfg(not(feature = "local-inference"))]
-        if req.provider == "local" {
-            return Err(
-                agent_client_protocol::Error::invalid_params().data("Local inference not enabled")
-            );
-        }
-
-        let provider: DictationProvider = serde_json::from_value(serde_json::Value::String(
-            req.provider.clone(),
-        ))
-        .map_err(|_| {
-            agent_client_protocol::Error::invalid_params()
-                .data(format!("Unknown provider: {}", req.provider))
-        })?;
-
-        let key = match provider {
-            DictationProvider::OpenAI => OPENAI_TRANSCRIPTION_MODEL_CONFIG_KEY,
-            DictationProvider::Groq => GROQ_TRANSCRIPTION_MODEL_CONFIG_KEY,
-            DictationProvider::ElevenLabs => ELEVENLABS_TRANSCRIPTION_MODEL_CONFIG_KEY,
-            DictationProvider::ModelNative => return Ok(EmptyResponse {}),
-            #[cfg(feature = "local-inference")]
-            DictationProvider::Local => {
-                let model = whisper::get_model(&req.model_id).ok_or_else(|| {
-                    agent_client_protocol::Error::invalid_params().data("Unknown model id")
-                })?;
-                if !model.is_downloaded() {
-                    return Err(agent_client_protocol::Error::invalid_params()
-                        .data("Local Whisper model is not downloaded"));
-                }
-                whisper::LOCAL_WHISPER_MODEL_CONFIG_KEY
-            }
-        };
-
-        crate::config::Config::global()
-            .set_param(key, req.model_id)
-            .internal_err()?;
-
-        Ok(EmptyResponse {})
-    }
-}
-
-fn parse_dictation_provider(
-    provider: &str,
-) -> Result<DictationProvider, agent_client_protocol::Error> {
-    serde_json::from_value(serde_json::Value::String(provider.to_string())).map_err(|_| {
-        agent_client_protocol::Error::invalid_params().data(format!("Unknown provider: {provider}"))
-    })
-}
-
-fn dictation_secret_config_key(
-    provider: DictationProvider,
-) -> Result<&'static str, agent_client_protocol::Error> {
-    if provider == DictationProvider::ModelNative {
-        return Err(agent_client_protocol::Error::invalid_params()
-            .data("Model-native provider uses the active chat provider's credentials."));
-    }
-
-    let def = get_provider_def(provider);
-    if def.uses_provider_config {
-        return Err(agent_client_protocol::Error::invalid_params().data(
-            "Dictation provider uses the main provider configuration. Configure its credentials in provider settings instead.",
-        ));
-    }
-
-    #[cfg(feature = "local-inference")]
-    if provider == DictationProvider::Local {
-        return Err(agent_client_protocol::Error::invalid_params()
-            .data("Dictation provider does not use an API key or secret."));
-    }
-
-    Ok(def.config_key)
 }
 
 fn dictation_model_config_key(provider: DictationProvider) -> Option<String> {

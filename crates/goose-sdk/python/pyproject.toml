@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "goose-sdk"
-version = "0.1.0a6"
-description = "Python bindings for the Goose SDK"
+version = "0.1.0a9"
+description = "Python bindings for the goose Development Kit (GDK)"
 readme = "README.md"
 requires-python = ">=3.9"
 license = "Apache-2.0"
 authors = [{ name = "AAIF", email = "ai-oss-tools@block.xyz" }]
-keywords = ["goose", "sdk", "ai", "agent", "uniffi"]
+keywords = ["goose", "gdk", "sdk", "ai", "agent", "uniffi"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",

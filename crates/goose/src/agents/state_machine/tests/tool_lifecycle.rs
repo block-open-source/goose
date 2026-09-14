@@ -3,12 +3,13 @@ use rmcp::model::ElicitationAction;
 use serde_json::json;
 
 use super::calculator_extension::{
-    delayed_value, value, ADD, ADD_WITH_AUDIENCE, DIVIDE, REQUEST_VALUE,
+    delayed_value, value, ADD, ADD_WITH_AUDIENCE, APP_ONLY, DIVIDE, REQUEST_VALUE,
 };
 use super::pipeline::MessageKind::{Agent, Confirmation, ToolCall, ToolResponse};
 use super::pipeline::MAX_TURNS;
 use super::test_pipeline;
 use crate::agents::tool_execution::{CHAT_MODE_TOOL_SKIPPED_RESPONSE, DECLINED_RESPONSE};
+use crate::agents::AgentEvent;
 use crate::config::permission::PermissionLevel;
 use crate::config::GooseMode;
 use crate::conversation::message::{Message, MessageContent};
@@ -27,6 +28,82 @@ async fn basic_tool_calling() -> Result<()> {
     result.assert_message(3, Agent, "The total is 1");
     result.assert_message(-1, Agent, "hi there!");
     assert_eq!(api.call_count(), 3);
+    Ok(())
+}
+
+#[tokio::test]
+async fn provider_turn_executes_only_advertised_registered_tools() -> Result<()> {
+    let (pipeline, api) = test_pipeline().await?;
+    api.on("try the app-only tool")
+        .unadvertised_call(APP_ONLY, value(10));
+    api.on("not available").reply("app-only blocked");
+
+    let result = pipeline.run(["try the app-only tool"]).await?;
+
+    assert!(!api.calls()[0].advertises_tool(APP_ONLY));
+    result.assert_message(-2, ToolResponse, "not available");
+    result.assert_message(-1, Agent, "app-only blocked");
+    assert_eq!(pipeline.calculator_total(), 0);
+
+    api.on("use an advertised tool").call(ADD, value(1));
+    api.on("result: 1").reply("advertised tool ran");
+
+    let result = pipeline.run(["use an advertised tool"]).await?;
+
+    result.assert_message(-2, ToolResponse, "result: 1");
+    result.assert_message(-1, Agent, "advertised tool ran");
+    assert_eq!(pipeline.calculator_total(), 1);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn provider_turn_canonicalizes_only_advertised_mangled_tool_names() -> Result<()> {
+    let (pipeline, api) = test_pipeline().await?;
+    api.on("use a mangled advertised tool")
+        .unadvertised_call("calculator.add", value(1));
+    api.on("result: 1").reply("mangled tool ran");
+
+    let result = pipeline.run(["use a mangled advertised tool"]).await?;
+
+    result.assert_message(-3, ToolCall, ADD);
+    result.assert_message(-2, ToolResponse, "result: 1");
+    result.assert_message(-1, Agent, "mangled tool ran");
+    assert_eq!(pipeline.calculator_total(), 1);
+
+    api.on("try a mangled app-only tool")
+        .unadvertised_call("calculator.app_only", value(10));
+    api.on("not available").reply("mangled app-only blocked");
+
+    let result = pipeline.run(["try a mangled app-only tool"]).await?;
+
+    result.assert_message(-2, ToolResponse, "not available");
+    result.assert_message(-1, Agent, "mangled app-only blocked");
+    assert_eq!(pipeline.calculator_total(), 1);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn toolshim_provider_turn_executes_advertised_tools() -> Result<()> {
+    let (pipeline, api) = test_pipeline().await?;
+    let model_config =
+        goose_providers::model::ModelConfig::new(goose_providers::openai::OPEN_AI_DEFAULT_MODEL)
+            .with_canonical_limits("openai")
+            .with_toolshim(true);
+    let pipeline = pipeline.with_model_config(model_config).await;
+    api.on("use an advertised tool through toolshim")
+        .unadvertised_call(ADD, value(2));
+    api.on("result: 2").reply("toolshim tool ran");
+
+    let result = pipeline
+        .run(["use an advertised tool through toolshim"])
+        .await?;
+
+    result.assert_message(-2, ToolResponse, "result: 2");
+    result.assert_message(-1, Agent, "toolshim tool ran");
+    assert_eq!(pipeline.calculator_total(), 2);
+
     Ok(())
 }
 
@@ -268,6 +345,21 @@ async fn execution_recovers_from_timeout_cancellation_and_filtered_output() -> R
     api.on("result: 3").reply("shown once");
     let result = pipeline.run(["show the result once"]).await?;
     result.assert_message(-1, Agent, "shown once");
+    let emitted_result_count = result
+        .events
+        .iter()
+        .filter_map(|event| match event {
+            AgentEvent::Message(message) => Some(message),
+            _ => None,
+        })
+        .flat_map(|message| &message.content)
+        .filter_map(MessageContent::as_tool_response)
+        .filter_map(|response| response.tool_result.as_ref().ok())
+        .flat_map(|result| &result.content)
+        .filter_map(|content| content.as_text())
+        .filter(|text| text.text == "result: 3")
+        .count();
+    assert_eq!(emitted_result_count, 1);
     assert_eq!(
         api.calls().last().unwrap().input_occurrences("result: 3"),
         1

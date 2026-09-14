@@ -1,3 +1,89 @@
+use std::collections::{HashMap, HashSet};
+use std::path::Path;
+
+use goose_provider_types::errors::ProviderError;
+
+fn safetensors_shard(filename: &str) -> Option<(&str, u32, u32)> {
+    let stem = filename.strip_suffix(".safetensors")?;
+    let (indexed_name, total) = stem.rsplit_once("-of-")?;
+    let (family, index) = indexed_name.rsplit_once('-')?;
+    let index = index.parse().ok()?;
+    let total = total.parse().ok()?;
+    (index > 0 && index <= total).then_some((family, index, total))
+}
+
+pub(crate) fn snapshot_files_are_complete(
+    filenames: &HashSet<&str>,
+    index: Option<&serde_json::Value>,
+) -> bool {
+    let safetensors: Vec<_> = filenames
+        .iter()
+        .copied()
+        .filter(|filename| filename.ends_with(".safetensors"))
+        .collect();
+    if safetensors.is_empty() {
+        return false;
+    }
+
+    if let Some(index) = index {
+        let Some(weight_map) = index.get("weight_map").and_then(|value| value.as_object()) else {
+            return false;
+        };
+        let Some(expected): Option<HashSet<_>> =
+            weight_map.values().map(|value| value.as_str()).collect()
+        else {
+            return false;
+        };
+        return !expected.is_empty()
+            && expected.iter().all(|filename| {
+                filename.ends_with(".safetensors") && filenames.contains(filename)
+            });
+    }
+
+    let mut shard_groups = HashMap::new();
+    for filename in safetensors {
+        if let Some((family, index, total)) = safetensors_shard(filename) {
+            let (expected_total, indices) = shard_groups
+                .entry(family)
+                .or_insert_with(|| (total, HashSet::new()));
+            if *expected_total != total {
+                return false;
+            }
+            indices.insert(index);
+        }
+    }
+
+    shard_groups.values().all(|(total, indices)| {
+        indices.len() == *total as usize && (1..=*total).all(|index| indices.contains(&index))
+    })
+}
+
+fn validate_snapshot_files(path: &Path) -> Result<(), ProviderError> {
+    let filenames: Vec<_> = std::fs::read_dir(path)
+        .map_err(mlx_file_error)?
+        .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
+        .collect();
+    let filename_set = filenames.iter().map(String::as_str).collect();
+    let index_path = path.join("model.safetensors.index.json");
+    let index = if index_path.is_file() {
+        let contents = std::fs::read(&index_path).map_err(mlx_file_error)?;
+        Some(serde_json::from_slice(&contents).map_err(mlx_file_error)?)
+    } else {
+        None
+    };
+    if !snapshot_files_are_complete(&filename_set, index.as_ref()) {
+        return Err(ProviderError::ExecutionError(format!(
+            "MLX model at '{}' has incomplete SafeTensors weights",
+            path.display()
+        )));
+    }
+    Ok(())
+}
+
+fn mlx_file_error(error: impl std::fmt::Display) -> ProviderError {
+    ProviderError::ExecutionError(format!("MLX model validation failed: {error}"))
+}
+
 #[cfg(all(feature = "mlx", target_os = "macos"))]
 mod imp {
     use std::any::Any;
@@ -11,7 +97,7 @@ mod imp {
     use serde_json::json;
 
     use crate::backend::{BackendLoadedModel, LocalGenerationRequest, LocalInferenceBackend};
-    use crate::local_model_registry::{ModelSettings, ToolCallingMode};
+    use crate::model::{ModelSettings, ToolCallingMode};
     use crate::native_tool_parsing::message_from_native_tool_text;
     use crate::provider_utils::filter_extensions_from_system_prompt;
     use crate::thinking_output::ThinkingOutputFilter;
@@ -37,6 +123,21 @@ mod imp {
         pub(crate) fn new() -> Self {
             Self
         }
+    }
+
+    pub(crate) fn validate_model_directory(path: &Path) -> Result<(), ProviderError> {
+        super::validate_snapshot_files(path)?;
+        let config_path = path.join("config.json");
+        let config = std::fs::read(&config_path).map_err(mlx_error)?;
+        let config: serde_json::Value = serde_json::from_slice(&config).map_err(mlx_error)?;
+        if let Some(reason) = safemlx_lm::check_model_config(&config).unsupported_reason() {
+            return Err(ProviderError::ExecutionError(format!(
+                "Unsupported MLX model at '{}': {}",
+                path.display(),
+                reason
+            )));
+        }
+        Ok(())
     }
 
     impl LocalInferenceBackend for MlxBackend {
@@ -860,11 +961,11 @@ mod imp {
 
     fn sampling(settings: &ModelSettings) -> (f32, Option<u32>) {
         match &settings.sampling {
-            crate::local_model_registry::SamplingConfig::Greedy => (0.0, None),
-            crate::local_model_registry::SamplingConfig::Temperature {
+            crate::model::SamplingConfig::Greedy => (0.0, None),
+            crate::model::SamplingConfig::Temperature {
                 temperature, seed, ..
             } => (*temperature, *seed),
-            crate::local_model_registry::SamplingConfig::MirostatV2 { seed, .. } => (0.0, *seed),
+            crate::model::SamplingConfig::MirostatV2 { seed, .. } => (0.0, *seed),
         }
     }
 
@@ -910,7 +1011,7 @@ mod imp {
         use super::{
             final_stream_suffix, mlx_max_tokens, split_generated_thinking, token_id_or_ids,
         };
-        use crate::local_model_registry::ModelSettings;
+        use crate::model::ModelSettings;
         use serde_json::json;
 
         #[test]
@@ -992,8 +1093,10 @@ mod imp {
 
 #[cfg(not(all(feature = "mlx", target_os = "macos")))]
 mod imp {
+    use std::path::Path;
+
     use crate::backend::{BackendLoadedModel, LocalGenerationRequest, LocalInferenceBackend};
-    use crate::local_model_registry::ModelSettings;
+    use crate::model::ModelSettings;
     use crate::ResolvedModelPaths;
     use goose_provider_types::errors::ProviderError;
 
@@ -1005,6 +1108,16 @@ mod imp {
         pub(crate) fn new() -> Self {
             Self
         }
+    }
+
+    pub(crate) fn validate_model_directory(path: &Path) -> Result<(), ProviderError> {
+        super::validate_snapshot_files(path)?;
+        let reason = if cfg!(target_os = "macos") {
+            "MLX support was not compiled in. Rebuild with the `mlx` feature."
+        } else {
+            "MLX backend requires macOS."
+        };
+        Err(ProviderError::ExecutionError(reason.to_string()))
     }
 
     impl LocalInferenceBackend for MlxBackend {
@@ -1041,4 +1154,4 @@ mod imp {
     }
 }
 
-pub(crate) use imp::{MlxBackend, MLX_BACKEND_ID};
+pub(crate) use imp::{validate_model_directory, MlxBackend, MLX_BACKEND_ID};

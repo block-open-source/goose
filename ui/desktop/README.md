@@ -71,20 +71,29 @@ cp ../../target/release/goose src/bin/
 3. Build the application:
 ```bash
 # For ZIP distribution (works on all Linux distributions)
-pnpm run make --targets=@electron-forge/maker-zip
+pnpm run make --targets=@electron-forge/maker-zip --arch=x64
 
 # For DEB package (Debian/Ubuntu)
-pnpm run make --targets=@electron-forge/maker-deb
+pnpm run make --targets=@electron-forge/maker-deb --arch=x64
+
+# For RPM package (Fedora/RHEL)
+pnpm run make --targets=@electron-forge/maker-rpm --arch=x64
 
 # For Flatpak (requires flatpak and flatpak-builder)
-pnpm run make --targets=@electron-forge/maker-flatpak
+pnpm run make --targets=@electron-forge/maker-flatpak --arch=x64
 ```
 
-The built application will be available in:
-- ZIP: `out/make/zip/linux/x64/goose-linux-x64-{version}.zip`
-- DEB: `out/make/deb/x64/goose_{version}_amd64.deb`
-- Flatpak: `out/make/flatpak/x86_64/*.flatpak`
-- Executable: `out/goose-linux-x64/goose`
+The `--arch` option controls the Electron architecture only; it does not rebuild the Rust `goose` binary. To create an ARM64 package, run these steps on an ARM64 Linux host so `cargo build` produces an ARM64 `goose` binary, then replace `--arch=x64` with `--arch=arm64`. Do not package an ARM64 Electron application with the x64 `goose` binary produced on an x64 host.
+
+Electron Forge writes packages to architecture-specific directories:
+
+| Package | x64 | ARM64 |
+| --- | --- | --- |
+| ZIP | `out/make/zip/linux/x64/*.zip` | `out/make/zip/linux/arm64/*.zip` |
+| DEB | `out/make/deb/x64/*_amd64.deb` | `out/make/deb/arm64/*_arm64.deb` |
+| RPM | `out/make/rpm/x64/*.x86_64.rpm` | `out/make/rpm/arm64/*.arm64.rpm` |
+| Flatpak | `out/make/flatpak/x86_64/*.flatpak` | `out/make/flatpak/aarch64/*.flatpak` |
+| Application | `out/Goose-linux-x64/` | `out/Goose-linux-arm64/` |
 
 ### Windows
 Use the existing Windows build process as documented.

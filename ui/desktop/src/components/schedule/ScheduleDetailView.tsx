@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import type { ScheduledJobDto, SessionInfo } from '@aaif/goose-sdk';
+import type { ScheduledJobDto, SessionInfo } from '@aaif/goose-acp-client';
 import { Button } from '../ui/button';
 import { ScrollArea } from '../ui/scroll-area';
 import BackButton from '../ui/BackButton';

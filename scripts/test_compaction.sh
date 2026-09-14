@@ -37,6 +37,16 @@ if [ -n "$COMPACTION_PROVIDER" ] || [ -n "$COMPACTION_MODEL" ]; then
   echo ""
 fi
 
+# Print the error proxy's request ledger. Without this, a TEST 3 failure gives
+# no way to tell which upstream requests were made or which one received the
+# injected error, leaving the request ordering to guesswork.
+dump_proxy_log() {
+  if [ -n "$PROXY_LOG" ] && [ -s "$PROXY_LOG" ]; then
+    echo "   Proxy request log:"
+    cat "$PROXY_LOG"
+  fi
+}
+
 # Validation function to check compaction structure in session JSON
 validate_compaction() {
   local session_id=$1
@@ -263,9 +273,19 @@ if ! (cd "$PROXY_DIR" && uv sync 2>&1 | tee "$PROXY_SETUP_LOG"); then
 else
   echo "✓ Dependencies installed"
 
-  # Start the error proxy in context-length error mode (3 errors)
+  # Start the error proxy in context-length error mode.
+  #
+  # Inject exactly ONE error. The proxy only injects into completion requests
+  # (see COMPLETION_PATHS in provider-error-proxy/proxy.py), so this error lands
+  # on the turn completion and the summarizer call that follows succeeds,
+  # producing the summary message this test validates.
+  #
+  # Do not raise this number to "give compaction more retries". A context-length
+  # error is deterministic for a fixed prompt, so retrying an identical request
+  # is not a scenario worth asserting; a higher count just consumes the
+  # summarizer's own calls and prevents the summary this test exists to check.
   echo "Starting error proxy on port $PROXY_PORT with context-length error mode..."
-  (cd "$PROXY_DIR" && UV_INDEX_URL="https://pypi.org/simple" uv run proxy.py --port "$PROXY_PORT" --mode "c 3" --no-stdin > "$PROXY_LOG" 2>&1) &
+  (cd "$PROXY_DIR" && UV_INDEX_URL="https://pypi.org/simple" uv run proxy.py --port "$PROXY_PORT" --mode "c 1" --no-stdin > "$PROXY_LOG" 2>&1) &
   PROXY_PID=$!
 
   # Wait for proxy to be ready (check if port is listening)
@@ -300,6 +320,14 @@ else
     export GOOSE_PROVIDER=anthropic
     export GOOSE_MODEL=claude-haiku-4-5
 
+    # Session naming runs as a background completion request spawned at the
+    # start of the turn, so it races the turn completion for the proxy's single
+    # injected error. When it wins, the naming call absorbs the error (it only
+    # logs a warning), the turn succeeds, and no compaction ever happens.
+    # Disable it so the turn completion is deterministically the first
+    # completion request the proxy sees.
+    export GOOSE_DISABLE_SESSION_NAMING=true
+
     echo "Step 1: Creating session (should trigger context-length error and compaction)..."
     (cd "$TESTDIR" && "$GOOSE_BIN" run --text "hello world" 2>&1) | tee "$OUTPUT"
 
@@ -313,19 +341,29 @@ else
       echo "Session created: $SESSION_ID"
       echo "Checking for compaction evidence..."
 
-      # Check for compaction in the output
-      if grep -qi "context.*length\|compacting\|compacted\|compaction" "$OUTPUT"; then
+      # The compaction failure message itself contains the word "compact", so a
+      # bare keyword grep matches it and reports success on a failed run. Fail
+      # explicitly on the error text before checking for evidence of compaction.
+      if grep -qi "error trying to compact" "$OUTPUT"; then
+        echo "✗ FAILED: Compaction was attempted but returned an error"
+        echo "   Output:"
+        cat "$OUTPUT"
+        dump_proxy_log
+        RESULTS+=("✗ Out-of-Context Test Error (compaction errored)")
+      elif grep -qi "context.*length\|compacting\|compacted\|compaction" "$OUTPUT"; then
         echo "✓ SUCCESS: Out-of-context Test error triggered compaction"
 
         if validate_compaction "$SESSION_ID" "out-of-context error compaction"; then
           RESULTS+=("✓ Out-of-Context Test Error")
         else
+          dump_proxy_log
           RESULTS+=("✗ Out-of-Context Test Error (structure validation failed)")
         fi
       else
         echo "✗ FAILED: No evidence of compaction after context-length error"
         echo "   Output:"
         cat "$OUTPUT"
+        dump_proxy_log
         RESULTS+=("✗ Out-of-Context Test Error")
       fi
     fi

@@ -40,13 +40,14 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
   # ------------------------------------
-  # 2) Build CLI targets not produced by desktop workflows
+  # 2) Bundle CLI and Desktop (Linux)
   # ------------------------------------
   build-cli-linux:
     needs: [prepare-version]
     uses: ./.github/workflows/build-cli-linux.yml
     with:
       version: ${{ needs.prepare-version.outputs.version }}
+      package_desktop: true
 
   # ------------------------------------
   # 3) Upload Install CLI Script (we only need to do this once)
@@ -92,16 +93,7 @@ jobs:
       signing: false
 
   # ------------------------------------------------------------
-  # 6) Bundle Desktop App (Linux)
-  # ------------------------------------------------------------
-  bundle-desktop-linux:
-    needs: [prepare-version]
-    uses: ./.github/workflows/bundle-desktop-linux.yml
-    with:
-      version: ${{ needs.prepare-version.outputs.version }}
-
-  # ------------------------------------------------------------
-  # 7) Bundle CLI and Desktop (Windows)
+  # 6) Bundle CLI and Desktop (Windows)
   # ------------------------------------------------------------
   bundle-windows:
     needs: [prepare-version]
@@ -129,12 +121,12 @@ jobs:
       windows_variant: cuda
 
   # ------------------------------------
-  # 8) Create/Update GitHub Release
+  # 7) Create/Update GitHub Release
   # ------------------------------------
   release:
     name: Release
     runs-on: ubuntu-latest
-    needs: [build-cli-linux, install-script, bundle-macos-arm64, bundle-macos-x64, bundle-desktop-linux, bundle-windows, bundle-windows-cuda]
+    needs: [build-cli-linux, install-script, bundle-macos-arm64, bundle-macos-x64, bundle-windows, bundle-windows-cuda]
     permissions:
       contents: write
       id-token: write      # Required for Sigstore OIDC signing

@@ -1,5 +1,11 @@
 on:
   workflow_dispatch:
+    inputs:
+      package_desktop:
+        description: 'Also package Linux desktop artifacts; CLI artifacts are always included'
+        required: false
+        default: false
+        type: boolean
   workflow_call:
     inputs:
       version:
@@ -10,15 +16,20 @@ on:
         type: string
         required: false
         default: ""
+      package_desktop:
+        description: 'Also package Linux desktop artifacts; CLI artifacts are always included'
+        required: false
+        default: false
+        type: boolean
 
-name: "Build CLI for Linux"
+name: "Build CLI and optionally Desktop for Linux"
 
 permissions:
   contents: read
 
 jobs:
   build-cli-linux:
-    name: Build CLI
+    name: Build Goose (Linux, ${{ matrix.architecture }}, ${{ matrix.variant }})
     runs-on: ${{ matrix.build-on }}
     container: ${{ matrix.container }}
     strategy:
@@ -189,3 +200,219 @@ jobs:
           path: |
             ${{ env.ARTIFACT_BZ2 }}
             ${{ env.ARTIFACT_GZ }}
+
+      - name: Prepare internal Goose binary
+        if: ${{ inputs.package_desktop && matrix.target-suffix == 'unknown-linux-gnu' }}
+        env:
+          TARGET: ${{ matrix.architecture }}-${{ matrix.target-suffix }}
+          VARIANT_SUFFIX: ${{ matrix.variant == 'vulkan' && '-vulkan' || '' }}
+        run: |
+          mkdir -p artifacts
+          cp "target/${TARGET}/release/goose" "artifacts/internal-goose-${TARGET}${VARIANT_SUFFIX}"
+
+      - name: Upload internal Goose binary
+        if: ${{ inputs.package_desktop && matrix.target-suffix == 'unknown-linux-gnu' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: internal-goose-${{ matrix.architecture }}-${{ matrix.target-suffix }}${{ matrix.variant == 'vulkan' && '-vulkan' || '' }}
+          path: artifacts/internal-goose-${{ matrix.architecture }}-${{ matrix.target-suffix }}${{ matrix.variant == 'vulkan' && '-vulkan' || '' }}
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true
+
+  package-desktop-linux:
+    name: Package Desktop (Linux, ${{ matrix.electron_arch }}, ${{ matrix.variant }})
+    if: ${{ inputs.package_desktop }}
+    needs: build-cli-linux
+    runs-on: ${{ matrix.build_on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            electron_arch: x64
+            flatpak_arch: x86_64
+            variant: standard
+            variant_suffix: ''
+            build_on: ubuntu-22.04
+          - target: aarch64-unknown-linux-gnu
+            electron_arch: arm64
+            flatpak_arch: aarch64
+            variant: standard
+            variant_suffix: ''
+            build_on: ubuntu-22.04-arm
+          - target: x86_64-unknown-linux-gnu
+            electron_arch: x64
+            flatpak_arch: x86_64
+            variant: vulkan
+            variant_suffix: '-vulkan'
+            build_on: ubuntu-24.04
+          - target: aarch64-unknown-linux-gnu
+            electron_arch: arm64
+            flatpak_arch: aarch64
+            variant: vulkan
+            variant_suffix: '-vulkan'
+            build_on: ubuntu-24.04-arm
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Update desktop version
+        if: ${{ inputs.version != '' }}
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          source ./bin/activate-hermit
+          cd ui/desktop
+          npm pkg set "version=${VERSION}"
+
+      - name: Debug workflow info
+        env:
+          WORKFLOW_NAME: ${{ github.workflow }}
+          WORKFLOW_REF: ${{ github.ref }}
+          EVENT_NAME: ${{ github.event_name }}
+          REPOSITORY: ${{ github.repository }}
+          TARGET: ${{ matrix.target }}
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          echo "=== Workflow Information ==="
+          echo "Workflow: ${WORKFLOW_NAME}"
+          echo "Ref: ${WORKFLOW_REF}"
+          echo "Event: ${EVENT_NAME}"
+          echo "Repo: ${REPOSITORY}"
+          echo "Target: ${TARGET}"
+          echo "Variant: ${VARIANT}"
+          echo ""
+          echo "=== System Information ==="
+          uname -a
+          lsb_release -a || true
+          df -h
+
+      - name: Install system dependencies
+        env:
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            libnss3-dev \
+            libatk-bridge2.0-dev \
+            libdrm2 \
+            libxcomposite1 \
+            libxdamage1 \
+            libxrandr2 \
+            libgbm1 \
+            libxss1 \
+            rpm \
+            fakeroot \
+            dpkg-dev \
+            protobuf-compiler \
+            flatpak \
+            flatpak-builder \
+            elfutils
+
+          if [ "${VARIANT}" = "vulkan" ]; then
+            sudo apt-get install -y \
+              libasound2t64 \
+              libvulkan-dev \
+              libvulkan1 \
+              glslc
+          else
+            sudo apt-get install -y libasound2
+          fi
+
+      - name: Configure RPM packaging
+        run: |
+          echo '%_build_id_links none' > ~/.rpmmacros
+          test "$(rpm --eval '%{_build_id_links}')" = "none"
+
+      - name: Setup Flatpak runtimes
+        run: flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+
+      - name: Download internal Goose binary
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          name: internal-goose-${{ matrix.target }}${{ matrix.variant_suffix }}
+          path: backend
+
+      - name: Prepare desktop backend
+        env:
+          INTERNAL_BINARY: internal-goose-${{ matrix.target }}${{ matrix.variant_suffix }}
+        run: |
+          mkdir -p ui/desktop/src/bin
+          rm -f ui/desktop/src/bin/goose
+          mv "backend/${INTERNAL_BINARY}" ui/desktop/src/bin/goose
+          chmod +x ui/desktop/src/bin/goose
+          file ui/desktop/src/bin/goose
+
+      - name: Cache pnpm dependencies
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            ui/desktop/node_modules
+            .hermit/node/cache
+          key: linux-pnpm-cache-v1-${{ matrix.electron_arch }}-${{ matrix.variant }}-${{ runner.os }}-${{ hashFiles('ui/pnpm-lock.yaml') }}
+          restore-keys: |
+            linux-pnpm-cache-v1-${{ matrix.electron_arch }}-${{ matrix.variant }}-${{ runner.os }}-
+
+      - name: Install pnpm dependencies
+        run: |
+          source ./bin/activate-hermit
+          cd ui/desktop
+          pnpm install --frozen-lockfile
+
+      - name: Build Linux packages
+        env:
+          ELECTRON_ARCH: ${{ matrix.electron_arch }}
+          FLATPAK_ARCH: ${{ matrix.flatpak_arch }}
+          GOOSE_DESKTOP_LINUX_VARIANT: ${{ matrix.variant }}
+        run: |
+          source ./bin/activate-hermit
+          cd ui/desktop
+          pnpm run make --platform=linux --arch="${ELECTRON_ARCH}"
+
+          if [ "${GOOSE_DESKTOP_LINUX_VARIANT}" = "vulkan" ]; then
+            for package in \
+              "out/make/deb/${ELECTRON_ARCH}/"*.deb \
+              "out/make/rpm/${ELECTRON_ARCH}/"*.rpm \
+              "out/make/flatpak/${FLATPAK_ARCH}/"*.flatpak; do
+              [ -e "${package}" ] || continue
+              extension="${package##*.}"
+              base="${package%.*}"
+              mv "${package}" "${base}-vulkan.${extension}"
+            done
+          fi
+
+          for package in "out/make/rpm/${ELECTRON_ARCH}/"*.rpm; do
+            package_contents="$(rpm -qlp "${package}")"
+            if grep -qE '^/usr/lib/\.build-id(/|$)' <<< "${package_contents}"; then
+              echo "::error file=${package}::RPM contains build-id links"
+              exit 1
+            fi
+          done
+
+          find out/ -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.flatpak" \) -exec ls -lh {} \;
+
+      - name: Upload .deb package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: Goose-linux-${{ matrix.electron_arch }}${{ matrix.variant_suffix }}-deb
+          path: ui/desktop/out/make/deb/${{ matrix.electron_arch }}/*${{ matrix.variant_suffix }}.deb
+          if-no-files-found: error
+
+      - name: Upload .rpm package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: Goose-linux-${{ matrix.electron_arch }}${{ matrix.variant_suffix }}-rpm
+          path: ui/desktop/out/make/rpm/${{ matrix.electron_arch }}/*${{ matrix.variant_suffix }}.rpm
+          if-no-files-found: error
+
+      - name: Upload .flatpak package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: Goose-linux-${{ matrix.electron_arch }}${{ matrix.variant_suffix }}-flatpak
+          path: ui/desktop/out/make/flatpak/${{ matrix.flatpak_arch }}/*${{ matrix.variant_suffix }}.flatpak
+          if-no-files-found: error

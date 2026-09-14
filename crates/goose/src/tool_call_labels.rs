@@ -194,14 +194,13 @@ async fn complete_label(
     message: &Message,
 ) -> Option<String> {
     for attempt in 0..LABEL_GENERATION_MAX_ATTEMPTS {
-        if let Ok((response, _)) = crate::model_config::complete_fast(
+        if let Ok((response, _)) = crate::model_config::complete_one_shot(
             provider,
             model_config,
             session_id,
             system_prompt,
             from_ref(message),
             &[],
-            false,
         )
         .await
         {

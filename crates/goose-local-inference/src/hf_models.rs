@@ -1,16 +1,16 @@
 use anyhow::{bail, Result};
 use futures::StreamExt;
 use hf_hub::progress::{DownloadEvent, FileStatus, ProgressEvent, ProgressHandler};
-use hf_hub::repository::{ModelInfo, RepoSibling};
+use hf_hub::repository::{ModelInfo, RepoSibling, RepoTreeEntry};
 use hf_hub::{HFClient, HFRepository, RepoTypeModel};
 
-use super::local_model_registry::{get_registry, model_id_from_repo, LocalModelStorage, ShardFile};
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use crate::huggingface_auth;
+use crate::mlx::snapshot_files_are_complete as mlx_snapshot_files_are_complete;
 
-const HF_API_BASE: &str = "https://huggingface.co/api/models";
 const HF_DOWNLOAD_BASE: &str = "https://huggingface.co";
 const LLAMACPP_BACKEND_ID: &str = "llamacpp";
 const MLX_BACKEND_ID: &str = "mlx";
@@ -100,6 +100,23 @@ impl HfQuantVariant {
     }
 }
 
+pub fn model_id_from_repo(repo_id: &str, quantization: &str) -> String {
+    format!("{repo_id}:{quantization}")
+}
+
+#[derive(Debug, Clone)]
+pub struct CachedLocalModel {
+    pub id: String,
+    pub repo_id: String,
+    pub filename: String,
+    pub quantization: String,
+    pub backend_id: String,
+    pub model_path: PathBuf,
+    pub size_bytes: u64,
+    pub mmproj_path: Option<PathBuf>,
+    pub mmproj_size_bytes: u64,
+}
+
 /// Result of resolving a model spec — may contain multiple shard files.
 #[derive(Debug, Clone)]
 pub struct ResolvedModel {
@@ -116,7 +133,6 @@ pub enum ResolvedLocalModel {
         resolved: ResolvedModel,
         local_paths: Vec<std::path::PathBuf>,
         mmproj_path: Option<std::path::PathBuf>,
-        storage: LocalModelStorage,
     },
     Mlx {
         repo_id: String,
@@ -127,26 +143,6 @@ pub enum ResolvedLocalModel {
 }
 
 impl ResolvedLocalModel {
-    pub fn repo_id(&self) -> &str {
-        match self {
-            Self::Gguf { repo_id, .. } | Self::Mlx { repo_id, .. } => repo_id,
-        }
-    }
-
-    pub fn variant_id(&self) -> &str {
-        match self {
-            Self::Gguf { quantization, .. } => quantization,
-            Self::Mlx { variant_id, .. } => variant_id,
-        }
-    }
-
-    pub fn backend_id(&self) -> &'static str {
-        match self {
-            Self::Gguf { .. } => "llamacpp",
-            Self::Mlx { .. } => "mlx",
-        }
-    }
-
     pub fn model_id(&self) -> String {
         match self {
             Self::Gguf {
@@ -164,24 +160,9 @@ impl ResolvedLocalModel {
             Self::Mlx { total_size, .. } => *total_size,
         }
     }
-
-    pub fn storage(&self) -> LocalModelStorage {
-        match self {
-            Self::Gguf { storage, .. } => *storage,
-            Self::Mlx { .. } => LocalModelStorage::HuggingFaceCache,
-        }
-    }
 }
 
-#[derive(Debug, Deserialize)]
-struct HfApiModel {
-    id: Option<String>,
-    author: Option<String>,
-    downloads: Option<u64>,
-    siblings: Option<Vec<HfApiSibling>>,
-}
-
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct HfApiSibling {
     rfilename: String,
     #[serde(default)]
@@ -292,24 +273,47 @@ fn parse_quantization(filename: &str) -> String {
         stem
     };
 
-    // The quantization tag is typically the last hyphen-separated component
-    // that looks like a quant identifier (starts with Q, IQ, F, BF, TQ, MXFP, etc.)
-    // e.g. "Qwen3-Coder-Next-Q4_K_M" -> "Q4_K_M"
-    //      "Model-UD-IQ1_M" -> "IQ1_M"
-    if let Some((_, candidate)) = stem.rsplit_once('-') {
-        if looks_like_quant(candidate) {
-            return candidate.to_string();
+    // Publishers do not agree on where the quantization tag goes. Most append it
+    // ("Model-Q4_K_M"), but some bury it mid-name ("gemma-4-26B_q4_0-it"). Scan
+    // name components right-to-left and, within each, peel `_`-separated prefixes
+    // so a tag fused to a neighbouring token still resolves. Whole components are
+    // tested before their suffixes so tags absent from QUANT_TABLE survive intact
+    // ("Q6_K_L" must not degrade to the "Q6_K" inside it).
+    for component in stem.rsplit(['-', '.']) {
+        let mut candidate = component;
+        loop {
+            if let Some(canonical) = canonical_quant(candidate) {
+                return canonical.to_string();
+            }
+            if looks_like_quant(candidate) {
+                return candidate.to_ascii_uppercase();
+            }
+            match candidate.split_once('_') {
+                Some((_, rest)) => candidate = rest,
+                None => break,
+            }
         }
     }
 
-    // Fallback: try dot separator (e.g. "model.Q4_K_M")
-    if let Some((_, candidate)) = stem.rsplit_once('.') {
-        if looks_like_quant(candidate) {
-            return candidate.to_string();
+    // Some publishers put a named preset rather than a quantization in the tag
+    // position ("...-APEX-I-Quality"). Keep accepting a trailing Q-word so those
+    // repos still expose the single variant they ship.
+    if let Some((_, tail)) = stem.rsplit_once(['-', '.']) {
+        if tail.starts_with(['Q', 'q']) {
+            return tail.to_string();
         }
     }
 
     "unknown".to_string()
+}
+
+/// Resolve a tag to its QUANT_TABLE spelling, so casing differences between
+/// publishers still hit the description and quality-rank lookup.
+fn canonical_quant(candidate: &str) -> Option<&'static str> {
+    QUANT_TABLE
+        .iter()
+        .map(|(name, _, _)| *name)
+        .find(|name| name.eq_ignore_ascii_case(candidate))
 }
 
 fn quant_bits(quantization: &str) -> u8 {
@@ -330,20 +334,96 @@ fn mmproj_precision_preference(quantization: &str) -> u8 {
     }
 }
 
+/// Shape check for quantization tags missing from QUANT_TABLE (e.g. "Q6_K_L",
+/// "Q4_0_4_4"). The family prefix must be followed by a digit, so model names
+/// like "Qwen3" are not mistaken for quantizations.
 fn looks_like_quant(s: &str) -> bool {
     let upper = s.to_uppercase();
-    upper.starts_with("Q")
-        || upper.starts_with("IQ")
-        || upper.starts_with("TQ")
-        || upper.starts_with("MXFP")
+    let digit_follows = |prefix: &str| {
+        upper
+            .strip_prefix(prefix)
+            .and_then(|rest| rest.chars().next())
+            .is_some_and(|c| c.is_ascii_digit())
+    };
+
+    digit_follows("Q")
+        || digit_follows("IQ")
+        || digit_follows("TQ")
+        || digit_follows("MXFP")
         || upper == "F16"
         || upper == "F32"
         || upper == "BF16"
 }
 
+pub(crate) fn canonicalize_quantization(quantization: &str) -> String {
+    canonical_quant(quantization)
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            if looks_like_quant(quantization) {
+                quantization.to_ascii_uppercase()
+            } else {
+                quantization.to_string()
+            }
+        })
+}
+
 fn is_shard_file(filename: &str) -> bool {
     // Matches patterns like "-00001-of-00003.gguf"
     parse_shard_index(filename).is_some()
+}
+
+fn shard_set_key(filename: &str) -> Option<(&str, &str)> {
+    let stem = filename.trim_end_matches(".gguf");
+    let pos = stem.rfind("-of-")?;
+    let before = stem.get(..pos)?;
+    let total = stem.get(pos + 4..)?;
+    let (prefix, index) = before.rsplit_once('-')?;
+    if !index.is_empty() && index.chars().all(|c| c.is_ascii_digit()) {
+        Some((prefix, total))
+    } else {
+        None
+    }
+}
+
+fn is_complete_shard_set(files: &[&HfApiSibling]) -> bool {
+    let Some(expected_total) = files
+        .first()
+        .and_then(|file| parse_shard_total(&file.rfilename))
+    else {
+        return false;
+    };
+    if files.len() != expected_total as usize {
+        return false;
+    }
+
+    let mut indices = std::collections::HashSet::with_capacity(files.len());
+    files.iter().all(|file| {
+        parse_shard_total(&file.rfilename) == Some(expected_total)
+            && parse_shard_index(&file.rfilename)
+                .is_some_and(|index| index > 0 && index <= expected_total && indices.insert(index))
+    })
+}
+
+fn select_preferred_shard_set(files: Vec<&HfApiSibling>) -> Vec<&HfApiSibling> {
+    let mut shard_sets: std::collections::HashMap<(&str, &str), Vec<&HfApiSibling>> =
+        std::collections::HashMap::new();
+
+    for file in files {
+        let key = shard_set_key(&file.rfilename)
+            .expect("files passed to select_preferred_shard_set must be shards");
+        shard_sets.entry(key).or_default().push(file);
+    }
+
+    shard_sets
+        .into_iter()
+        .min_by(|(key_a, files_a), (key_b, files_b)| {
+            is_complete_shard_set(files_b)
+                .cmp(&is_complete_shard_set(files_a))
+                .then_with(|| (key_a.0.len() + key_a.1.len()).cmp(&(key_b.0.len() + key_b.1.len())))
+                .then_with(|| key_a.cmp(key_b))
+        })
+        .map(|(_, files)| files)
+        .unwrap_or_default()
 }
 
 /// Parse the shard index (1-based) from a filename like "model-BF16-00001-of-00002.gguf".
@@ -373,20 +453,6 @@ fn build_download_url(repo_id: &str, filename: &str) -> String {
     format!("{}/{}/resolve/main/{}", HF_DOWNLOAD_BASE, repo_id, filename)
 }
 
-pub fn hf_authorization_header(token: Option<&str>) -> Option<String> {
-    token
-        .filter(|token| !token.is_empty())
-        .map(|token| format!("Bearer {}", token))
-}
-
-fn apply_hf_auth(request: reqwest::RequestBuilder, token: Option<&str>) -> reqwest::RequestBuilder {
-    if let Some(header) = hf_authorization_header(token) {
-        request.header("Authorization", header)
-    } else {
-        request
-    }
-}
-
 async fn optional_hf_token(
     token: impl std::future::Future<Output = Result<Option<String>>>,
 ) -> Option<String> {
@@ -401,6 +467,94 @@ fn parent_components(filename: &str) -> Vec<&str> {
 
 fn is_prefix(prefix: &[&str], parts: &[&str]) -> bool {
     prefix.len() <= parts.len() && prefix.iter().zip(parts).all(|(a, b)| a == b)
+}
+
+fn normalize_family_fragment(value: &str, quantization: &str, projector: bool) -> String {
+    let mut family = value.to_ascii_lowercase();
+    if quantization != "unknown" {
+        if let Some(position) = family.rfind(quantization) {
+            family.replace_range(position..position + quantization.len(), "");
+        }
+    }
+    if projector {
+        if let Some(position) = family.rfind("mmproj") {
+            family.replace_range(position..position + "mmproj".len(), "");
+        }
+    }
+
+    family.retain(|character| character.is_ascii_alphanumeric());
+    family
+}
+
+fn gguf_family_key(filename: &str, projector: bool) -> String {
+    let basename = filename.rsplit('/').next().unwrap_or(filename);
+    let mut stem = basename.trim_end_matches(".gguf");
+    if let Some(pos) = stem.rfind("-of-") {
+        stem = stem
+            .get(..pos)
+            .and_then(|prefix| prefix.rsplit_once('-').map(|(prefix, _)| prefix))
+            .unwrap_or(stem);
+    }
+
+    let quantization = parse_quantization(filename).to_ascii_lowercase();
+    normalize_family_fragment(stem, &quantization, projector)
+}
+
+fn gguf_family_identity(filename: &str) -> String {
+    let quantization = parse_quantization(filename).to_ascii_lowercase();
+    parent_components(filename)
+        .into_iter()
+        .map(|component| normalize_family_fragment(component, &quantization, false))
+        .chain(std::iter::once(gguf_family_key(filename, false)))
+        .filter(|component| !component.is_empty())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+fn ensure_unambiguous_model_family(
+    repo_id: &str,
+    quantization: &str,
+    files: &[&HfApiSibling],
+) -> Result<()> {
+    let families: std::collections::HashSet<String> = files
+        .iter()
+        .map(|file| gguf_family_identity(&file.rfilename))
+        .collect();
+    if families.len() > 1 {
+        let mut filenames: Vec<&str> = files.iter().map(|file| file.rfilename.as_str()).collect();
+        filenames.sort_unstable();
+        bail!(
+            "Quantization '{}' is ambiguous in {} because it belongs to multiple GGUF model families: {}",
+            quantization,
+            repo_id,
+            filenames.join(", ")
+        );
+    }
+    Ok(())
+}
+
+fn mmproj_matches_model_family(
+    siblings: &[HfApiSibling],
+    mmproj_filename: &str,
+    model_filename: &str,
+) -> bool {
+    let mmproj_dir = parent_components(mmproj_filename);
+    let model_families: std::collections::HashSet<String> = siblings
+        .iter()
+        .filter(|sibling| {
+            sibling.rfilename.ends_with(".gguf")
+                && !is_auxiliary_gguf_file(&sibling.rfilename)
+                && is_prefix(&mmproj_dir, &parent_components(&sibling.rfilename))
+        })
+        .map(|sibling| gguf_family_identity(&sibling.rfilename))
+        .collect();
+
+    if model_families.len() <= 1 {
+        return true;
+    }
+
+    let projector_family = gguf_family_key(mmproj_filename, true);
+    !projector_family.is_empty() && projector_family == gguf_family_key(model_filename, false)
 }
 
 fn select_best_mmproj(
@@ -420,7 +574,9 @@ fn select_best_mmproj(
         })
         .filter_map(|s| {
             let mmproj_dir = parent_components(&s.rfilename);
-            if !is_prefix(&mmproj_dir, &model_dir) {
+            if !is_prefix(&mmproj_dir, &model_dir)
+                || !mmproj_matches_model_family(siblings, &s.rfilename, model_filename)
+            {
                 return None;
             }
 
@@ -451,41 +607,70 @@ fn select_best_mmproj(
         })
 }
 
-/// Derive the expected model filename stem from a repo_id.
-/// e.g. "unsloth/gemma-4-26B-A4B-it-GGUF" → "gemma-4-26b-a4b-it" (lowercased)
-fn model_stem_from_repo(repo_id: &str) -> String {
-    let repo_name = repo_id.rsplit('/').next().unwrap_or(repo_id);
-    let stem = repo_name
-        .strip_suffix("-GGUF")
-        .or_else(|| repo_name.strip_suffix("-gguf"))
-        .unwrap_or(repo_name);
-    stem.to_lowercase()
+const AUXILIARY_TOKENS: &[&str] = &["encoder", "draft", "drafter", "adapter", "lora"];
+
+fn contains_auxiliary_token(value: &str) -> bool {
+    value
+        .split(['-', '_', '.'])
+        .any(|token| AUXILIARY_TOKENS.contains(&token))
 }
 
-/// Check whether a GGUF file belongs to the main model (vs auxiliary files like mmproj).
-/// Matches files whose basename starts with the model stem derived from the repo name.
-fn is_model_file(filename: &str, model_stem_lower: &str) -> bool {
-    let basename = filename.rsplit('/').next().unwrap_or(filename);
-    basename.to_lowercase().starts_with(model_stem_lower)
+/// Check whether a GGUF file ships alongside the weights rather than being a
+/// downloadable variant itself (projectors, vision encoders, speculative drafters).
+///
+/// Filenames are matched by exclusion rather than by a repo-name prefix, because
+/// publishers routinely rename files relative to the repo — Google drops the `qat`
+/// segment, unsloth drops `MTP`, Qwen writes `Qwen3VL` for `Qwen3-VL`.
+///
+/// MTP drafters are published either under an `MTP/` directory or with a leading
+/// `mtp-` on the basename; models whose *name* contains MTP carry it mid-name and
+/// are real weights, so only the leading/directory forms count as auxiliary.
+pub fn is_auxiliary_gguf_file(filename: &str) -> bool {
+    let lowercase = filename.to_lowercase();
+
+    if lowercase.contains("mmproj") {
+        return true;
+    }
+
+    if parent_components(&lowercase)
+        .into_iter()
+        .any(|component| component == "mtp" || contains_auxiliary_token(component))
+    {
+        return true;
+    }
+
+    let basename = lowercase.rsplit('/').next().unwrap_or(&lowercase);
+    let stem = basename.trim_end_matches(".gguf");
+
+    stem.split(['-', '_', '.']).next() == Some("mtp") || contains_auxiliary_token(stem)
 }
 
 /// Collect GGUF files into quantization variants.
 /// Single-file quants use the file directly.
 /// Sharded quants (multiple files for one quantization) aggregate sizes and use the
 /// first shard filename as the representative — the download path must handle all shards.
-fn group_into_variants(repo_id: &str, files: Vec<HfApiSibling>) -> Vec<HfQuantVariant> {
+fn group_into_variants(repo_id: &str, files: Vec<HfApiSibling>) -> Result<Vec<HfQuantVariant>> {
     use std::collections::HashMap;
-
-    let stem = model_stem_from_repo(repo_id);
 
     let gguf_files: Vec<_> = files
         .into_iter()
         .filter(|s| {
             s.rfilename.ends_with(".gguf")
-                && is_model_file(&s.rfilename, &stem)
+                && !is_auxiliary_gguf_file(&s.rfilename)
                 && parse_quantization(&s.rfilename) != "unknown"
         })
         .collect();
+
+    let mut files_by_quant: HashMap<String, Vec<&HfApiSibling>> = HashMap::new();
+    for file in &gguf_files {
+        files_by_quant
+            .entry(parse_quantization(&file.rfilename))
+            .or_default()
+            .push(file);
+    }
+    for (quantization, files) in files_by_quant {
+        ensure_unambiguous_model_family(repo_id, &quantization, &files)?;
+    }
 
     // Separate single files from shards
     let mut single_files: Vec<&HfApiSibling> = Vec::new();
@@ -499,6 +684,17 @@ fn group_into_variants(repo_id: &str, files: Vec<HfApiSibling>) -> Vec<HfQuantVa
             single_files.push(file);
         }
     }
+
+    // A repo can expose the same family and quantization through multiple paths;
+    // keep the plainest path so each quantization appears once.
+    single_files.sort_by_key(|s| {
+        (
+            parse_quantization(&s.rfilename),
+            s.rfilename.len(),
+            s.rfilename.clone(),
+        )
+    });
+    single_files.dedup_by_key(|s| parse_quantization(&s.rfilename));
 
     let mut variants: Vec<HfQuantVariant> = Vec::new();
     let mut seen_quants: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -521,10 +717,11 @@ fn group_into_variants(repo_id: &str, files: Vec<HfApiSibling>) -> Vec<HfQuantVa
     }
 
     // Add shard-only variants (quants that only exist as sharded files)
-    for (quant, mut shards) in shard_groups {
+    for (quant, shards) in shard_groups {
         if seen_quants.contains(&quant) {
             continue;
         }
+        let mut shards = select_preferred_shard_set(shards);
         shards.sort_by(|a, b| a.rfilename.cmp(&b.rfilename));
         let total_size: u64 = shards.iter().map(|s| s.size.unwrap_or(0)).sum();
         let info = quant_info(&quant);
@@ -547,7 +744,7 @@ fn group_into_variants(repo_id: &str, files: Vec<HfApiSibling>) -> Vec<HfQuantVa
             .cmp(&a.quality_rank)
             .then_with(|| b.size_bytes.cmp(&a.size_bytes))
     });
-    variants
+    Ok(variants)
 }
 
 pub async fn search_local_models(query: &str, limit: usize) -> Result<Vec<HfModelInfo>> {
@@ -600,124 +797,81 @@ fn append_optional_mlx_results(
 }
 
 pub async fn search_gguf_models(query: &str, limit: usize) -> Result<Vec<HfModelInfo>> {
-    let client = reqwest::Client::new();
-    let token = optional_hf_token(huggingface_auth::resolve_token_async()).await;
-    let url = format!(
-        "{}?search={}&filter=gguf&sort=downloads&direction=-1&limit={}",
-        HF_API_BASE, query, limit
-    );
-
-    let response = apply_hf_auth(client.get(&url), token.as_deref())
-        .header("User-Agent", "goose-ai-agent")
-        .send()
-        .await?;
-
-    if !response.status().is_success() {
-        bail!("HuggingFace API returned status {}", response.status());
-    }
-
-    let models: Vec<HfApiModel> = response.json().await?;
-
-    let results = models
-        .into_iter()
-        .filter_map(|m| {
-            let repo_id = m.id?;
-            let siblings = m.siblings.unwrap_or_default();
-
-            // The search endpoint may not include `siblings`; parse whatever
-            // is available. Files are fetched on-demand via `get_repo_gguf_variants`.
-            let gguf_files: Vec<HfGgufFile> = siblings
-                .into_iter()
-                .filter(|s| s.rfilename.ends_with(".gguf"))
-                .map(|s| {
-                    let quantization = parse_quantization(&s.rfilename);
-                    let download_url = build_download_url(&repo_id, &s.rfilename);
-                    HfGgufFile {
-                        filename: s.rfilename,
-                        size_bytes: s.size.unwrap_or(0),
-                        quantization,
-                        download_url,
-                    }
-                })
-                .collect();
-
-            let author = m
-                .author
-                .unwrap_or_else(|| repo_id.split('/').next().unwrap_or_default().to_string());
-            let model_name = repo_id
-                .split('/')
-                .next_back()
-                .unwrap_or(&repo_id)
-                .to_string();
-
-            Some(HfModelInfo {
-                repo_id,
-                author,
-                model_name,
-                downloads: m.downloads.unwrap_or(0),
-                gguf_files,
-                variants: Vec::new(),
+    let client = hf_client().await?;
+    let stream = client
+        .list_models()
+        .search(query.to_string())
+        .filter("gguf".to_string())
+        .sort("downloads".to_string())
+        .limit(limit)
+        .send()?;
+    futures::pin_mut!(stream);
+    let mut results = Vec::new();
+    while let Some(model) = stream.next().await {
+        let model = model?;
+        let repo_id = model.id;
+        let gguf_files = model
+            .siblings
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|sibling| sibling.rfilename.ends_with(".gguf"))
+            .map(|sibling| HfGgufFile {
+                quantization: parse_quantization(&sibling.rfilename),
+                download_url: build_download_url(&repo_id, &sibling.rfilename),
+                filename: sibling.rfilename,
+                size_bytes: sibling.size.unwrap_or(0),
             })
-        })
-        .collect();
-
+            .collect();
+        let author = model
+            .author
+            .unwrap_or_else(|| repo_id.split('/').next().unwrap_or_default().to_string());
+        let model_name = repo_id
+            .split('/')
+            .next_back()
+            .unwrap_or(&repo_id)
+            .to_string();
+        results.push(HfModelInfo {
+            repo_id,
+            author,
+            model_name,
+            downloads: model.downloads.unwrap_or(0),
+            gguf_files,
+            variants: Vec::new(),
+        });
+    }
     Ok(results)
+}
+
+async fn get_repo_siblings(repo_id: &str) -> Result<Vec<HfApiSibling>> {
+    let client = hf_client().await?;
+    let repo = model_repo(&client, repo_id)?;
+    let stream = repo.list_tree().recursive(true).expand(true).send()?;
+    futures::pin_mut!(stream);
+    let mut siblings = Vec::new();
+    while let Some(entry) = stream.next().await {
+        if let RepoTreeEntry::File { path, size, .. } = entry? {
+            siblings.push(HfApiSibling {
+                rfilename: path,
+                size: Some(size),
+            });
+        }
+    }
+    Ok(siblings)
 }
 
 /// Fetch GGUF files for a repo and return them grouped by quantization.
 pub async fn get_repo_gguf_variants(repo_id: &str) -> Result<Vec<HfQuantVariant>> {
-    let client = reqwest::Client::new();
-    let token = optional_hf_token(huggingface_auth::resolve_token_async()).await;
-    let url = format!("{}/{}?blobs=true", HF_API_BASE, repo_id);
-
-    let response = apply_hf_auth(client.get(&url), token.as_deref())
-        .header("User-Agent", "goose-ai-agent")
-        .send()
-        .await?;
-
-    if !response.status().is_success() {
-        bail!(
-            "HuggingFace API returned status {} for repo {}",
-            response.status(),
-            repo_id
-        );
-    }
-
-    let model: HfApiModel = response.json().await?;
-    let siblings = model.siblings.unwrap_or_default();
-
-    Ok(group_into_variants(repo_id, siblings))
+    group_into_variants(repo_id, get_repo_siblings(repo_id).await?)
 }
 
 /// Fetch raw GGUF files (kept for resolve_model_spec).
 pub async fn get_repo_gguf_files(repo_id: &str) -> Result<Vec<HfGgufFile>> {
-    let client = reqwest::Client::new();
-    let token = optional_hf_token(huggingface_auth::resolve_token_async()).await;
-    let url = format!("{}/{}?blobs=true", HF_API_BASE, repo_id);
-
-    let response = apply_hf_auth(client.get(&url), token.as_deref())
-        .header("User-Agent", "goose-ai-agent")
-        .send()
-        .await?;
-
-    if !response.status().is_success() {
-        bail!(
-            "HuggingFace API returned status {} for repo {}",
-            response.status(),
-            repo_id
-        );
-    }
-
-    let model: HfApiModel = response.json().await?;
-    let siblings = model.siblings.unwrap_or_default();
-
-    let stem = model_stem_from_repo(repo_id);
-
-    let files = siblings
+    let files = get_repo_siblings(repo_id)
+        .await?
         .into_iter()
         .filter(|s| s.rfilename.ends_with(".gguf"))
         .filter(|s| !is_shard_file(&s.rfilename))
-        .filter(|s| is_model_file(&s.rfilename, &stem))
+        .filter(|s| !is_auxiliary_gguf_file(&s.rfilename))
         .map(|s| {
             let quantization = parse_quantization(&s.rfilename);
             let download_url = build_download_url(repo_id, &s.rfilename);
@@ -759,33 +913,14 @@ pub fn parse_model_spec(spec: &str) -> Result<(String, String)> {
 /// Resolve a model spec to all GGUF files for that quantization (handles shards).
 pub async fn resolve_model_spec_full(spec: &str) -> Result<(String, ResolvedModel)> {
     let (repo_id, quant) = parse_model_spec(spec)?;
-
-    let client = reqwest::Client::new();
-    let token = optional_hf_token(huggingface_auth::resolve_token_async()).await;
-    let url = format!("{}/{}?blobs=true", HF_API_BASE, repo_id);
-    let response = apply_hf_auth(client.get(&url), token.as_deref())
-        .header("User-Agent", "goose-ai-agent")
-        .send()
-        .await?;
-
-    if !response.status().is_success() {
-        bail!(
-            "HuggingFace API returned status {} for repo {}",
-            response.status(),
-            repo_id
-        );
-    }
-
-    let model: HfApiModel = response.json().await?;
-    let siblings = model.siblings.unwrap_or_default();
-    let stem = model_stem_from_repo(&repo_id);
+    let siblings = get_repo_siblings(&repo_id).await?;
 
     // Collect all GGUF files matching the quantization
     let matching: Vec<_> = siblings
         .iter()
         .filter(|s| {
             s.rfilename.ends_with(".gguf")
-                && is_model_file(&s.rfilename, &stem)
+                && !is_auxiliary_gguf_file(&s.rfilename)
                 && parse_quantization(&s.rfilename).eq_ignore_ascii_case(&quant)
         })
         .collect();
@@ -797,6 +932,7 @@ pub async fn resolve_model_spec_full(spec: &str) -> Result<(String, ResolvedMode
             repo_id
         );
     }
+    ensure_unambiguous_model_family(&repo_id, &quant, &matching)?;
 
     // Separate single files from shards
     let mut single_files: Vec<&HfApiSibling> = Vec::new();
@@ -809,7 +945,9 @@ pub async fn resolve_model_spec_full(spec: &str) -> Result<(String, ResolvedMode
         }
     }
 
-    // Prefer single file if available
+    // Prefer single file if available, picking the same plainest-name candidate
+    // that `group_into_variants` advertised for this quantization.
+    single_files.sort_by_key(|s| (s.rfilename.len(), s.rfilename.clone()));
     if let Some(single) = single_files.first() {
         let mmproj = select_best_mmproj(&repo_id, &siblings, &single.rfilename, &quant);
         let file = HfGgufFile {
@@ -828,6 +966,8 @@ pub async fn resolve_model_spec_full(spec: &str) -> Result<(String, ResolvedMode
             },
         ));
     }
+
+    let mut shard_files = select_preferred_shard_set(shard_files);
 
     // Use shards, sorted by filename so shard 1 is first
     shard_files.sort_by(|a, b| a.rfilename.cmp(&b.rfilename));
@@ -942,16 +1082,6 @@ mod tests {
         assert_eq!(parse_quantization("Model-IQ4_NL.gguf"), "IQ4_NL");
         assert_eq!(parse_quantization("Model-F16.gguf"), "F16");
         assert_eq!(parse_quantization("random-name.gguf"), "unknown");
-    }
-
-    #[test]
-    fn test_hf_authorization_header() {
-        assert_eq!(
-            hf_authorization_header(Some("hf_test")).as_deref(),
-            Some("Bearer hf_test")
-        );
-        assert_eq!(hf_authorization_header(Some("")), None);
-        assert_eq!(hf_authorization_header(None), None);
     }
 
     #[test]
@@ -1112,6 +1242,38 @@ mod tests {
     }
 
     #[test]
+    fn mlx_snapshot_requires_every_indexed_safetensors_shard() {
+        let mut cached = std::collections::HashSet::from(["model-00001-of-00002.safetensors"]);
+        let index = serde_json::json!({
+            "weight_map": {
+                "first": "model-00001-of-00002.safetensors",
+                "second": "model-00002-of-00002.safetensors"
+            }
+        });
+
+        assert!(!mlx_snapshot_files_are_complete(&cached, Some(&index)));
+        cached.insert("model-00002-of-00002.safetensors");
+        assert!(mlx_snapshot_files_are_complete(&cached, Some(&index)));
+    }
+
+    #[test]
+    fn mlx_snapshot_requires_every_numbered_safetensors_shard_without_an_index() {
+        let mut cached = std::collections::HashSet::from(["model-00001-of-00002.safetensors"]);
+
+        assert!(!mlx_snapshot_files_are_complete(&cached, None));
+        cached.insert("model-00002-of-00002.safetensors");
+        assert!(mlx_snapshot_files_are_complete(&cached, None));
+    }
+
+    #[test]
+    fn mlx_snapshot_accepts_multiple_unnumbered_safetensors_files() {
+        let cached =
+            std::collections::HashSet::from(["model.safetensors", "vision_model.safetensors"]);
+
+        assert!(mlx_snapshot_files_are_complete(&cached, None));
+    }
+
+    #[test]
     fn mlx_download_filenames_include_fp8_snapshot_metadata() {
         let siblings = [
             "config.json",
@@ -1265,19 +1427,6 @@ mod tests {
     }
 
     #[test]
-    fn test_model_stem_from_repo() {
-        assert_eq!(
-            model_stem_from_repo("unsloth/gemma-4-26B-A4B-it-GGUF"),
-            "gemma-4-26b-a4b-it"
-        );
-        assert_eq!(
-            model_stem_from_repo("bartowski/Llama-3.2-3B-Instruct-GGUF"),
-            "llama-3.2-3b-instruct"
-        );
-        assert_eq!(model_stem_from_repo("someone/SomeModel"), "somemodel");
-    }
-
-    #[test]
     fn hf_download_progress_init_preserves_cancelled_reservation() {
         let model_id = "test-cancelled-hf-progress-init";
         let download_id = format!("{}-model", model_id);
@@ -1310,15 +1459,102 @@ mod tests {
     }
 
     #[test]
-    fn test_is_model_file() {
-        let stem = "gemma-3-27b-it";
-        assert!(is_model_file("gemma-3-27b-it-Q4_K_M.gguf", stem));
-        assert!(is_model_file(
-            "BF16/gemma-3-27b-it-BF16-00001-of-00002.gguf",
-            stem
+    fn active_download_repo_id_handles_gguf_and_mlx_downloads() {
+        let progress =
+            |model_id: &str, status: crate::download_manager::DownloadStatus, task_exited: bool| {
+                crate::download_manager::DownloadProgress {
+                    model_id: model_id.to_string(),
+                    status,
+                    bytes_downloaded: 0,
+                    total_bytes: 0,
+                    progress_percent: 0.0,
+                    speed_bps: None,
+                    eta_seconds: None,
+                    error: None,
+                    task_exited,
+                }
+            };
+
+        let gguf = progress(
+            "owner/repo:Q4_K_M-model",
+            crate::download_manager::DownloadStatus::Downloading,
+            false,
+        );
+        assert_eq!(active_download_repo_id(&gguf), Some("owner/repo"));
+
+        let mlx = progress(
+            "owner/repo-model",
+            crate::download_manager::DownloadStatus::Cancelled,
+            false,
+        );
+        assert_eq!(active_download_repo_id(&mlx), Some("owner/repo"));
+
+        let exited = progress(
+            "owner/repo-model",
+            crate::download_manager::DownloadStatus::Cancelled,
+            true,
+        );
+        assert_eq!(active_download_repo_id(&exited), None);
+    }
+
+    #[test]
+    fn test_is_auxiliary_gguf_file() {
+        assert!(!is_auxiliary_gguf_file("gemma-3-27b-it-Q4_K_M.gguf"));
+        assert!(!is_auxiliary_gguf_file(
+            "BF16/gemma-3-27b-it-BF16-00001-of-00002.gguf"
         ));
-        assert!(!is_model_file("mmproj-BF16.gguf", stem));
-        assert!(!is_model_file("vision-encoder-Q4_K_M.gguf", stem));
+        assert!(is_auxiliary_gguf_file("mmproj-BF16.gguf"));
+        assert!(is_auxiliary_gguf_file("gemma-4-26B-it-mmproj.gguf"));
+        assert!(is_auxiliary_gguf_file("vision-encoder-Q4_K_M.gguf"));
+    }
+
+    #[test]
+    fn test_is_auxiliary_gguf_file_distinguishes_mtp_drafters_from_mtp_models() {
+        assert!(is_auxiliary_gguf_file(
+            "MTP/mtp-gemma-4-26B-A4B-it-BF16.gguf"
+        ));
+        assert!(is_auxiliary_gguf_file("mtp-Qwen3.6-35B-A3B-BF16.gguf"));
+        // "MTP" mid-name is part of the model name, not a drafter marker.
+        assert!(!is_auxiliary_gguf_file(
+            "Qwopus3.6-27B-Coder-MTP-Q3_K_M.gguf"
+        ));
+        assert!(!is_auxiliary_gguf_file("Ornith-1.0-9B-MTP-BF16.gguf"));
+    }
+
+    #[test]
+    fn test_parse_quantization_tag_not_in_final_position() {
+        // google/gemma-4-26B-A4B-it-qat-q4_0-gguf
+        assert_eq!(parse_quantization("gemma-4-26B_q4_0-it.gguf"), "Q4_0");
+        // google/gemma-3-27b-it-qat-q4_0-gguf
+        assert_eq!(parse_quantization("gemma-3-27b-it-q4_0.gguf"), "Q4_0");
+        // Qwen/Qwen3-VL-30B-A3B-Instruct-GGUF
+        assert_eq!(
+            parse_quantization("Qwen3VL-30B-A3B-Instruct-F16-split-00001-of-00002.gguf"),
+            "F16"
+        );
+        assert_eq!(
+            parse_quantization("Wan2_1-InfiniteTalk_Multi_Q4_K_M.gguf"),
+            "Q4_K_M"
+        );
+    }
+
+    #[test]
+    fn test_parse_quantization_prefers_longest_match() {
+        // "Q2_K" is a delimiter-bounded substring of "Q2_K_L"; the longer tag wins.
+        assert_eq!(parse_quantization("Model-Q2_K_L.gguf"), "Q2_K_L");
+        assert_eq!(parse_quantization("Model-Q4_K_M.gguf"), "Q4_K_M");
+        // "F16" must not match inside "BF16".
+        assert_eq!(parse_quantization("mmproj-BF16.gguf"), "BF16");
+    }
+
+    #[test]
+    fn test_parse_quantization_canonicalizes_case() {
+        assert_eq!(parse_quantization("Model-q4_k_m.gguf"), "Q4_K_M");
+        assert_eq!(parse_quantization("Model-q6_k_l.gguf"), "Q6_K_L");
+        assert_eq!(
+            quant_info(&parse_quantization("gemma-4-26B_q4_0-it.gguf")).quality_rank,
+            42
+        );
     }
 
     #[test]
@@ -1333,7 +1569,7 @@ mod tests {
                 size: Some(800_000_000),
             },
         ];
-        let variants = group_into_variants("unsloth/gemma-3-27b-it-GGUF", files);
+        let variants = group_into_variants("unsloth/gemma-3-27b-it-GGUF", files).unwrap();
         assert_eq!(variants.len(), 1);
         assert_eq!(variants[0].quantization, "Q4_K_M");
     }
@@ -1354,7 +1590,7 @@ mod tests {
                 size: Some(4_000_000_000),
             },
         ];
-        let variants = group_into_variants("unsloth/gemma-3-27b-it-GGUF", files);
+        let variants = group_into_variants("unsloth/gemma-3-27b-it-GGUF", files).unwrap();
         assert_eq!(variants.len(), 2);
         // Sorted descending by quality_rank: BF16 (91) > Q4_K_M (45)
         assert_eq!(variants[0].quantization, "BF16");
@@ -1362,6 +1598,111 @@ mod tests {
         assert_eq!(variants[0].size_bytes, 50_000_000_000);
         assert_eq!(variants[1].quantization, "Q4_K_M");
         assert!(!variants[1].sharded);
+    }
+
+    #[test]
+    fn test_group_into_variants_selects_plainest_duplicate_shard_set() {
+        let files = vec![
+            HfApiSibling {
+                rfilename: "Model-Q4_K_M-00001-of-00002.gguf".into(),
+                size: Some(2_000_000_000),
+            },
+            HfApiSibling {
+                rfilename: "Model-Q4_K_M-00002-of-00002.gguf".into(),
+                size: Some(1_000_000_000),
+            },
+            HfApiSibling {
+                rfilename: "Q4_K_M/Model-Q4_K_M-00001-of-00002.gguf".into(),
+                size: Some(2_500_000_000),
+            },
+            HfApiSibling {
+                rfilename: "Q4_K_M/Model-Q4_K_M-00002-of-00002.gguf".into(),
+                size: Some(1_500_000_000),
+            },
+        ];
+
+        let variants = group_into_variants("someone/Model-GGUF", files).unwrap();
+
+        assert_eq!(variants.len(), 1);
+        assert_eq!(variants[0].quantization, "Q4_K_M");
+        assert_eq!(variants[0].size_bytes, 3_000_000_000);
+        assert_eq!(variants[0].filename, "Model-Q4_K_M-00001-of-00002.gguf");
+    }
+
+    #[test]
+    fn test_group_into_variants_prefers_complete_duplicate_shard_set() {
+        let files = vec![
+            HfApiSibling {
+                rfilename: "Q4_K_M/Model-Q4_K_M-00001-of-00002.gguf".into(),
+                size: Some(2_000_000_000),
+            },
+            HfApiSibling {
+                rfilename: "Model-Q4_K_M-00001-of-00002.gguf".into(),
+                size: Some(2_500_000_000),
+            },
+            HfApiSibling {
+                rfilename: "Model-Q4_K_M-00002-of-00002.gguf".into(),
+                size: Some(1_500_000_000),
+            },
+        ];
+
+        let variants = group_into_variants("someone/Model-GGUF", files).unwrap();
+
+        assert_eq!(variants.len(), 1);
+        assert_eq!(variants[0].size_bytes, 4_000_000_000);
+        assert_eq!(variants[0].filename, "Model-Q4_K_M-00001-of-00002.gguf");
+    }
+
+    #[test]
+    fn test_group_into_variants_rejects_same_quant_different_families() {
+        let files = vec![
+            HfApiSibling {
+                rfilename: "ModelA-Q4_K_M.gguf".into(),
+                size: Some(4_000_000_000),
+            },
+            HfApiSibling {
+                rfilename: "ModelB-Q4_K_M.gguf".into(),
+                size: Some(5_000_000_000),
+            },
+        ];
+
+        let error = group_into_variants("someone/models-GGUF", files).unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("Quantization 'Q4_K_M' is ambiguous"));
+    }
+
+    #[test]
+    fn test_group_into_variants_keeps_different_shard_totals_separate() {
+        let files = vec![
+            HfApiSibling {
+                rfilename: "Model-Q4_K_M-00001-of-00002.gguf".into(),
+                size: Some(2_000_000_000),
+            },
+            HfApiSibling {
+                rfilename: "Model-Q4_K_M-00002-of-00002.gguf".into(),
+                size: Some(1_000_000_000),
+            },
+            HfApiSibling {
+                rfilename: "Model-Q4_K_M-00001-of-00003.gguf".into(),
+                size: Some(2_500_000_000),
+            },
+            HfApiSibling {
+                rfilename: "Model-Q4_K_M-00002-of-00003.gguf".into(),
+                size: Some(1_500_000_000),
+            },
+            HfApiSibling {
+                rfilename: "Model-Q4_K_M-00003-of-00003.gguf".into(),
+                size: Some(500_000_000),
+            },
+        ];
+
+        let variants = group_into_variants("someone/Model-GGUF", files).unwrap();
+
+        assert_eq!(variants.len(), 1);
+        assert_eq!(variants[0].size_bytes, 3_000_000_000);
+        assert_eq!(variants[0].filename, "Model-Q4_K_M-00001-of-00002.gguf");
     }
 
     #[test]
@@ -1380,7 +1721,7 @@ mod tests {
                 size: Some(8_000_000_000),
             },
         ];
-        let variants = group_into_variants("someone/Model-GGUF", files);
+        let variants = group_into_variants("someone/Model-GGUF", files).unwrap();
         assert_eq!(variants.len(), 3);
         assert_eq!(variants[0].quantization, "Q8_0");
         assert_eq!(variants[1].quantization, "Q4_K_M");
@@ -1488,6 +1829,59 @@ mod tests {
         .unwrap();
 
         assert_eq!(mmproj.filename, "mmproj-F32.gguf");
+    }
+
+    #[test]
+    fn test_select_best_mmproj_ignores_ambiguous_projector() {
+        let files = vec![
+            HfApiSibling {
+                rfilename: "ModelA-Q4_K_M.gguf".into(),
+                size: Some(4_000),
+            },
+            HfApiSibling {
+                rfilename: "ModelB-Q8_0.gguf".into(),
+                size: Some(8_000),
+            },
+            HfApiSibling {
+                rfilename: "mmproj-BF16.gguf".into(),
+                size: Some(2_000),
+            },
+        ];
+
+        assert!(
+            select_best_mmproj("someone/models-GGUF", &files, "ModelB-Q8_0.gguf", "Q8_0").is_none()
+        );
+    }
+
+    #[test]
+    fn test_select_best_mmproj_matches_named_model_family() {
+        let files = vec![
+            HfApiSibling {
+                rfilename: "ModelA-Q4_K_M.gguf".into(),
+                size: Some(4_000),
+            },
+            HfApiSibling {
+                rfilename: "ModelB-Q8_0.gguf".into(),
+                size: Some(8_000),
+            },
+            HfApiSibling {
+                rfilename: "ModelA-mmproj-BF16.gguf".into(),
+                size: Some(2_000),
+            },
+        ];
+
+        let mmproj = select_best_mmproj(
+            "someone/models-GGUF",
+            &files,
+            "ModelA-Q4_K_M.gguf",
+            "Q4_K_M",
+        )
+        .unwrap();
+
+        assert_eq!(mmproj.filename, "ModelA-mmproj-BF16.gguf");
+        assert!(
+            select_best_mmproj("someone/models-GGUF", &files, "ModelB-Q8_0.gguf", "Q8_0").is_none()
+        );
     }
 }
 
@@ -1598,8 +1992,9 @@ async fn model_info_to_local_model_info(
     downloads_hint: Option<u64>,
 ) -> Result<Option<HfModelInfo>> {
     let repo_id = info.id.clone();
-    let mut variants: Vec<HfModelVariant> = get_repo_gguf_variants(&repo_id)
-        .await
+    let gguf_variants = get_repo_gguf_variants(&repo_id).await;
+    let mut variants: Vec<HfModelVariant> = gguf_variants
+        .as_deref()
         .unwrap_or_default()
         .iter()
         .map(|variant| variant.to_model_variant(&repo_id))
@@ -1613,6 +2008,23 @@ async fn model_info_to_local_model_info(
     }
 
     if variants.is_empty() {
+        drop(gguf_variants?);
+
+        let unusable: Vec<&str> = info
+            .siblings
+            .as_deref()
+            .unwrap_or(&[])
+            .iter()
+            .map(|s| s.rfilename.as_str())
+            .filter(|name| name.ends_with(".gguf"))
+            .collect();
+        if !unusable.is_empty() {
+            tracing::warn!(
+                repo_id,
+                files = ?unusable,
+                "Dropping repo from results: no GGUF file yielded a recognizable quantization"
+            );
+        }
         return Ok(None);
     }
 
@@ -1646,25 +2058,9 @@ fn best_download_count(primary: Option<u64>, hint: Option<u64>) -> Option<u64> {
 }
 
 async fn get_repo_downloads(repo_id: &str) -> Result<Option<u64>> {
-    let client = reqwest::Client::new();
-    let token = optional_hf_token(huggingface_auth::resolve_token_async()).await;
-    let url = format!("{}/{}", HF_API_BASE, repo_id);
-
-    let response = apply_hf_auth(client.get(&url), token.as_deref())
-        .header("User-Agent", "goose-ai-agent")
-        .send()
-        .await?;
-
-    if !response.status().is_success() {
-        bail!(
-            "HuggingFace API returned status {} for repo {}",
-            response.status(),
-            repo_id
-        );
-    }
-
-    let model: HfApiModel = response.json().await?;
-    Ok(model.downloads)
+    let client = hf_client().await?;
+    let repo = model_repo(&client, repo_id)?;
+    Ok(repo.info().send().await?.downloads)
 }
 
 pub async fn get_repo_local_variants(repo_id: &str) -> Result<Vec<HfModelVariant>> {
@@ -1748,9 +2144,7 @@ fn mlx_variants_from_model_info(
             .filter(|s| s.rfilename.ends_with(".safetensors"))
             .count()
             > 1,
-        supported: is_mlx_runtime_supported(mlx_config)
-            && cfg!(target_os = "macos")
-            && cfg!(feature = "mlx"),
+        supported: is_mlx_runtime_supported(mlx_config),
         unsupported_reason: mlx_unsupported_reason(mlx_config),
     }]
 }
@@ -1823,7 +2217,7 @@ fn mlx_model_type(config: &Option<serde_json::Value>) -> Option<&str> {
 }
 
 fn is_mlx_runtime_supported(config: &Option<serde_json::Value>) -> bool {
-    mlx_config_support(config).is_none()
+    mlx_unsupported_reason(config).is_none()
 }
 
 fn mlx_unsupported_reason(config: &Option<serde_json::Value>) -> Option<String> {
@@ -2005,17 +2399,17 @@ fn snapshot_root_for_file(
 }
 
 async fn resolve_gguf_model(repo_id: &str, quantization: &str) -> Result<ResolvedLocalModel> {
+    let quantization = canonicalize_quantization(quantization);
     let spec = format!("{}:{}", repo_id, quantization);
     let (_repo, resolved) = resolve_model_spec_full(&spec).await?;
     let (local_paths, mmproj_path) =
-        download_gguf_to_hf_cache(repo_id, quantization, &resolved).await?;
+        download_gguf_to_hf_cache(repo_id, &quantization, &resolved).await?;
     Ok(ResolvedLocalModel::Gguf {
         repo_id: repo_id.to_string(),
-        quantization: quantization.to_string(),
+        quantization,
         resolved,
         local_paths,
         mmproj_path,
-        storage: LocalModelStorage::HuggingFaceCache,
     })
 }
 
@@ -2118,11 +2512,22 @@ pub async fn resolve_local_model_spec(spec: &str) -> Result<ResolvedLocalModel> 
 
 async fn resolve_mlx_model(repo_id: &str, variant_id: &str) -> Result<ResolvedLocalModel> {
     let variants = get_repo_mlx_variants(repo_id).await?;
-    if !variants
+    let Some(variant) = variants
         .iter()
-        .any(|variant| variant.variant_id == variant_id)
-    {
+        .find(|variant| variant.variant_id == variant_id)
+    else {
         bail!("No MLX variant '{}' found in {}", variant_id, repo_id);
+    };
+    if !variant.supported {
+        bail!(
+            "MLX variant '{}' in {} is not supported: {}",
+            variant_id,
+            repo_id,
+            variant
+                .unsupported_reason
+                .as_deref()
+                .unwrap_or("unsupported by this build")
+        );
     }
     let (owner, name) = split_repo_id(repo_id)?;
     let client = hf_client().await?;
@@ -2359,95 +2764,284 @@ impl ProgressHandler for HfDownloadProgress {
     }
 }
 
-pub fn register_resolved_model(resolved: ResolvedLocalModel, source: &str) -> Result<String> {
-    let model_id = resolved.model_id();
-    let repo_id = resolved.repo_id().to_string();
-    let variant_id = resolved.variant_id().to_string();
-    let backend_id = resolved.backend_id().to_string();
-    let storage = resolved.storage();
+pub async fn cached_local_models() -> Result<Vec<CachedLocalModel>> {
+    let client = hf_client().await?;
+    let cache = client.scan_cache().send().await?;
+    let mut models = std::collections::HashMap::new();
 
-    let entry = match resolved {
-        ResolvedLocalModel::Gguf {
-            resolved,
-            local_paths,
-            mmproj_path,
-            ..
-        } => {
-            let first_file = &resolved.files[0];
-            let first_local_path = local_paths
-                .first()
-                .cloned()
-                .ok_or_else(|| anyhow::anyhow!("Resolved GGUF model has no local files"))?;
-            let shard_files: Vec<ShardFile> = resolved
+    for repo in cache
+        .repos
+        .into_iter()
+        .filter(|repo| repo.repo_type == "model")
+    {
+        let mut revisions: Vec<_> = repo.revisions.iter().collect();
+        revisions.sort_by_key(|revision| {
+            (
+                revision.refs.iter().any(|reference| reference == "main"),
+                revision.last_modified,
+            )
+        });
+        revisions.reverse();
+
+        for revision in revisions {
+            let siblings: Vec<HfApiSibling> = revision
                 .files
                 .iter()
-                .skip(1)
-                .zip(local_paths.iter().skip(1))
-                .map(|(file, local_path)| ShardFile {
-                    filename: file.filename.clone(),
-                    local_path: local_path.clone(),
-                    source_url: file.download_url.clone(),
-                    size_bytes: file.size_bytes,
+                .map(|file| HfApiSibling {
+                    rfilename: file.file_name.clone(),
+                    size: Some(file.size_on_disk),
                 })
                 .collect();
-            let settings = super::local_model_registry::default_settings_for_model(&model_id);
-            super::local_model_registry::LocalModelEntry {
-                id: model_id.clone(),
-                repo_id,
-                filename: first_file.filename.clone(),
-                quantization: variant_id,
-                local_path: first_local_path,
-                source_url: first_file.download_url.clone(),
-                backend_id: settings.backend_id.clone(),
-                storage,
-                settings,
-                size_bytes: resolved.total_size,
-                mmproj_path,
-                mmproj_source_url: resolved
-                    .mmproj
-                    .as_ref()
-                    .map(|mmproj| mmproj.download_url.clone()),
-                mmproj_size_bytes: resolved
-                    .mmproj
-                    .as_ref()
-                    .map(|mmproj| mmproj.size_bytes)
-                    .unwrap_or(0),
-                mmproj_checked: true,
-                shard_files,
-            }
-        }
-        ResolvedLocalModel::Mlx {
-            snapshot_path,
-            total_size,
-            ..
-        } => {
-            let mut settings = super::local_model_registry::default_settings_for_model(&model_id);
-            settings.backend_id = Some(backend_id.clone());
-            super::local_model_registry::LocalModelEntry {
-                id: model_id.clone(),
-                repo_id,
-                filename: variant_id.clone(),
-                quantization: variant_id,
-                local_path: snapshot_path,
-                source_url: source.to_string(),
-                backend_id: Some(backend_id),
-                storage,
-                settings,
-                size_bytes: total_size,
-                mmproj_path: None,
-                mmproj_source_url: None,
-                mmproj_size_bytes: 0,
-                mmproj_checked: true,
-                shard_files: vec![],
-            }
-        }
-    };
 
-    let mut registry = get_registry()
-        .lock()
-        .map_err(|_| anyhow::anyhow!("Failed to acquire registry lock"))?;
-    registry.add_model(entry)?;
-    Ok(model_id)
+            for variant in group_into_variants(&repo.repo_id, siblings.clone()).unwrap_or_default()
+            {
+                let mut matching: Vec<_> = revision
+                    .files
+                    .iter()
+                    .filter(|file| {
+                        file.file_name.ends_with(".gguf")
+                            && !is_auxiliary_gguf_file(&file.file_name)
+                            && parse_quantization(&file.file_name)
+                                .eq_ignore_ascii_case(&variant.quantization)
+                    })
+                    .collect();
+                matching.sort_by(|a, b| a.file_name.cmp(&b.file_name));
+
+                let selected: Vec<_> = if variant.sharded {
+                    let selected_shard_set = shard_set_key(&variant.filename);
+                    matching
+                        .into_iter()
+                        .filter(|file| {
+                            is_shard_file(&file.file_name)
+                                && shard_set_key(&file.file_name) == selected_shard_set
+                        })
+                        .collect()
+                } else {
+                    matching
+                        .into_iter()
+                        .filter(|file| file.file_name == variant.filename)
+                        .take(1)
+                        .collect()
+                };
+                let Some(primary) = selected.first() else {
+                    continue;
+                };
+                if variant.sharded
+                    && parse_shard_total(&primary.file_name)
+                        .is_none_or(|total| total as usize != selected.len())
+                {
+                    continue;
+                }
+
+                let mmproj = select_best_mmproj(
+                    &repo.repo_id,
+                    &siblings,
+                    &primary.file_name,
+                    &variant.quantization,
+                )
+                .and_then(|projector| {
+                    revision
+                        .files
+                        .iter()
+                        .find(|file| file.file_name == projector.filename)
+                });
+
+                let model = CachedLocalModel {
+                    id: model_id_from_repo(&repo.repo_id, &variant.quantization),
+                    repo_id: repo.repo_id.clone(),
+                    filename: primary.file_name.clone(),
+                    quantization: variant.quantization,
+                    backend_id: LLAMACPP_BACKEND_ID.to_string(),
+                    model_path: primary.file_path.clone(),
+                    size_bytes: selected.iter().map(|file| file.size_on_disk).sum(),
+                    mmproj_path: mmproj.map(|file| file.file_path.clone()),
+                    mmproj_size_bytes: mmproj.map(|file| file.size_on_disk).unwrap_or(0),
+                };
+                models.entry(model.id.clone()).or_insert(model);
+            }
+
+            let config = revision
+                .files
+                .iter()
+                .find(|file| file.file_name == "config.json")
+                .and_then(|file| std::fs::read(&file.file_path).ok())
+                .and_then(|contents| serde_json::from_slice(&contents).ok());
+            let repo_siblings: Vec<RepoSibling> = siblings
+                .iter()
+                .map(|sibling| RepoSibling {
+                    rfilename: sibling.rfilename.clone(),
+                    size: sibling.size,
+                    lfs: None,
+                })
+                .collect();
+            let cached_filenames = revision
+                .files
+                .iter()
+                .map(|file| file.file_name.as_str())
+                .collect();
+            let index_file = revision
+                .files
+                .iter()
+                .find(|file| file.file_name == "model.safetensors.index.json");
+            let index = index_file.and_then(|file| {
+                std::fs::read(&file.file_path)
+                    .ok()
+                    .and_then(|contents| serde_json::from_slice(&contents).ok())
+            });
+            let valid_index = index_file.is_none() || index.is_some();
+            if is_mlx_compatible_repo(&config, &repo_siblings)
+                && is_mlx_runtime_supported(&config)
+                && valid_index
+                && mlx_snapshot_files_are_complete(&cached_filenames, index.as_ref())
+            {
+                let cached_files: Vec<_> = revision
+                    .files
+                    .iter()
+                    .filter(|file| should_download_for_mlx(&file.file_name))
+                    .collect();
+                if !cached_files.is_empty() {
+                    let model = CachedLocalModel {
+                        id: repo.repo_id.clone(),
+                        repo_id: repo.repo_id.clone(),
+                        filename: MLX_VARIANT_ID.to_string(),
+                        quantization: mlx_variant_id(&repo.repo_id, &config),
+                        backend_id: MLX_BACKEND_ID.to_string(),
+                        model_path: revision.snapshot_path.clone(),
+                        size_bytes: cached_files.iter().map(|file| file.size_on_disk).sum(),
+                        mmproj_path: None,
+                        mmproj_size_bytes: 0,
+                    };
+                    models.entry(model.id.clone()).or_insert(model);
+                }
+            }
+        }
+    }
+
+    let mut models: Vec<_> = models.into_values().collect();
+    models.sort_by(|a, b| a.id.cmp(&b.id));
+    Ok(models)
+}
+
+pub async fn cached_local_model(model_id: &str) -> Result<Option<CachedLocalModel>> {
+    Ok(cached_local_models()
+        .await?
+        .into_iter()
+        .find(|model| model.id == model_id))
+}
+
+fn active_download_repo_id(progress: &crate::download_manager::DownloadProgress) -> Option<&str> {
+    let task_is_active = progress.status == crate::download_manager::DownloadStatus::Downloading
+        || (progress.status == crate::download_manager::DownloadStatus::Cancelled
+            && !progress.task_exited);
+    if !task_is_active {
+        return None;
+    }
+
+    let model_id = progress.model_id.strip_suffix("-model")?;
+    Some(
+        model_id
+            .rsplit_once(':')
+            .map_or(model_id, |(repo_id, _)| repo_id),
+    )
+}
+
+pub async fn delete_cached_local_model(model_id: &str) -> Result<()> {
+    let cached_models = cached_local_models().await?;
+    let model = cached_models
+        .iter()
+        .find(|model| model.id == model_id)
+        .cloned()
+        .ok_or_else(|| anyhow::anyhow!("Model not found in the Hugging Face cache"))?;
+    if crate::download_manager::get_download_manager()
+        .list_progress()
+        .iter()
+        .filter_map(active_download_repo_id)
+        .any(|repo_id| repo_id == model.repo_id)
+    {
+        bail!(
+            "Cannot delete '{}' while a model from repository '{}' is downloading",
+            model.id,
+            model.repo_id
+        );
+    }
+    let client = hf_client().await?;
+    let cache = client.scan_cache().send().await?;
+    let other_models_in_repo = cached_models
+        .iter()
+        .any(|other| other.id != model.id && other.repo_id == model.repo_id);
+    if !other_models_in_repo {
+        let repo = cache
+            .repos
+            .iter()
+            .find(|repo| repo.repo_type == "model" && repo.repo_id == model.repo_id)
+            .ok_or_else(|| anyhow::anyhow!("Model cache repository not found"))?;
+        std::fs::remove_dir_all(&repo.repo_path)?;
+        return Ok(());
+    }
+
+    let mut blob_references = std::collections::HashMap::new();
+    for file in cache
+        .repos
+        .iter()
+        .flat_map(|repo| &repo.revisions)
+        .flat_map(|revision| &revision.files)
+    {
+        *blob_references
+            .entry(file.blob_path.clone())
+            .or_insert(0usize) += 1;
+    }
+
+    let removable_mmproj_blob = model
+        .mmproj_path
+        .as_ref()
+        .and_then(|path| std::fs::canonicalize(path).ok())
+        .filter(|model_mmproj_blob| {
+            !cached_models.iter().any(|other| {
+                other.id != model.id
+                    && other
+                        .mmproj_path
+                        .as_ref()
+                        .and_then(|path| std::fs::canonicalize(path).ok())
+                        .as_ref()
+                        == Some(model_mmproj_blob)
+            })
+        });
+
+    let paths: Vec<PathBuf> = cache
+        .repos
+        .iter()
+        .filter(|repo| repo.repo_type == "model" && repo.repo_id == model.repo_id)
+        .flat_map(|repo| &repo.revisions)
+        .flat_map(|revision| &revision.files)
+        .filter(|file| {
+            if model.backend_id == MLX_BACKEND_ID {
+                should_download_for_mlx(&file.file_name)
+            } else {
+                let is_model_weight = file.file_name.ends_with(".gguf")
+                    && !is_auxiliary_gguf_file(&file.file_name)
+                    && parse_quantization(&file.file_name)
+                        .eq_ignore_ascii_case(&model.quantization);
+                let is_unshared_mmproj = removable_mmproj_blob.as_ref() == Some(&file.blob_path);
+                is_model_weight || is_unshared_mmproj
+            }
+        })
+        .map(|file| file.file_path.clone())
+        .collect();
+
+    for path in &paths {
+        let blob_path = std::fs::canonicalize(path).ok();
+        std::fs::remove_file(path)?;
+        if let Some(blob_path) = blob_path {
+            if let Some(references) = blob_references.get_mut(&blob_path) {
+                *references -= 1;
+                if *references == 0 {
+                    std::fs::remove_file(&blob_path)?;
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn update_download_manager_progress(

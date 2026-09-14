@@ -21,7 +21,7 @@ export function nameToKey(name: string): string {
 export interface ExtensionFormData {
   name: string;
   description: string;
-  type: 'stdio' | 'sse' | 'streamable_http' | 'builtin';
+  type: 'stdio' | 'streamable_http' | 'builtin';
   cmd?: string;
   endpoint?: string;
   enabled: boolean;
@@ -109,27 +109,18 @@ export function extensionToFormData(extension: FixedExtensionEntry): ExtensionFo
   return {
     name: extension.name || '',
     description: extension.description || '',
-    type:
-      extension.type === 'frontend' ||
-      extension.type === 'inline_python' ||
-      extension.type === 'platform'
-        ? 'stdio'
-        : extension.type,
+    type: extension.type === 'platform' ? 'stdio' : extension.type,
     cmd:
       extension.type === 'stdio'
         ? combineCmdAndArgs(extension.cmd, extension.args ?? [])
         : undefined,
-    endpoint:
-      extension.type === 'streamable_http' || extension.type === 'sse'
-        ? (extension.uri ?? undefined)
-        : undefined,
+    endpoint: extension.type === 'streamable_http' ? (extension.uri ?? undefined) : undefined,
     enabled: extension.enabled,
     timeout: 'timeout' in extension ? (extension.timeout ?? undefined) : undefined,
     envVars,
     headers,
     installation_notes: (extension as Record<string, unknown>)['installation_notes'] as
-      | string
-      | undefined,
+      string | undefined,
     ...(availableTools ? { available_tools: availableTools } : {}),
     ...(extension.type === 'streamable_http'
       ? {
@@ -197,22 +188,15 @@ export function createExtensionConfig(formData: ExtensionFormData): ExtensionCon
         : {}),
       ...(formData.scopes?.length ? { scopes: formData.scopes } : {}),
     };
-  } else if (formData.type === 'builtin') {
-    return {
-      type: formData.type,
-      name: formData.name,
-      description: formData.description,
-      timeout: formData.timeout,
-      ...availableToolsConfig(formData.available_tools),
-    };
-  } else {
-    return {
-      type: formData.type,
-      name: formData.name,
-      description: formData.description,
-      uri: formData.endpoint || '',
-    };
   }
+
+  return {
+    type: formData.type,
+    name: formData.name,
+    description: formData.description,
+    timeout: formData.timeout,
+    ...availableToolsConfig(formData.available_tools),
+  };
 }
 
 function isWindowsPlatform(): boolean {

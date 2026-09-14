@@ -638,6 +638,9 @@
   "customProviderForm.add": {
     "defaultMessage": "Add"
   },
+  "customProviderForm.alwaysUseToolshim": {
+    "defaultMessage": "Always use Toolshim for this provider"
+  },
   "customProviderForm.anthropicCompatible": {
     "defaultMessage": "Anthropic Compatible"
   },
@@ -938,6 +941,15 @@
   "dirSwitcher.currentDirectory": {
     "defaultMessage": "Current directory"
   },
+  "dirSwitcher.enterPath": {
+    "defaultMessage": "Enter path"
+  },
+  "dirSwitcher.enterPathInvalid": {
+    "defaultMessage": "Working directory must be an absolute path"
+  },
+  "dirSwitcher.enterPathPlaceholder": {
+    "defaultMessage": "Enter an absolute path (e.g. /home/goose/workspace)"
+  },
   "dirSwitcher.failedToUpdateWorkingDir": {
     "defaultMessage": "Failed to update working directory"
   },
@@ -1051,9 +1063,6 @@
   },
   "extensionInfoFields.typeLabel": {
     "defaultMessage": "Type"
-  },
-  "extensionInfoFields.typeSseUnsupported": {
-    "defaultMessage": "SSE (unsupported)"
   },
   "extensionInfoFields.typeStandardIo": {
     "defaultMessage": "Standard IO (STDIO)"
@@ -1770,13 +1779,10 @@
     "defaultMessage": "Delete this model? You can re-download it later."
   },
   "localInferenceSettings.description": {
-    "defaultMessage": "Download and manage local LLM models for inference without API keys. Search HuggingFace for GGUF or MLX models, or use the featured picks below."
+    "defaultMessage": "Download and manage local LLM models for inference without API keys. Search Hugging Face for GGUF or MLX models."
   },
   "localInferenceSettings.dismiss": {
     "defaultMessage": "Dismiss"
-  },
-  "localInferenceSettings.download": {
-    "defaultMessage": "Download"
   },
   "localInferenceSettings.downloadCancelled": {
     "defaultMessage": "Download cancelled"
@@ -1795,9 +1801,6 @@
   },
   "localInferenceSettings.evictFromMemory": {
     "defaultMessage": "Evict from memory"
-  },
-  "localInferenceSettings.featuredModels": {
-    "defaultMessage": "Featured Models"
   },
   "localInferenceSettings.huggingFaceSignInNote": {
     "defaultMessage": "Sign in to increase rate limits when searching and downloading models, and to access private or gated Hugging Face repositories."
@@ -1822,12 +1825,6 @@
   },
   "localInferenceSettings.retry": {
     "defaultMessage": "Retry"
-  },
-  "localInferenceSettings.showAllFeatured": {
-    "defaultMessage": "Show all featured ({count} more)"
-  },
-  "localInferenceSettings.showRecommendedOnly": {
-    "defaultMessage": "Show recommended only"
   },
   "localInferenceSettings.title": {
     "defaultMessage": "Local Inference Models"
@@ -3210,7 +3207,7 @@
     "defaultMessage": "No saved recipes"
   },
   "recipesView.noSavedRecipesDescription": {
-    "defaultMessage": "Recipe saved from chats will show up here."
+    "defaultMessage": "Saved recipes will show up here."
   },
   "recipesView.openInNewWindow": {
     "defaultMessage": "Open in new window"
@@ -3821,6 +3818,9 @@
   "sessionIndicators.streaming": {
     "defaultMessage": "Streaming"
   },
+  "sessions.acpBadge": {
+    "defaultMessage": "ACP"
+  },
   "sessions.action.delete": {
     "defaultMessage": "Delete session"
   },
@@ -3898,6 +3898,9 @@
   },
   "sessions.importing": {
     "defaultMessage": "Importing..."
+  },
+  "sessions.includeAcp": {
+    "defaultMessage": "Include ACP sessions"
   },
   "sessions.loadingMore": {
     "defaultMessage": "Loading more sessions..."
@@ -4568,9 +4571,6 @@
   "updateSection.autoDownloadDisabledNote": {
     "defaultMessage": "Automatic download is disabled. Click \"Download Now\" to download manually."
   },
-  "updateSection.autoInstallNote": {
-    "defaultMessage": "No manual install is needed."
-  },
   "updateSection.checkForUpdates": {
     "defaultMessage": "Check for Updates"
   },
@@ -4601,26 +4601,11 @@
   "updateSection.installAndRestart": {
     "defaultMessage": "Install & Restart"
   },
-  "updateSection.installNowHint": {
-    "defaultMessage": "Click \"Install & Restart\" to update now."
-  },
   "updateSection.latestVersion": {
     "defaultMessage": "You are running the latest version!"
   },
   "updateSection.loading": {
     "defaultMessage": "Loading..."
-  },
-  "updateSection.manualInstallNote": {
-    "defaultMessage": "After download, you'll need to manually install the update."
-  },
-  "updateSection.manualInstallRequired": {
-    "defaultMessage": "Manual installation required for this update method."
-  },
-  "updateSection.readyInstallAuto": {
-    "defaultMessage": "✓ Update is ready. Restart Goose to finish installing it, or quit when you're done."
-  },
-  "updateSection.readyInstallManual": {
-    "defaultMessage": "✓ Update is ready! Click \"Install & Restart\" for installation instructions."
   },
   "updateSection.upToDate": {
     "defaultMessage": "(up to date)"

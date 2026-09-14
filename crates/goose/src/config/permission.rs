@@ -1,10 +1,13 @@
 use crate::config::paths::Paths;
+use fs2::FileExt;
 use rmcp::model::Tool;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fs;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, RwLock};
+use tempfile::NamedTempFile;
 use tracing;
 
 const PERMISSION_FILE: &str = "permission.yaml";
@@ -44,19 +47,7 @@ impl PermissionManager {
     pub fn new(config_dir: PathBuf) -> Self {
         let permission_path = config_dir.join(PERMISSION_FILE);
         let permission_map = if permission_path.exists() {
-            let file_contents =
-                fs::read_to_string(&permission_path).expect("Failed to read permission.yaml");
-            serde_yaml::from_str(&file_contents).unwrap_or_else(|e| {
-                tracing::error!(
-                    "Failed to parse {}: {}. Refusing to start with corrupted permission config.",
-                    permission_path.display(),
-                    e,
-                );
-                panic!(
-                    "Corrupted permission config at {}. Fix or remove the file to continue.",
-                    permission_path.display(),
-                );
-            })
+            Self::load_permission_map(&permission_path)
         } else {
             // Consolidate directory creation for re-use in global singleton or ACP.
             fs::create_dir_all(&config_dir).expect("Failed to create config directory");
@@ -116,30 +107,27 @@ impl PermissionManager {
     }
 
     fn bulk_update_smart_approve_permissions(&self, tool_names: &[String], level: PermissionLevel) {
-        let mut map = self.permission_map.write().unwrap();
-        let permission_config = map.entry(SMART_APPROVE_PERMISSION.to_string()).or_default();
+        self.mutate_permission_map(|map| {
+            let permission_config = map.entry(SMART_APPROVE_PERMISSION.to_string()).or_default();
 
-        for tool_name in tool_names {
-            // Remove from all lists to avoid duplicates
-            permission_config.always_allow.retain(|p| p != tool_name);
-            permission_config.ask_before.retain(|p| p != tool_name);
-            permission_config.never_allow.retain(|p| p != tool_name);
+            for tool_name in tool_names {
+                permission_config.always_allow.retain(|p| p != tool_name);
+                permission_config.ask_before.retain(|p| p != tool_name);
+                permission_config.never_allow.retain(|p| p != tool_name);
 
-            // Add to the appropriate list
-            match &level {
-                PermissionLevel::AlwaysAllow => {
-                    permission_config.always_allow.push(tool_name.clone())
-                }
-                PermissionLevel::AskBefore => permission_config.ask_before.push(tool_name.clone()),
-                PermissionLevel::NeverAllow => {
-                    permission_config.never_allow.push(tool_name.clone())
+                match &level {
+                    PermissionLevel::AlwaysAllow => {
+                        permission_config.always_allow.push(tool_name.clone())
+                    }
+                    PermissionLevel::AskBefore => {
+                        permission_config.ask_before.push(tool_name.clone())
+                    }
+                    PermissionLevel::NeverAllow => {
+                        permission_config.never_allow.push(tool_name.clone())
+                    }
                 }
             }
-        }
-
-        let yaml_content =
-            serde_yaml::to_string(&*map).expect("Failed to serialize permission config");
-        fs::write(&self.config_path, yaml_content).expect("Failed to write to permission.yaml");
+        });
     }
 
     /// Helper function to retrieve the permission level for a specific permission category and tool.
@@ -149,6 +137,11 @@ impl PermissionManager {
         if let Some(permission_config) = map.get(name) {
             // Check the permission levels for the given tool
             if permission_config
+                .never_allow
+                .contains(&principal_name.to_string())
+            {
+                return Some(PermissionLevel::NeverAllow);
+            } else if permission_config
                 .always_allow
                 .contains(&principal_name.to_string())
             {
@@ -158,11 +151,6 @@ impl PermissionManager {
                 .contains(&principal_name.to_string())
             {
                 return Some(PermissionLevel::AskBefore);
-            } else if permission_config
-                .never_allow
-                .contains(&principal_name.to_string())
-            {
-                return Some(PermissionLevel::NeverAllow);
             }
         }
         None // Return None if no matching permission level is found
@@ -180,64 +168,133 @@ impl PermissionManager {
 
     /// Helper function to update a permission level for a specific tool in a given permission category.
     fn update_permission(&self, name: &str, principal_name: &str, level: PermissionLevel) {
-        let mut map = self.permission_map.write().unwrap();
-        // Get or create a new PermissionConfig for the specified category
-        let permission_config = map.entry(name.to_string()).or_default();
+        self.mutate_permission_map(|map| {
+            let permission_config = map.entry(name.to_string()).or_default();
 
-        // Remove the principal from all existing lists to avoid duplicates
-        permission_config
-            .always_allow
-            .retain(|p| p != principal_name);
-        permission_config.ask_before.retain(|p| p != principal_name);
-        permission_config
-            .never_allow
-            .retain(|p| p != principal_name);
-
-        // Add the principal to the appropriate list
-        match level {
-            PermissionLevel::AlwaysAllow => permission_config
+            permission_config
                 .always_allow
-                .push(principal_name.to_string()),
-            PermissionLevel::AskBefore => permission_config
-                .ask_before
-                .push(principal_name.to_string()),
-            PermissionLevel::NeverAllow => permission_config
+                .retain(|p| p != principal_name);
+            permission_config.ask_before.retain(|p| p != principal_name);
+            permission_config
                 .never_allow
-                .push(principal_name.to_string()),
-        }
+                .retain(|p| p != principal_name);
 
-        // Serialize the updated permission map and write it back to the config file
+            match level {
+                PermissionLevel::AlwaysAllow => permission_config
+                    .always_allow
+                    .push(principal_name.to_string()),
+                PermissionLevel::AskBefore => permission_config
+                    .ask_before
+                    .push(principal_name.to_string()),
+                PermissionLevel::NeverAllow => permission_config
+                    .never_allow
+                    .push(principal_name.to_string()),
+            }
+        });
+    }
+
+    fn mutate_permission_map<F>(&self, mutation: F)
+    where
+        F: FnOnce(&mut HashMap<String, PermissionConfig>),
+    {
+        let mut in_memory_map = self.permission_map.write().unwrap();
+        let storage_path = Self::permission_storage_path(&self.config_path);
+        let lock_path = storage_path.with_extension("yaml.lock");
+        let lock_file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(lock_path)
+            .expect("Failed to open permission.yaml lock file");
+        lock_file
+            .lock_exclusive()
+            .expect("Failed to lock permission.yaml");
+
+        let mut latest_map = if storage_path.exists() {
+            Self::load_permission_map(&storage_path)
+        } else {
+            HashMap::new()
+        };
+        mutation(&mut latest_map);
+        Self::write_permission_map(&storage_path, &latest_map);
+        *in_memory_map = latest_map;
+    }
+
+    fn load_permission_map(config_path: &Path) -> HashMap<String, PermissionConfig> {
+        let file_contents =
+            fs::read_to_string(config_path).expect("Failed to read permission.yaml");
+        serde_yaml::from_str(&file_contents).unwrap_or_else(|error| {
+            tracing::error!(
+                "Failed to parse {}: {}. Refusing to start with corrupted permission config.",
+                config_path.display(),
+                error,
+            );
+            panic!(
+                "Corrupted permission config at {}. Fix or remove the file to continue.",
+                config_path.display(),
+            );
+        })
+    }
+
+    fn permission_storage_path(config_path: &Path) -> PathBuf {
+        match fs::symlink_metadata(config_path) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                let target =
+                    fs::read_link(config_path).expect("Failed to resolve permission.yaml symlink");
+                if target.is_absolute() {
+                    target
+                } else {
+                    config_path
+                        .parent()
+                        .expect("permission.yaml must have a parent directory")
+                        .join(target)
+                }
+            }
+            Ok(_) => config_path.to_path_buf(),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => config_path.to_path_buf(),
+            Err(error) => panic!("Failed to inspect permission.yaml: {error}"),
+        }
+    }
+
+    fn write_permission_map(storage_path: &Path, map: &HashMap<String, PermissionConfig>) {
         let yaml_content =
-            serde_yaml::to_string(&*map).expect("Failed to serialize permission config");
-        fs::write(&self.config_path, yaml_content).expect("Failed to write to permission.yaml");
+            serde_yaml::to_string(map).expect("Failed to serialize permission config");
+        let config_dir = storage_path
+            .parent()
+            .expect("permission.yaml must have a parent directory");
+        let mut temporary_file =
+            NamedTempFile::new_in(config_dir).expect("Failed to write to permission.yaml");
+        temporary_file
+            .write_all(yaml_content.as_bytes())
+            .expect("Failed to write to permission.yaml");
+        temporary_file
+            .as_file()
+            .sync_all()
+            .expect("Failed to write to permission.yaml");
+        temporary_file
+            .persist(storage_path)
+            .expect("Failed to write to permission.yaml");
     }
 
     pub fn remove_extension(&self, extension_name: &str) {
-        let mut map = self.permission_map.write().unwrap();
-        for permission_config in map.values_mut() {
-            permission_config
-                .always_allow
-                .retain(|p| !Self::belongs_to_extension(p, extension_name));
-            permission_config
-                .ask_before
-                .retain(|p| !Self::belongs_to_extension(p, extension_name));
-            permission_config
-                .never_allow
-                .retain(|p| !Self::belongs_to_extension(p, extension_name));
-        }
-
-        let yaml_content =
-            serde_yaml::to_string(&*map).expect("Failed to serialize permission config");
-        fs::write(&self.config_path, yaml_content).expect("Failed to write to permission.yaml");
+        self.mutate_permission_map(|map| {
+            for permission_config in map.values_mut() {
+                permission_config
+                    .always_allow
+                    .retain(|p| !Self::belongs_to_extension(p, extension_name));
+                permission_config
+                    .ask_before
+                    .retain(|p| !Self::belongs_to_extension(p, extension_name));
+                permission_config
+                    .never_allow
+                    .retain(|p| !Self::belongs_to_extension(p, extension_name));
+            }
+        });
     }
 
     pub fn clear_permissions(&self) {
-        let mut map = self.permission_map.write().unwrap();
-        map.clear();
-
-        let yaml_content =
-            serde_yaml::to_string(&*map).expect("Failed to serialize permission config");
-        fs::write(&self.config_path, yaml_content).expect("Failed to write to permission.yaml");
+        self.mutate_permission_map(HashMap::clear);
     }
 
     fn belongs_to_extension(principal_name: &str, extension_name: &str) -> bool {
@@ -319,6 +376,51 @@ mod tests {
     }
 
     #[test]
+    fn test_persisted_never_allow_takes_precedence_over_other_levels() {
+        let temp_dir = TempDir::new().unwrap();
+        fs::write(
+            temp_dir.path().join(PERMISSION_FILE),
+            r#"user:
+  always_allow:
+    - denied_from_allow
+    - allowed
+  ask_before:
+    - denied_from_ask
+    - prompted
+  never_allow:
+    - denied_from_allow
+    - denied_from_ask
+    - denied
+"#,
+        )
+        .unwrap();
+
+        let manager = PermissionManager::new(temp_dir.path().to_path_buf());
+
+        assert_eq!(
+            manager.get_user_permission("denied_from_allow"),
+            Some(PermissionLevel::NeverAllow)
+        );
+        assert_eq!(
+            manager.get_user_permission("denied_from_ask"),
+            Some(PermissionLevel::NeverAllow)
+        );
+        assert_eq!(
+            manager.get_user_permission("allowed"),
+            Some(PermissionLevel::AlwaysAllow)
+        );
+        assert_eq!(
+            manager.get_user_permission("prompted"),
+            Some(PermissionLevel::AskBefore)
+        );
+        assert_eq!(
+            manager.get_user_permission("denied"),
+            Some(PermissionLevel::NeverAllow)
+        );
+        assert_eq!(manager.get_user_permission("unknown"), None);
+    }
+
+    #[test]
     fn test_permission_update_replaces_existing_level() {
         let (manager, _temp_dir) = create_test_permission_manager();
 
@@ -389,6 +491,76 @@ mod tests {
         let permission_path = temp_dir.path().join(PERMISSION_FILE);
         fs::write(&permission_path, "{{invalid yaml: [broken").unwrap();
         PermissionManager::new(temp_dir.path().to_path_buf());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlink_and_target_managers_share_storage_lock() {
+        use std::os::unix::fs::symlink;
+        use std::sync::mpsc;
+        use std::thread;
+
+        let root = TempDir::new().unwrap();
+        let symlink_config_dir = root.path().join("symlink-config");
+        let target_config_dir = root.path().join("target-config");
+        fs::create_dir_all(&symlink_config_dir).unwrap();
+        fs::create_dir_all(&target_config_dir).unwrap();
+
+        let symlink_path = symlink_config_dir.join(PERMISSION_FILE);
+        let target_path = target_config_dir.join(PERMISSION_FILE);
+        fs::write(&target_path, "{}\n").unwrap();
+        symlink("../target-config/permission.yaml", &symlink_path).unwrap();
+
+        let symlink_manager = PermissionManager::new(symlink_config_dir);
+        let target_manager = PermissionManager::new(target_config_dir.clone());
+        let (symlink_locked_tx, symlink_locked_rx) = mpsc::channel();
+        let (release_symlink_tx, release_symlink_rx) = mpsc::channel();
+
+        let symlink_thread = thread::spawn(move || {
+            symlink_manager.mutate_permission_map(|map| {
+                map.entry(USER_PERMISSION.to_string())
+                    .or_default()
+                    .always_allow
+                    .push("symlink_tool".to_string());
+                symlink_locked_tx.send(()).unwrap();
+                release_symlink_rx.recv().unwrap();
+            });
+        });
+        symlink_locked_rx.recv().unwrap();
+
+        let (target_started_tx, target_started_rx) = mpsc::channel();
+        let target_thread = thread::spawn(move || {
+            target_started_tx.send(()).unwrap();
+            target_manager.update_user_permission("target_tool", PermissionLevel::AskBefore);
+        });
+        target_started_rx.recv().unwrap();
+
+        let target_lock = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(target_path.with_extension("yaml.lock"))
+            .unwrap();
+        let target_lock_is_held = target_lock.try_lock_exclusive().is_err();
+        drop(target_lock);
+
+        release_symlink_tx.send(()).unwrap();
+        symlink_thread.join().unwrap();
+        target_thread.join().unwrap();
+
+        assert!(target_lock_is_held);
+        assert!(fs::symlink_metadata(&symlink_path)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        let reloaded_manager = PermissionManager::new(target_config_dir);
+        assert_eq!(
+            reloaded_manager.get_user_permission("symlink_tool"),
+            Some(PermissionLevel::AlwaysAllow)
+        );
+        assert_eq!(
+            reloaded_manager.get_user_permission("target_tool"),
+            Some(PermissionLevel::AskBefore)
+        );
     }
 
     use test_case::test_case;

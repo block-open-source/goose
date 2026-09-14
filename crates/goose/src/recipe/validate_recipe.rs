@@ -1,11 +1,35 @@
 use crate::recipe::read_recipe_file_content::RecipeFile;
-use crate::recipe::template_recipe::parse_recipe_content;
+use crate::recipe::template_recipe::{
+    parse_recipe_content, parse_recipe_template, ParsedRecipeTemplate,
+};
 use crate::recipe::{
     Recipe, RecipeParameter, RecipeParameterInputType, RecipeParameterRequirement,
     BUILT_IN_RECIPE_DIR_PARAM,
 };
 use anyhow::Result;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+
+pub(crate) struct ValidatedRecipeTemplate {
+    parsed: ParsedRecipeTemplate,
+}
+
+impl ValidatedRecipeTemplate {
+    pub(crate) fn recipe(&self) -> &Recipe {
+        self.parsed.recipe()
+    }
+
+    pub(crate) fn into_recipe(self) -> Recipe {
+        self.parsed.into_recipe()
+    }
+
+    pub(crate) fn render(self, params: &HashMap<String, String>) -> Result<Recipe> {
+        let (rendered_content, template_variables) = self.parsed.render(params)?;
+        let recipe = Recipe::from_content(&rendered_content)?;
+        validate_recipe_parameters(&recipe, &template_variables)?;
+        validate_recipe_non_parameter_invariants(&recipe)?;
+        Ok(recipe)
+    }
+}
 
 pub fn parse_and_validate_parameters(
     recipe_file_content: &str,
@@ -13,10 +37,13 @@ pub fn parse_and_validate_parameters(
 ) -> Result<Recipe> {
     let (recipe_template, template_variables) =
         parse_recipe_content(recipe_file_content, recipe_dir_str)?;
-    let recipe_parameters = &recipe_template.parameters;
-    validate_optional_parameters(recipe_parameters)?;
-    validate_parameters_in_template(recipe_parameters, &template_variables)?;
+    validate_recipe_parameters(&recipe_template, &template_variables)?;
     Ok(recipe_template)
+}
+
+fn validate_recipe_parameters(recipe: &Recipe, template_variables: &HashSet<String>) -> Result<()> {
+    validate_optional_parameters(&recipe.parameters)?;
+    validate_parameters_in_template(&recipe.parameters, template_variables)
 }
 
 fn validate_json_schema(schema: &serde_json::Value) -> Result<()> {
@@ -45,18 +72,30 @@ pub fn validate_recipe_template_from_content(
     recipe_content: &str,
     recipe_dir: Option<String>,
 ) -> Result<Recipe> {
-    parse_and_validate_parameters(recipe_content, recipe_dir.clone())?;
-    let (recipe, _) = parse_recipe_content(recipe_content, recipe_dir)?;
+    Ok(validate_recipe_template(recipe_content, recipe_dir)?.into_recipe())
+}
 
-    validate_prompt_or_instructions(&recipe)?;
-    validate_retry_config(&recipe)?;
+pub(crate) fn validate_recipe_template(
+    recipe_content: &str,
+    recipe_dir: Option<String>,
+) -> Result<ValidatedRecipeTemplate> {
+    let parsed = parse_recipe_template(recipe_content, recipe_dir)?;
+    validate_recipe_parameters(parsed.recipe(), parsed.template_variables())?;
+    validate_recipe_non_parameter_invariants(parsed.recipe())?;
+
+    Ok(ValidatedRecipeTemplate { parsed })
+}
+
+pub(crate) fn validate_recipe_non_parameter_invariants(recipe: &Recipe) -> Result<()> {
+    validate_prompt_or_instructions(recipe)?;
+    validate_retry_config(recipe)?;
     if let Some(response) = &recipe.response {
         if let Some(json_schema) = &response.json_schema {
             validate_json_schema(json_schema)?;
         }
     }
 
-    Ok(recipe)
+    Ok(())
 }
 
 fn validate_retry_config(recipe: &Recipe) -> Result<()> {

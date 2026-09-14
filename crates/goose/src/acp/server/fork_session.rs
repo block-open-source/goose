@@ -7,7 +7,6 @@ impl GooseAcpAgent {
         cx: &ConnectionTo<Client>,
         args: ForkSessionRequest,
     ) -> Result<ForkSessionResponse, agent_client_protocol::Error> {
-        validate_absolute_cwd(&args.cwd)?;
         let conversation_before = conversation_before_from_meta(args.meta.as_ref())?;
         let source_session_id = &*args.session_id.0;
 
@@ -16,6 +15,12 @@ impl GooseAcpAgent {
             .get_session(source_session_id, false)
             .await
             .internal_err()?;
+
+        // Resolve and validate the effective cwd before copying anything, so a
+        // bad request cannot leave a stray "(copy)" session in the store.
+        let cwd = effective_session_cwd(self.session_cwd.as_deref(), &args.cwd);
+        validate_absolute_cwd(&cwd)?;
+
         let fork_name = if source.name.trim().is_empty() {
             "(copy)".to_string()
         } else {
@@ -43,12 +48,7 @@ impl GooseAcpAgent {
             .internal_err()?;
 
         let goose_session = self
-            .prepare_session_for_activation(
-                new_session.clone(),
-                args.cwd.clone(),
-                args.mcp_servers,
-                true,
-            )
+            .prepare_session_for_activation(new_session.clone(), cwd, args.mcp_servers, true)
             .await?;
 
         let (agent, extension_results) = self.prepare_acp_session_agent(cx, &goose_session).await?;

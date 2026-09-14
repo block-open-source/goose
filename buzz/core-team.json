@@ -1,0 +1,128 @@
+{
+  "owners": [
+    {
+      "name": "Douwe Osinga",
+      "github": "DOsinga",
+      "pubkey": "3ae35e27840819729af344afe7e234ccf346dcc4534dc3d3608a4dcd17ba59da",
+      "capacity": 1,
+      "interest": [
+        "Agent-loop and state-machine architecture",
+        "Tool execution, orchestration, and subagents",
+        "Context management and compaction",
+        "Provider and model integrations",
+        "ACP and MCP protocols",
+        "Sessions, recipes, skills, and scheduling",
+        "Rust, CLI, and Electron Desktop integration",
+        "Testing, benchmarking, diagnostics, security, and reliability"
+      ],
+      "bots": {
+        "Doose": "24d0a0eae8e2a10c1b7a02d2876cc12c16decc879c9201b1c66f74de0c9643b9"
+      }
+    }
+  ],
+  "members": [
+    {
+      "name": "Alex Hancock",
+      "github": "alexhancock",
+      "pubkey": "c060e29a1b39d717624149020b3ffe45c5c2355d70214f038f4c8a9f28651aee",
+      "capacity": 1,
+      "interest": [
+        "ACP and MCP protocol support and transport",
+        "Extensions and skills tooling",
+        "Agent-facing SDK and GDK APIs",
+        "Electron Desktop and TUI experiences",
+        "Sessions and tool-call rendering",
+        "Provider setup and authentication",
+        "Cross-language bindings",
+        "Build and release infrastructure"
+      ]
+    },
+    {
+      "name": "filip",
+      "github": "filipkujawa",
+      "pubkey": "437558e2399076861d5b8d935dc5e25363f3ab5599fdc67db7819617f334b4f3",
+      "capacity": 0.5,
+      "interest": [
+        "Context management and compaction",
+        "Prompt caching and cache-safe request assembly",
+        "Provider streaming, reasoning, and model configuration",
+        "Token accounting, usage, and cost tracking",
+        "Session persistence, lifecycle, export, and performance",
+        "Subagents and persistent workers",
+        "Tool schemas, tool output, and extension overhead",
+        "Desktop diagnostics and conversation controls"
+      ]
+    },
+    {
+      "name": "jasper",
+      "github": "jbg",
+      "pubkey": "bcd4774b7988c41585bd7d888431cfeb66d4d48cf67cb42493019d828fd8f50f",
+      "capacity": 1,
+      "interest": [
+        "Rust core and Desktop integration",
+        "Security boundaries and permissions",
+        "Path and file confinement",
+        "Secrets, OAuth, and output sanitization",
+        "MLX and GGUF local inference",
+        "Model management and vision support",
+        "ACP transports and session behavior",
+        "Streaming and cross-platform release reliability"
+      ]
+    },
+    {
+      "name": "Mic",
+      "github": "michaelneale",
+      "pubkey": "cb295abd2c37fef7a91c0960b19aa9894004183b0cf046da68a0ca7d2eb164c5",
+      "capacity": 1,
+      "interest": [
+        "Provider and model integrations",
+        "Provider OAuth and subscriptions",
+        "Agent behavior and goal-driven loops",
+        "Context, tools, summarization, and chat recall",
+        "Skills and code mode",
+        "ACP and remote access",
+        "Desktop, CLI, and packaging",
+        "MCP document and computer-control tools",
+        "Authentication, sandboxing, and adversarial review"
+      ]
+    },
+    {
+      "name": "lifei",
+      "github": "lifeizhou-ap",
+      "pubkey": "ae340885fbe0300d1476af73b1afe386b6d23aafbcff3846c89525c25838083e",
+      "capacity": 1,
+      "interest": [
+        "ACP and ACP+ migration",
+        "Electron Desktop and Rust backend integration",
+        "Session lifecycle and tool-call streaming",
+        "Extensions and scheduling",
+        "Provider authentication and state handling",
+        "Recipes, sub-recipes, and deeplinks",
+        "Subagent orchestration and security scanning",
+        "CLI configuration and credential flows",
+        "Release, CI, and reliability"
+      ],
+      "bots": {
+        "Lifei goose agent": "22e596edb9404354ab5ca71a61e66effc734449cfbe8b6790aed8b7f8b59b032"
+      }
+    },
+    {
+      "name": "Jack Amadeo",
+      "github": "jamadeo",
+      "pubkey": "32e042ba25fe6622a003328617db46aaf2b46f8127b1f4e3ab4701355a479d26",
+      "capacity": 1,
+      "interest": [
+        "Rust core architecture and reusable crates",
+        "Provider and agent-loop modularization",
+        "SDK bindings and publishing",
+        "Context and model handling",
+        "ACP, MCP, and RMCP protocols",
+        "Conformance testing and cancellation",
+        "Skills, agents, and extension management",
+        "Cross-platform packaging and code signing",
+        "CI, release automation, and distribution",
+        "UI, CLI, session, and provider reliability"
+      ]
+    }
+  ]
+}

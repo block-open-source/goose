@@ -161,6 +161,12 @@ pub const TOOL_META_EXTERNAL_DISPATCH_KEY: &str = "goose.external_dispatch";
 /// for this tool call. Used to make the title survive session reload.
 pub const TOOL_META_TITLE_KEY: &str = "goose.toolSummary.title";
 
+/// Key under `ToolRequest.tool_meta` storing the provider-reported index of the
+/// tool call within the streamed response. Streaming clients need this to
+/// correlate incremental argument fragments with the right call when a model
+/// emits several tool calls in parallel.
+pub const TOOL_META_PROVIDER_INDEX_KEY: &str = "goose.toolCall.providerIndex";
+
 /// Key under `ToolRequest.tool_meta` storing the LLM-generated chain summary
 /// for the chain that starts at this tool request. Shape: `{ "summary": String,
 /// "count": u64 }`. Only attached to the FIRST tool request in a chain.
@@ -235,14 +241,6 @@ pub struct RedactedThinkingContentBlock {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct FrontendToolRequest {
-    pub id: String,
-    #[serde(with = "tool_result_serde")]
-    pub tool_call: ToolResult<CallToolRequestParams>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub enum SystemNotificationType {
     ThinkingMessage,
     ProgressMessage,
@@ -288,6 +286,30 @@ pub struct ErrorContent {
     pub message: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentContent {
+    pub data: String,
+    pub mime_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+impl DocumentContent {
+    pub fn new<S: Into<String>, T: Into<String>>(data: S, mime_type: T) -> Self {
+        Self {
+            data: data.into(),
+            mime_type: mime_type.into(),
+            name: None,
+        }
+    }
+
+    pub fn with_name<S: Into<String>>(mut self, name: S) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+}
+
 pub type MessageContent = MessageContentBlock;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -296,11 +318,11 @@ pub type MessageContent = MessageContentBlock;
 pub enum MessageContentBlock {
     Text(TextContent),
     Image(ImageContent),
+    Document(DocumentContent),
     ToolRequest(ToolRequest),
     ToolResponse(ToolResponse),
     ToolConfirmationRequest(ToolConfirmationRequest),
     ActionRequired(ActionRequired),
-    FrontendToolRequest(FrontendToolRequest),
     Thinking(ThinkingContentBlock),
     RedactedThinking(RedactedThinkingContentBlock),
     SystemNotification(SystemNotificationContent),
@@ -312,6 +334,10 @@ impl fmt::Display for MessageContentBlock {
         match self {
             MessageContentBlock::Text(t) => write!(f, "{}", t.text),
             MessageContentBlock::Image(i) => write!(f, "[Image: {}]", i.mime_type),
+            MessageContentBlock::Document(d) => match &d.name {
+                Some(name) => write!(f, "[Document: {} ({})]", name, d.mime_type),
+                None => write!(f, "[Document: {}]", d.mime_type),
+            },
             MessageContentBlock::ToolRequest(r) => {
                 write!(f, "[ToolRequest: {}]", r.to_readable_string())
             }
@@ -339,10 +365,6 @@ impl fmt::Display for MessageContentBlock {
                 ActionRequiredData::ToolConfirmationResponse { id, .. } => {
                     write!(f, "[ActionRequired: ToolConfirmationResponse for {}]", id)
                 }
-            },
-            MessageContentBlock::FrontendToolRequest(r) => match &r.tool_call {
-                Ok(tool_call) => write!(f, "[FrontendToolRequest: {}]", tool_call.name),
-                Err(e) => write!(f, "[FrontendToolRequest: Error: {}]", e),
             },
             MessageContentBlock::Thinking(t) => write!(f, "[Thinking: {}]", t.thinking),
             MessageContentBlock::RedactedThinking(_r) => write!(f, "[RedactedThinking]"),
@@ -448,6 +470,18 @@ impl MessageContentBlock {
         MessageContentBlock::Image(ImageContent::new(data, mime_type))
     }
 
+    pub fn document<S: Into<String>, T: Into<String>>(
+        data: S,
+        mime_type: T,
+        name: Option<String>,
+    ) -> Self {
+        let document = DocumentContent::new(data, mime_type);
+        MessageContentBlock::Document(match name {
+            Some(name) => document.with_name(name),
+            None => document,
+        })
+    }
+
     pub fn tool_request<S: Into<String>>(
         id: S,
         tool_call: ToolResult<CallToolRequestParams>,
@@ -470,6 +504,22 @@ impl MessageContentBlock {
             tool_call,
             metadata: metadata.cloned(),
             tool_meta: None,
+        })
+    }
+
+    pub fn tool_request_with_provider_index<S: Into<String>>(
+        id: S,
+        tool_call: ToolResult<CallToolRequestParams>,
+        metadata: Option<&ProviderMetadata>,
+        provider_index: i32,
+    ) -> Self {
+        MessageContentBlock::ToolRequest(ToolRequest {
+            id: id.into(),
+            tool_call,
+            metadata: metadata.cloned(),
+            tool_meta: Some(serde_json::json!({
+                TOOL_META_PROVIDER_INDEX_KEY: provider_index,
+            })),
         })
     }
 
@@ -558,16 +608,6 @@ impl MessageContentBlock {
 
     pub fn redacted_thinking<S: Into<String>>(data: S) -> Self {
         MessageContentBlock::RedactedThinking(RedactedThinkingContentBlock { data: data.into() })
-    }
-
-    pub fn frontend_tool_request<S: Into<String>>(
-        id: S,
-        tool_call: ToolResult<CallToolRequestParams>,
-    ) -> Self {
-        MessageContentBlock::FrontendToolRequest(FrontendToolRequest {
-            id: id.into(),
-            tool_call,
-        })
     }
 
     pub fn system_notification<S: Into<String>>(
@@ -1045,6 +1085,15 @@ impl Message {
         self.with_content(MessageContentBlock::image(data, mime_type))
     }
 
+    pub fn with_document<S: Into<String>, T: Into<String>>(
+        self,
+        data: S,
+        mime_type: T,
+        name: Option<String>,
+    ) -> Self {
+        self.with_content(MessageContentBlock::document(data, mime_type, name))
+    }
+
     /// Add a tool request to the message
     pub fn with_tool_request<S: Into<String>>(
         self,
@@ -1100,14 +1149,6 @@ impl Message {
         self.with_content(MessageContentBlock::action_required(
             id, tool_name, arguments, prompt,
         ))
-    }
-
-    pub fn with_frontend_tool_request<S: Into<String>>(
-        self,
-        id: S,
-        tool_call: ToolResult<CallToolRequestParams>,
-    ) -> Self {
-        self.with_content(MessageContentBlock::frontend_tool_request(id, tool_call))
     }
 
     /// Add thinking content to the message
@@ -1320,6 +1361,56 @@ pub struct TokenState {
     #[serde(default)]
     pub accumulated_cache_write_tokens: i32,
     pub accumulated_cost: Option<f64>,
+}
+
+#[cfg(test)]
+mod document_tests {
+    use super::*;
+
+    #[test]
+    fn document_content_carries_media_type_and_name() {
+        let message = Message::user().with_document(
+            "cGRmLWJ5dGVz",
+            "application/pdf",
+            Some("q3-report.pdf".to_string()),
+        );
+
+        let MessageContent::Document(document) = &message.content[0] else {
+            panic!("expected document content");
+        };
+        assert_eq!(document.data, "cGRmLWJ5dGVz");
+        assert_eq!(document.mime_type, "application/pdf");
+        assert_eq!(document.name.as_deref(), Some("q3-report.pdf"));
+        assert_eq!(
+            message.content[0].to_string(),
+            "[Document: q3-report.pdf (application/pdf)]"
+        );
+    }
+
+    #[test]
+    fn document_content_without_name_is_allowed() {
+        let content = MessageContent::document("cGRmLWJ5dGVz", "application/pdf", None);
+
+        assert!(matches!(&content, MessageContent::Document(document) if document.name.is_none()));
+        assert_eq!(content.to_string(), "[Document: application/pdf]");
+    }
+
+    #[test]
+    fn document_content_round_trips_through_serde() {
+        let message = Message::user().with_document(
+            "cGRmLWJ5dGVz",
+            "application/pdf",
+            Some("q3-report.pdf".to_string()),
+        );
+
+        let json = serde_json::to_value(&message).unwrap();
+        assert_eq!(json["content"][0]["type"], "document");
+        assert_eq!(json["content"][0]["mimeType"], "application/pdf");
+        assert_eq!(json["content"][0]["name"], "q3-report.pdf");
+
+        let restored: Message = serde_json::from_value(json).unwrap();
+        assert_eq!(restored, message);
+    }
 }
 
 #[cfg(test)]

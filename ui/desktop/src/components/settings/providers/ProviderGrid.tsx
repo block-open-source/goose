@@ -2,7 +2,7 @@ import React, { memo, useMemo, useCallback, useState } from 'react';
 import { ProviderCard } from './subcomponents/ProviderCard';
 import CardContainer from './subcomponents/CardContainer';
 import ProviderConfigurationModal from './modal/ProviderConfigurationModal';
-import type { CustomProviderConfigDto } from '@aaif/goose-sdk';
+import type { CustomProviderConfigDto } from '@aaif/goose-acp-client';
 import type { ProviderDetails, UpdateCustomProviderRequest } from '../../../types/providers';
 import {
   acpCreateCustomProviderFromRequest,
@@ -298,6 +298,7 @@ function ProviderCards({
     requires_auth: editingProvider.config.requiresAuth ?? true,
     headers: editingProvider.config.headers ?? undefined,
     catalog_provider_id: editingProvider.config.catalogProviderId ?? undefined,
+    toolshim: editingProvider.config.toolshim,
   };
 
   const editable = editingProvider ? editingProvider.isEditable : true;

@@ -28,7 +28,6 @@ use super::{
     kimicode::KimiCodeProvider,
     litellm::LiteLLMProvider,
     nanogpt::NanoGptProvider,
-    openrouter::OpenRouterProvider,
     pi_acp::PiAcpProvider,
     provider_registry::ProviderRegistry,
     snowflake_def::SnowflakeProviderDef,
@@ -45,6 +44,7 @@ use crate::providers::databricks_v2_def::{self, DatabricksV2ProviderDef};
 use crate::providers::google_def::GoogleProviderDef;
 use crate::providers::ollama_def::OllamaProviderDef;
 use crate::providers::openai_def::OpenAiProviderDef;
+use crate::providers::openrouter_def::OpenRouterProviderDef;
 use crate::{
     config::declarative_providers::register_declarative_providers,
     providers::provider_registry::ProviderEntry,
@@ -157,7 +157,7 @@ async fn init_registry() -> RwLock<ProviderRegistry> {
             true,
             Some(registrations::openai_inventory()),
         );
-        registry.register_with_inventory::<OpenRouterProvider>(
+        registry.register_with_inventory::<OpenRouterProviderDef>(
             true,
             Some(registrations::refresh_only().with_configured(|| {
                 let config = crate::config::Config::global();
@@ -312,7 +312,6 @@ pub async fn create_with_named_model(
 mod tests {
     use super::*;
     use crate::config::paths::Paths;
-    use goose_providers::model::ModelConfig;
     use std::fs;
 
     #[tokio::test]
@@ -329,6 +328,22 @@ mod tests {
             .config_keys
             .iter()
             .any(|key| key.name == "HF_TOKEN" && key.secret));
+    }
+
+    #[tokio::test]
+    async fn test_aimlapi_provider_registry_wiring() {
+        let aimlapi = get_from_registry("aimlapi")
+            .await
+            .expect("aimlapi provider should be registered");
+        let meta = aimlapi.metadata();
+
+        assert_eq!(meta.name, "aimlapi");
+        assert_eq!(meta.display_name, "AI/ML API");
+        assert_eq!(meta.default_model, "openai/gpt-5-5");
+        assert!(meta
+            .config_keys
+            .iter()
+            .any(|key| key.name == "AIMLAPI_API_KEY" && key.secret));
     }
 
     #[tokio::test]
@@ -445,24 +460,23 @@ mod tests {
         let inf_entry = get_from_registry("custom_inf")
             .await
             .expect("custom_inf entry should exist");
-        let inf_config = inf_entry
-            .normalize_model_config(
-                crate::model_config::model_config_from_user_config("custom_inf", "kimi-k2.5")
-                    .expect("custom_inf model config should resolve"),
-            )
-            .expect("custom_inf model config should normalize");
-        assert_eq!(inf_config.context_limit, Some(256_000));
+        let provider = inf_entry
+            .create(vec![])
+            .await
+            .expect("custom_inf provider should be created");
+        assert_eq!(provider.get_context_limit("kimi-k2.5", None).await, 256_000);
 
         let zero_entry = get_from_registry("custom_zero")
             .await
             .expect("custom_zero entry should exist");
-        let zero_config = zero_entry
-            .normalize_model_config(
-                crate::model_config::model_config_from_user_config("custom_zero", "zero-model")
-                    .expect("custom_zero model config should resolve"),
-            )
-            .expect("custom_zero model config should normalize");
-        assert_eq!(zero_config.context_limit, None);
+        let zero_provider = zero_entry
+            .create(vec![])
+            .await
+            .expect("custom_zero provider should be created");
+        assert_eq!(
+            zero_provider.get_context_limit("zero-model", None).await,
+            goose_providers::model::DEFAULT_CONTEXT_LIMIT
+        );
 
         std::env::remove_var("GOOSE_PATH_ROOT");
     }
@@ -482,10 +496,16 @@ mod tests {
         let openai = get_from_registry("openai")
             .await
             .expect("openai provider should be registered");
-        let unknown = openai
-            .normalize_model_config(ModelConfig::new("totally-unknown-model"))
-            .expect("unknown model config should normalize");
-        assert_eq!(unknown.context_limit(), 1_000_000);
+        let openai_provider = openai
+            .create(vec![])
+            .await
+            .expect("openai provider should be created");
+        assert_eq!(
+            openai_provider
+                .get_context_limit("totally-unknown-model", Some(1_000_000))
+                .await,
+            1_000_000
+        );
 
         let temp_dir = tempfile::tempdir().expect("tempdir should be created");
         std::env::set_var("GOOSE_PATH_ROOT", temp_dir.path());
@@ -515,10 +535,16 @@ mod tests {
         let inf_entry = get_from_registry("custom_inf")
             .await
             .expect("custom_inf entry should exist");
-        let inf_config = inf_entry
-            .normalize_model_config(ModelConfig::new("kimi-k2.5"))
-            .expect("custom_inf model config should normalize");
-        assert_eq!(inf_config.context_limit(), 1_000_000);
+        let inf_provider = inf_entry
+            .create(vec![])
+            .await
+            .expect("custom_inf provider should be created");
+        assert_eq!(
+            inf_provider
+                .get_context_limit("kimi-k2.5", Some(1_000_000))
+                .await,
+            1_000_000
+        );
 
         std::env::remove_var("GOOSE_PATH_ROOT");
     }

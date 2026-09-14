@@ -36,8 +36,14 @@ impl GooseAcpAgent {
     pub(super) async fn handle_new_session(
         &self,
         cx: &ConnectionTo<Client>,
-        args: NewSessionRequest,
+        mut args: NewSessionRequest,
     ) -> Result<NewSessionResponse, agent_client_protocol::Error> {
+        // When the host imposes a working directory (e.g. roaming, where the
+        // connector's absolute path is meaningless on this machine), ignore the
+        // cwd the client sent and use the host-controlled one instead.
+        if let Some(host_cwd) = &self.session_cwd {
+            args.cwd = host_cwd.clone();
+        }
         validate_absolute_cwd(&args.cwd)?;
         let config = Config::global();
         let session_type = session_type_from_meta(args.meta.as_ref())?;

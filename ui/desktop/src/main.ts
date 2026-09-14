@@ -28,6 +28,7 @@ import { execFileSync, spawn, execFile } from 'child_process';
 import 'dotenv/config';
 import { checkBackendStatus } from './backendStatus';
 import { installBackendCertificateVerifiers } from './backendCertificateVerifier';
+import { configureProxy } from './proxy';
 import { startGooseServe } from './gooseServe';
 import { getLoginShellPath } from './loginShellPath';
 import { GooseServeLeaseRegistry, type GooseServeLease } from './gooseServeLeaseRegistry';
@@ -291,23 +292,6 @@ function listGitWorktreeDirs(dir: string): Promise<string[]> {
       }
     );
   });
-}
-
-async function configureProxy() {
-  const httpsProxy = process.env.HTTPS_PROXY || process.env.https_proxy;
-  const httpProxy = process.env.HTTP_PROXY || process.env.http_proxy;
-  const noProxy = process.env.NO_PROXY || process.env.no_proxy || '';
-
-  const proxyUrl = httpsProxy || httpProxy;
-
-  if (proxyUrl) {
-    console.log('[Main] Configuring proxy');
-    await session.defaultSession.setProxy({
-      proxyRules: proxyUrl,
-      proxyBypassRules: noProxy,
-    });
-    console.log('[Main] Proxy configured successfully');
-  }
 }
 
 if (started) app.quit();
@@ -988,6 +972,11 @@ let appConfig = {
   GOOSE_PREDEFINED_MODELS: predefinedModels,
   GOOSE_PATH_ROOT: sanitizeGoosePathRoot(process.env),
   GOOSE_WORKING_DIR: '',
+  // Whether the window is bound to an external backend (fixed at window
+  // creation via gooseServeLeases) and which URL it is bound to.
+  GOOSE_EXTERNAL_BACKEND: false,
+  GOOSE_EXTERNAL_BACKEND_URL: '',
+  GOOSE_EXTERNAL_BACKEND_SOURCE: '',
   // Start with the env-var override; the OS region locale is filled in after app.ready
   // (see updateLocaleFromSystem below) since getSystemLocale() cannot be called earlier.
   GOOSE_LOCALE: process.env.GOOSE_LOCALE || undefined,
@@ -1127,20 +1116,20 @@ const createChat = async (
         );
       }
 
-      const externalBackendReady = await checkBackendStatus({
+      const externalBackendCheck = await checkBackendStatus({
         baseUrl: externalBaseUrl,
         serverSecret,
         fetch: net.fetch as unknown as typeof globalThis.fetch,
       });
-      if (!externalBackendReady) {
+      if (!externalBackendCheck.ok) {
         externalCertificateTrust?.release();
+        log.error(`External backend check failed: ${externalBackendCheck.failure}`);
         const canDisableExternalBackend = externalBackend.source === 'settings';
         const response = dialog.showMessageBoxSync({
           type: 'error',
           title: 'External Backend Unreachable',
           message: `Could not connect to external backend at ${externalBaseUrl}`,
-          detail:
-            'The external backend must be running and the configured secret must match GOOSE_SERVER__SECRET_KEY on the server.',
+          detail: externalBackendCheck.failure ?? undefined,
           buttons: canDisableExternalBackend
             ? ['Disable External Backend & Retry', 'Quit']
             : ['Quit'],
@@ -1310,6 +1299,9 @@ const createChat = async (
             ...appConfig,
             GOOSE_LOCALE: getConfiguredGooseLocale(),
             GOOSE_WORKING_DIR: workingDir,
+            GOOSE_EXTERNAL_BACKEND: externalBackend !== null,
+            GOOSE_EXTERNAL_BACKEND_URL: externalBackend?.url ?? '',
+            GOOSE_EXTERNAL_BACKEND_SOURCE: externalBackend?.source ?? '',
             REQUEST_DIR: dir,
             GOOSE_VERSION: version,
             recipeDeeplink: recipeDeeplink,
@@ -2464,7 +2456,8 @@ async function appMain() {
     }
   });
 
-  await configureProxy();
+  const rendererSession = session.fromPartition('persist:goose');
+  await configureProxy(session.defaultSession, rendererSession);
 
   // Ensure Windows shims are available before any MCP processes are spawned
   await ensureWinShims();

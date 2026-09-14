@@ -200,8 +200,14 @@ function ApiKeyForm({
 
     const toSubmit = Object.fromEntries(
       Object.entries(configValues)
-        .filter(([, entry]) => !!entry.value)
-        .map(([k, entry]) => [k, entry.value || ''])
+        .filter(
+          ([, entry]) =>
+            !!entry.value || (entry.serverValue != null && typeof entry.serverValue === 'string')
+        )
+        .map(([k, entry]) => [
+          k,
+          entry.value ?? (typeof entry.serverValue === 'string' ? entry.serverValue : ''),
+        ])
     );
 
     setIsSubmitting(true);

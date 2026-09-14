@@ -1,5 +1,5 @@
 import type { ExtensionConfig, ExtensionEntry } from '../types/extensions';
-import type { GooseExtension, GooseExtensionEntry } from '@aaif/goose-sdk';
+import type { GooseExtension, GooseExtensionEntry } from '@aaif/goose-acp-client';
 import { getAcpClient } from './acpConnection';
 
 export type ConfiguredExtensionEntry = ExtensionEntry & { configKey?: string };
@@ -144,10 +144,6 @@ export function extensionConfigToGooseExtension(config: ExtensionConfig): GooseE
         bundled: config.bundled,
         available_tools: availableToolsOrUndefined(config.available_tools),
       };
-    case 'sse':
-    case 'frontend':
-    case 'inline_python':
-      return null;
   }
 }
 

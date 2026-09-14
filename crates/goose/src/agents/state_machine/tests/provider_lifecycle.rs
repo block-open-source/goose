@@ -174,20 +174,15 @@ async fn provider_lifecycle() -> Result<()> {
     result.assert_message(-2, ToolResponse, "result: 6");
     result.assert_message(-1, Agent, "The total is 6.");
 
-    let conversation = result.session.conversation.as_ref().unwrap();
-    let first_total = result
+    assert!(result.session.usage.total_tokens.is_none());
+    assert!(result
         .session
-        .usage
-        .total_tokens
-        .expect("estimated session usage");
-    assert!(first_total > 0);
-    assert_eq!(
-        conversation
-            .last()
-            .and_then(|message| message.metadata.usage.as_ref())
-            .and_then(|usage| usage.total_tokens),
-        Some(first_total)
-    );
+        .conversation
+        .as_ref()
+        .and_then(Conversation::last)
+        .and_then(|message| message.metadata.usage.as_ref())
+        .and_then(|usage| usage.total_tokens)
+        .is_none());
 
     api.on("return no choices").no_choices();
     let result = pipeline.run(["return no choices"]).await?;
@@ -224,11 +219,7 @@ async fn provider_lifecycle() -> Result<()> {
         .reply("recovered from server error");
     let result = pipeline.run(["after server error"]).await?;
     result.assert_message(-1, Agent, "recovered from server error");
-    assert!(result
-        .session
-        .usage
-        .total_tokens
-        .is_some_and(|total| total > first_total));
+    assert!(result.session.usage.total_tokens.is_none());
     assert!(api
         .calls()
         .iter()

@@ -2,6 +2,7 @@ use crate::agents::extension::PlatformExtensionContext;
 use crate::agents::mcp_client::{Error, McpClientTrait};
 use crate::agents::tool_execution::ToolCallContext;
 use crate::config::get_extension_by_name;
+use crate::session::SessionType;
 use anyhow::Result;
 use async_trait::async_trait;
 use indoc::indoc;
@@ -122,6 +123,7 @@ impl ExtensionManagerClient {
 
     async fn handle_manage_extensions(
         &self,
+        session_id: &str,
         arguments: Option<JsonObject>,
     ) -> Result<Vec<ContentBlock>, ExtensionManagerToolError> {
         let arguments = arguments.ok_or(ExtensionManagerToolError::MissingParameter {
@@ -132,7 +134,7 @@ impl ExtensionManagerClient {
             serde_json::from_value(serde_json::Value::Object(arguments))?;
 
         match self
-            .manage_extensions_impl(params.action, params.extension_name)
+            .manage_extensions_impl(session_id, params.action, params.extension_name)
             .await
         {
             Ok(content) => Ok(content),
@@ -144,9 +146,30 @@ impl ExtensionManagerClient {
 
     async fn manage_extensions_impl(
         &self,
+        session_id: &str,
         action: ManageExtensionAction,
         extension_name: String,
     ) -> Result<Vec<ContentBlock>, ErrorData> {
+        let session = self
+            .context
+            .session_manager
+            .get_session(session_id, false)
+            .await
+            .map_err(|error| {
+                ErrorData::new(
+                    ErrorCode::INTERNAL_ERROR,
+                    format!("Failed to get caller session: {error}"),
+                    None,
+                )
+            })?;
+        if session.session_type == SessionType::SubAgent {
+            return Err(ErrorData::new(
+                ErrorCode::INVALID_REQUEST,
+                "Subagents cannot manage extensions".to_string(),
+                None,
+            ));
+        }
+
         let extension_manager = self
             .context
             .extension_manager
@@ -264,9 +287,8 @@ impl ExtensionManagerClient {
     }
 
     #[allow(clippy::too_many_lines)]
-    async fn get_tools(&self) -> Vec<Tool> {
-        let mut tools = vec![
-            Tool::new(
+    async fn get_tools(&self, include_manage_extensions: bool) -> Vec<Tool> {
+        let mut tools = vec![Tool::new(
                 SEARCH_AVAILABLE_EXTENSIONS_TOOL_NAME.to_string(),
                 "Searches for additional extensions available to help complete tasks.
         Use this tool when you're unable to find a specific feature or functionality you need to complete your task, or when standard approaches aren't working.
@@ -288,28 +310,34 @@ impl ExtensionManagerClient {
                 Some(false),
                 Some(false),
                 Some(false),
-            )),
-            Tool::new(
-                MANAGE_EXTENSIONS_TOOL_NAME.to_string(),
-                "Tool to manage extensions and tools in goose context.
+            ))];
+
+        if include_manage_extensions {
+            tools.push(
+                Tool::new(
+                    MANAGE_EXTENSIONS_TOOL_NAME.to_string(),
+                    "Tool to manage extensions and tools in goose context.
             Enable or disable extensions to help complete tasks.
             Enable or disable an extension by providing the extension name.
-            ".to_string(),
-                Arc::new(
-                    serde_json::to_value(schema_for!(ManageExtensionsParams))
-                        .expect("Failed to serialize schema")
-                        .as_object()
-                        .expect("Schema must be an object")
-                        .clone()
-                ),
-            ).annotate(ToolAnnotations::from_raw(
-                Some("Enable or disable an extension".to_string()),
-                Some(false),
-                Some(false),
-                Some(false),
-                Some(false),
-            )),
-        ];
+            "
+                    .to_string(),
+                    Arc::new(
+                        serde_json::to_value(schema_for!(ManageExtensionsParams))
+                            .expect("Failed to serialize schema")
+                            .as_object()
+                            .expect("Schema must be an object")
+                            .clone(),
+                    ),
+                )
+                .annotate(ToolAnnotations::from_raw(
+                    Some("Enable or disable an extension".to_string()),
+                    Some(false),
+                    Some(false),
+                    Some(false),
+                    Some(false),
+                )),
+            );
+        }
 
         if let Some(weak_ref) = &self.context.extension_manager {
             if let Some(extension_manager) = weak_ref.upgrade() {
@@ -400,12 +428,19 @@ impl McpClientTrait for ExtensionManagerClient {
 
     async fn list_tools(
         &self,
-        _session_id: &str,
+        session_id: &str,
         _next_cursor: Option<String>,
         _cancellation_token: CancellationToken,
     ) -> Result<ListToolsResult, Error> {
+        let can_manage_extensions = self
+            .context
+            .session_manager
+            .get_session(session_id, false)
+            .await
+            .is_ok_and(|session| session.session_type != SessionType::SubAgent);
+
         Ok(ListToolsResult {
-            tools: self.get_tools().await,
+            tools: self.get_tools(can_manage_extensions).await,
             next_cursor: None,
             meta: None,
             ..Default::default()
@@ -424,7 +459,9 @@ impl McpClientTrait for ExtensionManagerClient {
             SEARCH_AVAILABLE_EXTENSIONS_TOOL_NAME => {
                 self.handle_search_available_extensions().await
             }
-            MANAGE_EXTENSIONS_TOOL_NAME => self.handle_manage_extensions(arguments).await,
+            MANAGE_EXTENSIONS_TOOL_NAME => {
+                self.handle_manage_extensions(session_id, arguments).await
+            }
             LIST_RESOURCES_TOOL_NAME => self.handle_list_resources(session_id, arguments).await,
             READ_RESOURCE_TOOL_NAME => self.handle_read_resource(session_id, arguments).await,
             _ => Err(ExtensionManagerToolError::UnknownTool {
@@ -465,5 +502,131 @@ impl McpClientTrait for ExtensionManagerClient {
 
     fn get_info(&self) -> Option<&InitializeResult> {
         Some(&self.info)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agents::extension_manager::ExtensionManager;
+    use crate::config::GooseMode;
+    use std::path::PathBuf;
+
+    fn client_for(manager: &Arc<ExtensionManager>) -> ExtensionManagerClient {
+        ExtensionManagerClient::new(PlatformExtensionContext {
+            extension_manager: Some(Arc::downgrade(manager)),
+            session_manager: manager.get_context().session_manager.clone(),
+            scheduler: None,
+            session: None,
+            use_login_shell_path: false,
+        })
+        .unwrap()
+    }
+
+    async fn create_session(manager: &ExtensionManager, session_type: SessionType) -> String {
+        manager
+            .get_context()
+            .session_manager
+            .create_session(
+                PathBuf::from("/tmp/extension-manager-test"),
+                "extension manager test".to_string(),
+                session_type,
+                GooseMode::default(),
+            )
+            .await
+            .unwrap()
+            .id
+    }
+
+    fn manage_arguments(action: &str) -> JsonObject {
+        serde_json::json!({
+            "action": action,
+            "extension_name": "developer",
+        })
+        .as_object()
+        .unwrap()
+        .clone()
+    }
+
+    async fn manage(
+        client: &ExtensionManagerClient,
+        session_id: &str,
+        action: &str,
+    ) -> CallToolResult {
+        client
+            .call_tool(
+                &ToolCallContext::new(session_id.to_string(), None, None),
+                MANAGE_EXTENSIONS_TOOL_NAME,
+                Some(manage_arguments(action)),
+                CancellationToken::default(),
+            )
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn subagent_direct_calls_cannot_enable_or_disable_extensions() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let manager = Arc::new(ExtensionManager::new_without_provider(
+            temp_dir.path().to_path_buf(),
+        ));
+        let client = client_for(&manager);
+        let user_id = create_session(&manager, SessionType::User).await;
+        let subagent_id = create_session(&manager, SessionType::SubAgent).await;
+
+        let enable = manage(&client, &subagent_id, "enable").await;
+        assert!(enable.is_error.unwrap_or(false));
+        assert!(!manager.is_extension_enabled("developer").await);
+
+        let user_enable = manage(&client, &user_id, "enable").await;
+        assert!(!user_enable.is_error.unwrap_or(false));
+        assert!(manager.is_extension_enabled("developer").await);
+
+        let disable = manage(&client, &subagent_id, "disable").await;
+        assert!(disable.is_error.unwrap_or(false));
+        assert!(manager.is_extension_enabled("developer").await);
+
+        let user_disable = manage(&client, &user_id, "disable").await;
+        assert!(!user_disable.is_error.unwrap_or(false));
+        assert!(!manager.is_extension_enabled("developer").await);
+    }
+
+    #[tokio::test]
+    async fn subagent_and_unknown_callers_are_not_offered_extension_management() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let manager = Arc::new(ExtensionManager::new_without_provider(
+            temp_dir.path().to_path_buf(),
+        ));
+        let client = client_for(&manager);
+        let user_id = create_session(&manager, SessionType::User).await;
+        let subagent_id = create_session(&manager, SessionType::SubAgent).await;
+
+        let user_tools = client
+            .list_tools(&user_id, None, CancellationToken::default())
+            .await
+            .unwrap();
+        assert!(user_tools
+            .tools
+            .iter()
+            .any(|tool| tool.name == MANAGE_EXTENSIONS_TOOL_NAME));
+
+        for session_id in [&subagent_id, "missing-session"] {
+            let tools = client
+                .list_tools(session_id, None, CancellationToken::default())
+                .await
+                .unwrap();
+            assert!(tools
+                .tools
+                .iter()
+                .any(|tool| tool.name == SEARCH_AVAILABLE_EXTENSIONS_TOOL_NAME));
+            assert!(tools
+                .tools
+                .iter()
+                .all(|tool| tool.name != MANAGE_EXTENSIONS_TOOL_NAME));
+        }
+
+        let unknown_enable = manage(&client, "missing-session", "enable").await;
+        assert!(unknown_enable.is_error.unwrap_or(false));
+        assert!(!manager.is_extension_enabled("developer").await);
     }
 }

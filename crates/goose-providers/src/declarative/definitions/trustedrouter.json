@@ -1,0 +1,52 @@
+{
+  "name": "trustedrouter",
+  "engine": "openai",
+  "display_name": "TrustedRouter",
+  "description": "Models from OpenAI, Anthropic, Google, DeepSeek and others via TrustedRouter's OpenAI-compatible API, with per-request routing and failover.",
+  "api_key_env": "TRUSTEDROUTER_API_KEY",
+  "base_url": "https://api.trustedrouter.com/v1",
+  "dynamic_models": true,
+  "models": [
+    {
+      "name": "trustedrouter/auto",
+      "context_limit": 200000
+    },
+    {
+      "name": "trustedrouter/fast",
+      "context_limit": 128000
+    },
+    {
+      "name": "trustedrouter/cheap",
+      "context_limit": 128000
+    },
+    {
+      "name": "trustedrouter/zdr",
+      "context_limit": 200000
+    },
+    {
+      "name": "trustedrouter/e2e",
+      "context_limit": 128000
+    },
+    {
+      "name": "anthropic/claude-opus-4-7",
+      "context_limit": 1000000
+    },
+    {
+      "name": "anthropic/claude-sonnet-4-6",
+      "context_limit": 1000000
+    },
+    {
+      "name": "openai/gpt-5.4-mini",
+      "context_limit": 400000
+    }
+  ],
+  "preserves_thinking": true,
+  "supports_streaming": true,
+  "model_doc_link": "https://api.trustedrouter.com/v1/models",
+  "setup_steps": [
+    "Sign in to https://trustedrouter.com",
+    "Open https://trustedrouter.com/keys",
+    "Create a new API key",
+    "Copy the key and paste it above"
+  ]
+}

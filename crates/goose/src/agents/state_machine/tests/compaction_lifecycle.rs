@@ -136,6 +136,39 @@ async fn proactive_and_manual_compaction_continue_with_replaced_usage() -> Resul
 }
 
 #[tokio::test]
+async fn tokenless_provider_compacts_estimated_context() -> Result<()> {
+    let (pipeline, api) = pipeline::test_pipeline_with(ProviderFeatures {
+        reports_usage: false,
+        ..ProviderFeatures::default()
+    })
+    .await?;
+    let pipeline = pipeline
+        .with_model_config(
+            goose_providers::model::ModelConfig::new("gpt-4.1").with_context_limit(Some(200)),
+        )
+        .await;
+    let large_context = (0..500)
+        .map(|index| format!("token-{index}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    pipeline
+        .seed([Message::user().with_text(large_context)])
+        .await?;
+    assert!(pipeline.session().await?.usage.total_tokens.is_none());
+
+    api.on(SUMMARIZE_HISTORY).reply("summary");
+    api.on("Your context was compacted")
+        .reply("continued after estimated compaction");
+
+    let compacted = pipeline.run(["continue"]).await?;
+    compacted.assert_message(-1, Agent, "continued after estimated compaction");
+    compacted.assert_emitted("Performing auto-compaction");
+    assert_eq!(compacted.history_replacements(), 1);
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn a_failed_compact_command_reports_the_error_and_keeps_working() -> Result<()> {
     let (pipeline, api) = test_pipeline().await?;
     api.on("do some work").reply("worked");

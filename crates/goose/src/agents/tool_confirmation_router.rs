@@ -5,27 +5,37 @@ use tracing::warn;
 
 use crate::permission::PermissionConfirmation;
 
-pub struct ToolConfirmationRouter {
-    pending: Mutex<HashMap<String, oneshot::Sender<PermissionConfirmation>>>,
+pub(super) struct ToolConfirmationRouter {
+    pending: Mutex<HashMap<(String, String), oneshot::Sender<PermissionConfirmation>>>,
 }
 
 impl ToolConfirmationRouter {
-    pub fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self {
             pending: Mutex::new(HashMap::new()),
         }
     }
 
-    pub async fn register(&self, request_id: String) -> oneshot::Receiver<PermissionConfirmation> {
+    pub(super) async fn register(
+        &self,
+        session_id: String,
+        request_id: String,
+    ) -> oneshot::Receiver<PermissionConfirmation> {
         let (tx, rx) = oneshot::channel();
         let mut pending = self.pending.lock().await;
         pending.retain(|_, sender| !sender.is_closed());
-        pending.insert(request_id, tx);
+        pending.insert((session_id, request_id), tx);
         rx
     }
 
-    pub async fn deliver(&self, request_id: String, confirmation: PermissionConfirmation) -> bool {
-        if let Some(tx) = self.pending.lock().await.remove(&request_id) {
+    pub(super) async fn deliver(
+        &self,
+        session_id: &str,
+        request_id: &str,
+        confirmation: PermissionConfirmation,
+    ) -> bool {
+        let key = (session_id.to_string(), request_id.to_string());
+        if let Some(tx) = self.pending.lock().await.remove(&key) {
             if tx.send(confirmation).is_err() {
                 warn!(
                     request_id = %request_id,
@@ -36,10 +46,6 @@ impl ToolConfirmationRouter {
                 true
             }
         } else {
-            warn!(
-                request_id = %request_id,
-                "No task waiting for confirmation"
-            );
             false
         }
     }
@@ -61,10 +67,12 @@ mod tests {
     #[tokio::test]
     async fn test_register_then_deliver() {
         let router = ToolConfirmationRouter::new();
-        let rx = router.register("req_1".to_string()).await;
+        let rx = router
+            .register("session_1".to_string(), "req_1".to_string())
+            .await;
         assert!(
             router
-                .deliver("req_1".to_string(), test_confirmation())
+                .deliver("session_1", "req_1", test_confirmation())
                 .await
         );
         let confirmation = rx.await.unwrap();
@@ -76,19 +84,36 @@ mod tests {
         let router = ToolConfirmationRouter::new();
         assert!(
             !router
-                .deliver("unknown".to_string(), test_confirmation())
+                .deliver("session_1", "unknown", test_confirmation())
                 .await
         );
     }
 
     #[tokio::test]
+    async fn test_request_cannot_be_delivered_from_another_session() {
+        let router = ToolConfirmationRouter::new();
+        let _rx = router
+            .register("session_1".to_string(), "req_1".to_string())
+            .await;
+
+        assert!(
+            !router
+                .deliver("session_2", "req_1", test_confirmation())
+                .await
+        );
+        assert_eq!(router.pending.lock().await.len(), 1);
+    }
+
+    #[tokio::test]
     async fn test_cancelled_receiver() {
         let router = ToolConfirmationRouter::new();
-        let rx = router.register("req_1".to_string()).await;
+        let rx = router
+            .register("session_1".to_string(), "req_1".to_string())
+            .await;
         drop(rx); // simulate task cancellation
         assert!(
             !router
-                .deliver("req_1".to_string(), test_confirmation())
+                .deliver("session_1", "req_1", test_confirmation())
                 .await
         );
     }
@@ -96,14 +121,22 @@ mod tests {
     #[tokio::test]
     async fn test_stale_entries_pruned_on_register() {
         let router = ToolConfirmationRouter::new();
-        let rx = router.register("req_1".to_string()).await;
+        let rx = router
+            .register("session_1".to_string(), "req_1".to_string())
+            .await;
         drop(rx); // simulate task cancellation — entry is now stale
 
         assert_eq!(router.pending.lock().await.len(), 1);
 
-        let _rx2 = router.register("req_2".to_string()).await;
+        let _rx2 = router
+            .register("session_1".to_string(), "req_2".to_string())
+            .await;
         assert_eq!(router.pending.lock().await.len(), 1); // only req_2 remains
-        assert!(router.pending.lock().await.contains_key("req_2"));
+        assert!(router
+            .pending
+            .lock()
+            .await
+            .contains_key(&("session_1".to_string(), "req_2".to_string())));
     }
 
     #[tokio::test]
@@ -113,14 +146,19 @@ mod tests {
         let router = Arc::new(ToolConfirmationRouter::new());
 
         // Register two requests
-        let rx1 = router.register("req_1".to_string()).await;
-        let rx2 = router.register("req_2".to_string()).await;
+        let rx1 = router
+            .register("session_1".to_string(), "req_1".to_string())
+            .await;
+        let rx2 = router
+            .register("session_1".to_string(), "req_2".to_string())
+            .await;
 
         // Deliver in reverse order
         assert!(
             router
                 .deliver(
-                    "req_2".to_string(),
+                    "session_1",
+                    "req_2",
                     PermissionConfirmation {
                         principal_type: PrincipalType::Tool,
                         permission: Permission::DenyOnce,
@@ -131,7 +169,7 @@ mod tests {
         assert_eq!(router.pending.lock().await.len(), 1);
         assert!(
             router
-                .deliver("req_1".to_string(), test_confirmation())
+                .deliver("session_1", "req_1", test_confirmation())
                 .await
         );
         assert_eq!(router.pending.lock().await.len(), 0);

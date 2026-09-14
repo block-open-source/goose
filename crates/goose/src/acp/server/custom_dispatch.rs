@@ -180,13 +180,6 @@ impl GooseAcpAgent {
         self.on_get_config_extensions().await
     }
 
-    #[custom_method(GetAvailableExtensionsRequest)]
-    async fn dispatch_get_available_extensions(
-        &self,
-    ) -> Result<GetAvailableExtensionsResponse, agent_client_protocol::Error> {
-        self.on_get_available_extensions().await
-    }
-
     #[custom_method(AddConfigExtensionRequest)]
     async fn dispatch_add_config_extension(
         &self,
@@ -385,14 +378,6 @@ impl GooseAcpAgent {
         req: PreferencesSaveRequest,
     ) -> Result<EmptyResponse, agent_client_protocol::Error> {
         self.on_preferences_save(req).await
-    }
-
-    #[custom_method(PreferencesRemoveRequest)]
-    async fn dispatch_preferences_remove(
-        &self,
-        req: PreferencesRemoveRequest,
-    ) -> Result<EmptyResponse, agent_client_protocol::Error> {
-        self.on_preferences_remove(req).await
     }
 
     #[custom_method(ConfigReadRequest)]
@@ -779,22 +764,6 @@ impl GooseAcpAgent {
         self.on_dictation_config(_req).await
     }
 
-    #[custom_method(DictationSecretSaveRequest)]
-    async fn dispatch_dictation_secret_save(
-        &self,
-        req: DictationSecretSaveRequest,
-    ) -> Result<EmptyResponse, agent_client_protocol::Error> {
-        self.on_dictation_secret_save(req).await
-    }
-
-    #[custom_method(DictationSecretDeleteRequest)]
-    async fn dispatch_dictation_secret_delete(
-        &self,
-        req: DictationSecretDeleteRequest,
-    ) -> Result<EmptyResponse, agent_client_protocol::Error> {
-        self.on_dictation_secret_delete(req).await
-    }
-
     #[custom_method(DictationModelsListRequest)]
     async fn dispatch_dictation_models_list(
         &self,
@@ -833,14 +802,6 @@ impl GooseAcpAgent {
         _req: DictationModelDeleteRequest,
     ) -> Result<EmptyResponse, agent_client_protocol::Error> {
         self.on_dictation_model_delete(_req).await
-    }
-
-    #[custom_method(DictationModelSelectRequest)]
-    async fn dispatch_dictation_model_select(
-        &self,
-        req: DictationModelSelectRequest,
-    ) -> Result<EmptyResponse, agent_client_protocol::Error> {
-        self.on_dictation_model_select(req).await
     }
 
     #[custom_method(LocalInferenceModelsListRequest)]

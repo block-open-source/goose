@@ -27,10 +27,6 @@ const i18n = defineMessages({
     id: 'extensionInfoFields.typeHttp',
     defaultMessage: 'HTTP',
   },
-  typeSseUnsupported: {
-    id: 'extensionInfoFields.typeSseUnsupported',
-    defaultMessage: 'SSE (unsupported)',
-  },
   typeStandardIo: {
     id: 'extensionInfoFields.typeStandardIo',
     defaultMessage: 'Standard IO (STDIO)',
@@ -51,7 +47,7 @@ const i18n = defineMessages({
 
 interface ExtensionInfoFieldsProps {
   name: string;
-  type: 'stdio' | 'sse' | 'streamable_http' | 'builtin';
+  type: 'stdio' | 'streamable_http' | 'builtin';
   description: string;
   onChange: (key: string, value: string) => void;
   submitAttempted: boolean;
@@ -75,7 +71,9 @@ export default function ExtensionInfoFields({
       {/* Top row with Name and Type side by side */}
       <div className="flex justify-between gap-4">
         <div className="flex-1">
-          <label className="text-sm font-medium mb-2 block text-text-primary">{intl.formatMessage(i18n.extensionName)}</label>
+          <label className="text-sm font-medium mb-2 block text-text-primary">
+            {intl.formatMessage(i18n.extensionName)}
+          </label>
           <div className="relative">
             <Input
               value={name}
@@ -84,14 +82,18 @@ export default function ExtensionInfoFields({
               className={`${!submitAttempted || isNameValid() ? 'border-border-primary' : 'border-red-500'} text-text-primary focus:border-border-primary`}
             />
             {submitAttempted && !isNameValid() && (
-              <div className="absolute text-xs text-red-500 mt-1">{intl.formatMessage(i18n.nameRequired)}</div>
+              <div className="absolute text-xs text-red-500 mt-1">
+                {intl.formatMessage(i18n.nameRequired)}
+              </div>
             )}
           </div>
         </div>
 
         {/* Type Dropdown */}
         <div className="w-[200px]">
-          <label className="text-sm font-medium mb-2 block text-text-primary">{intl.formatMessage(i18n.typeLabel)}</label>
+          <label className="text-sm font-medium mb-2 block text-text-primary">
+            {intl.formatMessage(i18n.typeLabel)}
+          </label>
           <Select
             value={{
               value: type,
@@ -100,9 +102,7 @@ export default function ExtensionInfoFields({
                   ? intl.formatMessage(i18n.typeStdio)
                   : type === 'streamable_http'
                     ? intl.formatMessage(i18n.typeHttp)
-                    : type === 'sse'
-                      ? intl.formatMessage(i18n.typeSseUnsupported)
-                      : type.toUpperCase(),
+                    : type.toUpperCase(),
             }}
             onChange={(newValue: unknown) => {
               const option = newValue as { value: string; label: string } | null;
@@ -121,7 +121,9 @@ export default function ExtensionInfoFields({
 
       {/* Bottom row with Description spanning full width */}
       <div className="w-full">
-        <label className="text-sm font-medium mb-2 block text-text-primary">{intl.formatMessage(i18n.descriptionLabel)}</label>
+        <label className="text-sm font-medium mb-2 block text-text-primary">
+          {intl.formatMessage(i18n.descriptionLabel)}
+        </label>
         <div className="relative">
           <Input
             value={description}

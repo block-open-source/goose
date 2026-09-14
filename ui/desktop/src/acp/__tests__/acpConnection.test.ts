@@ -37,7 +37,7 @@ const transport = vi.hoisted(() => ({
   createWebSocketStream: vi.fn(),
 }));
 
-vi.mock('@aaif/goose-sdk', () => ({
+vi.mock('@aaif/goose-acp-client', () => ({
   DEFAULT_GOOSE_MCP_HOST_CAPABILITIES: {},
 }));
 

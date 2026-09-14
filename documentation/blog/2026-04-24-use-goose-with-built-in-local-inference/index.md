@@ -23,8 +23,8 @@ There's no separate server to start, no port to configure, no background daemon.
 How to do this on the desktop app:
 
 1. Open **Settings → Local Inference**
-2. Browse the featured model list — goose recommends the best one for your available memory or you can search for specific models of your choice.
-3. Click download — the model file lands in goose’s data directory under `models`
+2. Search Hugging Face for a compatible model.
+3. Click download — the model files land in the shared Hugging Face cache.
 4. Start building. That's it.
 
 goose handles the details: GPU offloading, memory management, context window sizing, and automatic model unloading when you switch between models.
@@ -45,15 +45,6 @@ You might already be familiar with using goose via the [Ollama provider](/blog/2
 
 The built-in path is designed for people who want the simplest possible local experience — one app, one download, done. Ollama is still great if you want more control, a wider model selection, or you're already using it for other tools.
 
-## Featured models
-
-goose ships with a curated list of models that are tested and known to work well. As at the time of this writing, the featured models include:
-- Llama 3.2 3B (GGUF) — a small, fast model good for basic tasks and shell command generation.
-- Mistral Small 24B (GGUF) — a larger model with strong reasoning capabilities, but slower on CPU.
-- Hermes 2 Pro Mistral 7B (GGUF) — a 7 billion parameter model optimized for instruction following and coding tasks.
-- Gemma 4 E4B (GGUF) — a 4 billion parameter variant of Google's Gemma 4, optimized for local inference with native tool calling support.
-- Gemma 4 26B-A4B (GGUF) — a 26 billion parameter variant of Gemma 4 with native tool calling and vision support, for users who want stronger local performance and have enough available memory.
-
 ## What to expect
 
 There is some cost that comes with choosing to use a local model - the biggest of which is performance depending on the capabilities of your hardware. Compared to cloud models:
@@ -71,11 +62,11 @@ There is some cost that comes with choosing to use a local model - the biggest o
 
 ## Tips for getting the most out of it
 
-**Start with Gemma 4 E4B.** It's the best balance of capability and resource usage. If it works well for your tasks, great. If you need more power, step up to the 26B variant.
+**Start small.** Choose a quantized model that fits comfortably in the memory available to goose. If it works well for your tasks, step up to a larger model when you need more capability.
 
 **Use Code Mode.** Seriously. It's designed for exactly this scenario — keeping sessions productive within smaller context windows.
 
-**Let goose recommend.** The automatic model recommendation is based on your actual available memory, not total RAM. Trust it for the first run.
+**Use the recommendation.** goose compares models already in your Hugging Face cache with the memory currently available for inference.
 
 **Don't fight emulated mode.** If you're using a model without native tool calling, lean into the shell-command workflow. Ask goose to do things step by step. It works well for "run this command, check the output, do the next thing" patterns.
 

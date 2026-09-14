@@ -1,0 +1,928 @@
+#!/usr/bin/env node
+
+import {
+  accessSync,
+  chmodSync,
+  constants,
+  existsSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+} from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
+import {
+  getOpenIssues,
+  getProjectIssues,
+  issueReferenceFromChannel,
+  issueReferenceRank,
+  readCoreTeam,
+} from "./github_manager.mjs";
+
+const phaseMarkers = {
+  Inbox: "⚪",
+  "Needs info": "🟡",
+  "Accepted / design": "🟣",
+  Ready: "🟢",
+  Verification: "🔵",
+  Done: "✅",
+};
+const internalAuthorAssociations = new Set([
+  "OWNER",
+  "MEMBER",
+  "COLLABORATOR",
+]);
+const scriptDirectory = dirname(fileURLToPath(import.meta.url));
+
+const options = parseArguments(process.argv.slice(2));
+if (options.help) {
+  printHelp();
+  process.exit(0);
+}
+
+const relayUrl = process.env.BUZZ_RELAY_URL || "https://buzz.gdk.so";
+const configHome = process.env.XDG_CONFIG_HOME || join(homedir(), ".config");
+const buzzHome =
+  process.env.GOOSE_BUZZ_HOME || join(configHome, "goose", "buzz");
+const identityDirectory = join(buzzHome, "github-manager");
+const privateKeyPath = join(identityDirectory, "private-key.nsec");
+const publicKeyPath = join(identityDirectory, "public-key.hex");
+const commentStatePath = join(
+  identityDirectory,
+  `issue-comment-sync-${options.repository
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")}.json`,
+);
+const snoozeStatePath = join(
+  identityDirectory,
+  `issue-snooze-sync-${options.repository
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")}.json`,
+);
+const coreTeamPath =
+  process.env.BUZZ_CORE_TEAM_FILE || join(scriptDirectory, "core-team.json");
+const privateKey = readRequiredFile(privateKeyPath);
+const publicKey = readRequiredFile(publicKeyPath).toLowerCase();
+if (!/^[0-9a-f]{64}$/.test(publicKey)) {
+  fail(`Invalid GitHub Manager public key in ${publicKeyPath}.`);
+}
+const buzz = findBuzz();
+const gh = process.env.GH_BIN || "gh";
+const buzzEnvironment = {
+  ...process.env,
+  BUZZ_PRIVATE_KEY: privateKey,
+  BUZZ_RELAY_URL: relayUrl,
+};
+const coreTeam = readCoreTeamOrFail();
+const coreTeamByGithub = coreTeam.byGithub;
+const { byNumber: projectItemsByIssueNumber } = getProjectIssuesOrFail();
+const openIssues = getOpenIssuesOrFail();
+const openIssueCount = openIssues.length;
+
+const openIssuesByNumber = new Map(
+  openIssues.map((issue) => [issue.number, issue]),
+);
+const detailsByChannelId = getChannelDetails();
+const channels = [...detailsByChannelId.values()];
+const results = [];
+const channelsByIssueNumber = new Map();
+const channelOwnership = new Map();
+const githubItemKinds = new Map();
+const selectedChannels = new Map();
+
+for (const channel of channels) {
+  const resolved = resolveChannel(channel);
+  if (!resolved) {
+    continue;
+  }
+  if (!resolved.number) {
+    results.push({
+      channel_id: channel.channel_id,
+      channel: channel.name,
+      state: "IGNORED",
+      actions: ["skipped"],
+      reason: resolved.reason,
+    });
+    continue;
+  }
+  const selected = selectedChannels.get(resolved.number);
+  if (!selected) {
+    selectedChannels.set(resolved.number, { channel, resolved });
+    continue;
+  }
+  if (selected.resolved.rank === resolved.rank) {
+    fail(`More than one Buzz channel matches GitHub issue #${resolved.number}.`);
+  }
+  const ignored =
+    selected.resolved.rank > resolved.rank ? channel : selected.channel;
+  results.push({
+    channel_id: ignored.channel_id,
+    channel: ignored.name,
+    issue: resolved.number,
+    state: "IGNORED",
+    actions: ["skipped"],
+    reason: "A more specific issue channel exists",
+  });
+  if (resolved.rank > selected.resolved.rank) {
+    selectedChannels.set(resolved.number, { channel, resolved });
+  }
+}
+
+for (const { channel, resolved } of selectedChannels.values()) {
+  const issueNumber = resolved.number;
+  channelsByIssueNumber.set(issueNumber, channel);
+
+  const details = detailsByChannelId.get(channel.channel_id);
+  if (!details) {
+    fail(`Could not read state for Buzz channel ${channel.channel_id}.`);
+  }
+
+  const actions = [];
+  const currentTopic = details.topic || null;
+  const issue = openIssuesByNumber.get(issueNumber);
+
+  if (!issue) {
+    const topic = "✅ GitHub issue: Closed";
+    const topicNeedsUpdate = currentTopic !== topic;
+    if (
+      (!details.archived || topicNeedsUpdate) &&
+      !canManageChannel(channel.channel_id)
+    ) {
+      results.push({
+        channel_id: channel.channel_id,
+        channel: channel.name,
+        issue: issueNumber,
+        state: "CLOSED",
+        topic: currentTopic,
+        desired_topic: topic,
+        actions: ["skipped-not-owner"],
+        reason: "GitHub Manager is not a channel owner",
+      });
+      continue;
+    }
+    if (details.archived && topicNeedsUpdate) {
+      if (!options.dryRun) {
+        runBuzz(["channels", "unarchive", "--channel", channel.channel_id]);
+      }
+      actions.push(options.dryRun ? "would-unarchive" : "unarchived");
+    }
+    if (topicNeedsUpdate) {
+      if (!options.dryRun) {
+        runBuzz([
+          "channels",
+          "topic",
+          "--channel",
+          channel.channel_id,
+          "--topic",
+          topic,
+        ]);
+      }
+      actions.push(options.dryRun ? "would-update-topic" : "topic-updated");
+    }
+    if (!details.archived || topicNeedsUpdate) {
+      if (!options.dryRun) {
+        runBuzz(["channels", "archive", "--channel", channel.channel_id]);
+      }
+      actions.push(options.dryRun ? "would-archive" : "archived");
+    }
+
+    results.push({
+      channel_id: channel.channel_id,
+      channel: channel.name,
+      issue: issueNumber,
+      state: "CLOSED",
+      topic,
+      ...(topicNeedsUpdate ? { previous_topic: currentTopic } : {}),
+      actions: actions.length > 0 ? actions : ["unchanged"],
+    });
+    continue;
+  }
+
+  if (details.archived) {
+    if (!canManageChannel(channel.channel_id)) {
+      results.push({
+        channel_id: channel.channel_id,
+        channel: channel.name,
+        issue: issue.number,
+        state: "OPEN",
+        topic: currentTopic,
+        actions: ["skipped-not-owner"],
+        reason: "GitHub Manager is not a channel owner",
+      });
+      continue;
+    }
+    if (!options.dryRun) {
+      runBuzz(["channels", "unarchive", "--channel", channel.channel_id]);
+    }
+    actions.push(options.dryRun ? "would-unarchive" : "unarchived");
+  }
+
+  const projectItem = projectItemsByIssueNumber.get(issue.number);
+  const phase = projectItem?.status;
+  if (!phase) {
+    results.push({
+      channel_id: channel.channel_id,
+      channel: channel.name,
+      issue: issue.number,
+      state: "OPEN",
+      actions: actions.length > 0 ? actions : ["skipped"],
+      reason: `Issue is not in ${options.project} with a status`,
+    });
+    continue;
+  }
+
+  const marker = phaseMarkers[phase];
+  const assignees = issue.assignees
+    .map((assignee) => assignee.login)
+    .filter(Boolean);
+  const assignment =
+    assignees.length > 0
+      ? assignees.map((login) => `@${login}`).join(", ")
+      : "unassigned";
+  const topic = `${marker ? `${marker} ` : ""}${phase} -- assigned to: ${assignment}`;
+
+  if (currentTopic !== topic && !canManageChannel(channel.channel_id)) {
+    results.push({
+      channel_id: channel.channel_id,
+      channel: channel.name,
+      issue: issue.number,
+      state: "OPEN",
+      phase,
+      assignees,
+      topic: currentTopic,
+      desired_topic: topic,
+      actions: ["skipped-not-owner"],
+      reason: "GitHub Manager is not a channel owner",
+    });
+    continue;
+  }
+
+  if (currentTopic !== topic) {
+    if (!options.dryRun) {
+      runBuzz([
+        "channels",
+        "topic",
+        "--channel",
+        channel.channel_id,
+        "--topic",
+        topic,
+      ]);
+    }
+    actions.push(options.dryRun ? "would-update-topic" : "topic-updated");
+  }
+
+  results.push({
+    channel_id: channel.channel_id,
+    channel: channel.name,
+    issue: issue.number,
+    state: "OPEN",
+    phase,
+    assignees,
+    topic,
+    ...(currentTopic !== topic ? { previous_topic: currentTopic } : {}),
+    actions: actions.length > 0 ? actions : ["unchanged"],
+  });
+}
+
+const commentSync = syncOutsiderComments(
+  openIssuesByNumber,
+  channelsByIssueNumber,
+);
+const snoozeSync = syncExpiredSnoozes(
+  openIssuesByNumber,
+  channelsByIssueNumber,
+);
+
+console.log(
+  JSON.stringify(
+    {
+      repository: options.repository,
+      project: options.project,
+      dry_run: options.dryRun,
+      open_github_issues: openIssueCount,
+      buzz_channels: channels.length,
+      matched_channels: results.length,
+      comment_sync: commentSync,
+      snooze_sync: snoozeSync,
+      channels: results,
+    },
+    null,
+    2,
+  ),
+);
+
+function parseArguments(arguments_) {
+  const parsed = {
+    repository: "aaif-goose/goose",
+    project: "Goose Issues",
+    projectOwner: "aaif-goose",
+    projectNumber: 1,
+    projectLimit: 1000,
+    limit: 500,
+    dryRun: false,
+    help: false,
+  };
+
+  for (let index = 0; index < arguments_.length; index += 1) {
+    const argument = arguments_[index];
+
+    if (argument === "--repo") {
+      parsed.repository = requiredValue(arguments_, ++index, argument);
+      continue;
+    }
+    if (argument === "--project") {
+      parsed.project = requiredValue(arguments_, ++index, argument);
+      continue;
+    }
+    if (argument === "--project-owner") {
+      parsed.projectOwner = requiredValue(arguments_, ++index, argument);
+      continue;
+    }
+    if (argument === "--project-number") {
+      parsed.projectNumber = positiveInteger(
+        requiredValue(arguments_, ++index, argument),
+        argument,
+      );
+      continue;
+    }
+    if (argument === "--project-limit") {
+      parsed.projectLimit = positiveInteger(
+        requiredValue(arguments_, ++index, argument),
+        argument,
+      );
+      continue;
+    }
+    if (argument === "--limit") {
+      const value = Number.parseInt(
+        requiredValue(arguments_, ++index, argument),
+        10,
+      );
+      if (!Number.isSafeInteger(value) || value < 1) {
+        fail("--limit must be a positive integer.");
+      }
+      parsed.limit = value;
+      continue;
+    }
+    if (argument === "--dry-run") {
+      parsed.dryRun = true;
+      continue;
+    }
+    if (argument === "--help" || argument === "-h") {
+      parsed.help = true;
+      continue;
+    }
+    fail(`Unknown option: ${argument}`);
+  }
+
+  return parsed;
+}
+
+function requiredValue(arguments_, index, option) {
+  const value = arguments_[index];
+  if (!value || value.startsWith("--")) {
+    fail(`${option} requires a value.`);
+  }
+  return value;
+}
+
+function positiveInteger(value, option) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isSafeInteger(parsed) || parsed < 1) {
+    fail(`${option} must be a positive integer.`);
+  }
+  return parsed;
+}
+
+function getProjectIssuesOrFail() {
+  try {
+    return getProjectIssues(runJson, {
+      command: gh,
+      projectNumber: options.projectNumber,
+      projectOwner: options.projectOwner,
+      projectLimit: options.projectLimit,
+      repository: options.repository,
+    });
+  } catch (error) {
+    fail(error.message);
+  }
+}
+
+function getOpenIssuesOrFail() {
+  try {
+    return getOpenIssues(runJson, {
+      command: gh,
+      repository: options.repository,
+    });
+  } catch (error) {
+    fail(error.message);
+  }
+}
+
+function readCoreTeamOrFail() {
+  try {
+    return readCoreTeam(coreTeamPath);
+  } catch (error) {
+    fail(error.message);
+  }
+}
+
+function getChannelDetails() {
+  const details = new Map();
+  for (const digit of "0123456789") {
+    const matches = runBuzz([
+      "channels",
+      "search",
+      "--query",
+      digit,
+      "--include-archived",
+      "--limit",
+      String(options.limit),
+    ]);
+    if (matches.length >= options.limit) {
+      fail(
+        `Buzz returned ${matches.length} channels at the --limit boundary for ${digit}. Raise --limit.`,
+      );
+    }
+    for (const channel of matches) {
+      details.set(channel.channel_id, channel);
+    }
+  }
+  return details;
+}
+
+function canManageChannel(channelId) {
+  if (!channelOwnership.has(channelId)) {
+    const members = runBuzz([
+      "channels",
+      "members",
+      "--channel",
+      channelId,
+    ]);
+    channelOwnership.set(
+      channelId,
+      members.some(
+        (member) =>
+          member.pubkey?.toLowerCase() === publicKey && member.role === "owner",
+      ),
+    );
+  }
+  return channelOwnership.get(channelId);
+}
+
+function resolveChannel(channel) {
+  const reference = issueReferenceFromChannel(channel);
+  if (!reference) {
+    return null;
+  }
+  if (
+    reference.repository &&
+    reference.repository.toLowerCase() !== options.repository.toLowerCase()
+  ) {
+    return {
+      reason: `Channel belongs to ${reference.repository}#${reference.number}`,
+    };
+  }
+  if (reference.kind === "pull-request") {
+    return { reason: `#${reference.number} is a pull request, not an issue` };
+  }
+  const rank = issueReferenceRank(reference);
+  if (
+    reference.source === "description" ||
+    projectItemsByIssueNumber.has(reference.number) ||
+    openIssuesByNumber.has(reference.number)
+  ) {
+    return { number: reference.number, rank };
+  }
+
+  const kind = githubItemKind(reference.number);
+  return kind === "issue"
+    ? { number: reference.number, rank }
+    : {
+        reason:
+          kind === "pull-request"
+            ? `#${reference.number} is a pull request, not an issue`
+            : `Could not find GitHub issue #${reference.number}`,
+      };
+}
+
+function githubItemKind(number) {
+  if (!githubItemKinds.has(number)) {
+    const item = runOptionalJson(gh, [
+      "api",
+      `repos/${options.repository}/issues/${number}`,
+    ]);
+    githubItemKinds.set(
+      number,
+      item ? (item.pull_request ? "pull-request" : "issue") : "missing",
+    );
+  }
+  return githubItemKinds.get(number);
+}
+
+function runOptionalJson(command, arguments_) {
+  const result = spawnSync(command, arguments_, {
+    encoding: "utf8",
+    maxBuffer: 32 * 1024 * 1024,
+  });
+  if (result.error) {
+    fail(`Could not run ${command}: ${result.error.message}`);
+  }
+  if (result.status !== 0) {
+    const message = result.stderr.trim() || result.stdout.trim();
+    if (/HTTP 404|Not Found/i.test(message)) {
+      return null;
+    }
+    fail(`${command} failed${message ? `: ${message}` : "."}`);
+  }
+  try {
+    return JSON.parse(result.stdout);
+  } catch {
+    fail(`${command} returned invalid JSON: ${result.stdout.trim()}`);
+  }
+}
+
+function syncOutsiderComments(openIssuesByNumber, channelsByIssueNumber) {
+  const syncStartedAt = new Date(
+    Math.floor(Date.now() / 1000) * 1000,
+  ).toISOString();
+  const state = readCommentState();
+
+  if (!state) {
+    if (!options.dryRun) {
+      writeCommentState({ checked_at: syncStartedAt, posted_comment_ids: [] });
+    }
+    return {
+      status: options.dryRun ? "would-initialize" : "initialized",
+      checked_at: syncStartedAt,
+      comments_scanned: 0,
+      notifications: [],
+    };
+  }
+
+  const pages = runJson(gh, [
+    "api",
+    "--method",
+    "GET",
+    "--paginate",
+    "--slurp",
+    `repos/${options.repository}/issues/comments`,
+    "-f",
+    `since=${state.checked_at}`,
+    "-f",
+    "per_page=100",
+  ]);
+  if (!Array.isArray(pages) || pages.some((page) => !Array.isArray(page))) {
+    fail("GitHub returned an invalid paginated issue comment response.");
+  }
+
+  const comments = pages
+    .flat()
+    .filter((comment) => {
+      const createdAt = Date.parse(comment.created_at);
+      return (
+        Number.isFinite(createdAt) &&
+        createdAt >= Date.parse(state.checked_at) &&
+        createdAt <= Date.parse(syncStartedAt)
+      );
+    })
+    .sort(
+      (left, right) =>
+        Date.parse(left.created_at) - Date.parse(right.created_at) ||
+        left.id - right.id,
+    );
+  const postedCommentIds = new Set(state.posted_comment_ids);
+  const notifications = [];
+
+  for (const comment of comments) {
+    if (
+      !comment.user ||
+      comment.user.type !== "User" ||
+      internalAuthorAssociations.has(comment.author_association)
+    ) {
+      continue;
+    }
+
+    const issueNumber = issueNumberFromApiUrl(comment.issue_url);
+    if (!issueNumber || !openIssuesByNumber.has(issueNumber)) {
+      continue;
+    }
+
+    const channel = channelsByIssueNumber.get(issueNumber);
+    if (!channel) {
+      notifications.push({
+        issue: issueNumber,
+        comment_id: comment.id,
+        author: comment.user.login,
+        url: comment.html_url,
+        action: "skipped-no-channel",
+      });
+      continue;
+    }
+
+    if (postedCommentIds.has(comment.id)) {
+      notifications.push({
+        issue: issueNumber,
+        channel_id: channel.channel_id,
+        comment_id: comment.id,
+        author: comment.user.login,
+        url: comment.html_url,
+        action: "already-notified",
+      });
+      continue;
+    }
+
+    const issue = openIssuesByNumber.get(issueNumber);
+    const owner = issueOwner(issue);
+    if (!options.dryRun) {
+      const content = [
+        owner
+          ? `@${owner.name}, \`${comment.user.login}\` replied on GitHub.`
+          : `\`${comment.user.login}\` replied on GitHub. This issue has no core-team owner to mention.`,
+        "",
+        `[Read the reply on GitHub](${comment.html_url})`,
+      ].join("\n");
+      const sendArguments = [
+        "messages",
+        "send",
+        "--channel",
+        channel.channel_id,
+        "--content",
+        content,
+      ];
+      if (owner) {
+        sendArguments.push("--mention", owner.pubkey);
+      }
+      runBuzz(sendArguments);
+      postedCommentIds.add(comment.id);
+      writeCommentState({
+        checked_at: state.checked_at,
+        posted_comment_ids: [...postedCommentIds],
+      });
+    }
+
+    notifications.push({
+      issue: issueNumber,
+      channel_id: channel.channel_id,
+      comment_id: comment.id,
+      author: comment.user.login,
+      url: comment.html_url,
+      owner: owner?.github || null,
+      action: options.dryRun ? "would-notify" : "notified",
+    });
+  }
+
+  if (!options.dryRun) {
+    const boundaryCommentIds = comments
+      .filter(
+        (comment) =>
+          Date.parse(comment.created_at) === Date.parse(syncStartedAt) &&
+          postedCommentIds.has(comment.id),
+      )
+      .map((comment) => comment.id);
+    writeCommentState({
+      checked_at: syncStartedAt,
+      posted_comment_ids: boundaryCommentIds,
+    });
+  }
+
+  return {
+    status: "scanned",
+    since: state.checked_at,
+    checked_at: syncStartedAt,
+    comments_scanned: comments.length,
+    notifications,
+  };
+}
+
+function syncExpiredSnoozes(openIssuesByNumber, channelsByIssueNumber) {
+  const state = readSnoozeState();
+  const today = localDate(new Date());
+  const notifications = [];
+
+  for (const [issueNumber, channel] of channelsByIssueNumber) {
+    const issue = openIssuesByNumber.get(issueNumber);
+    const projectItem = projectItemsByIssueNumber.get(issueNumber);
+    const snoozedUntil = projectItem?.["snoozed until"];
+    if (
+      !issue ||
+      typeof snoozedUntil !== "string" ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(snoozedUntil) ||
+      snoozedUntil > today
+    ) {
+      continue;
+    }
+
+    const stateKey = String(issueNumber);
+    if (state.notified[stateKey] === snoozedUntil) {
+      continue;
+    }
+
+    const owner = issueOwner(issue);
+    if (!options.dryRun) {
+      const content = owner
+        ? `@${owner.name}, the snooze is expired.`
+        : "The snooze is expired. This issue has no core-team owner to mention.";
+      const sendArguments = [
+        "messages",
+        "send",
+        "--channel",
+        channel.channel_id,
+        "--content",
+        content,
+      ];
+      if (owner) {
+        sendArguments.push("--mention", owner.pubkey);
+      }
+      runBuzz(sendArguments);
+      state.notified[stateKey] = snoozedUntil;
+      writeSnoozeState(state);
+    }
+
+    notifications.push({
+      issue: issueNumber,
+      channel_id: channel.channel_id,
+      snoozed_until: snoozedUntil,
+      owner: owner?.github || null,
+      action: options.dryRun ? "would-notify" : "notified",
+    });
+  }
+
+  return { checked_on: today, notifications };
+}
+
+function issueOwner(issue) {
+  for (const assignee of issue.assignees || []) {
+    const owner = coreTeamByGithub.get(assignee.login?.toLowerCase());
+    if (owner) {
+      return owner;
+    }
+  }
+  return null;
+}
+
+function localDate(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function issueNumberFromApiUrl(issueUrl) {
+  const match = issueUrl?.match(/\/issues\/([1-9]\d*)$/);
+  return match ? Number.parseInt(match[1], 10) : null;
+}
+
+function readCommentState() {
+  if (!existsSync(commentStatePath)) {
+    return null;
+  }
+
+  chmodSync(commentStatePath, 0o600);
+  let state;
+  try {
+    state = JSON.parse(readFileSync(commentStatePath, "utf8"));
+  } catch (error) {
+    fail(`Could not read ${commentStatePath}: ${error.message}`);
+  }
+
+  if (
+    typeof state.checked_at !== "string" ||
+    !Number.isFinite(Date.parse(state.checked_at)) ||
+    !Array.isArray(state.posted_comment_ids) ||
+    state.posted_comment_ids.some((id) => !Number.isSafeInteger(id))
+  ) {
+    fail(`Invalid issue comment sync state in ${commentStatePath}.`);
+  }
+  return state;
+}
+
+function writeCommentState(state) {
+  const temporaryPath = `${commentStatePath}.${process.pid}.tmp`;
+  writeFileSync(temporaryPath, `${JSON.stringify(state, null, 2)}\n`, {
+    mode: 0o600,
+  });
+  chmodSync(temporaryPath, 0o600);
+  renameSync(temporaryPath, commentStatePath);
+  chmodSync(commentStatePath, 0o600);
+}
+
+function readSnoozeState() {
+  if (!existsSync(snoozeStatePath)) {
+    return { notified: {} };
+  }
+
+  chmodSync(snoozeStatePath, 0o600);
+  let state;
+  try {
+    state = JSON.parse(readFileSync(snoozeStatePath, "utf8"));
+  } catch (error) {
+    fail(`Could not read ${snoozeStatePath}: ${error.message}`);
+  }
+  if (
+    !state.notified ||
+    typeof state.notified !== "object" ||
+    Array.isArray(state.notified) ||
+    Object.entries(state.notified).some(
+      ([issue, date]) =>
+        !/^[1-9]\d*$/.test(issue) ||
+        typeof date !== "string" ||
+        !/^\d{4}-\d{2}-\d{2}$/.test(date),
+    )
+  ) {
+    fail(`Invalid issue snooze sync state in ${snoozeStatePath}.`);
+  }
+  return state;
+}
+
+function writeSnoozeState(state) {
+  const temporaryPath = `${snoozeStatePath}.${process.pid}.tmp`;
+  writeFileSync(temporaryPath, `${JSON.stringify(state, null, 2)}\n`, {
+    mode: 0o600,
+  });
+  chmodSync(temporaryPath, 0o600);
+  renameSync(temporaryPath, snoozeStatePath);
+  chmodSync(snoozeStatePath, 0o600);
+}
+
+function runBuzz(arguments_) {
+  return runJson(buzz, arguments_, { env: buzzEnvironment });
+}
+
+function runJson(command, arguments_, options = {}) {
+  const result = spawnSync(command, arguments_, {
+    encoding: "utf8",
+    maxBuffer: 32 * 1024 * 1024,
+    ...options,
+  });
+
+  if (result.error) {
+    fail(`Could not run ${command}: ${result.error.message}`);
+  }
+  if (result.status !== 0) {
+    const message = result.stderr.trim() || result.stdout.trim();
+    fail(`${command} failed${message ? `: ${message}` : "."}`);
+  }
+
+  try {
+    return JSON.parse(result.stdout);
+  } catch {
+    fail(`${command} returned invalid JSON: ${result.stdout.trim()}`);
+  }
+}
+
+function findBuzz() {
+  if (process.env.BUZZ_BIN) {
+    return process.env.BUZZ_BIN;
+  }
+
+  const bundledBuzz = "/Applications/Buzz.app/Contents/MacOS/buzz";
+  try {
+    accessSync(bundledBuzz, constants.X_OK);
+    return bundledBuzz;
+  } catch {
+    return "buzz";
+  }
+}
+
+function readRequiredFile(path) {
+  try {
+    chmodSync(path, 0o600);
+    return readFileSync(path, "utf8").trim();
+  } catch (error) {
+    fail(`Could not read ${path}: ${error.message}`);
+  }
+}
+
+function fail(message) {
+  console.error(message);
+  process.exit(1);
+}
+
+function printHelp() {
+  console.log(`Usage:
+  syncissues [options]
+
+Options:
+  --repo <owner/repo>   GitHub repository (default: aaif-goose/goose)
+  --project <title>     GitHub project title (default: Goose Issues)
+  --project-owner <id>  GitHub project owner (default: aaif-goose)
+  --project-number <n>  GitHub project number (default: 1)
+  --project-limit <n>   Maximum project items (default: 1000)
+  --limit <number>      Maximum Buzz channels to inspect (default: 500)
+  --dry-run             Print changes without updating Buzz
+  -h, --help            Show this help
+
+Buzz displays stream channels with a leading # but stores that marker outside
+the channel name. Names beginning with an issue number are matched. The older
+aaif-goose/goose #<number> format is also supported. Open issues sync their
+project phase to the topic. Closed issues are archived; reopened issues are
+unarchived. Open issue topics include their GitHub assignees. New comments from
+GitHub users who are not repository owners, members, or collaborators post a
+notification in the matching open channel. The first non-dry run initializes
+the comment cursor without posting old comments. Reply notifications mention
+the issue's core-team assignee. Expired project snoozes also mention that owner
+once per snooze date.`);
+}

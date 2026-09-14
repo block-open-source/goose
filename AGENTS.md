@@ -16,6 +16,17 @@ The issue is the source of truth for work intended for an upstream pull request.
 
 Maintainer-directed work, urgent security fixes, release automation, and local or exploratory changes do not require a Ready issue.
 
+## MCP Server Directory
+
+goose is retiring its project-specific MCP server directory in favor of the [official MCP Registry](https://github.com/modelcontextprotocol/registry) and its `server.json` format.
+
+- Do not add new third-party servers to `documentation/static/servers.json`; these contributions are no longer accepted.
+- Direct server authors to publish to the official MCP Registry instead.
+- Treat the existing goose directory as legacy data while registry-backed discovery and installation are implemented.
+- Changes that maintain, migrate, or remove existing directory entries are allowed when they support the migration and are within an approved issue's scope.
+
+See [Discussion #10830](https://github.com/aaif-goose/goose/discussions/10830) for the decision and migration direction.
+
 ## GitHub Communication
 
 Write issue and pull request comments for humans, not as exhaustive work logs.
@@ -69,15 +80,9 @@ cd ui/desktop && pnpm test   # test UI
 
 ## Structure
 ```
-crates/
-├── goose              # core logic
-├── goose-acp-macros   # ACP proc macros
-├── goose-cli          # CLI entry
-├── goose-mcp          # MCP extensions
-├── goose-test         # test utilities
-└── goose-test-support # test helpers
-
-ui/desktop/            # Electron app
+crates/       # Rust workspace members — see root Cargo.toml (`members = ["crates/*"]`)
+ui/desktop/   # Electron app
+ui/text/      # deprecated ACP TUI (see ui/text/README.md)
 ```
 
 ## Development Loop

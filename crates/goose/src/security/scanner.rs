@@ -26,6 +26,7 @@ pub struct ScanResult {
 
 struct DetailedScanResult {
     confidence: f32,
+    pattern_confidence: f32,
     pattern_matches: Vec<PatternMatch>,
     ml_confidence: Option<f32>,
     used_pattern_detection: bool,
@@ -166,8 +167,9 @@ impl PromptInjectionScanner {
             threshold
         );
 
-        let final_confidence =
-            self.combine_confidences(tool_result.confidence, context_result.ml_confidence);
+        let final_confidence = self
+            .combine_confidences(tool_result.confidence, context_result.ml_confidence)
+            .max(tool_result.pattern_confidence);
 
         tracing::info!(
             security.event_type = "prompt_injection_scan",
@@ -184,6 +186,7 @@ impl PromptInjectionScanner {
 
         let final_result = DetailedScanResult {
             confidence: final_confidence,
+            pattern_confidence: tool_result.pattern_confidence,
             pattern_matches: tool_result.pattern_matches,
             ml_confidence: tool_result.ml_confidence,
             used_pattern_detection: tool_result.used_pattern_detection,
@@ -198,25 +201,19 @@ impl PromptInjectionScanner {
     }
 
     async fn analyze_text(&self, text: &str) -> Result<DetailedScanResult> {
-        if let Some(classifier) = self.command_classifier.as_ref() {
-            if let Some(ml_confidence) = self
-                .scan_with_classifier(text, classifier, ClassifierType::Command)
-                .await
-            {
-                return Ok(DetailedScanResult {
-                    confidence: ml_confidence,
-                    pattern_matches: Vec::new(),
-                    ml_confidence: Some(ml_confidence),
-                    used_pattern_detection: false,
-                });
-            }
-        }
-
         let (pattern_confidence, pattern_matches) = self.pattern_based_scanning(text);
+        let ml_confidence = if let Some(classifier) = self.command_classifier.as_ref() {
+            self.scan_with_classifier(text, classifier, ClassifierType::Command)
+                .await
+        } else {
+            None
+        };
+
         Ok(DetailedScanResult {
-            confidence: pattern_confidence,
+            confidence: ml_confidence.map_or(pattern_confidence, |ml| ml.max(pattern_confidence)),
+            pattern_confidence,
             pattern_matches,
-            ml_confidence: None,
+            ml_confidence,
             used_pattern_detection: true,
         })
     }
@@ -227,6 +224,7 @@ impl PromptInjectionScanner {
         let Some(classifier) = self.prompt_classifier.as_ref() else {
             return Ok(DetailedScanResult {
                 confidence: 0.0,
+                pattern_confidence: 0.0,
                 pattern_matches: Vec::new(),
                 ml_confidence: None,
                 used_pattern_detection: false,
@@ -236,6 +234,7 @@ impl PromptInjectionScanner {
         if user_messages.is_empty() {
             return Ok(DetailedScanResult {
                 confidence: 0.0,
+                pattern_confidence: 0.0,
                 pattern_matches: Vec::new(),
                 ml_confidence: None,
                 used_pattern_detection: false,
@@ -255,6 +254,7 @@ impl PromptInjectionScanner {
 
         Ok(DetailedScanResult {
             confidence: max_confidence,
+            pattern_confidence: 0.0,
             pattern_matches: Vec::new(),
             ml_confidence: Some(max_confidence),
             used_pattern_detection: false,
@@ -329,12 +329,34 @@ impl PromptInjectionScanner {
             .map_or(tool_content, |(_, args)| args);
         let command_preview = safe_truncate(text_to_preview, 300);
 
-        if let Some(top_match) = result.pattern_matches.first() {
-            let preview = safe_truncate(&top_match.matched_text, 50);
-            return format!(
+        let decisive_ml = result
+            .ml_confidence
+            .filter(|confidence| *confidence >= threshold);
+        let top_match = result
+            .pattern_matches
+            .iter()
+            .max_by_key(|pattern_match| &pattern_match.threat.risk_level);
+        let decisive_pattern_match = top_match.filter(|_| result.pattern_confidence >= threshold);
+        let pattern_explanation = |pattern_match: &PatternMatch| {
+            let preview = safe_truncate(&pattern_match.matched_text, 50);
+            format!(
                 "Pattern-based detection: {} (Risk: {:?})\nFound: '{}'\n\nCommand:\n{}",
-                top_match.threat.description, top_match.threat.risk_level, preview, command_preview
-            );
+                pattern_match.threat.description,
+                pattern_match.threat.risk_level,
+                preview,
+                command_preview
+            )
+        };
+
+        if let Some(decisive_pattern_match) = decisive_pattern_match {
+            let mut explanation = pattern_explanation(decisive_pattern_match);
+            if let Some(ml_confidence) = decisive_ml {
+                explanation.push_str(&format!(
+                    "\n\nClassifier detection confidence: {:.1}%",
+                    ml_confidence * 100.0
+                ));
+            }
+            return explanation;
         }
 
         if let Some(ml_conf) = result.ml_confidence {
@@ -343,6 +365,8 @@ impl PromptInjectionScanner {
                 ml_conf * 100.0,
                 command_preview
             )
+        } else if let Some(top_match) = top_match {
+            pattern_explanation(top_match)
         } else {
             format!("Security threat detected\n\nCommand:\n{}", command_preview)
         }
@@ -408,6 +432,64 @@ impl Default for PromptInjectionScanner {
 mod tests {
     use super::*;
     use rmcp::object;
+    use wiremock::matchers::method;
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    async fn classifier_with_confidence(
+        injection_confidence: f32,
+    ) -> (MockServer, ClassificationClient) {
+        let mock_server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!([[{
+                    "label": "INJECTION",
+                    "score": injection_confidence
+                }, {
+                    "label": "SAFE",
+                    "score": 1.0 - injection_confidence
+                }]])),
+            )
+            .mount(&mock_server)
+            .await;
+
+        let classifier =
+            ClassificationClient::from_endpoint(mock_server.uri(), None, None).unwrap();
+
+        (mock_server, classifier)
+    }
+
+    async fn scanner_with_command_confidence(
+        injection_confidence: f32,
+    ) -> (MockServer, PromptInjectionScanner) {
+        let (mock_server, command_classifier) =
+            classifier_with_confidence(injection_confidence).await;
+
+        let scanner = PromptInjectionScanner {
+            pattern_matcher: PatternMatcher::new(),
+            command_classifier: Some(command_classifier),
+            prompt_classifier: None,
+        };
+
+        (mock_server, scanner)
+    }
+
+    async fn scanner_with_classifier_confidences(
+        command_confidence: f32,
+        prompt_confidence: f32,
+    ) -> (MockServer, MockServer, PromptInjectionScanner) {
+        let (command_server, command_classifier) =
+            classifier_with_confidence(command_confidence).await;
+        let (prompt_server, prompt_classifier) =
+            classifier_with_confidence(prompt_confidence).await;
+
+        let scanner = PromptInjectionScanner {
+            pattern_matcher: PatternMatcher::new(),
+            command_classifier: Some(command_classifier),
+            prompt_classifier: Some(prompt_classifier),
+        };
+
+        (command_server, prompt_server, scanner)
+    }
 
     #[tokio::test]
     async fn test_text_pattern_detection() {
@@ -416,6 +498,149 @@ mod tests {
 
         assert!(result.confidence >= 0.75);
         assert!(!result.pattern_matches.is_empty());
+    }
+
+    #[tokio::test]
+    async fn command_classifier_false_negative_preserves_pattern_detection() {
+        let (_mock_server, scanner) = scanner_with_command_confidence(0.0).await;
+
+        let result = scanner.analyze_text("rm -rf /").await.unwrap();
+
+        assert_eq!(result.confidence, 0.95);
+        assert_eq!(result.ml_confidence, Some(0.0));
+        assert!(result.used_pattern_detection);
+        assert_eq!(result.pattern_matches[0].threat.name, "rm_rf_root_bare");
+    }
+
+    #[tokio::test]
+    async fn command_classifier_legitimate_result_remains_safe() {
+        let (_mock_server, scanner) = scanner_with_command_confidence(0.0).await;
+
+        let result = scanner.analyze_text("printf 'hello\\n'").await.unwrap();
+
+        assert_eq!(result.confidence, 0.0);
+        assert_eq!(result.ml_confidence, Some(0.0));
+        assert!(result.used_pattern_detection);
+        assert!(result.pattern_matches.is_empty());
+    }
+
+    #[tokio::test]
+    async fn command_classifier_stronger_signal_preserves_pattern_evidence() {
+        let (_mock_server, scanner) = scanner_with_command_confidence(0.9).await;
+
+        let result = scanner.analyze_text("chmod +s /tmp/tool").await.unwrap();
+
+        assert_eq!(result.confidence, 0.9);
+        assert_eq!(result.ml_confidence, Some(0.9));
+        assert!(result.used_pattern_detection);
+        assert_eq!(
+            result.pattern_matches[0].threat.name,
+            "suid_binary_creation"
+        );
+    }
+
+    #[tokio::test]
+    async fn classifier_explanation_wins_when_low_pattern_is_not_decisive() {
+        let (_mock_server, scanner) = scanner_with_command_confidence(0.9).await;
+        let command = "echo $(printf $(date))";
+        let tool_call = CallToolRequestParams::new("shell").with_arguments(object!({
+            "command": command
+        }));
+
+        let detailed = scanner.analyze_text(command).await.unwrap();
+        assert_eq!(detailed.pattern_confidence, 0.45);
+        assert_eq!(
+            detailed.pattern_matches[0].threat.name,
+            "indirect_command_execution"
+        );
+
+        let result = scanner
+            .analyze_tool_call_with_context(&tool_call, &[])
+            .await
+            .unwrap();
+
+        assert_eq!(result.confidence, 0.9);
+        assert!(result.is_malicious);
+        assert!(result.explanation.contains("confidence: 90.0%"));
+        assert!(!result.explanation.contains("Pattern-based detection"));
+        assert!(!result.explanation.contains("Risk: Low"));
+    }
+
+    #[tokio::test]
+    async fn decisive_pattern_explanation_keeps_classifier_evidence() {
+        let (_mock_server, scanner) = scanner_with_command_confidence(0.9).await;
+        let tool_call = CallToolRequestParams::new("shell").with_arguments(object!({
+            "command": "rm -rf /"
+        }));
+
+        let result = scanner
+            .analyze_tool_call_with_context(&tool_call, &[])
+            .await
+            .unwrap();
+
+        assert_eq!(result.confidence, 0.95);
+        assert!(result.is_malicious);
+        assert!(result.explanation.contains("Pattern-based detection"));
+        assert!(result.explanation.contains("Risk: Critical"));
+        assert!(result
+            .explanation
+            .contains("Classifier detection confidence: 90.0%"));
+    }
+
+    #[tokio::test]
+    async fn low_pattern_and_low_classifier_remain_safe() {
+        let (_mock_server, scanner) = scanner_with_command_confidence(0.2).await;
+        let tool_call = CallToolRequestParams::new("shell").with_arguments(object!({
+            "command": "echo $(printf $(date))"
+        }));
+
+        let result = scanner
+            .analyze_tool_call_with_context(&tool_call, &[])
+            .await
+            .unwrap();
+
+        assert_eq!(result.confidence, 0.45);
+        assert!(!result.is_malicious);
+        assert_eq!(result.explanation, "No security threats detected");
+    }
+
+    #[tokio::test]
+    async fn context_fusion_preserves_pattern_confidence_floor() {
+        let _env = env_lock::lock_env([("SECURITY_PROMPT_THRESHOLD", Some("0.9"))]);
+        let (_command_server, _prompt_server, scanner) =
+            scanner_with_classifier_confidences(0.0, 0.0).await;
+        let tool_call = CallToolRequestParams::new("shell").with_arguments(object!({
+            "command": "rm -rf /"
+        }));
+        let messages = vec![Message::user().with_text("Please clean the build directory")];
+
+        let result = scanner
+            .analyze_tool_call_with_context(&tool_call, &messages)
+            .await
+            .unwrap();
+
+        assert_eq!(result.confidence, 0.95);
+        assert!(result.is_malicious);
+        assert!(result.explanation.contains("Pattern-based detection"));
+    }
+
+    #[tokio::test]
+    async fn context_fusion_keeps_legitimate_command_safe() {
+        let (_command_server, _prompt_server, scanner) =
+            scanner_with_classifier_confidences(0.0, 0.0).await;
+        let tool_call = CallToolRequestParams::new("shell").with_arguments(object!({
+            "command": "printf 'hello\\n'"
+        }));
+        let messages = vec![Message::user().with_text("Print a greeting")];
+
+        let result = scanner
+            .analyze_tool_call_with_context(&tool_call, &messages)
+            .await
+            .unwrap();
+
+        assert_eq!(result.confidence, 0.0);
+        assert!(!result.is_malicious);
+        assert_eq!(result.explanation, "No security threats detected");
     }
 
     #[tokio::test]

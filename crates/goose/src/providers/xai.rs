@@ -107,7 +107,7 @@ mod tests {
             .iter()
             .find(|model| model.name == "grok-4.5")
             .expect("grok-4.5 should be a known xAI model");
-        assert_eq!(grok_4_5.context_limit, 500_000);
+        assert_eq!(grok_4_5.context_limit, Some(500_000));
         assert!(grok_4_5.reasoning);
 
         let grok_4_20_non_reasoning = metadata

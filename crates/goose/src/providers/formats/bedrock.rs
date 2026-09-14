@@ -21,8 +21,9 @@ use crate::providers::formats::anthropic::{
     thinking_block_is_stale, thinking_budget_tokens, thinking_type_for_provider, ThinkingType,
     ANTHROPIC_PROVIDER_NAME, MIN_ANSWER_TOKENS,
 };
-use crate::utils::sanitize_unicode_tags;
+use crate::utils::{sanitize_unicode_tags, strip_unicode_tags};
 use goose_providers::conversation::token_usage::Usage;
+use goose_providers::documents::{unsupported_document_text, UNSUPPORTED_PROVIDER_REASON};
 use goose_providers::model::ModelConfig;
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -204,6 +205,9 @@ pub fn to_bedrock_message_content(content: &MessageContent) -> Result<bedrock::C
         MessageContent::Image(image) => {
             bedrock::ContentBlock::Image(to_bedrock_image(&image.data, &image.mime_type)?)
         }
+        MessageContent::Document(document) => bedrock::ContentBlock::Text(
+            unsupported_document_text(document, UNSUPPORTED_PROVIDER_REASON),
+        ),
         MessageContent::Thinking(thinking) => {
             let mut builder = bedrock::ReasoningTextBlock::builder().text(&thinking.thinking);
             if !thinking.signature.is_empty() {
@@ -230,27 +234,6 @@ pub fn to_bedrock_message_content(content: &MessageContent) -> Result<bedrock::C
             bail!("Error content should not get passed to the provider")
         }
         MessageContent::ToolRequest(tool_req) => {
-            let tool_use_id = tool_req.id.to_string();
-            let tool_use = if let Ok(call) = tool_req.tool_call.as_ref() {
-                bedrock::ToolUseBlock::builder()
-                    .tool_use_id(tool_use_id)
-                    .name(call.name.to_string())
-                    .input(to_bedrock_json(&args_to_value(call.arguments.clone())))
-                    .build()
-            } else {
-                // Unparseable tool call: emit a placeholder tool_use so the paired
-                // tool_result isn't orphaned — Bedrock rejects a tool_use with no name
-                // and a tool_result with no matching tool_use. Mirrors the
-                // OpenAI/Databricks/Anthropic formatters.
-                bedrock::ToolUseBlock::builder()
-                    .tool_use_id(tool_use_id)
-                    .name("unparseable_tool_call")
-                    .input(to_bedrock_json(&args_to_value(None)))
-                    .build()
-            }?;
-            bedrock::ContentBlock::ToolUse(tool_use)
-        }
-        MessageContent::FrontendToolRequest(tool_req) => {
             let tool_use_id = tool_req.id.to_string();
             let tool_use = if let Ok(call) = tool_req.tool_call.as_ref() {
                 bedrock::ToolUseBlock::builder()
@@ -387,6 +370,7 @@ pub fn to_bedrock_tool(tool: &Tool) -> Result<bedrock::Tool> {
     if !input_schema.contains_key("type") {
         input_schema.insert("type".to_string(), Value::String("object".to_string()));
     }
+    let input_schema = sanitize_json_unicode_tags(Value::Object(input_schema))?;
 
     Ok(bedrock::Tool::ToolSpec(
         bedrock::ToolSpecification::builder()
@@ -394,14 +378,38 @@ pub fn to_bedrock_tool(tool: &Tool) -> Result<bedrock::Tool> {
             .description(
                 tool.description
                     .as_ref()
-                    .map(|d| d.to_string())
+                    .map(|d| strip_unicode_tags(d))
                     .unwrap_or_default(),
             )
             .input_schema(bedrock::ToolInputSchema::Json(to_bedrock_json(
-                &Value::Object(input_schema),
+                &input_schema,
             )))
             .build()?,
     ))
+}
+
+pub(crate) fn sanitize_json_unicode_tags(value: Value) -> Result<Value> {
+    Ok(match value {
+        Value::String(text) => Value::String(strip_unicode_tags(&text)),
+        Value::Array(values) => Value::Array(
+            values
+                .into_iter()
+                .map(sanitize_json_unicode_tags)
+                .collect::<Result<_>>()?,
+        ),
+        Value::Object(values) => {
+            let mut sanitized = serde_json::Map::new();
+            for (key, value) in values {
+                let key = strip_unicode_tags(&key);
+                if sanitized.contains_key(&key) {
+                    bail!("JSON contains a duplicate key after Unicode tag sanitization");
+                }
+                sanitized.insert(key, sanitize_json_unicode_tags(value)?);
+            }
+            Value::Object(sanitized)
+        }
+        value => value,
+    })
 }
 
 fn args_to_value(args: Option<serde_json::Map<String, Value>>) -> Value {
@@ -493,11 +501,18 @@ pub fn from_bedrock_message(message: &bedrock::Message) -> Result<Message> {
 pub fn from_bedrock_content_block(block: &bedrock::ContentBlock) -> Result<MessageContent> {
     Ok(match block {
         bedrock::ContentBlock::Text(text) => MessageContent::text(text),
-        bedrock::ContentBlock::ToolUse(tool_use) => MessageContent::tool_request(
-            tool_use.tool_use_id.to_string(),
-            Ok(CallToolRequestParams::new(tool_use.name.clone())
-                .with_arguments(object(from_bedrock_json(&tool_use.input.clone())?))),
-        ),
+        bedrock::ContentBlock::ToolUse(tool_use) => {
+            let arguments = from_bedrock_json(&tool_use.input.clone())
+                .and_then(sanitize_json_unicode_tags)
+                .map(|arguments| {
+                    CallToolRequestParams::new(tool_use.name.clone())
+                        .with_arguments(object(arguments))
+                })
+                .map_err(|error| {
+                    ErrorData::new(ErrorCode::INVALID_PARAMS, error.to_string(), None)
+                });
+            MessageContent::tool_request(tool_use.tool_use_id.to_string(), arguments)
+        }
         bedrock::ContentBlock::ToolResult(tool_res) => MessageContent::tool_response(
             tool_res.tool_use_id.to_string(),
             if tool_res.content.is_empty() {
@@ -828,6 +843,70 @@ mod tests {
     }
 
     #[test]
+    fn test_to_bedrock_tool_sanitizes_description_and_schema_metadata() -> Result<()> {
+        let tool = Tool::new(
+            "lookup",
+            "検索\u{E0041} ツール cafe\u{301}",
+            serde_json::Map::from_iter([
+                ("type".to_string(), json!("object")),
+                (
+                    "properties".to_string(),
+                    json!({
+                        "pro\u{E0042}mpt": {
+                            "type": "string",
+                            "description": "都市🌍\u{E0043}"
+                        }
+                    }),
+                ),
+            ]),
+        );
+
+        let bedrock_tool = to_bedrock_tool(&tool)?;
+        let spec = bedrock_tool
+            .as_tool_spec()
+            .expect("expected Bedrock tool specification");
+        assert_eq!(spec.description(), Some("検索 ツール cafe\u{301}"));
+
+        let schema = spec
+            .input_schema()
+            .expect("expected input schema")
+            .as_json()
+            .expect("expected JSON input schema");
+        assert_eq!(
+            from_bedrock_json(schema)?,
+            json!({
+                "type": "object",
+                "properties": {
+                    "prompt": {
+                        "type": "string",
+                        "description": "都市🌍"
+                    }
+                }
+            })
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_to_bedrock_tool_rejects_schema_key_collision_after_sanitization() {
+        let mut properties = serde_json::Map::new();
+        properties.insert("prompt".to_string(), json!({"type": "string"}));
+        properties.insert("pro\u{E0041}mpt".to_string(), json!({"type": "string"}));
+        let tool = Tool::new(
+            "lookup",
+            "Lookup",
+            serde_json::Map::from_iter([
+                ("type".to_string(), json!("object")),
+                ("properties".to_string(), Value::Object(properties)),
+            ]),
+        );
+
+        let error = to_bedrock_tool(&tool).expect_err("sanitized keys must remain unique");
+        assert!(error.to_string().contains("duplicate key"));
+    }
+
+    #[test]
     fn test_to_bedrock_message_content_image() -> Result<()> {
         let image = ImageContent::new(TEST_IMAGE_B64.to_string(), "image/png".to_string());
 
@@ -836,6 +915,61 @@ mod tests {
 
         // Verify we get an Image content block
         assert!(matches!(result, bedrock::ContentBlock::Image(_)));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_from_bedrock_tool_use_sanitizes_nested_arguments() -> Result<()> {
+        let original = bedrock::ContentBlock::ToolUse(
+            bedrock::ToolUseBlock::builder()
+                .tool_use_id("tool-1")
+                .name("lookup")
+                .input(to_bedrock_json(&json!({
+                    "query": "visible\u{E0041}text",
+                    "nested": [{"cit\u{E0042}y": "東京🌍\u{E0043}"}],
+                    "path": "cafe\u{301}.txt"
+                })))
+                .build()?,
+        );
+
+        let MessageContent::ToolRequest(request) = from_bedrock_content_block(&original)? else {
+            panic!("expected tool request");
+        };
+        let call = request.tool_call.expect("expected valid tool call");
+        assert_eq!(
+            call.arguments,
+            Some(object(json!({
+                "query": "visibletext",
+                "nested": [{"city": "東京🌍"}],
+                "path": "cafe\u{301}.txt"
+            })))
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_from_bedrock_tool_use_collision_yields_error_request() -> Result<()> {
+        let original = bedrock::ContentBlock::ToolUse(
+            bedrock::ToolUseBlock::builder()
+                .tool_use_id("tool-1")
+                .name("lookup")
+                .input(to_bedrock_json(&json!({
+                    "prompt": "visible",
+                    "pro\u{E0041}mpt": "hidden"
+                })))
+                .build()?,
+        );
+
+        let MessageContent::ToolRequest(request) = from_bedrock_content_block(&original)? else {
+            panic!("expected tool request");
+        };
+        let error = request
+            .tool_call
+            .expect_err("sanitized key collision must produce an invalid tool call");
+        assert_eq!(error.code, ErrorCode::INVALID_PARAMS);
+        assert!(error.message.contains("duplicate key"));
 
         Ok(())
     }
@@ -1519,25 +1653,7 @@ mod tests {
 
     #[test]
     fn test_bedrock_inference_config_omits_temperature_for_unsupported_model() {
-        // The Anthropic canonical registry maps this id and reports whether a
-        // custom temperature may be sent; when it cannot, temperature is left
-        // unset so the server default is used.
-        let mut config = ModelConfig::new("us.anthropic.claude-sonnet-4-5-20250929-v1:0");
-        config.temperature = Some(0.5);
-
-        let supported = bedrock_model_supports_temperature(&config);
-        let inference_config = bedrock_inference_config(&config);
-
-        if supported {
-            assert_eq!(inference_config.temperature(), Some(0.5));
-        } else {
-            assert_eq!(inference_config.temperature(), None);
-        }
-    }
-
-    #[test]
-    fn test_bedrock_inference_config_omits_temperature_for_bedrock_registry_unsupported_model() {
-        let mut config = ModelConfig::new("openai.gpt-5.4");
+        let mut config = ModelConfig::new("global.anthropic.claude-sonnet-5");
         config.temperature = Some(0.5);
 
         let inference_config = bedrock_inference_config(&config);

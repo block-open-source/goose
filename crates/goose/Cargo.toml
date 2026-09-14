@@ -24,7 +24,7 @@ local-inference = [
     "dep:candle-core",
     "dep:candle-nn",
     "dep:candle-transformers",
-    "goose-providers/local-inference",
+    "goose-providers/local-inference-hf-hub",
     "dep:tokenizers",
     "dep:symphonia",
     "dep:rubato",
@@ -34,6 +34,7 @@ aws-providers = [
     "dep:aws-config",
     "dep:aws-smithy-types",
     "dep:aws-sdk-bedrockruntime",
+    "dep:aws-smithy-runtime-api",
     "dep:aws-sdk-sagemakerruntime",
     "dep:smithy-transport-reqwest",
 ]
@@ -103,7 +104,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 serde_path_to_error = { version = "0.1.8", default-features = false }
 serde_urlencoded = { version = "0.7.1", default-features = false }
-jsonschema = { version = "0.49", default-features = false }
+jsonschema = { version = "0.55", default-features = false }
 uuid = { workspace = true, features = ["v7"] }
 regex = { workspace = true }
 async-trait = { workspace = true }
@@ -157,6 +158,7 @@ sqlx = { version = "0.9.0", default-features = false, features = [
 aws-config = { version = "1.8", default-features = false, features = ["credentials-process", "rt-tokio", "sso", "behavior-version-latest"], optional = true }
 aws-smithy-types = { version = "1.3.4", default-features = false, features = ["rt-tokio"], optional = true }
 aws-sdk-bedrockruntime = { version = "1.132", default-features = false, features = ["rt-tokio"], optional = true }
+aws-smithy-runtime-api = { version = "1.13", default-features = false, features = ["client"], optional = true }
 smithy-transport-reqwest = { version = "0.1", default-features = false, features = ["http2", "system-proxy"], optional = true }
 
 # For SageMaker TGI provider (optional, behind "aws-providers" feature)

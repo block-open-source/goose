@@ -1,5 +1,10 @@
-from setuptools import setup
+from setuptools import Distribution, setup
 from wheel.bdist_wheel import bdist_wheel
+
+
+class BinaryDistribution(Distribution):
+    def has_ext_modules(self):
+        return True
 
 
 class BinaryWheel(bdist_wheel):
@@ -12,4 +17,4 @@ class BinaryWheel(bdist_wheel):
         return "py3", "none", platform_tag
 
 
-setup(cmdclass={"bdist_wheel": BinaryWheel})
+setup(cmdclass={"bdist_wheel": BinaryWheel}, distclass=BinaryDistribution)

@@ -95,6 +95,7 @@ fn is_permanent_request_failure(message: &str) -> bool {
     PERMANENT_REQUEST_FAILURE_MARKERS
         .iter()
         .any(|marker| message.contains(marker))
+        || crate::formats::anthropic::is_thinking_signature_error(message)
 }
 
 pub fn should_retry(error: &ProviderError, config: &RetryConfig) -> bool {
@@ -292,6 +293,9 @@ mod tests {
         ));
         assert!(is_permanent_request_failure(
             "These blocks must remain as they were in the original response."
+        ));
+        assert!(is_permanent_request_failure(
+            "messages.1.content.0: Invalid `signature` in `thinking` block."
         ));
         assert!(!is_permanent_request_failure(
             "Bad request (400): model not found"

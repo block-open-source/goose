@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { Card } from '../ui/card';
 import { Button } from '../ui/button';
+import { Switch } from '../ui/switch';
 import { ScrollArea } from '../ui/scroll-area';
 import { formatMessageTimestamp } from '../../utils/timeUtils';
 import { SearchView } from '../conversation/SearchView';
@@ -53,7 +54,7 @@ import {
   acpShareSessionNostr,
   type SessionListItem,
 } from '../../acp/sessions';
-import type { SessionExportFormat } from '@aaif/goose-sdk';
+import type { SessionExportFormat } from '@aaif/goose-acp-client';
 import { acpChatSessionActions } from '../../acp/chatSessionStore';
 import { cancelAcpPermissionRequestsForSession } from '../../acp/permissionRequests';
 import { cancelAcpElicitationRequestsForSession } from '../../acp/elicitationRequests';
@@ -174,7 +175,14 @@ const i18n = defineMessages({
     id: 'sessions.scheduledJobsCount',
     defaultMessage: '{count} {count, plural, one {job} other {jobs}}',
   },
+  includeAcpSessions: {
+    id: 'sessions.includeAcp',
+    defaultMessage: 'Include ACP sessions',
+  },
+  acpBadge: { id: 'sessions.acpBadge', defaultMessage: 'ACP' },
 });
+
+const INCLUDE_ACP_SESSIONS_KEY = 'sessions_include_acp';
 
 interface EditSessionModalProps {
   session: SessionListItem | null;
@@ -343,6 +351,12 @@ const SessionListView: React.FC<SessionListViewProps> = React.memo(({ onSelectSe
   const [sharingSessionId, setSharingSessionId] = useState<string | null>(null);
   const [nostrEnabled, setNostrEnabled] = useState(true);
 
+  const [includeAcpSessions, setIncludeAcpSessions] = useState(
+    () => localStorage.getItem(INCLUDE_ACP_SESSIONS_KEY) === 'true'
+  );
+  const includeAcpSessionsRef = useRef(includeAcpSessions);
+  includeAcpSessionsRef.current = includeAcpSessions;
+
   // Search state for debouncing
   const [searchTerm, setSearchTerm] = useState('');
   const debouncedSearchTerm = useDebounce(searchTerm, 300); // 300ms debounce
@@ -384,13 +398,13 @@ const SessionListView: React.FC<SessionListViewProps> = React.memo(({ onSelectSe
   }, [debouncedSearchTerm, memoizedAllDateGroups.length]);
 
   const loadRemainingSessionPages = useCallback(
-    async (initialCursor: string, loadId: number, keyword?: string) => {
+    async (initialCursor: string, loadId: number, keyword: string, includeAcp: boolean) => {
       let cursor: string | null = initialCursor;
       setIsPrefetchingSessions(true);
 
       try {
         while (cursor && loadGenerationRef.current === loadId) {
-          const resp = await acpListSessions(cursor, { keyword });
+          const resp = await acpListSessions(cursor, { keyword, includeAcp });
           if (loadGenerationRef.current !== loadId) return;
 
           cursor = resp.nextCursor;
@@ -413,7 +427,10 @@ const SessionListView: React.FC<SessionListViewProps> = React.memo(({ onSelectSe
   );
 
   const loadSessions = useCallback(
-    async (keyword: string = debouncedSearchTermRef.current) => {
+    async (
+      keyword: string = debouncedSearchTermRef.current,
+      includeAcp: boolean = includeAcpSessionsRef.current
+    ) => {
       const loadId = loadGenerationRef.current + 1;
       loadGenerationRef.current = loadId;
       // Only show the skeleton on the first load; subsequent loads (e.g. typing a
@@ -427,7 +444,7 @@ const SessionListView: React.FC<SessionListViewProps> = React.memo(({ onSelectSe
         setShowContent(false);
       }
       try {
-        const resp = await acpListSessions(undefined, { keyword });
+        const resp = await acpListSessions(undefined, { keyword, includeAcp });
         if (loadGenerationRef.current !== loadId) return;
         hasLoadedRef.current = true;
 
@@ -436,7 +453,7 @@ const SessionListView: React.FC<SessionListViewProps> = React.memo(({ onSelectSe
         });
 
         if (resp.nextCursor) {
-          void loadRemainingSessionPages(resp.nextCursor, loadId, keyword);
+          void loadRemainingSessionPages(resp.nextCursor, loadId, keyword, includeAcp);
         }
       } catch (err) {
         if (loadGenerationRef.current !== loadId) return;
@@ -468,12 +485,12 @@ const SessionListView: React.FC<SessionListViewProps> = React.memo(({ onSelectSe
   );
 
   useEffect(() => {
-    loadSessions(debouncedSearchTerm);
+    loadSessions(debouncedSearchTerm, includeAcpSessions);
     return () => {
       // Bump the generation so any in-flight load for the previous keyword is discarded.
       loadGenerationRef.current += 1;
     };
-  }, [loadSessions, debouncedSearchTerm]);
+  }, [loadSessions, debouncedSearchTerm, includeAcpSessions]);
 
   // Hide Nostr sharing when explicitly disabled via env var (restricted/enterprise bundles)
   useEffect(() => {
@@ -534,6 +551,11 @@ const SessionListView: React.FC<SessionListViewProps> = React.memo(({ onSelectSe
   // Handle immediate search input (updates search term for debouncing).
   const handleSearch = useCallback((term: string) => {
     setSearchTerm(term);
+  }, []);
+
+  const handleIncludeAcpSessionsChange = useCallback((checked: boolean) => {
+    localStorage.setItem(INCLUDE_ACP_SESSIONS_KEY, String(checked));
+    setIncludeAcpSessions(checked);
   }, []);
 
   // Handle modal close
@@ -827,6 +849,11 @@ const SessionListView: React.FC<SessionListViewProps> = React.memo(({ onSelectSe
       >
         <div>
           <h3 className="text-base break-words line-clamp-2 w-full mb-1">{displayName}</h3>
+          {session.sessionType === 'acp' && (
+            <span className="text-xs text-text-tertiary bg-background-secondary px-2 py-0.5 rounded-full">
+              {intl.formatMessage(i18n.acpBadge)}
+            </span>
+          )}
           <div className="flex-1 mt-2">
             <div className="flex items-center text-text-secondary text-xs">
               <Calendar className="w-3 h-3 mr-1 flex-shrink-0" />
@@ -1115,6 +1142,14 @@ const SessionListView: React.FC<SessionListViewProps> = React.memo(({ onSelectSe
               <p className="text-sm text-text-secondary mb-4">
                 {intl.formatMessage(i18n.chatHistoryDesc, { shortcut: getSearchShortcutText() })}
               </p>
+              <label className="flex items-center gap-2 text-sm text-text-secondary mb-4 cursor-pointer w-fit">
+                <Switch
+                  variant="mono"
+                  checked={includeAcpSessions}
+                  onCheckedChange={handleIncludeAcpSessionsChange}
+                />
+                {intl.formatMessage(i18n.includeAcpSessions)}
+              </label>
             </div>
           </div>
 

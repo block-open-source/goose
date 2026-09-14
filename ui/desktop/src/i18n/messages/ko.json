@@ -617,6 +617,9 @@
   "customProviderForm.add": {
     "defaultMessage": "추가"
   },
+  "customProviderForm.alwaysUseToolshim": {
+    "defaultMessage": "이 제공업체에 항상 Toolshim 사용"
+  },
   "customProviderForm.anthropicCompatible": {
     "defaultMessage": "Anthropic 호환"
   },
@@ -917,6 +920,15 @@
   "dirSwitcher.currentDirectory": {
     "defaultMessage": "현재 디렉터리"
   },
+  "dirSwitcher.enterPath": {
+    "defaultMessage": "Enter path"
+  },
+  "dirSwitcher.enterPathPlaceholder": {
+    "defaultMessage": "Enter an absolute path (e.g. /home/goose/workspace)"
+  },
+  "dirSwitcher.enterPathInvalid": {
+    "defaultMessage": "Working directory must be an absolute path"
+  },
   "dirSwitcher.failedToUpdateWorkingDir": {
     "defaultMessage": "작업 디렉터리를 업데이트하지 못했습니다."
   },
@@ -1042,9 +1054,6 @@
   },
   "extensionInfoFields.typeLabel": {
     "defaultMessage": "유형"
-  },
-  "extensionInfoFields.typeSseUnsupported": {
-    "defaultMessage": "SSE (미지원)"
   },
   "extensionInfoFields.typeStandardIo": {
     "defaultMessage": "표준 IO(STDIO)"
@@ -1749,13 +1758,10 @@
     "defaultMessage": "이 모델을 삭제하시겠습니까? 나중에 다시 다운로드할 수 있습니다."
   },
   "localInferenceSettings.description": {
-    "defaultMessage": "API 키 없이 추론에 사용할 로컬 LLM 모델을 다운로드하고 관리하세요. Hugging Face에서 GGUF 또는 MLX 모델을 검색하거나 아래 추천 모델을 사용하세요."
+    "defaultMessage": "API 키 없이 추론에 사용할 로컬 LLM 모델을 다운로드하고 관리하세요. Hugging Face에서 GGUF 또는 MLX 모델을 검색하세요."
   },
   "localInferenceSettings.dismiss": {
     "defaultMessage": "닫기"
-  },
-  "localInferenceSettings.download": {
-    "defaultMessage": "다운로드"
   },
   "localInferenceSettings.downloadCancelled": {
     "defaultMessage": "다운로드가 취소되었습니다."
@@ -1774,9 +1780,6 @@
   },
   "localInferenceSettings.evictFromMemory": {
     "defaultMessage": "메모리에서 제거"
-  },
-  "localInferenceSettings.featuredModels": {
-    "defaultMessage": "주요 모델"
   },
   "localInferenceSettings.huggingFaceSignInNote": {
     "defaultMessage": "모델 검색 및 다운로드 시 속도 제한 한도를 높이고 비공개 또는 접근 제한된 Hugging Face 리포지토리에 액세스하려면 로그인하세요."
@@ -1801,12 +1804,6 @@
   },
   "localInferenceSettings.retry": {
     "defaultMessage": "다시 시도"
-  },
-  "localInferenceSettings.showAllFeatured": {
-    "defaultMessage": "모든 추천 항목 표시({count}개 더)"
-  },
-  "localInferenceSettings.showRecommendedOnly": {
-    "defaultMessage": "추천만 표시"
   },
   "localInferenceSettings.title": {
     "defaultMessage": "로컬 추론 모델"
@@ -3162,7 +3159,7 @@
     "defaultMessage": "저장된 레시피가 없습니다."
   },
   "recipesView.noSavedRecipesDescription": {
-    "defaultMessage": "채팅에서 저장된 레시피가 여기에 표시됩니다."
+    "defaultMessage": "저장된 레시피가 여기에 표시됩니다."
   },
   "recipesView.openInNewWindow": {
     "defaultMessage": "새 창에서 열기"
@@ -3773,6 +3770,9 @@
   "sessionIndicators.streaming": {
     "defaultMessage": "스트리밍"
   },
+  "sessions.acpBadge": {
+    "defaultMessage": "ACP"
+  },
   "sessions.action.delete": {
     "defaultMessage": "세션 삭제"
   },
@@ -3850,6 +3850,9 @@
   },
   "sessions.importing": {
     "defaultMessage": "가져오는 중..."
+  },
+  "sessions.includeAcp": {
+    "defaultMessage": "ACP 세션 포함"
   },
   "sessions.loadingMore": {
     "defaultMessage": "추가 세션 로드 중..."
@@ -4520,9 +4523,6 @@
   "updateSection.autoDownloadDisabledNote": {
     "defaultMessage": "자동 다운로드가 비활성화되어 있습니다. 수동으로 다운로드하려면 \"지금 다운로드\"를 클릭하세요."
   },
-  "updateSection.autoInstallNote": {
-    "defaultMessage": "수동 설치가 필요하지 않습니다."
-  },
   "updateSection.checkForUpdates": {
     "defaultMessage": "업데이트 확인"
   },
@@ -4553,26 +4553,11 @@
   "updateSection.installAndRestart": {
     "defaultMessage": "설치 및 다시 시작"
   },
-  "updateSection.installNowHint": {
-    "defaultMessage": "지금 업데이트하려면 \"설치 및 다시 시작\"을 클릭하세요."
-  },
   "updateSection.latestVersion": {
     "defaultMessage": "최신 버전을 사용 중입니다!"
   },
   "updateSection.loading": {
     "defaultMessage": "로드 중..."
-  },
-  "updateSection.manualInstallNote": {
-    "defaultMessage": "다운로드한 후에는 업데이트를 수동으로 설치해야 합니다."
-  },
-  "updateSection.manualInstallRequired": {
-    "defaultMessage": "이 업데이트 방법에는 수동 설치가 필요합니다."
-  },
-  "updateSection.readyInstallAuto": {
-    "defaultMessage": "✓ 업데이트가 준비되었습니다. 설치를 완료하려면 goose를 다시 시작하거나, 작업이 끝나면 종료하세요."
-  },
-  "updateSection.readyInstallManual": {
-    "defaultMessage": "✓ 업데이트가 준비되었습니다! 설치 지침을 보려면 \"설치 및 다시 시작\"을 클릭하세요."
   },
   "updateSection.upToDate": {
     "defaultMessage": "(최신 상태)"

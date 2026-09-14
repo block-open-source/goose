@@ -24,10 +24,6 @@ static TEMPLATE_REGISTRY: &[(&str, &str)] = &[
         "System prompt for subagents spawned to handle specific tasks",
     ),
     (
-        "recipe.md",
-        "Prompt for generating recipe files from conversations",
-    ),
-    (
         "apps_create.md",
         "Prompt for generating new Goose apps based on the user instructions",
     ),

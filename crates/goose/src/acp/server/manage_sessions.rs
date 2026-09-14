@@ -229,12 +229,23 @@ impl GooseAcpAgent {
         &self,
         req: UpdateSessionProjectRequest,
     ) -> Result<EmptyResponse, agent_client_protocol::Error> {
-        self.session_manager
-            .update(&req.session_id)
-            .project_id(req.project_id)
-            .apply()
+        let session_id = &req.session_id;
+        let session_not_found = || {
+            agent_client_protocol::Error::resource_not_found(Some(session_id.to_string()))
+                .data(format!("Session not found: {session_id}"))
+        };
+        let updated = self
+            .session_manager
+            .update_project_for_session_types(
+                session_id,
+                req.project_id,
+                &ACP_VISIBLE_SESSION_TYPES,
+            )
             .await
             .internal_err()?;
+        if !updated {
+            return Err(session_not_found());
+        }
         Ok(EmptyResponse {})
     }
 

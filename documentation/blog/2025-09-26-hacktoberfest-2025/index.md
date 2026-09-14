@@ -7,6 +7,8 @@ authors:
 
 ![blog banner](hacktoberfest2025.png)
 
+> **Update:** This post is preserved for historical reference. Hacktoberfest 2025 has ended, and the public Recipe Cookbook submission program is closed.
+
 October is around the corner, which means spooky season is upon us, and with that crispy fall air that gives you "goose" bumps...it's finally time for Hacktoberfest 2025! The goose team is beyond excited to celebrate with you all for the first time this year. Let's get into how you can participate, and what prizes you can win. 👀
 
 <!-- truncate -->

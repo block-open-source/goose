@@ -136,6 +136,16 @@ enum SecretStorage {
     },
 }
 
+enum SecretMutation<T> {
+    Write(T),
+    Unchanged(T),
+}
+
+pub(crate) enum SecretUpdate<V, R> {
+    Write(V, R),
+    Unchanged(R),
+}
+
 // Global instance
 static GLOBAL_CONFIG: OnceCell<Config> = OnceCell::new();
 
@@ -776,6 +786,38 @@ impl Config {
         }
     }
 
+    pub(crate) fn get_param_source_values<T: for<'de> Deserialize<'de>>(
+        &self,
+        key: &str,
+    ) -> Result<Vec<T>, ConfigError> {
+        let mut source_values = Vec::new();
+        let env_key = key.to_uppercase();
+        if let Some(value) = env::var_os(&env_key) {
+            let value = value.into_string().map_err(|_| {
+                ConfigError::DeserializeError(format!(
+                    "environment variable {env_key} is not valid UTF-8"
+                ))
+            })?;
+            source_values.push(serde_json::from_value(Self::parse_env_value(&value)?)?);
+        }
+
+        for path in &self.config_paths {
+            let content = match std::fs::read_to_string(path) {
+                Ok(content) => content,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(error.into()),
+            };
+            let mut values = parse_yaml_content(&content)?;
+            crate::config::migrations::run_read_migrations(&mut values);
+            let Some(value) = values.get(key) else {
+                continue;
+            };
+            source_values.push(serde_yaml::from_value(value.clone())?);
+        }
+
+        Ok(source_values)
+    }
+
     /// Read-modify-write a configuration value atomically through the write path.
     pub fn update_param<T, V, F>(&self, key: &str, f: F) -> Result<(), ConfigError>
     where
@@ -987,15 +1029,20 @@ impl Config {
         Ok(())
     }
 
-    fn mutate_secrets(
+    fn mutate_secrets<T>(
         &self,
-        mutate: impl FnOnce(&mut HashMap<String, Value>),
-    ) -> Result<(), ConfigError> {
+        mutate: impl FnOnce(&mut HashMap<String, Value>) -> Result<SecretMutation<T>, ConfigError>,
+    ) -> Result<T, ConfigError> {
         let _guard = self.guard.lock().unwrap();
         let _storage_lock = self.lock_secrets_for_mutation()?;
         let mut values = self.load_secrets_from_storage()?;
-        mutate(&mut values);
-        self.write_all_secrets(&values)
+        match mutate(&mut values)? {
+            SecretMutation::Write(result) => {
+                self.write_all_secrets(&values)?;
+                Ok(result)
+            }
+            SecretMutation::Unchanged(result) => Ok(result),
+        }
     }
 
     /// Set a secret value in the system keyring.
@@ -1019,6 +1066,33 @@ impl Config {
         let value = serde_json::to_value(value)?;
         self.mutate_secrets(|values| {
             values.insert(key.to_string(), value);
+            Ok(SecretMutation::Write(()))
+        })
+    }
+
+    pub(crate) fn update_secret<T, V, R>(
+        &self,
+        key: &str,
+        update: impl FnOnce(T) -> SecretUpdate<V, R>,
+    ) -> Result<R, ConfigError>
+    where
+        T: for<'de> Deserialize<'de> + Default,
+        V: Serialize,
+    {
+        self.mutate_secrets(|values| {
+            let current = values
+                .get(key)
+                .cloned()
+                .map(serde_json::from_value)
+                .transpose()?
+                .unwrap_or_default();
+            match update(current) {
+                SecretUpdate::Write(updated, result) => {
+                    values.insert(key.to_string(), serde_json::to_value(updated)?);
+                    Ok(SecretMutation::Write(result))
+                }
+                SecretUpdate::Unchanged(result) => Ok(SecretMutation::Unchanged(result)),
+            }
         })
     }
 
@@ -1036,6 +1110,7 @@ impl Config {
             for (key, value) in updates {
                 values.insert(key.clone(), value.clone());
             }
+            Ok(SecretMutation::Write(()))
         })
     }
 
@@ -1052,6 +1127,7 @@ impl Config {
     pub fn delete_secret(&self, key: &str) -> Result<(), ConfigError> {
         self.mutate_secrets(|values| {
             values.remove(key);
+            Ok(SecretMutation::Write(()))
         })
     }
 
@@ -1065,6 +1141,7 @@ impl Config {
             for key in keys {
                 values.remove(key);
             }
+            Ok(SecretMutation::Write(()))
         })
     }
 

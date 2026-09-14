@@ -1,0 +1,14 @@
+#!/bin/sh
+
+set -u
+
+automation_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+interval=${BUZZ_MANAGER_INTERVAL_SECONDS:-3600}
+
+while true; do
+  GOOSE_MODE=auto GOOSE_DISABLE_SESSION_NAMING=true goose run \
+    --recipe "$automation_dir/github_issue_manager.yaml" \
+    --params "automation_dir=$automation_dir" \
+    --no-session || printf '%s\n' "GitHub issue manager run failed" >&2
+  sleep "$interval"
+done

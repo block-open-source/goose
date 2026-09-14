@@ -41,7 +41,6 @@ impl goose_providers::base::ProviderDescriptor for PiAcpProvider {
                 .with_docs_url("https://github.com/badlogic/pi-mono")
                 .show_only_when_installed(),
         )
-        .with_model_selection_hint("Use the Pi CLI to configure models")
     }
 }
 

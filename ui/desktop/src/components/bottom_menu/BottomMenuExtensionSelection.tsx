@@ -2,9 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useConfig, type FixedExtensionEntry } from '../ConfigContext';
 import { toastService } from '../../toasts';
 import { formatExtensionName } from '../settings/extensions/subcomponents/ExtensionList';
-import { nameToKey } from '../settings/extensions/utils';
-import type { ExtensionConfig } from '../../types/extensions';
-import { getSessionExtensions as getAcpSessionExtensions } from '../../acp/session-extensions';
+import {
+  getSessionExtensions as getAcpSessionExtensions,
+  type SessionExtension,
+} from '../../acp/session-extensions';
 import { addToAgent, removeFromAgent } from '../settings/extensions/agent-api';
 import { defineMessages, useIntl } from '../../i18n';
 import { AppEvents } from '../../constants/events';
@@ -63,6 +64,43 @@ interface BottomMenuExtensionSelectionProps {
 type GetSessionExtensionsSignal = { aborted: boolean };
 
 const EXTENSION_SORT_DELAY_MS = 800;
+
+function mergeSessionExtensions(
+  configuredExtensions: FixedExtensionEntry[],
+  sessionExtensions: SessionExtension[]
+): FixedExtensionEntry[] | null {
+  const sessionExtensionsByKey = new Map<string, SessionExtension>();
+  for (const extension of sessionExtensions) {
+    if (sessionExtensionsByKey.has(extension.extensionKey)) {
+      return null;
+    }
+    sessionExtensionsByKey.set(extension.extensionKey, extension);
+  }
+
+  const configuredExtensionKeys = new Set<string>();
+  const mergedExtensions: FixedExtensionEntry[] = [];
+  for (const extension of configuredExtensions) {
+    if (extension.configKey === undefined || configuredExtensionKeys.has(extension.configKey)) {
+      return null;
+    }
+    configuredExtensionKeys.add(extension.configKey);
+
+    const sessionExtension = sessionExtensionsByKey.get(extension.configKey);
+    mergedExtensions.push({
+      ...extension,
+      enabled: sessionExtension !== undefined,
+      extensionKey: sessionExtension?.extensionKey,
+    });
+  }
+
+  for (const sessionExtension of sessionExtensions) {
+    if (!configuredExtensionKeys.has(sessionExtension.extensionKey)) {
+      mergedExtensions.push({ ...sessionExtension, enabled: true });
+    }
+  }
+
+  return mergedExtensions;
+}
 
 function useExtensionMenuTransition() {
   const [isTransitioning, setIsTransitioning] = useState(false);
@@ -239,7 +277,7 @@ function DraftExtensionsMenu({
 
 function SessionExtensionsMenu({ sessionId }: { sessionId: string }) {
   const intl = useIntl();
-  const [sessionExtensions, setSessionExtensions] = useState<ExtensionConfig[]>([]);
+  const [sessionExtensions, setSessionExtensions] = useState<SessionExtension[]>([]);
   const [isSessionExtensionsLoaded, setIsSessionExtensionsLoaded] = useState(false);
   const latestSessionIdRef = useRef(sessionId);
   const { extensionsList: allExtensions } = useConfig();
@@ -261,7 +299,7 @@ function SessionExtensionsMenu({ sessionId }: { sessionId: string }) {
 
   const loadSessionExtensions = useCallback(
     async (targetSessionId: string, signal?: GetSessionExtensionsSignal) => {
-      const extensions = await getAcpSessionExtensions(targetSessionId)
+      const extensions = await getAcpSessionExtensions(targetSessionId);
 
       if (signal?.aborted || latestSessionIdRef.current !== targetSessionId) {
         return;
@@ -287,7 +325,7 @@ function SessionExtensionsMenu({ sessionId }: { sessionId: string }) {
         }
 
         console.error('Failed to fetch session extensions:', error);
-        setIsSessionExtensionsLoaded(true);
+        setIsSessionExtensionsLoaded(false);
       });
     };
 
@@ -321,7 +359,15 @@ function SessionExtensionsMenu({ sessionId }: { sessionId: string }) {
 
       try {
         if (extensionConfig.enabled) {
-          await removeFromAgent(extensionConfig.name, sessionId, true);
+          if (extensionConfig.extensionKey === undefined) {
+            throw new Error('Missing session extension key');
+          }
+          await removeFromAgent(
+            extensionConfig.extensionKey,
+            extensionConfig.name,
+            sessionId,
+            true
+          );
         } else {
           await addToAgent(extensionConfig, sessionId, true);
         }
@@ -344,45 +390,20 @@ function SessionExtensionsMenu({ sessionId }: { sessionId: string }) {
     [beginToggle, loadSessionExtensions, resetTransition, scheduleSort, sessionId]
   );
 
-  const extensions = useMemo(() => {
-    const sessionExtensionKeys = new Set(
-      sessionExtensions.map((extension) => nameToKey(extension.name))
-    );
-    const configuredExtensionKeys = new Set(
-      allExtensions.map((extension) => nameToKey(extension.name))
-    );
-
-    const mergedExtensions = allExtensions.map(
-      (extension) =>
-        ({
-          ...extension,
-          enabled: sessionExtensionKeys.has(nameToKey(extension.name)),
-        }) as FixedExtensionEntry
-    );
-
-    for (const sessionExtension of sessionExtensions) {
-      if (configuredExtensionKeys.has(nameToKey(sessionExtension.name))) {
-        continue;
-      }
-
-      mergedExtensions.push({
-        ...sessionExtension,
-        enabled: true,
-      });
-    }
-
-    return mergedExtensions;
-  }, [allExtensions, sessionExtensions]);
+  const extensions = useMemo(
+    () => mergeSessionExtensions(allExtensions, sessionExtensions),
+    [allExtensions, sessionExtensions]
+  );
 
   return (
     <ExtensionMenu
-      extensions={extensions}
+      extensions={extensions ?? []}
       title={intl.formatMessage(i18n.manageExtensions)}
       searchPlaceholder={intl.formatMessage(i18n.searchExtensions)}
       description={intl.formatMessage(i18n.extensionsForThisSession)}
       emptyMessage={intl.formatMessage(i18n.noExtensionsAvailable)}
       noResultsMessage={intl.formatMessage(i18n.noExtensionsFound)}
-      hidden={extensions.length === 0 || !isSessionExtensionsLoaded}
+      hidden={extensions === null || extensions.length === 0 || !isSessionExtensionsLoaded}
       isTransitioning={isTransitioning}
       isSortPending={isSortPending}
       togglingExtensionName={togglingExtensionName}

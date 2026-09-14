@@ -13,10 +13,10 @@ use goose::recipe::Recipe;
 use goose::session::session_manager::SessionType;
 use goose::session::EnabledExtensionsState;
 use rustyline::EditMode;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::process;
 use std::sync::Arc;
-use tokio::task::JoinSet;
+use tokio_util::task::AbortOnDropHandle;
 
 const EXTENSION_HINT_MAX_LEN: usize = 5;
 
@@ -232,80 +232,33 @@ impl Default for SessionBuilderConfig {
     }
 }
 
+pub struct ExtensionFailure {
+    pub label: Option<String>,
+    pub error: anyhow::Error,
+}
+
 async fn load_extensions(
-    agent: Agent,
-    extensions_to_load: Vec<(String, ExtensionConfig)>,
+    agent: Arc<Agent>,
+    extensions: Vec<ExtensionConfig>,
     session_id: &str,
-) -> Arc<Agent> {
-    let mut set = JoinSet::new();
-    let agent_ptr = Arc::new(agent);
-
-    let mut waiting_ids: BTreeSet<usize> = (0..extensions_to_load.len()).collect();
-    for (id, (_label, extension)) in extensions_to_load.iter().enumerate() {
-        let agent_ptr = agent_ptr.clone();
-        let cfg = extension.clone();
-        let sid = session_id.to_string();
-        set.spawn(async move { (id, agent_ptr.add_extension(cfg, &sid).await) });
-    }
-
-    let get_message = |waiting_ids: &BTreeSet<usize>| {
-        let labels: Vec<String> = waiting_ids
-            .iter()
-            .map(|id| {
-                extensions_to_load
-                    .get(*id)
-                    .map(|e| e.0.clone())
-                    .unwrap_or_default()
-            })
-            .collect();
-        format!(
-            "starting {} extensions: {}",
-            waiting_ids.len(),
-            labels.join(", ")
-        )
+) -> Vec<ExtensionFailure> {
+    let results = match agent.add_extensions_bulk(extensions, session_id).await {
+        Ok(results) => results,
+        Err(error) => {
+            tracing::error!("failed to load extensions: {}", error);
+            return vec![ExtensionFailure { label: None, error }];
+        }
     };
 
-    let spinner = cliclack::spinner();
-    spinner.start(get_message(&waiting_ids));
-
-    let mut failed: Vec<(usize, anyhow::Error)> = Vec::new();
-    while let Some(result) = set.join_next().await {
-        match result {
-            Ok((id, Ok(_))) => {
-                waiting_ids.remove(&id);
-                spinner.set_message(get_message(&waiting_ids));
-            }
-            Ok((id, Err(e))) => failed.push((id, e.into())),
-            Err(e) => tracing::error!("failed to add extension: {}", e),
-        }
-    }
-
-    spinner.clear();
-
-    for (id, err) in failed {
-        let label = extensions_to_load
-            .get(id)
-            .map(|e| e.0.clone())
-            .unwrap_or_default();
-        eprintln!(
-            "{}",
-            style(format!(
-                "Warning: Failed to start extension '{}' ({}), continuing without it",
-                label, err
-            ))
-            .yellow()
-        );
-        eprintln!(
-            "{}",
-            style(format!(
-                "  Hint: once the session starts, ask goose to help debug the '{}' extension",
-                label
-            ))
-            .dim()
-        );
-    }
-
-    agent_ptr
+    results
+        .into_iter()
+        .filter_map(|r| {
+            r.error.map(|error| ExtensionFailure {
+                label: Some(r.name),
+                error: anyhow::anyhow!(error),
+            })
+        })
+        .collect()
 }
 
 struct ResolvedProviderConfig {
@@ -458,7 +411,7 @@ async fn resolve_provider_and_model(
             process::exit(1);
         });
 
-    let model_config = if session_config.resume
+    let mut model_config = if session_config.resume
         && saved_provider_matches
         && saved_model_config
             .as_ref()
@@ -466,6 +419,10 @@ async fn resolve_provider_and_model(
     {
         let mut config = saved_model_config.unwrap();
         config.normalize_effort_suffix();
+        config = goose::model_config::with_rederived_cache_ttl(config).unwrap_or_else(|e| {
+            output::render_error(&format!("Invalid cache TTL configuration: {}", e));
+            process::exit(1);
+        });
         if let Some(temp) = recipe_settings.and_then(|s| s.temperature) {
             config = config.with_temperature(Some(temp));
         }
@@ -482,6 +439,10 @@ async fn resolve_provider_and_model(
         }
         config
     };
+
+    if !session_config.interactive {
+        model_config = model_config.with_cache_ttl_clamped();
+    }
 
     ResolvedProviderConfig {
         provider_name,
@@ -662,33 +623,11 @@ async fn collect_extension_configs(
     Ok(all.into_iter().map(|(_, config)| config).collect())
 }
 
-async fn resolve_and_load_extensions(
-    agent: Agent,
-    extensions: Vec<ExtensionConfig>,
-    session_id: &str,
-) -> Arc<Agent> {
-    for warning in goose::config::get_warnings() {
-        eprintln!("{}", style(format!("Warning: {}", warning)).yellow());
-    }
-
-    let extensions_to_load: Vec<(String, ExtensionConfig)> = extensions
-        .into_iter()
-        .map(|cfg| (cfg.name(), cfg))
-        .collect();
-
-    load_extensions(agent, extensions_to_load, session_id).await
-}
-
 async fn configure_session_prompts(
     session: &CliSession,
     config: &Config,
     session_config: &SessionBuilderConfig,
-    session_id: &str,
 ) {
-    if let Err(e) = session.agent.persist_extension_state(session_id).await {
-        tracing::warn!("Failed to save extension state: {}", e);
-    }
-
     if let Some(ref additional_prompt) = session_config.additional_system_prompt {
         session
             .agent
@@ -799,7 +738,7 @@ pub async fn build_session(session_config: SessionBuilderConfig) -> CliSession {
                     ))
                     .yellow()
                 );
-                let fallback_model_config =
+                let mut fallback_model_config =
                     model_config_from_user_config(fallback_provider.as_str(), &fallback_model)
                         .unwrap_or_else(|e| {
                             output::render_error(&format!(
@@ -808,6 +747,9 @@ pub async fn build_session(session_config: SessionBuilderConfig) -> CliSession {
                             ));
                             process::exit(1);
                         });
+                if !session_config.interactive {
+                    fallback_model_config = fallback_model_config.with_cache_ttl_clamped();
+                }
                 match create(&fallback_provider, extensions_for_provider.clone()).await {
                     Ok(provider) => (
                         provider,
@@ -880,8 +822,26 @@ pub async fn build_session(session_config: SessionBuilderConfig) -> CliSession {
         }
     }
 
-    // Extensions are loaded after session creation because we may change directory when resuming
-    let agent_ptr = resolve_and_load_extensions(agent, extensions_for_provider, &session_id).await;
+    for warning in goose::config::get_warnings() {
+        eprintln!("{}", style(format!("Warning: {}", warning)).yellow());
+    }
+
+    // Extensions are loaded after session creation because we may change
+    // directory when resuming.
+    let agent_ptr = Arc::new(agent);
+    let loading_handle = match agent_ptr
+        .persist_extension_configs(&session_id, extensions_for_provider.clone())
+        .await
+    {
+        Ok(()) => AbortOnDropHandle::new(tokio::spawn({
+            let agent = agent_ptr.clone();
+            let sid = session_id.clone();
+            async move { load_extensions(agent, extensions_for_provider, &sid).await }
+        })),
+        Err(error) => AbortOnDropHandle::new(tokio::spawn(async move {
+            vec![ExtensionFailure { label: None, error }]
+        })),
+    };
 
     let edit_mode = config
         .get_param::<String>("EDIT_MODE")
@@ -898,7 +858,7 @@ pub async fn build_session(session_config: SessionBuilderConfig) -> CliSession {
     let debug_mode = session_config.debug || config.get_param("GOOSE_DEBUG").unwrap_or(false);
 
     let session = CliSession::new(
-        Arc::try_unwrap(agent_ptr).unwrap_or_else(|_| panic!("There should be no more references")),
+        agent_ptr,
         session_id.clone(),
         debug_mode,
         session_config.scheduled_job_id.clone(),
@@ -907,10 +867,12 @@ pub async fn build_session(session_config: SessionBuilderConfig) -> CliSession {
         recipe.and_then(|r| r.retry.clone()),
         session_config.output_format.clone(),
         session_config.stats,
+        session_config.interactive,
+        Some(loading_handle),
     )
     .await;
 
-    configure_session_prompts(&session, config, &session_config, &session_id).await;
+    configure_session_prompts(&session, config, &session_config).await;
 
     if !session_config.quiet {
         output::display_session_info(
@@ -1480,6 +1442,86 @@ mod tests {
             .request_params
             .as_ref()
             .is_some_and(|params| params.contains_key("anthropic_beta")));
+    }
+
+    #[tokio::test]
+    async fn resume_rederives_cache_ttl_from_config_not_session() {
+        let _guard = env_lock::lock_env([
+            ("GOOSE_PROVIDER", None::<&str>),
+            ("GOOSE_MODEL", None::<&str>),
+            ("GOOSE_CACHE_TTL", Some("1h")),
+        ]);
+        let temp_dir = TempDir::new().unwrap();
+        let config = test_config(&temp_dir);
+        let saved =
+            goose_providers::model::ModelConfig::new("claude-sonnet-4-6").with_cache_ttl("5m");
+
+        let resolved = resolve_provider_and_model(
+            &SessionBuilderConfig {
+                resume: true,
+                interactive: true,
+                ..SessionBuilderConfig::default()
+            },
+            &config,
+            Some("anthropic".to_string()),
+            Some(saved),
+        )
+        .await;
+
+        assert_eq!(resolved.model_config.cache_ttl().as_deref(), Some("1h"));
+    }
+
+    #[tokio::test]
+    async fn resume_drops_saved_cache_ttl_when_config_absent() {
+        let _guard = env_lock::lock_env([
+            ("GOOSE_PROVIDER", None::<&str>),
+            ("GOOSE_MODEL", None::<&str>),
+            ("GOOSE_CACHE_TTL", None::<&str>),
+        ]);
+        let temp_dir = TempDir::new().unwrap();
+        let config = test_config(&temp_dir);
+        let saved =
+            goose_providers::model::ModelConfig::new("claude-sonnet-4-6").with_cache_ttl("1h");
+
+        let resolved = resolve_provider_and_model(
+            &SessionBuilderConfig {
+                resume: true,
+                interactive: true,
+                ..SessionBuilderConfig::default()
+            },
+            &config,
+            Some("anthropic".to_string()),
+            Some(saved),
+        )
+        .await;
+
+        assert!(resolved.model_config.cache_ttl().is_none());
+    }
+
+    #[tokio::test]
+    async fn headless_resume_clamps_rederived_cache_ttl() {
+        let _guard = env_lock::lock_env([
+            ("GOOSE_PROVIDER", None::<&str>),
+            ("GOOSE_MODEL", None::<&str>),
+            ("GOOSE_CACHE_TTL", Some("1h")),
+        ]);
+        let temp_dir = TempDir::new().unwrap();
+        let config = test_config(&temp_dir);
+        let saved = goose_providers::model::ModelConfig::new("claude-sonnet-4-6");
+
+        let resolved = resolve_provider_and_model(
+            &SessionBuilderConfig {
+                resume: true,
+                interactive: false,
+                ..SessionBuilderConfig::default()
+            },
+            &config,
+            Some("anthropic".to_string()),
+            Some(saved),
+        )
+        .await;
+
+        assert_eq!(resolved.model_config.cache_ttl().as_deref(), Some("5m"));
     }
 
     #[test]

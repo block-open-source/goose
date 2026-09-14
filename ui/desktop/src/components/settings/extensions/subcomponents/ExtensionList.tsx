@@ -152,11 +152,9 @@ export function getSubtitle(config: ExtensionConfig) {
         command: null,
       };
     }
-    case 'sse':
     case 'streamable_http': {
-      const label = config.type === 'sse' ? 'SSE' : 'HTTP';
       return {
-        description: config.description ? `${label}: ${config.description}` : `${label} extension`,
+        description: config.description ? `HTTP: ${config.description}` : 'HTTP extension',
         command: config.uri || null,
       };
     }

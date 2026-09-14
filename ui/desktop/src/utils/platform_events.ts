@@ -24,7 +24,9 @@ async function handleAppsEvent(eventType: string, eventData: PlatformEventData):
 
   const apps = await listMcpApps(sessionId);
 
-  const targetApp = apps.find((app: GooseApp) => app.name === app_name);
+  const targetApp = apps.find(
+    (app: GooseApp) => app.name === app_name && app.mcpServers?.includes(eventData.extension)
+  );
 
   switch (eventType) {
     case 'app_created':

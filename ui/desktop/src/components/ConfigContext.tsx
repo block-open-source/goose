@@ -18,6 +18,7 @@ export type { ExtensionConfig } from '../types/extensions';
 export type FixedExtensionEntry = ExtensionConfig & {
   enabled: boolean;
   configKey?: string;
+  extensionKey?: string;
 };
 
 type ConfigMap = Record<string, unknown>;

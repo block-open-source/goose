@@ -12,6 +12,9 @@ use super::container::Container;
 use super::final_output_tool::FinalOutputTool;
 use super::gen_ai_telemetry;
 use super::mcp_client::GooseMcpHostInfo;
+use super::tool_confirmation_coordinator::{
+    ActiveTurnGuard, ConfirmationAnswer, ToolConfirmationCoordinator,
+};
 use super::tool_confirmation_router::ToolConfirmationRouter;
 use super::tool_execution::{
     tool_stream, ToolCallResult, ToolStream, ToolStreamItem, CHAT_MODE_TOOL_SKIPPED_RESPONSE,
@@ -30,37 +33,36 @@ use crate::agents::platform_extensions::MANAGE_EXTENSIONS_TOOL_NAME_COMPLETE;
 use crate::agents::prompt_manager::PromptManager;
 use crate::agents::retry::{RetryManager, RetryResult};
 use crate::agents::state_machine::{
-    run_goose, BangShellOperation, CompactionOperation, DoctorOperation, Emitter,
-    EntryHookOperation, ExitOnErrorOperation, GooseEffect, InferenceRunner, MaxTurnsOperation,
+    has_unapplied_tool_confirmation_response, pending_tool_confirmations,
+    persist_tool_confirmation_decision, run_goose, BangShellOperation, CompactionOperation,
+    DoctorOperation, Emitter, EntryHookOperation, ExitOnErrorOperation, GooseEffect,
+    GooseInferenceProvider, GooseInferenceRequestPreparer, InferenceRunner, MaxTurnsOperation,
     Operation, ProjectOperation, RecipeOperation, RetryOperation, SkillOperation,
-    SlashCommandOperation, StateMachine, SteerOperation, SteerQueue, Step, StopHookOperation,
-    ToolApprovalOperation, ToolExecutionOperation, ToolPairCompactionOperation,
+    SlashCommandOperation, StateMachine, StatusOperation, SteerOperation, SteerQueue, Step,
+    StopHookOperation, ToolApprovalOperation, ToolExecutionOperation, ToolPairCompactionOperation,
     UnknownToolOperation, MAX_TURNS_MESSAGE,
 };
 use crate::agents::types::{
-    FrontendTool, SessionConfig, SharedProvider, ToolResultReceiver,
-    DEFAULT_ON_FAILURE_TIMEOUT_SECONDS, DEFAULT_RETRY_TIMEOUT_SECONDS,
+    SessionConfig, SharedProvider, DEFAULT_ON_FAILURE_TIMEOUT_SECONDS,
+    DEFAULT_RETRY_TIMEOUT_SECONDS,
 };
 use crate::agents::AgentEvent;
 use crate::config::extensions::name_to_key;
 use crate::config::permission::PermissionManager;
-use crate::config::{get_enabled_extensions, Config, GooseMode};
+use crate::config::{Config, GooseMode};
 use crate::context_mgmt::{
     check_if_compaction_needed, compact_messages, DEFAULT_COMPACTION_THRESHOLD,
 };
 use crate::conversation::message::{
     ActionRequiredData, InferenceMetadata, Message, MessageContent, MessageUsage, ProviderMetadata,
-    SystemNotificationType, ToolRequest,
+    SystemNotificationType,
 };
-use crate::conversation::{
-    debug_conversation_fix, fix_conversation, merge_consecutive_messages_for_request, Conversation,
-};
-use crate::mcp_utils::ToolResult;
+use crate::conversation::{debug_conversation_fix, fix_conversation, Conversation};
 use crate::permission::permission_inspector::PermissionInspector;
 use crate::permission::permission_judge::PermissionCheckResult;
-use crate::permission::PermissionConfirmation;
+use crate::permission::{Permission, PermissionConfirmation};
 use crate::providers::base::{PermissionRouting, Provider};
-use crate::recipe::{Author, Recipe, Response, Settings};
+use crate::recipe::Response;
 use crate::scheduler_trait::SchedulerTrait;
 use crate::security::adversary_inspector::AdversaryInspector;
 use crate::security::egress_inspector::EgressInspector;
@@ -73,7 +75,6 @@ use crate::utils::is_token_cancelled;
 use goose_providers::conversation::token_usage::{ProviderUsage, Usage};
 use goose_providers::errors::ProviderError;
 use goose_providers::thinking::{ThinkingEffort, ThinkingEffortSupport};
-use regex::Regex;
 use rmcp::model::{
     CallToolRequestParams, CallToolResult, ContentBlock, ElicitationAction, ErrorCode, ErrorData,
     GetPromptResult, Prompt, ProtocolVersion, Tool,
@@ -89,14 +90,13 @@ const COMPACTION_PROGRESS_TEXT: &str = "goose is compacting the conversation..."
 const MAX_EMPTY_TURN_RETRIES: u32 = 3;
 const EMPTY_TURN_MESSAGE: &str =
     "The model returned an empty response. Please resend your message to continue.";
-const DEFAULT_FRONTEND_INSTRUCTIONS: &str = "The following tools are provided directly by the frontend and will be executed by the frontend when called.";
 
 fn provider_creation_error(error: anyhow::Error, context: impl fmt::Display) -> anyhow::Error {
     let message = format!("{context}: {error}");
     error.context(message)
 }
 
-pub const MCP_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::V_2025_11_25;
+pub const MCP_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::V_2026_07_28;
 
 fn normalize_legacy_provider_thinking_effort(
     mut model_config: goose_providers::model::ModelConfig,
@@ -189,12 +189,6 @@ pub struct ReplyContext {
     pub model_config: goose_providers::model::ModelConfig,
 }
 
-pub struct ToolCategorizeResult {
-    pub frontend_requests: Vec<ToolRequest>,
-    pub remaining_requests: Vec<ToolRequest>,
-    pub filtered_response: Message,
-}
-
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ExtensionLoadResult {
     pub name: String,
@@ -252,7 +246,7 @@ impl AgentConfig {
             goose_platform,
             mcp_host_info: None,
             elicitation_handler: None,
-            mcp_protocol_version: Some(MCP_PROTOCOL_VERSION),
+            mcp_protocol_version: None,
             session_name_update_tx: None,
             use_login_shell_path: None,
             is_subagent: false,
@@ -294,13 +288,9 @@ pub struct Agent {
 
     pub extension_manager: Arc<ExtensionManager>,
     pub(super) final_output_tool: Arc<Mutex<Option<FinalOutputTool>>>,
-    pub(super) frontend_extensions: Mutex<HashMap<String, ExtensionConfig>>,
-    pub(super) frontend_tools: Mutex<HashMap<String, FrontendTool>>,
-    pub(super) frontend_instructions: Mutex<Option<String>>,
     pub(super) prompt_manager: Mutex<PromptManager>,
-    pub tool_confirmation_router: ToolConfirmationRouter,
-    pub(super) tool_result_tx: mpsc::Sender<(String, ToolResult<CallToolResult>)>,
-    pub(super) tool_result_rx: ToolResultReceiver,
+    pub(super) tool_confirmation_router: ToolConfirmationRouter,
+    tool_confirmation_coordinator: ToolConfirmationCoordinator,
 
     pub(super) retry_manager: RetryManager,
     pub(super) tool_inspection_manager: ToolInspectionManager,
@@ -391,6 +381,19 @@ impl Default for Agent {
     }
 }
 
+fn has_unique_persisted_extension(configs: &[ExtensionConfig], key: &str) -> Result<bool> {
+    match configs
+        .iter()
+        .filter(|config| config.key() == key)
+        .take(2)
+        .count()
+    {
+        0 => Ok(false),
+        1 => Ok(true),
+        _ => Err(anyhow!("Duplicate session extension key '{key}'")),
+    }
+}
+
 impl Agent {
     pub fn new() -> Self {
         let config = Config::global();
@@ -405,7 +408,6 @@ impl Agent {
     }
 
     pub fn with_config(config: AgentConfig) -> Self {
-        let (tool_tx, tool_rx) = mpsc::channel(32);
         let provider = Arc::new(Mutex::new(None));
 
         let goose_platform = config.goose_platform.clone();
@@ -448,13 +450,9 @@ impl Agent {
                 use_login_shell_path,
             )),
             final_output_tool: Arc::new(Mutex::new(None)),
-            frontend_extensions: Mutex::new(HashMap::new()),
-            frontend_tools: Mutex::new(HashMap::new()),
-            frontend_instructions: Mutex::new(None),
             prompt_manager: Mutex::new(PromptManager::new()),
             tool_confirmation_router: ToolConfirmationRouter::new(),
-            tool_result_tx: tool_tx,
-            tool_result_rx: Arc::new(Mutex::new(tool_rx)),
+            tool_confirmation_coordinator: ToolConfirmationCoordinator::new(),
             retry_manager: RetryManager::new(),
             tool_inspection_manager: Self::create_tool_inspection_manager(
                 permission_manager,
@@ -691,9 +689,7 @@ impl Agent {
                 .with_tool_call_id(tool_call_id)
                 .with_working_dir(session.working_dir.to_string_lossy().to_string())
                 .with_pre_tool_use_outcome(outcome);
-        self.hook_manager
-            .emit(crate::hooks::HookEvent::PreToolUseResult, ctx)
-            .await;
+        self.hook_manager.emit_pre_tool_use_result(ctx).await;
     }
 
     fn with_post_tool_hook(
@@ -882,10 +878,12 @@ impl Agent {
             Ok(v) => v,
             Err(_) => {
                 let context_limit = match self.provider().await {
-                    Ok(provider) => provider
-                        .get_context_limit(&model_config)
-                        .await
-                        .unwrap_or_else(|_| model_config.context_limit()),
+                    Ok(provider) => crate::context_limit::get_context_limit(
+                        provider.as_ref(),
+                        &model_config.model_name,
+                    )
+                    .await
+                    .unwrap_or(goose_providers::model::DEFAULT_CONTEXT_LIMIT),
                     Err(_) => goose_providers::model::DEFAULT_CONTEXT_LIMIT,
                 };
                 let compaction_threshold = Config::global()
@@ -904,24 +902,6 @@ impl Agent {
             tool_call_cut_off,
             model_config,
         })
-    }
-
-    async fn categorize_tools(
-        &self,
-        response: &Message,
-        tools: &[rmcp::model::Tool],
-        suppress_replayed_thinking: bool,
-    ) -> ToolCategorizeResult {
-        // Categorize tool requests
-        let (frontend_requests, remaining_requests, filtered_response) = self
-            .categorize_tool_requests(response, tools, suppress_replayed_thinking)
-            .await;
-
-        ToolCategorizeResult {
-            frontend_requests,
-            remaining_requests,
-            filtered_response,
-        }
     }
 
     async fn handle_approved_and_denied_tools(
@@ -1028,6 +1008,20 @@ impl Agent {
             .map_err(|e| anyhow!("Could not resolve model config: {e}"))
     }
 
+    pub(super) async fn effective_model_config_for_session(
+        &self,
+        session_id: &str,
+    ) -> Result<goose_providers::model::ModelConfig> {
+        let model_config = self.model_config_for_session(session_id).await?;
+        let provider_name = self.provider().await?.get_name().to_string();
+        match crate::providers::get_from_registry(&provider_name).await {
+            Ok(entry) => Ok(entry
+                .normalize_model_config(model_config.clone())
+                .unwrap_or(model_config)),
+            Err(_) => Ok(model_config),
+        }
+    }
+
     /// When set, all stdio extensions will be started via `docker exec` in the specified container.
     pub async fn set_container(&self, container: Option<Container>) {
         *self.container.lock().await = container.clone();
@@ -1035,109 +1029,6 @@ impl Agent {
 
     pub async fn container(&self) -> Option<Container> {
         self.container.lock().await.clone()
-    }
-
-    /// Check if a tool is a frontend tool
-    pub async fn is_frontend_tool(&self, name: &str) -> bool {
-        self.frontend_tools.lock().await.contains_key(name)
-    }
-
-    /// Get a reference to a frontend tool
-    pub async fn get_frontend_tool(&self, name: &str) -> Option<FrontendTool> {
-        self.frontend_tools.lock().await.get(name).cloned()
-    }
-
-    async fn frontend_extension_configs(&self) -> Vec<ExtensionConfig> {
-        let mut configs = self
-            .frontend_extensions
-            .lock()
-            .await
-            .values()
-            .cloned()
-            .collect::<Vec<_>>();
-        configs.sort_by_key(|config| config.key());
-        configs
-    }
-
-    async fn frontend_tools_for_extension(&self, extension_name: Option<&str>) -> Vec<Tool> {
-        let requested_extension = extension_name.map(name_to_key);
-
-        self.frontend_extension_configs()
-            .await
-            .into_iter()
-            .filter_map(|config| {
-                let include = requested_extension
-                    .as_ref()
-                    .is_none_or(|name| *name == config.key());
-
-                match config {
-                    ExtensionConfig::Frontend { tools, .. } if include => Some(tools),
-                    _ => None,
-                }
-            })
-            .flatten()
-            .collect()
-    }
-
-    async fn rebuild_frontend_derived_state(&self, extensions: &HashMap<String, ExtensionConfig>) {
-        let multiple = extensions.len() > 1;
-        let mut tools = HashMap::new();
-        let mut instructions = Vec::new();
-
-        for config in extensions.values() {
-            if let ExtensionConfig::Frontend {
-                name,
-                tools: ext_tools,
-                instructions: ext_instructions,
-                ..
-            } = config
-            {
-                for tool in ext_tools {
-                    let tool_name = tool.name.to_string();
-                    tools.insert(
-                        tool_name.clone(),
-                        FrontendTool {
-                            name: tool_name,
-                            tool: tool.clone(),
-                        },
-                    );
-                }
-
-                let text = ext_instructions
-                    .clone()
-                    .unwrap_or_else(|| DEFAULT_FRONTEND_INSTRUCTIONS.to_string());
-                instructions.push(if multiple {
-                    format!("{name}: {text}")
-                } else {
-                    text
-                });
-            }
-        }
-
-        *self.frontend_tools.lock().await = tools;
-        *self.frontend_instructions.lock().await = if instructions.is_empty() {
-            None
-        } else {
-            Some(instructions.join("\n\n"))
-        };
-    }
-
-    async fn insert_frontend_extension(&self, extension: ExtensionConfig) {
-        let mut extensions = self.frontend_extensions.lock().await;
-        extensions.insert(extension.key(), extension);
-        self.rebuild_frontend_derived_state(&extensions).await;
-    }
-
-    async fn remove_frontend_extension(&self, name: &str) {
-        let mut extensions = self.frontend_extensions.lock().await;
-        extensions.remove(&name_to_key(name));
-        self.rebuild_frontend_derived_state(&extensions).await;
-    }
-
-    async fn extension_configs_for_persistence(&self) -> Vec<ExtensionConfig> {
-        let mut extension_configs = self.extension_manager.get_extension_configs().await;
-        extension_configs.extend(self.frontend_extension_configs().await);
-        extension_configs
     }
 
     pub async fn add_final_output_tool(&self, response: Response) -> Result<()> {
@@ -1177,6 +1068,7 @@ impl Agent {
             gen_ai.tool.call.id = %request_id,
             gen_ai.tool.call.arguments = tracing::field::Empty,
             gen_ai.tool.call.result = tracing::field::Empty,
+            error.type = tracing::field::Empty,
         )
     )]
     pub async fn dispatch_tool_call(
@@ -1186,11 +1078,13 @@ impl Agent {
         cancellation_token: Option<CancellationToken>,
         session: &Session,
     ) -> (String, Result<ToolCallResult, ErrorData>) {
-        let input_summary = serde_json::json!({
-            "tool": tool_call.name,
-            "arguments": tool_call.arguments,
-        });
-        tracing::Span::current().record("input", tracing::field::display(&input_summary));
+        if gen_ai_telemetry::capture_message_content() {
+            let input_summary = serde_json::json!({
+                "tool": tool_call.name,
+                "arguments": tool_call.arguments,
+            });
+            tracing::Span::current().record("input", tracing::field::display(&input_summary));
+        }
         gen_ai_telemetry::record_tool_arguments(&tracing::Span::current(), &tool_call);
 
         self.prompt_manager
@@ -1231,15 +1125,13 @@ impl Agent {
         )
         .await;
 
-        if let crate::hooks::HookDecision::Deny { reason, plugin } = pre_tool_outcome.decision {
+        if let Some(denial) = pre_tool_outcome.denial() {
+            tracing::Span::current().record("error.type", denial.error_type);
             return (
                 request_id,
                 Err(ErrorData::new(
                     ErrorCode::INTERNAL_ERROR,
-                    format!(
-                        "Tool call denied by policy hook `{plugin}`: {reason}. \
-                         Do not retry; this is a policy denial, not a transient failure."
-                    ),
+                    denial.message,
                     None,
                 )),
             );
@@ -1281,30 +1173,22 @@ impl Agent {
         );
 
         debug!("WAITING_TOOL_START: {}", tool_call.name);
-        let result: ToolCallResult = if self.is_frontend_tool(&tool_call.name).await {
-            ToolCallResult::from(Err(ErrorData::new(
-                ErrorCode::INTERNAL_ERROR,
-                "Frontend tool execution required".to_string(),
-                None,
-            )))
-        } else {
-            let result = self
-                .extension_manager
-                .dispatch_tool_call(
-                    &ctx,
-                    tool_call.clone(),
-                    cancellation_token.unwrap_or_default(),
-                )
-                .await;
-            result.unwrap_or_else(|error_data| {
-                #[cfg(feature = "telemetry")]
-                crate::posthog::emit_error(
-                    "tool_execution_failed",
-                    &format!("{}: {}", tool_call.name, error_data),
-                );
-                ToolCallResult::from(Err(error_data))
-            })
-        };
+        let result = self
+            .extension_manager
+            .dispatch_tool_call(
+                &ctx,
+                tool_call.clone(),
+                cancellation_token.unwrap_or_default(),
+            )
+            .await;
+        let result = result.unwrap_or_else(|error_data| {
+            #[cfg(feature = "telemetry")]
+            crate::posthog::emit_error(
+                "tool_execution_failed",
+                &format!("{}: {}", tool_call.name, error_data),
+            );
+            ToolCallResult::from(Err(error_data))
+        });
 
         debug!("WAITING_TOOL_END: {}", tool_call.name);
 
@@ -1316,7 +1200,7 @@ impl Agent {
     /// Should be called after any extension add/remove operation
     pub async fn save_extension_state(&self, session: &SessionConfig) -> Result<()> {
         let extensions_state =
-            EnabledExtensionsState::new(self.extension_configs_for_persistence().await);
+            EnabledExtensionsState::new(self.extension_manager.get_extension_configs().await);
 
         let session_manager = self.config.session_manager.clone();
         let mut session_data = session_manager.get_session(&session.id, false).await?;
@@ -1337,8 +1221,20 @@ impl Agent {
 
     /// Save current extension state to session by session_id
     pub async fn persist_extension_state(&self, session_id: &str) -> Result<()> {
-        let extensions_state =
-            EnabledExtensionsState::new(self.extension_configs_for_persistence().await);
+        self.persist_extension_configs(
+            session_id,
+            self.extension_manager.get_extension_configs().await,
+        )
+        .await
+    }
+
+    /// Save the provided extension configuration to session metadata.
+    pub async fn persist_extension_configs(
+        &self,
+        session_id: &str,
+        extensions: Vec<ExtensionConfig>,
+    ) -> Result<()> {
+        let extensions_state = EnabledExtensionsState::new(extensions);
 
         let session_manager = self.config.session_manager.clone();
         let session = session_manager.get_session(session_id, false).await?;
@@ -1475,6 +1371,11 @@ impl Agent {
     ///
     /// Unlike `add_extension`, this avoids per-extension persistence and acquires
     /// the container lock once upfront to prevent serialisation of the parallel futures.
+    ///
+    /// State is persisted once every extension has settled, even when all of them
+    /// fail: the session's enabled list records what actually loaded, so failed
+    /// extensions are dropped instead of staying marked as enabled and being
+    /// retried on every subsequent resume.
     pub async fn add_extensions_bulk(
         self: &Arc<Self>,
         extensions: Vec<ExtensionConfig>,
@@ -1514,12 +1415,12 @@ impl Agent {
                             error: None,
                         },
                         Err(e) => {
-                            let error_msg = e.to_string();
-                            warn!("Failed to load extension {}: {}", name, error_msg);
+                            let error = e.to_string();
+                            warn!("Failed to load extension {}: {}", name, error);
                             ExtensionLoadResult {
                                 name,
                                 success: false,
-                                error: Some(error_msg),
+                                error: Some(error),
                             }
                         }
                     }
@@ -1529,9 +1430,7 @@ impl Agent {
 
         let results = futures::future::join_all(extension_futures).await;
 
-        if results.iter().any(|r| r.success) {
-            self.persist_extension_state(session_id).await?;
-        }
+        self.persist_extension_state(session_id).await?;
 
         Ok(results)
     }
@@ -1554,39 +1453,23 @@ impl Agent {
             })?;
         let working_dir = Some(session.working_dir);
 
-        match &extension {
-            ExtensionConfig::Frontend { .. } => {
-                self.insert_frontend_extension(extension.clone()).await;
-            }
-            _ => {
-                let container = self.container.lock().await;
-                self.extension_manager
-                    .add_extension(
-                        extension.clone(),
-                        working_dir,
-                        container.as_ref(),
-                        Some(session_id),
-                    )
-                    .await?;
-            }
-        }
+        let container = self.container.lock().await;
+        self.extension_manager
+            .add_extension(extension, working_dir, container.as_ref(), Some(session_id))
+            .await?;
 
         Ok(())
     }
 
     pub async fn list_tools(&self, session_id: &str, extension_name: Option<String>) -> Vec<Tool> {
+        let include_final_output = extension_name.is_none();
         let mut prefixed_tools = self
             .extension_manager
-            .get_prefixed_tools(session_id, extension_name.clone())
+            .get_prefixed_tools(session_id, extension_name)
             .await
             .unwrap_or_default();
 
-        prefixed_tools.extend(
-            self.frontend_tools_for_extension(extension_name.as_deref())
-                .await,
-        );
-
-        if extension_name.is_none() {
+        if include_final_output {
             if let Some(final_output_tool) = self.final_output_tool.lock().await.as_ref() {
                 prefixed_tools.push(final_output_tool.tool());
             }
@@ -1596,8 +1479,26 @@ impl Agent {
     }
 
     pub async fn remove_extension(&self, name: &str, session_id: &str) -> Result<()> {
-        self.extension_manager.remove_extension(name).await?;
-        self.remove_frontend_extension(name).await;
+        self.remove_extension_by_key(&name_to_key(name), session_id)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn remove_extension_by_key(&self, key: &str, session_id: &str) -> Result<bool> {
+        let session = self
+            .config
+            .session_manager
+            .get_session(session_id, false)
+            .await?;
+        let persisted_extensions = EnabledExtensionsState::extensions_or_default(
+            Some(&session.extension_data),
+            Config::global(),
+        );
+        if !has_unique_persisted_extension(&persisted_extensions, key)? {
+            return Ok(false);
+        }
+
+        self.extension_manager.remove_extension_by_key(key).await?;
 
         // Persist extension state after successful removal
         self.persist_extension_state(session_id)
@@ -1607,51 +1508,116 @@ impl Agent {
                 anyhow!("Failed to persist extension state: {}", e)
             })?;
 
-        Ok(())
+        Ok(true)
     }
 
     pub async fn list_extensions(&self) -> Vec<String> {
-        let mut extensions = self
-            .extension_manager
+        self.extension_manager
             .list_extensions()
             .await
-            .expect("Failed to list extensions");
-        extensions.extend(
-            self.frontend_extension_configs()
-                .await
-                .into_iter()
-                .map(|config| config.name()),
-        );
-        extensions
+            .expect("Failed to list extensions")
     }
 
     pub async fn get_extension_configs(&self) -> Vec<ExtensionConfig> {
-        self.extension_configs_for_persistence().await
+        self.extension_manager.get_extension_configs().await
     }
 
-    /// Handle a confirmation response for a tool request
-    pub async fn handle_confirmation(
+    pub async fn submit_tool_confirmation(
         &self,
-        request_id: String,
-        confirmation: PermissionConfirmation,
-    ) {
+        session_id: &str,
+        request_id: &str,
+        permission: Permission,
+    ) -> Result<()> {
+        self.config
+            .session_manager
+            .get_session(session_id, false)
+            .await?;
+
+        let state = self.tool_confirmation_coordinator.session(session_id);
+        let _confirmation_submission_guard = state.confirmation_submission_lock.lock().await;
+        let state_machine_permission = if permission == Permission::Cancel {
+            Permission::DenyOnce
+        } else {
+            permission.clone()
+        };
+
+        if let Some(answer) = state.answer(request_id) {
+            return match answer {
+                ConfirmationAnswer::LiveHandled => {
+                    Err(anyhow!("tool confirmation request was already answered"))
+                }
+                ConfirmationAnswer::StateMachine(previous)
+                    if previous == state_machine_permission =>
+                {
+                    Ok(())
+                }
+                ConfirmationAnswer::StateMachine(_) => Err(anyhow!(
+                    "tool confirmation request already has a different decision"
+                )),
+            };
+        }
+
+        let confirmation = PermissionConfirmation {
+            principal_type: crate::permission::permission_confirmation::PrincipalType::Tool,
+            permission: permission.clone(),
+        };
+        if self
+            .try_route_tool_confirmation_to_provider(request_id, &confirmation)
+            .await
+        {
+            if state.contains_request(request_id) {
+                state.record_answer(request_id, ConfirmationAnswer::LiveHandled)?;
+            }
+            return Ok(());
+        }
+
+        if self
+            .tool_confirmation_router
+            .deliver(session_id, request_id, confirmation)
+            .await
+        {
+            if state.contains_request(request_id) {
+                state.record_answer(request_id, ConfirmationAnswer::LiveHandled)?;
+            }
+            return Ok(());
+        }
+
+        if state.contains_request(request_id) {
+            persist_tool_confirmation_decision(
+                self.config.session_manager.as_ref(),
+                session_id,
+                request_id,
+                &state_machine_permission,
+            )
+            .await?;
+            state.record_answer(
+                request_id,
+                ConfirmationAnswer::StateMachine(state_machine_permission),
+            )?;
+            return Ok(());
+        }
+
+        Err(anyhow!(
+            "unknown or stale tool confirmation request {request_id} for session {session_id}"
+        ))
+    }
+
+    async fn try_route_tool_confirmation_to_provider(
+        &self,
+        request_id: &str,
+        confirmation: &PermissionConfirmation,
+    ) -> bool {
         let provider = self.provider.lock().await.clone();
         if let Some(provider) = provider.as_ref() {
             if provider.permission_routing() == PermissionRouting::ActionRequired
                 && provider
-                    .handle_permission_confirmation(&request_id, &confirmation)
+                    .handle_permission_confirmation(request_id, confirmation)
                     .await
             {
-                return;
+                return true;
             }
         }
-        if !self
-            .tool_confirmation_router
-            .deliver(request_id, confirmation)
-            .await
-        {
-            error!("Failed to deliver confirmation");
-        }
+        false
     }
 
     pub async fn supports_action_required_permissions(&self) -> bool {
@@ -1753,17 +1719,23 @@ impl Agent {
             Arc::new(ExitOnErrorOperation),
         ];
         operations.extend(remaining_operations);
-        let inference = Arc::new(InferenceRunner::new(
-            provider,
-            model_config,
-            self.extension_manager.clone(),
-            &self.current_goose_mode,
-            &self.prompt_manager,
-            &self.tool_inspection_manager,
-            &self.frontend_instructions,
-        ));
+        let request_preparer = GooseInferenceRequestPreparer {
+            #[cfg(feature = "code-mode")]
+            extension_manager: self.extension_manager.clone(),
+            goose_mode: &self.current_goose_mode,
+            prompt_manager: &self.prompt_manager,
+            tool_inspection_manager: &self.tool_inspection_manager,
+            context_limit,
+        };
+        let status_operation =
+            Arc::new(StatusOperation::new(provider.clone(), model_config.clone()));
+        let inference_provider = Arc::new(GooseInferenceProvider::new(provider));
+        let inference = Arc::new(
+            InferenceRunner::new(inference_provider, model_config)
+                .with_request_preparer(Arc::new(request_preparer)),
+        );
         let mut command_handlers = operations.clone();
-        command_handlers.push(inference.clone());
+        command_handlers.push(status_operation);
         let command_operation: Arc<dyn Operation<Session, GooseEffect> + '_> =
             Arc::new(SlashCommandOperation::new(command_handlers));
         let operations: Vec<_> =
@@ -1789,10 +1761,12 @@ impl Agent {
         cancel_token: Option<CancellationToken>,
     ) -> Result<BoxStream<'_, Result<AgentEvent>>> {
         let session_manager = self.config.session_manager.clone();
-        let cancel = cancel_token.unwrap_or_default();
         let session_id = session_config.id.clone();
+        let turn_guard = self
+            .tool_confirmation_coordinator
+            .session(&session_id)
+            .try_start_turn()?;
 
-        let entry_session = session_manager.get_session(&session_id, false).await?;
         if let Some(schedule_id) = session_config.schedule_id.clone() {
             session_manager
                 .update(&session_id)
@@ -1804,14 +1778,13 @@ impl Agent {
             .add_message(&session_config.id, &user_message)
             .await?;
 
-        let provider = self
-            .provider
-            .lock()
-            .await
-            .clone()
-            .ok_or_else(|| anyhow!("Provider not set"))?;
-
         if !self.config.disable_session_naming {
+            let provider = self
+                .provider
+                .lock()
+                .await
+                .clone()
+                .ok_or_else(|| anyhow!("Provider not set"))?;
             let manager = session_manager.clone();
             let tx = self.config.session_name_update_tx.clone();
             let id = session_id.clone();
@@ -1831,24 +1804,162 @@ impl Agent {
             });
         }
 
-        let model_config = match entry_session.model_config {
-            Some(model_config) => model_config,
-            None => {
-                let provider_name = Config::global()
-                    .get_goose_provider()
-                    .map_err(|_| anyhow!("Could not resolve model config: missing provider"))?;
-                let model_name = Config::global()
-                    .get_goose_model()
-                    .map_err(|_| anyhow!("Could not resolve model config: missing model"))?;
-                crate::model_config::model_config_from_user_config(&provider_name, &model_name)
-                    .map_err(|error| anyhow!("Could not resolve model config: {error}"))?
+        let cancel = cancel_token.unwrap_or_default();
+        let initial_stream = self
+            .stream_state_machine_session(session_config.clone(), cancel.clone())
+            .await?;
+        Ok(
+            self.stream_state_machine_turn(
+                session_config,
+                cancel,
+                turn_guard,
+                Some(initial_stream),
+            ),
+        )
+    }
+
+    pub(crate) async fn resume_state_machine_turn(
+        self: &Arc<Self>,
+        session_config: SessionConfig,
+        cancel: CancellationToken,
+    ) -> Result<Option<BoxStream<'static, Result<AgentEvent>>>> {
+        if !super::state_machine::enabled() {
+            return Ok(None);
+        }
+
+        let session = self
+            .config
+            .session_manager
+            .get_session(&session_config.id, true)
+            .await?;
+        let conversation = session
+            .conversation
+            .as_ref()
+            .ok_or_else(|| anyhow!("Session {} has no conversation", session_config.id))?;
+        let pending_confirmations = pending_tool_confirmations(conversation);
+        let resume_from_persisted_response = pending_confirmations.is_empty()
+            && has_unapplied_tool_confirmation_response(conversation);
+        if pending_confirmations.is_empty() && !resume_from_persisted_response {
+            return Ok(None);
+        }
+
+        let turn_guard = self
+            .tool_confirmation_coordinator
+            .session(&session_config.id)
+            .try_start_turn()?;
+        for request in pending_confirmations {
+            turn_guard.state().register_request(request.id);
+        }
+
+        let agent = Arc::clone(self);
+        Ok(Some(Box::pin(async_stream::try_stream! {
+            let initial_stream = if resume_from_persisted_response {
+                Some(
+                    agent
+                        .stream_state_machine_session(
+                            session_config.clone(),
+                            cancel.clone(),
+                        )
+                        .await?,
+                )
+            } else {
+                None
+            };
+            let mut stream = agent.stream_state_machine_turn(
+                session_config,
+                cancel,
+                turn_guard,
+                initial_stream,
+            );
+            while let Some(event) = stream.next().await {
+                yield event?;
             }
+        })))
+    }
+
+    fn tool_confirmation_request_ids(event: &AgentEvent) -> Vec<String> {
+        let AgentEvent::Message(message) = event else {
+            return Vec::new();
         };
 
-        let context_limit = provider
-            .get_context_limit(&model_config)
+        message
+            .content
+            .iter()
+            .filter_map(|content| {
+                let MessageContent::ActionRequired(action) = content else {
+                    return None;
+                };
+                let ActionRequiredData::ToolConfirmation { id, .. } = &action.data else {
+                    return None;
+                };
+                Some(id.clone())
+            })
+            .collect()
+    }
+
+    fn stream_state_machine_turn<'a>(
+        &'a self,
+        session_config: SessionConfig,
+        cancel: CancellationToken,
+        turn_guard: ActiveTurnGuard,
+        initial_stream: Option<BoxStream<'a, Result<AgentEvent>>>,
+    ) -> BoxStream<'a, Result<AgentEvent>> {
+        Box::pin(async_stream::try_stream! {
+            let mut stream = initial_stream;
+            loop {
+                if let Some(active_stream) = stream.as_mut() {
+                    let mut has_confirmations = false;
+                    while let Some(event) = active_stream.next().await {
+                        let event = event?;
+                        for request_id in Self::tool_confirmation_request_ids(&event) {
+                            turn_guard.state().register_request(request_id);
+                            has_confirmations = true;
+                        }
+                        yield event;
+                    }
+
+                    if !has_confirmations {
+                        return;
+                    }
+                }
+
+                let has_state_machine_answer = turn_guard
+                    .state()
+                    .wait_for_all_confirmation_answers(&cancel)
+                    .await?;
+                if !has_state_machine_answer {
+                    return;
+                }
+                turn_guard.state().clear_confirmations();
+                stream = Some(
+                    self.stream_state_machine_session(
+                        session_config.clone(),
+                        cancel.clone(),
+                    )
+                    .await?,
+                );
+            }
+        })
+    }
+
+    async fn stream_state_machine_session(
+        &self,
+        session_config: SessionConfig,
+        cancel: CancellationToken,
+    ) -> Result<BoxStream<'_, Result<AgentEvent>>> {
+        let session_manager = self.config.session_manager.clone();
+        let session_id = session_config.id.clone();
+        let provider = self
+            .provider
+            .lock()
             .await
-            .unwrap_or_else(|_| model_config.context_limit());
+            .clone()
+            .ok_or_else(|| anyhow!("Provider not set"))?;
+        let model_config = self.effective_model_config_for_session(&session_id).await?;
+
+        let context_limit =
+            crate::context_limit::get_context_limit(provider.as_ref(), &model_config.model_name)
+                .await?;
         let steer_queue = self.steer_queue(&session_id).await;
         let machine = self.create_state_machine(
             provider,
@@ -1865,7 +1976,10 @@ impl Agent {
                 let (tx, mut rx) = mpsc::channel::<AgentEvent>(32);
                 let emit = Emitter::new(tx, cancel.clone());
                 let result = {
-                    let run = run_goose(&machine, session_manager.as_ref(), &session_id, &emit);
+                    let run = crate::session_context::with_session_id(
+                        Some(session_id.clone()),
+                        run_goose(&machine, session_manager.as_ref(), &session_id, &emit),
+                    );
                     tokio::pin!(run);
                     loop {
                         tokio::select! {
@@ -1931,9 +2045,9 @@ impl Agent {
         let session_manager = self.config.session_manager.clone();
 
         let message_text_for_trace = agent_visible_message_text(&user_message);
-        tracing::Span::current().record("user_message", message_text_for_trace.as_str());
-        tracing::Span::current().record("trace_input", message_text_for_trace.as_str());
         if gen_ai_telemetry::capture_message_content() {
+            tracing::Span::current().record("user_message", message_text_for_trace.as_str());
+            tracing::Span::current().record("trace_input", message_text_for_trace.as_str());
             tracing::Span::current().record(
                 "gen_ai.input.messages",
                 gen_ai_telemetry::simple_input_json(&message_text_for_trace).as_str(),
@@ -2640,17 +2754,13 @@ impl Agent {
                                     }
                                 });
 
-                                let ToolCategorizeResult {
-                                    frontend_requests,
-                                    remaining_requests,
-                                    filtered_response,
-                                } = self
-                                    .categorize_tools(
+                                let (tool_requests, filtered_response) = self
+                                    .categorize_tool_requests(
                                         &response,
                                         &tools,
+                                        &toolshim_tools,
                                         surfaced_thinking_in_turn,
-                                    )
-                                    .await;
+                                    );
 
                                 let filtered_response = if let Some(inference) = inference.as_ref() {
                                     filtered_response.with_inference(inference.clone())
@@ -2680,8 +2790,7 @@ impl Agent {
                                     tokio::task::yield_now().await;
                                 }
 
-                                let num_tool_requests = frontend_requests.len() + remaining_requests.len();
-                                if num_tool_requests == 0 {
+                                if tool_requests.is_empty() {
                                     let text = if response.is_user_visible() {
                                         filtered_response
                                             .user_visible_content()
@@ -2698,25 +2807,13 @@ impl Agent {
 
                                 let mut request_to_response_map = HashMap::new();
                                 let mut request_metadata: HashMap<String, Option<ProviderMetadata>> = HashMap::new();
-                                for request in frontend_requests.iter().chain(remaining_requests.iter()) {
+                                for request in &tool_requests {
                                     request_to_response_map.insert(request.id.clone(), Message::user().with_generated_id());
                                     request_metadata.insert(request.id.clone(), request.metadata.clone());
                                 }
 
-                                for request in frontend_requests.iter() {
-                                    let response_msg = request_to_response_map.get_mut(&request.id)
-                                        .ok_or_else(|| anyhow::anyhow!("missing response entry for request {}", request.id))?;
-                                    let mut frontend_tool_stream = self.handle_frontend_tool_request(
-                                        request,
-                                        response_msg,
-                                    );
-
-                                    while let Some(msg) = frontend_tool_stream.try_next().await? {
-                                        yield AgentEvent::Message(msg);
-                                    }
-                                }
                                 if goose_mode == GooseMode::Chat {
-                                    for request in remaining_requests.iter() {
+                                    for request in &tool_requests {
                                         // An unparseable tool call should surface the parse error
                                         // (added in the Err branch below), not a successful skip —
                                         // otherwise the model sees a malformed call as "skipped OK"
@@ -2737,7 +2834,7 @@ impl Agent {
                                     let inspection_results = self.tool_inspection_manager
                                         .inspect_tools(
                                             &session_config.id,
-                                            &remaining_requests,
+                                            &tool_requests,
                                             conversation.messages(),
                                             goose_mode,
                                         )
@@ -2745,7 +2842,7 @@ impl Agent {
 
                                     let permission_check_result = self.tool_inspection_manager
                                         .process_inspection_results_with_permission_inspector(
-                                            &remaining_requests,
+                                            &tool_requests,
                                             &inspection_results,
                                         )
                                         .unwrap_or_else(|| {
@@ -2754,13 +2851,13 @@ impl Agent {
                                                 needs_approval: vec![],
                                                 denied: vec![],
                                             };
-                                            result.needs_approval.extend(remaining_requests.iter().cloned());
+                                            result.needs_approval.extend(tool_requests.iter().cloned());
                                             result
                                         });
 
                                     // Track extension requests
                                     let mut enable_extension_request_ids = vec![];
-                                    for request in &remaining_requests {
+                                    for request in &tool_requests {
                                         if let Ok(tool_call) = &request.tool_call {
                                             if tool_call.name == MANAGE_EXTENSIONS_TOOL_NAME_COMPLETE {
                                                 enable_extension_request_ids.push(request.id.clone());
@@ -2992,15 +3089,14 @@ impl Agent {
                                 let carrier_tool_call_id = if has_existing_message_id_carrier {
                                     None
                                 } else {
-                                    remaining_requests
+                                    tool_requests
                                         .first()
-                                        .or_else(|| frontend_requests.first())
                                         .map(|request| request.id.as_str())
                                 };
                                 preferred_turn_usage_message_id =
                                     Some(response_message_id.to_owned());
 
-                                for request in frontend_requests.iter().chain(remaining_requests.iter()) {
+                                for request in &tool_requests {
                                     let mut request_msg =
                                         if carrier_tool_call_id == Some(request.id.as_str()) {
                                             Message::assistant().with_id(response_message_id)
@@ -3073,8 +3169,6 @@ impl Agent {
                                 }
 
                                 no_tools_called = false;
-                                // Agent is actively working — re-check goal when it next finishes
-                                goal_check_pending = false;
                             }
                         }
                         #[allow(unused_variables)]
@@ -3500,17 +3594,13 @@ impl Agent {
                 tokio::task::yield_now().await;
             }
 
-            if !last_assistant_text.is_empty() {
+            if !last_assistant_text.is_empty()
+                && gen_ai_telemetry::capture_message_content()
+            {
                 tracing::Span::current().record("trace_output", last_assistant_text.as_str());
-                if gen_ai_telemetry::capture_message_content() {
-                    let output_json =
-                        gen_ai_telemetry::simple_output_json(&last_assistant_text);
-                    tracing::Span::current().record(
-                        "gen_ai.output.messages",
-                        output_json.as_str(),
-                    );
-                    reply_span.record("gen_ai.output.messages", output_json.as_str());
-                }
+                let output_json = gen_ai_telemetry::simple_output_json(&last_assistant_text);
+                tracing::Span::current().record("gen_ai.output.messages", output_json.as_str());
+                reply_span.record("gen_ai.output.messages", output_json.as_str());
             }
             gen_ai_telemetry::record_usage(&tracing::Span::current(), &turn_total_usage);
             gen_ai_telemetry::record_usage(&reply_span, &turn_total_usage);
@@ -3555,19 +3645,24 @@ impl Agent {
         session_id: &str,
     ) -> Result<()> {
         let provider_name = provider.get_name().to_string();
+        let registry_entry = crate::providers::get_from_registry(&provider_name)
+            .await
+            .ok();
 
-        // Normalize against the provider entry so custom/declarative providers
-        // backfill `context_limit` from their known models before the config is
-        // persisted as the session source of truth; otherwise auto-compaction
-        // would fall back to DEFAULT_CONTEXT_LIMIT.
-        let model_config = match crate::providers::get_from_registry(&provider_name).await {
-            Ok(entry) => entry
-                .normalize_model_config(model_config.clone())
-                .unwrap_or(model_config),
-            Err(_) => model_config,
+        let model_config = if registry_entry.is_some() {
+            crate::model_config::materialize_model_config(&provider_name, model_config.clone())
+                .unwrap_or(model_config)
+        } else {
+            model_config
         };
         let effort_support = provider.thinking_effort_support();
         let model_config = normalize_legacy_provider_thinking_effort(model_config, &effort_support);
+        let effective_model_config = match registry_entry {
+            Some(entry) => entry
+                .normalize_model_config(model_config.clone())
+                .unwrap_or_else(|_| model_config.clone()),
+            None => model_config.clone(),
+        };
 
         {
             let mut current_provider = self.provider.lock().await;
@@ -3578,7 +3673,10 @@ impl Agent {
         // own default, so the session's selection has to be pushed to it before
         // the next config snapshot is built. Failures are not fatal here: the
         // selection is re-applied at stream time.
-        if let Err(e) = provider.apply_model_selection(&model_config).await {
+        if let Err(e) = provider
+            .apply_model_selection(&effective_model_config)
+            .await
+        {
             warn!("Failed to apply model selection to provider: {e}");
         }
 
@@ -3708,7 +3806,8 @@ impl Agent {
             .ok_or_else(|| anyhow!("Could not configure agent: missing provider"))?;
 
         let mut model_config = match session.model_config.clone() {
-            Some(saved_config) => saved_config,
+            Some(saved_config) => crate::model_config::with_rederived_cache_ttl(saved_config)
+                .map_err(|e| anyhow!("Could not configure agent: {}", e))?,
             None => {
                 let model_name = config
                     .get_goose_model()
@@ -3878,7 +3977,7 @@ impl Agent {
             .extension_manager
             .get_prefixed_tools(session_id, None)
             .await?;
-        let tools_info = tools
+        let tools_info: Vec<_> = tools
             .into_iter()
             .map(|tool| {
                 ToolInfo::new(
@@ -3893,252 +3992,17 @@ impl Agent {
             })
             .collect();
 
-        let plan_prompt = self.extension_manager.get_planning_prompt(tools_info).await;
-
-        Ok(plan_prompt)
+        let context = HashMap::from([("tools", serde_json::to_value(tools_info)?)]);
+        Ok(crate::prompt_template::render_template(
+            "plan.md", &context,
+        )?)
     }
-
-    pub async fn handle_tool_result(&self, id: String, result: ToolResult<CallToolResult>) {
-        if let Err(e) = self.tool_result_tx.send((id, result)).await {
-            error!("Failed to send tool result: {}", e);
-        }
-    }
-
-    pub async fn create_recipe(
-        &self,
-        session_id: &str,
-        mut messages: Conversation,
-    ) -> Result<Recipe> {
-        tracing::info!("Starting recipe creation with {} messages", messages.len());
-
-        let session = self
-            .config
-            .session_manager
-            .get_session(session_id, false)
-            .await?;
-        let extensions_info = self
-            .extension_manager
-            .get_extensions_info(&session.working_dir)
-            .await;
-        tracing::debug!("Retrieved {} extensions info", extensions_info.len());
-
-        let model_config = self.model_config_for_session(session_id).await?;
-        let model_name = &model_config.model_name;
-        tracing::debug!("Using model: {}", model_name);
-
-        let goose_mode = *self.current_goose_mode.lock().await;
-        let prompt_manager = self.prompt_manager.lock().await;
-        let system_prompt = prompt_manager
-            .builder()
-            .with_extensions(extensions_info.into_iter())
-            .with_frontend_instructions(self.frontend_instructions.lock().await.clone())
-            .with_goose_mode(goose_mode)
-            .build();
-
-        let recipe_prompt = prompt_manager.get_recipe_prompt().await;
-        let tools: Vec<_> = self
-            .extension_manager
-            .get_prefixed_tools(session_id, None)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to get tools for recipe creation: {}", e);
-                e
-            })?
-            .into_iter()
-            .filter(super::reply_parts::is_tool_visible_to_model)
-            .collect();
-
-        messages = Conversation::new_unvalidated(recipe_conversation_history(&messages));
-        messages.push(Message::user().with_text(recipe_prompt));
-
-        let (messages, issues) = fix_conversation(messages);
-        if !issues.is_empty() {
-            issues
-                .iter()
-                .for_each(|issue| tracing::warn!(recipe.conversation.issue = issue));
-        }
-        let messages = Conversation::new_unvalidated(merge_consecutive_messages_for_request(
-            messages.messages().clone(),
-        ));
-
-        tracing::debug!(
-            "Added recipe prompt to messages, total messages: {}",
-            messages.len()
-        );
-
-        tracing::info!("Calling provider to generate recipe content");
-        let provider = self.provider.lock().await;
-        let provider = provider.as_ref().ok_or_else(|| {
-            let error = anyhow!("Provider not available during recipe creation");
-            tracing::error!("{}", error);
-            error
-        })?;
-        let (result, _usage) = crate::session_context::with_session_id(
-            Some(session_id.to_string()),
-            provider.complete(&model_config, &system_prompt, messages.messages(), &tools),
-        )
-        .await
-        .map_err(|e| {
-            tracing::error!("Provider completion failed during recipe creation: {}", e);
-            e
-        })?;
-
-        let content = result.as_concat_text();
-        tracing::debug!(
-            "Provider returned content with {} characters",
-            content.len()
-        );
-
-        // the response may be contained in ```json ```, strip that before parsing json
-        let re = Regex::new(r"(?s)```[^\n]*\n(.*?)\n```").unwrap();
-        let clean_content = re
-            .captures(&content)
-            .and_then(|caps| caps.get(1).map(|m| m.as_str()))
-            .unwrap_or(&content)
-            .trim()
-            .to_string();
-
-        let (instructions, activities) =
-            if let Ok(json_content) = serde_json::from_str::<Value>(&clean_content) {
-                let instructions = json_content
-                    .get("instructions")
-                    .ok_or_else(|| anyhow!("Missing 'instructions' in json response"))?
-                    .as_str()
-                    .ok_or_else(|| anyhow!("instructions' is not a string"))?
-                    .to_string();
-
-                let activities = json_content
-                    .get("activities")
-                    .ok_or_else(|| anyhow!("Missing 'activities' in json response"))?
-                    .as_array()
-                    .ok_or_else(|| anyhow!("'activities' is not an array'"))?
-                    .iter()
-                    .map(|act| {
-                        act.as_str()
-                            .map(|s| s.to_string())
-                            .ok_or(anyhow!("'activities' array element is not a string"))
-                    })
-                    .collect::<Result<_, _>>()?;
-
-                (instructions, activities)
-            } else {
-                tracing::warn!("Failed to parse JSON, falling back to string parsing");
-                // If we can't get valid JSON, try string parsing
-                // Use split_once to get the content after "Instructions:".
-                let after_instructions = content
-                    .split_once("instructions:")
-                    .map(|(_, rest)| rest)
-                    .unwrap_or(&content);
-
-                // Split once more to separate instructions from activities.
-                let (instructions_part, activities_text) = after_instructions
-                    .split_once("activities:")
-                    .unwrap_or((after_instructions, ""));
-
-                let instructions = instructions_part
-                    .trim_end_matches(|c: char| c.is_whitespace() || c == '#')
-                    .trim()
-                    .to_string();
-                let activities_text = activities_text.trim();
-
-                // Regex to remove bullet markers or numbers with an optional dot.
-                let bullet_re = Regex::new(r"^[•\-*\d]+\.?\s*").expect("Invalid regex");
-
-                // Process each line in the activities section.
-                let activities: Vec<String> = activities_text
-                    .lines()
-                    .map(|line| bullet_re.replace(line, "").to_string())
-                    .map(|s| s.trim().to_string())
-                    .filter(|line| !line.is_empty())
-                    .collect();
-
-                (instructions, activities)
-            };
-
-        let extension_configs = get_enabled_extensions();
-
-        let author = Author {
-            contact: std::env::var("USER")
-                .or_else(|_| std::env::var("USERNAME"))
-                .ok(),
-            metadata: None,
-        };
-
-        // Ideally we'd get the name of the provider we are using from the provider itself,
-        // but it doesn't know and the plumbing looks complicated.
-        let config = Config::global();
-        let provider_name: String = config
-            .get_goose_provider()
-            .expect("No provider configured. Run 'goose configure' first");
-
-        let settings = Settings {
-            goose_provider: Some(provider_name.clone()),
-            goose_model: Some(model_name.clone()),
-            temperature: Some(model_config.temperature.unwrap_or(0.0)),
-            max_turns: None,
-        };
-
-        tracing::debug!(
-            "Building recipe with {} activities and {} extensions",
-            activities.len(),
-            extension_configs.len()
-        );
-
-        let (title, description) =
-            if let Ok(json_content) = serde_json::from_str::<Value>(&clean_content) {
-                let title = json_content
-                    .get("title")
-                    .and_then(|t| t.as_str())
-                    .unwrap_or("Custom recipe from chat")
-                    .to_string();
-
-                let description = json_content
-                    .get("description")
-                    .and_then(|d| d.as_str())
-                    .unwrap_or("a custom recipe instance from this chat session")
-                    .to_string();
-
-                (title, description)
-            } else {
-                (
-                    "Custom recipe from chat".to_string(),
-                    "a custom recipe instance from this chat session".to_string(),
-                )
-            };
-
-        let recipe = Recipe::builder()
-            .title(title)
-            .description(description)
-            .instructions(instructions)
-            .activities(activities)
-            .extensions(extension_configs)
-            .settings(settings)
-            .author(author)
-            .build()
-            .map_err(|e| {
-                tracing::error!("Failed to build recipe: {}", e);
-                anyhow!("Recipe build failed: {}", e)
-            })?;
-
-        tracing::info!("Recipe creation completed successfully");
-        Ok(recipe)
-    }
-}
-
-fn recipe_conversation_history(messages: &Conversation) -> Vec<Message> {
-    // The recipe prompt has no turn-context instructions; drop the blocks.
-    messages
-        .agent_visible_messages()
-        .into_iter()
-        .filter(|message| !message.is_turn_context())
-        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::agents::gen_ai_telemetry::{self, test_support::SpanFieldCapture};
-    use crate::permission::permission_confirmation::PrincipalType;
     use crate::plugins::discovery::{DiscoveredPlugin, PluginScope};
     use crate::providers::base::{stream_from_single_message, MessageStream, PermissionRouting};
     use crate::recipe::Response;
@@ -4148,6 +4012,33 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tempfile::TempDir;
+
+    fn persisted_builtin(name: &str) -> ExtensionConfig {
+        ExtensionConfig::Builtin {
+            name: name.to_string(),
+            description: String::new(),
+            display_name: None,
+            timeout: None,
+            bundled: None,
+            available_tools: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn persisted_extension_identity_must_be_unique_before_removal() {
+        let session_extension = persisted_builtin("session-only");
+        assert!(has_unique_persisted_extension(&[session_extension], "session-only").unwrap());
+        assert!(!has_unique_persisted_extension(&[], "missing").unwrap());
+
+        let duplicate_result = has_unique_persisted_extension(
+            &[persisted_builtin("a.b"), persisted_builtin("a/b")],
+            "a_b",
+        );
+        assert_eq!(
+            duplicate_result.unwrap_err().to_string(),
+            "Duplicate session extension key 'a_b'"
+        );
+    }
 
     #[test]
     fn provider_creation_context_preserves_acp_error_code() {
@@ -4196,25 +4087,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn recipe_history_excludes_turn_context_events() {
-        use crate::conversation::message::MessageMetadata;
-
-        let history = Conversation::new_unvalidated([
-            Message::user().with_text("build me a recipe"),
-            Message::user()
-                .with_text("<turn-context>cwd /repo</turn-context>")
-                .with_metadata(MessageMetadata::agent_only().with_turn_context()),
-            Message::assistant().with_text("on it"),
-        ]);
-
-        let texts: Vec<String> = recipe_conversation_history(&history)
-            .iter()
-            .map(|message| message.as_concat_text())
-            .collect();
-        assert_eq!(texts, ["build me a recipe", "on it"]);
-    }
-
     async fn tracing_test_agent_and_session() -> (Agent, Session, TempDir) {
         let data_dir = TempDir::new().unwrap();
         let data_path = data_dir.path().to_path_buf();
@@ -4237,6 +4109,50 @@ mod tests {
             .await
             .unwrap();
         (agent, session, data_dir)
+    }
+
+    async fn capture_tool_dispatch_fields(
+        capture_setting: Option<&'static str>,
+    ) -> serde_json::Map<String, Value> {
+        use goose_test_support::otel::clear_otel_env;
+        use rmcp::object;
+
+        let _env = match capture_setting {
+            Some(value) => {
+                clear_otel_env(&[(gen_ai_telemetry::CAPTURE_MESSAGE_CONTENT_ENV, value)])
+            }
+            None => clear_otel_env(&[]),
+        };
+        let capture = SpanFieldCapture::new("dispatch_tool_call");
+        let _subscriber = capture.clone().set_default();
+        let (agent, session, _data_dir) = tracing_test_agent_and_session().await;
+        let tool_call = CallToolRequestParams::new(
+            crate::agents::platform_extensions::scheduler::MANAGE_SCHEDULE_TOOL_NAME_COMPLETE,
+        )
+        .with_arguments(object!({
+            "action": "list",
+            "api_key": "tool-input-super-secret-token",
+        }));
+
+        let (_, result) = agent
+            .dispatch_tool_call(tool_call, "call-secret".to_string(), None, &session)
+            .await;
+        let _ = result.unwrap().result.await;
+        capture.fields()
+    }
+
+    #[tokio::test]
+    async fn tool_arguments_are_not_traced_without_content_capture() {
+        for capture_setting in [None, Some("false")] {
+            let fields = capture_tool_dispatch_fields(capture_setting).await;
+            let recorded = serde_json::to_string(&fields).unwrap();
+
+            assert!(!recorded.contains("tool-input-super-secret-token"));
+            assert!(!fields.contains_key("input"));
+            assert!(!fields.contains_key("gen_ai.tool.call.arguments"));
+            assert_eq!(fields["gen_ai.operation.name"], "execute_tool");
+            assert_eq!(fields["gen_ai.tool.call.id"], "call-secret");
+        }
     }
 
     #[tokio::test]
@@ -4270,6 +4186,8 @@ mod tests {
         assert_eq!(fields["gen_ai.tool.name"], tool_name);
         assert_eq!(fields["gen_ai.tool.call.id"], "call-42");
         assert_eq!(fields["gen_ai.conversation.id"], session.id);
+        let input: Value = serde_json::from_str(fields["input"].as_str().unwrap()).unwrap();
+        assert_eq!(input["arguments"]["action"], "list");
         let arguments: Value =
             serde_json::from_str(fields["gen_ai.tool.call.arguments"].as_str().unwrap()).unwrap();
         assert_eq!(arguments["action"], "list");
@@ -4453,39 +4371,37 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_handle_confirmation_routes_to_provider() {
-        let agent = Agent::new();
+    async fn test_submit_tool_confirmation_routes_to_provider() {
+        let (agent, session, _data_dir) = tracing_test_agent_and_session().await;
         let provider = Arc::new(ActionRequiredProvider::new());
         *agent.provider.lock().await =
             Some(provider.clone() as Arc<dyn crate::providers::base::Provider>);
 
         // Known request_id → provider handles it, confirmation_router NOT called
         agent
-            .handle_confirmation(
-                "known".to_string(),
-                PermissionConfirmation {
-                    principal_type: PrincipalType::Tool,
-                    permission: crate::permission::Permission::AllowOnce,
-                },
+            .submit_tool_confirmation(
+                &session.id,
+                "known",
+                crate::permission::Permission::AllowOnce,
             )
-            .await;
+            .await
+            .unwrap();
         assert_eq!(provider.handled.lock().await.len(), 1);
 
         // Unknown request_id → provider returns false, falls through to confirmation_router
         // Register first so deliver() has somewhere to send
         let rx = agent
             .tool_confirmation_router
-            .register("unknown".to_string())
+            .register(session.id.clone(), "unknown".to_string())
             .await;
         agent
-            .handle_confirmation(
-                "unknown".to_string(),
-                PermissionConfirmation {
-                    principal_type: PrincipalType::Tool,
-                    permission: crate::permission::Permission::DenyOnce,
-                },
+            .submit_tool_confirmation(
+                &session.id,
+                "unknown",
+                crate::permission::Permission::DenyOnce,
             )
-            .await;
+            .await
+            .unwrap();
         assert_eq!(provider.handled.lock().await.len(), 2);
         // Verify the fallthrough went to confirmation_router
         let conf = rx.await.unwrap();
@@ -4493,23 +4409,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_handle_confirmation_noop_provider() {
-        let agent = Agent::new();
+    async fn test_submit_tool_confirmation_routes_to_legacy() {
+        let (agent, session, _data_dir) = tracing_test_agent_and_session().await;
         // No provider set → Noop routing, goes straight to confirmation_router
         // Register first so deliver() has somewhere to send
         let rx = agent
             .tool_confirmation_router
-            .register("any".to_string())
+            .register(session.id.clone(), "any".to_string())
             .await;
         agent
-            .handle_confirmation(
-                "any".to_string(),
-                PermissionConfirmation {
-                    principal_type: PrincipalType::Tool,
-                    permission: crate::permission::Permission::AllowOnce,
-                },
-            )
-            .await;
+            .submit_tool_confirmation(&session.id, "any", crate::permission::Permission::AllowOnce)
+            .await
+            .unwrap();
 
         let conf = rx.await.unwrap();
         assert_eq!(conf.permission, crate::permission::Permission::AllowOnce);
@@ -4631,6 +4542,96 @@ mod tests {
             effort_test_agent(EffortOutcome::Applied).await;
 
         assert_eq!(provider.model_selections(), ["mock-model"]);
+    }
+
+    #[tokio::test]
+    async fn provider_toolshim_is_effective_without_being_persisted() {
+        let (agent, session, _data_dir) = tracing_test_agent_and_session().await;
+        let provider_root = TempDir::new().unwrap();
+        let provider_root_path = provider_root.path().display().to_string();
+        let _guard = env_lock::lock_env([
+            ("GOOSE_PATH_ROOT", Some(provider_root_path.as_str())),
+            ("GOOSE_TOOLSHIM", None),
+        ]);
+
+        let config = crate::config::declarative_providers::create_custom_provider(
+            crate::config::declarative_providers::CreateCustomProviderParams {
+                engine: "openai".to_string(),
+                display_name: "Sticky Toolshim".to_string(),
+                api_url: "https://example.invalid/v1".to_string(),
+                api_key: None,
+                models: vec![crate::providers::base::ModelInfo::new("test-model")],
+                supports_streaming: Some(true),
+                headers: None,
+                requires_auth: false,
+                catalog_provider_id: None,
+                base_path: None,
+                toolshim: true,
+                preserves_thinking: None,
+                auth: None,
+            },
+        )
+        .unwrap();
+        crate::providers::refresh_custom_providers().await.unwrap();
+
+        let provider = crate::providers::create(&config.name, Vec::new())
+            .await
+            .unwrap();
+        agent
+            .update_provider(
+                provider,
+                goose_providers::model::ModelConfig::new("test-model"),
+                &session.id,
+            )
+            .await
+            .unwrap();
+
+        assert!(
+            !agent
+                .model_config_for_session(&session.id)
+                .await
+                .unwrap()
+                .toolshim
+        );
+        assert!(
+            agent
+                .effective_model_config_for_session(&session.id)
+                .await
+                .unwrap()
+                .toolshim
+        );
+
+        crate::config::declarative_providers::update_custom_provider(
+            crate::config::declarative_providers::UpdateCustomProviderParams {
+                id: config.name.clone(),
+                engine: "openai".to_string(),
+                display_name: config.display_name,
+                api_url: config.base_url,
+                api_key: None,
+                models: config.models,
+                supports_streaming: config.supports_streaming,
+                headers: config.headers,
+                requires_auth: false,
+                catalog_provider_id: None,
+                base_path: None,
+                toolshim: false,
+                preserves_thinking: None,
+                auth: None,
+            },
+        )
+        .unwrap();
+        crate::providers::refresh_custom_providers().await.unwrap();
+
+        assert!(
+            !agent
+                .effective_model_config_for_session(&session.id)
+                .await
+                .unwrap()
+                .toolshim
+        );
+
+        crate::config::declarative_providers::remove_custom_provider(&config.name).unwrap();
+        crate::providers::refresh_custom_providers().await.unwrap();
     }
 
     #[tokio::test]
@@ -5151,6 +5152,118 @@ echo start >> "$PLUGIN_ROOT/hook.log"
             )
             .await?;
         Ok((agent, session.id))
+    }
+
+    struct TraceContentProvider;
+
+    #[async_trait::async_trait]
+    impl crate::providers::base::Provider for TraceContentProvider {
+        async fn stream(
+            &self,
+            _model_config: &goose_providers::model::ModelConfig,
+            _system_prompt: &str,
+            _messages: &[Message],
+            _tools: &[Tool],
+        ) -> Result<MessageStream, ProviderError> {
+            let message = Message::assistant().with_text("output-super-secret-token");
+            let usage = ProviderUsage::new("mock-model".to_string(), Usage::default());
+            Ok(stream_from_single_message(message, usage))
+        }
+
+        fn get_name(&self) -> &str {
+            "trace-content"
+        }
+    }
+
+    async fn capture_legacy_reply_fields(
+        span_name: &'static str,
+        capture_setting: Option<&'static str>,
+    ) -> Result<serde_json::Map<String, Value>> {
+        use goose_test_support::otel::clear_otel_env;
+
+        let mut overrides = vec![("GOOSE_STATE_MACHINE", "0")];
+        if let Some(value) = capture_setting {
+            overrides.push((gen_ai_telemetry::CAPTURE_MESSAGE_CONTENT_ENV, value));
+        }
+        let _env = clear_otel_env(&overrides);
+        let capture = SpanFieldCapture::new(span_name);
+        let _subscriber = capture.clone().set_default();
+        let temp_dir = tempfile::tempdir()?;
+        let hook_manager = crate::hooks::HookManager::from_plugins_for_test(vec![]);
+        let (agent, session_id) = create_test_agent(
+            temp_dir.path().join("data"),
+            hook_manager,
+            Arc::new(TraceContentProvider),
+        )
+        .await?;
+        let session_config = SessionConfig {
+            id: session_id,
+            schedule_id: None,
+            max_turns: Some(1),
+            retry_config: None,
+        };
+        let reply_stream = agent
+            .reply(
+                Message::user().with_text("input-super-secret-token"),
+                session_config,
+                None,
+            )
+            .await?;
+        tokio::pin!(reply_stream);
+        while let Some(event) = reply_stream.next().await {
+            event?;
+        }
+
+        Ok(capture.fields())
+    }
+
+    #[tokio::test]
+    async fn legacy_reply_trace_omits_content_without_capture() -> Result<()> {
+        for capture_setting in [None, Some("false")] {
+            let reply_fields = capture_legacy_reply_fields("reply", capture_setting).await?;
+            let reply_json = serde_json::to_string(&reply_fields)?;
+            assert!(!reply_json.contains("super-secret-token"));
+            assert!(!reply_fields.contains_key("user_message"));
+            assert!(!reply_fields.contains_key("trace_input"));
+            assert!(!reply_fields.contains_key("gen_ai.input.messages"));
+            assert!(!reply_fields.contains_key("gen_ai.output.messages"));
+
+            let stream_fields =
+                capture_legacy_reply_fields("reply_stream", capture_setting).await?;
+            let stream_json = serde_json::to_string(&stream_fields)?;
+            assert!(!stream_json.contains("super-secret-token"));
+            assert!(!stream_fields.contains_key("trace_output"));
+            assert!(!stream_fields.contains_key("gen_ai.input.messages"));
+            assert!(!stream_fields.contains_key("gen_ai.output.messages"));
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn legacy_reply_trace_retains_content_with_capture() -> Result<()> {
+        let reply_fields = capture_legacy_reply_fields("reply", Some("true")).await?;
+        assert_eq!(reply_fields["user_message"], "input-super-secret-token");
+        assert_eq!(reply_fields["trace_input"], "input-super-secret-token");
+        assert!(reply_fields["gen_ai.input.messages"]
+            .as_str()
+            .unwrap()
+            .contains("input-super-secret-token"));
+        assert!(reply_fields["gen_ai.output.messages"]
+            .as_str()
+            .unwrap()
+            .contains("output-super-secret-token"));
+
+        let stream_fields = capture_legacy_reply_fields("reply_stream", Some("true")).await?;
+        assert_eq!(stream_fields["trace_output"], "output-super-secret-token");
+        assert!(stream_fields["gen_ai.input.messages"]
+            .as_str()
+            .unwrap()
+            .contains("input-super-secret-token"));
+        assert!(stream_fields["gen_ai.output.messages"]
+            .as_str()
+            .unwrap()
+            .contains("output-super-secret-token"));
+        Ok(())
     }
 
     async fn create_stop_hook_test_agent(
@@ -5728,6 +5841,14 @@ echo start >> "$PLUGIN_ROOT/hook.log"
 
     impl RecordingHookEnv {
         fn new(specs: &[HookSpec<'_>]) -> Self {
+            Self::with_on_failure(specs, "")
+        }
+
+        fn blocking_on_failure(specs: &[HookSpec<'_>]) -> Self {
+            Self::with_on_failure(specs, r#", "on_failure": "block""#)
+        }
+
+        fn with_on_failure(specs: &[HookSpec<'_>], on_failure: &str) -> Self {
             let temp_dir = tempfile::tempdir().unwrap();
             let plugin_dir = temp_dir.path().join("test-plugin");
             std::fs::create_dir_all(plugin_dir.join("hooks")).unwrap();
@@ -5740,7 +5861,7 @@ echo start >> "$PLUGIN_ROOT/hook.log"
                         format!(r#""matcher": "{matcher}", "#)
                     };
                     format!(
-                        r#""{event}": [{{{matcher}"hooks": [{{"type": "command", "command": "sh ${{PLUGIN_ROOT}}/{script}"}}]}}]"#
+                        r#""{event}": [{{{matcher}"hooks": [{{"type": "command", "command": "sh ${{PLUGIN_ROOT}}/{script}"{on_failure}}}]}}]"#
                     )
                 })
                 .collect();
@@ -5790,6 +5911,10 @@ echo start >> "$PLUGIN_ROOT/hook.log"
     /// non-zero. That is a hook that ran but never returned a decision.
     const ABNORMAL_EXIT_AND_RECORD_SCRIPT: &str =
         "#!/bin/sh\ncat >> \"$PLUGIN_ROOT/pre.log\"\nprintf '\\n' >> \"$PLUGIN_ROOT/pre.log\"\necho boom >&2\nexit 3\n";
+    const HOOK_FAILURE_REFUSAL: &str =
+        "Tool call blocked because policy hook `test-plugin` could not complete: \
+         the hook exited with status 3 and no usable decision. \
+         That hook is configured to block on failure.";
 
     async fn agent_with_hooks(
         hook_manager: crate::hooks::HookManager,
@@ -6048,5 +6173,57 @@ echo start >> "$PLUGIN_ROOT/hook.log"
             env.payloads("post.log").is_empty(),
             "PostToolUse must not fire for a tool that never ran",
         );
+    }
+
+    #[tokio::test]
+    async fn pre_tool_use_hook_failure_allows_by_default() {
+        let env = RecordingHookEnv::new(&[
+            ("PreToolUse", "", "pre.sh", ABNORMAL_EXIT_AND_RECORD_SCRIPT),
+            ("PreToolUseResult", "", "result.sh", RECORD_RESULT_SCRIPT),
+        ]);
+        let (agent, session, _data_dir) = agent_with_hooks(env.hook_manager()).await;
+
+        let (_, result) = agent
+            .dispatch_tool_call(shell_call(), "call-open-1".to_string(), None, &session)
+            .await;
+        assert!(result.is_ok(), "a broken hook must not block the call");
+
+        assert_eq!(env.payloads("pre.log").len(), 1);
+        let results = env.payloads("result.log");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["decision"], "allow");
+        assert_eq!(results[0]["cause"], "hook_failure");
+        assert_eq!(results[0]["policy_evaluated"], false);
+    }
+
+    #[tokio::test]
+    async fn pre_tool_use_hook_failure_blocks_when_configured() {
+        let env = RecordingHookEnv::blocking_on_failure(&[
+            ("PreToolUse", "", "pre.sh", ABNORMAL_EXIT_AND_RECORD_SCRIPT),
+            ("PreToolUseResult", "", "result.sh", RECORD_RESULT_SCRIPT),
+            ("PostToolUse", "", "post.sh", RECORD_POST_SCRIPT),
+        ]);
+        let (agent, session, _data_dir) = agent_with_hooks(env.hook_manager()).await;
+
+        let (_, result) = agent
+            .dispatch_tool_call(shell_call(), "call-closed-1".to_string(), None, &session)
+            .await;
+
+        let Err(error) = result else {
+            panic!("a fail-closed hook failure must not dispatch");
+        };
+        assert_eq!(error.message, HOOK_FAILURE_REFUSAL);
+        assert!(
+            env.payloads("post.log").is_empty(),
+            "PostToolUse must not fire for a blocked call"
+        );
+
+        let results = env.payloads("result.log");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["decision"], "deny");
+        assert_eq!(results[0]["cause"], "hook_failure");
+        assert_eq!(results[0]["policy_evaluated"], false);
+        assert_eq!(results[0]["blocked_by"], "test-plugin");
+        assert_eq!(results[0]["tool_call_id"], "call-closed-1");
     }
 }

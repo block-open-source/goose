@@ -26,6 +26,7 @@ target/
 
 # UI
 node_modules
+/.pnpm-store/
 ./ui/desktop/out
 
 # Generated goose DLLs (built at build time, not checked in)
@@ -49,6 +50,7 @@ debug_*.txt
 # Generated files
 .docusaurus
 .cache-loader
+/documentation/docs/gdk/acp/reference.md
 
 # Benchmark paths
 benchmark-*

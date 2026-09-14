@@ -1,4 +1,4 @@
-import type { GooseSessionNotification_unstable } from '@aaif/goose-sdk';
+import type { GooseSessionNotification_unstable } from '@aaif/goose-acp-client';
 import { describe, expect, it } from 'vitest';
 import type { Message, MessageUsage } from '../../types/message';
 import { applyGooseSessionNotification } from '../adapter/gooseSessionNotifications';
@@ -160,6 +160,7 @@ describe('applyGooseSessionNotification', () => {
           type: 'tokenState',
           tokenState: {
             totalTokens: 42,
+            contextLimit: 200,
             accumulatedInputTokens: 10,
             accumulatedOutputTokens: 15,
             accumulatedTotalTokens: 25,

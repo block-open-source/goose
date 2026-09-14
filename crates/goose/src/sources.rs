@@ -401,20 +401,39 @@ fn parse_agent_frontmatter(raw: &str) -> Result<(MarkdownSourceFrontmatter, Stri
 fn agent_source_entry(path: &Path, global: bool, writable: bool) -> Result<SourceEntry, Error> {
     let raw = read_source_path(path)
         .map_err(|e| Error::internal_error().data(format!("Failed to read agent file: {e}")))?;
-    let (frontmatter, content) = parse_agent_frontmatter(&raw)?;
-    Ok({
-        SourceEntry {
-            source_type: SourceType::Agent,
-            name: frontmatter.name,
-            description: frontmatter.description,
-            content,
-            path: path.to_string_lossy().to_string(),
-            global,
-            writable,
-            supporting_files: Vec::new(),
-            properties: frontmatter.properties,
-        }
+    agent_source_entry_from_raw(&raw, path, global, writable)
+}
+
+fn agent_source_entry_from_raw(
+    raw: &str,
+    path: &Path,
+    global: bool,
+    writable: bool,
+) -> Result<SourceEntry, Error> {
+    let (frontmatter, content) = parse_agent_frontmatter(raw)?;
+    Ok(SourceEntry {
+        source_type: SourceType::Agent,
+        name: frontmatter.name,
+        description: frontmatter.description,
+        content,
+        path: path.to_string_lossy().to_string(),
+        global,
+        writable,
+        supporting_files: Vec::new(),
+        properties: frontmatter.properties,
     })
+}
+
+fn listed_agent_source_entry(
+    root: &Path,
+    relative_path: &Path,
+    listed_path: &Path,
+    global: bool,
+    writable: bool,
+) -> Result<SourceEntry, Error> {
+    let raw = crate::skills::read_source_file(root, relative_path)
+        .map_err(|e| Error::internal_error().data(format!("Failed to read agent file: {e}")))?;
+    agent_source_entry_from_raw(&raw, listed_path, global, writable)
 }
 
 fn canonicalize_or_original(path: &Path) -> PathBuf {
@@ -495,54 +514,37 @@ fn resolve_agent_file_with_roots(
     Ok(canonical_file)
 }
 
-fn list_agent_dirs(working_dir: Option<&Path>, additional_roots: &[SourceRoot]) -> Vec<SourceRoot> {
+fn list_agent_dirs(
+    working_dir: Option<&Path>,
+    additional_roots: &[SourceRoot],
+) -> Vec<(SourceRoot, bool)> {
     let mut dirs = Vec::new();
-    if let Some(working_dir) = working_dir {
-        dirs.push(SourceRoot {
-            path: working_dir.join(".agents").join("agents"),
-            writable: true,
-        });
-        dirs.push(SourceRoot {
-            path: working_dir.join(".goose").join("agents"),
-            writable: true,
-        });
-        dirs.push(SourceRoot {
-            path: working_dir.join(".claude").join("agents"),
-            writable: true,
-        });
-    }
+    {
+        let mut push = |path, global| {
+            dirs.push((
+                SourceRoot {
+                    path,
+                    writable: true,
+                },
+                global,
+            ));
+        };
+        if let Some(working_dir) = working_dir {
+            push(working_dir.join(".agents").join("agents"), false);
+            push(working_dir.join(".goose").join("agents"), false);
+            push(working_dir.join(".claude").join("agents"), false);
+        }
 
-    dirs.push(SourceRoot {
-        path: Paths::agents_dir(),
-        writable: true,
-    });
-    if let Some(home) = dirs::home_dir() {
-        dirs.push(SourceRoot {
-            path: home.join(".agents").join("agents"),
-            writable: true,
-        });
-        dirs.push(SourceRoot {
-            path: home.join(".goose").join("agents"),
-            writable: true,
-        });
-        dirs.push(SourceRoot {
-            path: home.join(".claude").join("agents"),
-            writable: true,
-        });
+        push(Paths::agents_dir(), true);
+        if let Some(home) = dirs::home_dir() {
+            push(home.join(".agents").join("agents"), true);
+            push(home.join(".goose").join("agents"), true);
+            push(home.join(".claude").join("agents"), true);
+        }
+        push(Paths::config_dir().join("agents"), true);
     }
-    dirs.push(SourceRoot {
-        path: Paths::config_dir().join("agents"),
-        writable: true,
-    });
-    dirs.extend(additional_roots.iter().cloned());
+    dirs.extend(additional_roots.iter().cloned().map(|root| (root, true)));
     dirs
-}
-
-fn is_project_agent_file(path: &Path, working_dir: &Path) -> bool {
-    [".agents", ".goose", ".claude"]
-        .into_iter()
-        .map(|dir| working_dir.join(dir).join("agents"))
-        .any(|root| is_under_root(path, &root))
 }
 
 fn list_agent_sources(
@@ -553,30 +555,61 @@ fn list_agent_sources(
         .map(str::trim)
         .filter(|path| !path.is_empty())
         .map(PathBuf::from);
+    let canonical_working_dir = working_dir
+        .as_deref()
+        .and_then(|working_dir| working_dir.canonicalize().ok());
     let mut seen = std::collections::HashSet::new();
     let mut sources = Vec::new();
 
-    for root in list_agent_dirs(working_dir.as_deref(), additional_roots) {
-        let entries = match fs::read_dir(&root.path) {
+    for (root, global) in list_agent_dirs(working_dir.as_deref(), additional_roots) {
+        let canonical_root = match root.path.canonicalize() {
+            Ok(path) => path,
+            Err(_) => continue,
+        };
+        if !global
+            && canonical_working_dir
+                .as_deref()
+                .is_none_or(|working_dir| !canonical_root.starts_with(working_dir))
+        {
+            warn!(
+                "Skipping project agent root outside the project: {}",
+                root.path.display()
+            );
+            continue;
+        }
+        let entries = match fs::read_dir(&canonical_root) {
             Ok(entries) => entries,
             Err(_) => continue,
         };
         for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|ext| ext.to_str()) != Some("md") {
+            let listed_path = root.path.join(entry.file_name());
+            if listed_path.extension().and_then(|ext| ext.to_str()) != Some("md") {
                 continue;
             }
-            let global = working_dir
-                .as_deref()
-                .is_none_or(|working_dir| !is_project_agent_file(&path, working_dir));
-            match agent_source_entry(&path, global, root.writable) {
+            let canonical_path = match entry.path().canonicalize() {
+                Ok(path) if path.is_file() => path,
+                _ => continue,
+            };
+            let Ok(relative_path) = canonical_path.strip_prefix(&canonical_root) else {
+                continue;
+            };
+            let writable = root.writable
+                && resolve_agent_file_with_roots(&listed_path.to_string_lossy(), additional_roots)
+                    .is_ok();
+            match listed_agent_source_entry(
+                &canonical_root,
+                relative_path,
+                &listed_path,
+                global,
+                writable,
+            ) {
                 Ok(source) => {
                     let key = source.name.to_lowercase();
                     if seen.insert(key) {
                         sources.push(source);
                     }
                 }
-                Err(err) => warn!("Skipping agent source {}: {:?}", path.display(), err),
+                Err(err) => warn!("Skipping agent source {}: {:?}", listed_path.display(), err),
             }
         }
     }
@@ -1231,6 +1264,207 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    fn write_agent(path: &Path, name: &str, description: &str) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            path,
+            format!("---\nname: {name}\ndescription: {description}\n---\n\n{name} instructions"),
+        )
+        .unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn project_agent_sources_reject_external_symlinked_roots() {
+        use std::os::unix::fs::symlink;
+
+        let tmp = TempDir::new().unwrap();
+        let project = tmp.path().join("project");
+        for source_dir in [".agents", ".goose", ".claude"] {
+            let external_root = tmp.path().join(format!("external-{source_dir}"));
+            write_agent(
+                &external_root.join(format!("{source_dir}.md")),
+                source_dir,
+                "external",
+            );
+            let project_source_dir = project.join(source_dir);
+            std::fs::create_dir_all(&project_source_dir).unwrap();
+            symlink(external_root, project_source_dir.join("agents")).unwrap();
+        }
+
+        let listed = list_sources(
+            Some(SourceType::Agent),
+            Some(project.to_str().unwrap()),
+            false,
+        )
+        .unwrap();
+
+        assert!(!listed
+            .iter()
+            .any(|source| { matches!(source.name.as_str(), ".agents" | ".goose" | ".claude") }));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn project_agent_sources_reject_external_symlinked_files() {
+        use std::os::unix::fs::symlink;
+
+        let tmp = TempDir::new().unwrap();
+        let project = tmp.path().join("project");
+        for source_dir in [".agents", ".goose", ".claude"] {
+            let external_agent = tmp.path().join(format!("external-{source_dir}.md"));
+            write_agent(&external_agent, source_dir, "external");
+            let agent_root = project.join(source_dir).join("agents");
+            std::fs::create_dir_all(&agent_root).unwrap();
+            symlink(external_agent, agent_root.join(format!("{source_dir}.md"))).unwrap();
+        }
+
+        let listed = list_sources(
+            Some(SourceType::Agent),
+            Some(project.to_str().unwrap()),
+            false,
+        )
+        .unwrap();
+
+        assert!(!listed
+            .iter()
+            .any(|source| { matches!(source.name.as_str(), ".agents" | ".goose" | ".claude") }));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn project_agent_sources_allow_symlinks_contained_by_the_same_root() {
+        use std::os::unix::fs::symlink;
+
+        let tmp = TempDir::new().unwrap();
+        let project = tmp.path().join("project");
+        let agent_root = project.join(".agents").join("agents");
+        let contained_agent = agent_root.join("nested").join("contained.md");
+        write_agent(&contained_agent, "Contained", "contained agent");
+        let listed_path = agent_root.join("contained.md");
+        symlink(&contained_agent, &listed_path).unwrap();
+
+        let listed = list_sources(
+            Some(SourceType::Agent),
+            Some(project.to_str().unwrap()),
+            false,
+        )
+        .unwrap();
+
+        let contained = listed
+            .iter()
+            .find(|source| source.name == "Contained")
+            .unwrap();
+        assert!(!contained.global);
+        assert!(!contained.writable);
+        assert_eq!(contained.path, listed_path.to_string_lossy());
+        assert_eq!(contained.content, "Contained instructions");
+
+        let update_err = update_source_with_roots(
+            SourceType::Agent,
+            &contained.path,
+            "Contained",
+            "updated",
+            "updated instructions",
+            UpdateSourceOptions {
+                properties: None,
+                additional_roots: &[],
+            },
+        )
+        .unwrap_err();
+        assert!(format!("{update_err:?}").contains("not found"));
+
+        let export_err = export_source(SourceType::Agent, &contained.path).unwrap_err();
+        assert!(format!("{export_err:?}").contains("not found"));
+
+        let delete_err = delete_source(SourceType::Agent, &contained.path).unwrap_err();
+        assert!(format!("{delete_err:?}").contains("not found"));
+        assert!(listed_path.exists());
+        assert!(contained_agent.exists());
+        assert!(std::fs::read_to_string(contained_agent)
+            .unwrap()
+            .contains("contained agent"));
+    }
+
+    #[test]
+    fn project_agent_sources_keep_direct_files_writable() {
+        let tmp = TempDir::new().unwrap();
+        let project = tmp.path().join("project");
+        let agent_path = project.join(".agents").join("agents").join("direct.md");
+        write_agent(&agent_path, "Direct", "direct agent");
+
+        let listed = list_sources(
+            Some(SourceType::Agent),
+            Some(project.to_str().unwrap()),
+            false,
+        )
+        .unwrap();
+        let direct = listed
+            .iter()
+            .find(|source| source.name == "Direct")
+            .unwrap();
+        assert!(direct.writable);
+
+        let (exported, filename) = export_source(SourceType::Agent, &direct.path).unwrap();
+        assert_eq!(filename, "direct.agent.json");
+        assert!(exported.contains("\"name\": \"Direct\""));
+
+        let updated = update_source_with_roots(
+            SourceType::Agent,
+            &direct.path,
+            "Direct",
+            "updated direct agent",
+            "updated instructions",
+            UpdateSourceOptions {
+                properties: None,
+                additional_roots: &[],
+            },
+        )
+        .unwrap();
+        assert_eq!(updated.description, "updated direct agent");
+        assert_eq!(updated.content, "updated instructions");
+
+        delete_source(SourceType::Agent, &direct.path).unwrap();
+        assert!(!agent_path.exists());
+    }
+
+    #[test]
+    fn project_agent_sources_preserve_directory_precedence() {
+        let tmp = TempDir::new().unwrap();
+        let project = tmp.path().join("project");
+        for (source_dir, unique_name) in [
+            (".agents", "Agents unique"),
+            (".goose", "Goose unique"),
+            (".claude", "Claude unique"),
+        ] {
+            let agent_root = project.join(source_dir).join("agents");
+            write_agent(&agent_root.join("unique.md"), unique_name, "unique agent");
+            write_agent(
+                &agent_root.join("shared.md"),
+                "Shared",
+                &format!("from {source_dir}"),
+            );
+        }
+
+        let listed = list_sources(
+            Some(SourceType::Agent),
+            Some(project.to_str().unwrap()),
+            false,
+        )
+        .unwrap();
+
+        for name in ["Agents unique", "Goose unique", "Claude unique"] {
+            let source = listed.iter().find(|source| source.name == name).unwrap();
+            assert!(!source.global);
+        }
+        let shared: Vec<_> = listed
+            .iter()
+            .filter(|source| source.name == "Shared")
+            .collect();
+        assert_eq!(shared.len(), 1);
+        assert_eq!(shared[0].description, "from .agents");
+    }
+
     #[test]
     fn skill_name_validation() {
         assert!(validate_skill_name("my-skill").is_ok());
@@ -1291,6 +1525,40 @@ mod tests {
         )
         .unwrap_err();
         assert!(format!("{:?}", err).contains("read-only"));
+    }
+
+    #[test]
+    fn additional_writable_agent_roots_keep_crud_access() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path().join("custom").join("agents");
+        let agent_path = root.join("solo.md");
+        write_agent(&agent_path, "Solo", "custom agent");
+        let roots = [SourceRoot {
+            path: root,
+            writable: true,
+        }];
+
+        let sources =
+            list_sources_with_roots(Some(SourceType::Agent), None, false, &roots).unwrap();
+        let solo = sources.iter().find(|source| source.name == "Solo").unwrap();
+        assert!(solo.writable);
+        assert!(solo.global);
+
+        export_source_with_roots(SourceType::Agent, &solo.path, &roots).unwrap();
+        update_source_with_roots(
+            SourceType::Agent,
+            &solo.path,
+            "Solo",
+            "updated custom agent",
+            "updated instructions",
+            UpdateSourceOptions {
+                properties: None,
+                additional_roots: &roots,
+            },
+        )
+        .unwrap();
+        delete_source_with_roots(SourceType::Agent, &solo.path, &roots).unwrap();
+        assert!(!agent_path.exists());
     }
 
     #[test]
@@ -1833,6 +2101,37 @@ mod tests {
                 .and_then(|v| v.as_str()),
             Some("high")
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn list_agent_sources_rejects_symlinked_review_check_outside_project() {
+        use std::os::unix::fs::symlink;
+
+        let tmp = TempDir::new().unwrap();
+        let project = tmp.path().join("project");
+        let checks_dir = project.join(".agents").join("checks");
+        std::fs::create_dir_all(&checks_dir).unwrap();
+
+        let private_check = tmp.path().join("private").join("secret-check.md");
+        std::fs::create_dir_all(private_check.parent().unwrap()).unwrap();
+        std::fs::write(
+            &private_check,
+            "---\nname: secret-check\ndescription: hidden\n---\nTOP_SECRET_CHECK",
+        )
+        .unwrap();
+        symlink(&private_check, checks_dir.join("secret-check.md")).unwrap();
+
+        let listed = list_sources(
+            Some(SourceType::Agent),
+            Some(project.to_str().unwrap()),
+            false,
+        )
+        .unwrap();
+
+        assert!(!listed.iter().any(|source| {
+            source.name == "secret-check" && source.content.contains("TOP_SECRET_CHECK")
+        }));
     }
 
     #[test]

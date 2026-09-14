@@ -422,13 +422,13 @@
         "sessionId": {
           "type": "string"
         },
-        "name": {
+        "extensionKey": {
           "type": "string"
         }
       },
       "required": [
         "sessionId",
-        "name"
+        "extensionKey"
       ],
       "description": "Remove an extension from an active session.",
       "x-side": "agent",
@@ -561,6 +561,9 @@
         "sessionId": {
           "type": "string"
         },
+        "extensionName": {
+          "type": "string"
+        },
         "name": {
           "type": "string"
         },
@@ -570,6 +573,7 @@
       },
       "required": [
         "sessionId",
+        "extensionName",
         "name"
       ],
       "description": "Call a tool from an extension.",
@@ -641,6 +645,7 @@
           ]
         }
       },
+      "description": "List available goose apps, optionally scoped to a session.",
       "x-side": "agent",
       "x-method": "_goose/unstable/apps/list"
     },
@@ -666,6 +671,7 @@
       "required": [
         "name"
       ],
+      "description": "Export a goose app as HTML.",
       "x-side": "agent",
       "x-method": "_goose/unstable/apps/export"
     },
@@ -692,6 +698,7 @@
       "required": [
         "html"
       ],
+      "description": "Import a goose app from HTML.",
       "x-side": "agent",
       "x-method": "_goose/unstable/apps/import"
     },
@@ -722,6 +729,7 @@
       "required": [
         "name"
       ],
+      "description": "Delete a goose app by name.",
       "x-side": "agent",
       "x-method": "_goose/unstable/apps/delete"
     },
@@ -784,7 +792,7 @@
         "sessionId",
         "text"
       ],
-      "description": "Set, append, or clear system prompt text for a session.\n\n`mode: \"set\"` replaces Goose's base system prompt. `mode: \"append\"` adds an\ninstruction under \"Additional Instructions\". Reusing a key replaces the\nprevious value for that mode/key; sending empty text clears it.",
+      "description": "Set, append, or clear system prompt text for a session.\n\n`mode: \"set\"` replaces goose's base system prompt. `mode: \"append\"` adds an\ninstruction under \"Additional Instructions\". Reusing a key replaces the\nprevious value for that mode/key; sending empty text clears it.",
       "x-side": "agent",
       "x-method": "_goose/unstable/session/system-prompt/set"
     },
@@ -1305,6 +1313,7 @@
       "required": [
         "sessionId"
       ],
+      "description": "Get a diagnostic report for a session.",
       "x-side": "agent",
       "x-method": "_goose/unstable/diagnostics/get"
     },
@@ -1328,7 +1337,7 @@
     },
     "ListPromptsRequest_unstable": {
       "type": "object",
-      "description": "List all available Goose prompt templates.",
+      "description": "List all available goose prompt templates.",
       "x-side": "agent",
       "x-method": "_goose/unstable/config/prompts/list"
     },
@@ -1388,7 +1397,7 @@
       "required": [
         "name"
       ],
-      "description": "Read a Goose prompt template.",
+      "description": "Read a goose prompt template.",
       "x-side": "agent",
       "x-method": "_goose/unstable/config/prompts/get"
     },
@@ -1431,7 +1440,7 @@
         "name",
         "content"
       ],
-      "description": "Save a custom Goose prompt template.",
+      "description": "Save a custom goose prompt template.",
       "x-side": "agent",
       "x-method": "_goose/unstable/config/prompts/save"
     },
@@ -1457,7 +1466,7 @@
       "required": [
         "name"
       ],
-      "description": "Reset a Goose prompt template to its default content.",
+      "description": "Reset a goose prompt template to its default content.",
       "x-side": "agent",
       "x-method": "_goose/unstable/config/prompts/reset"
     },
@@ -1511,28 +1520,6 @@
         "extension",
         "enabled"
       ]
-    },
-    "GetAvailableExtensionsRequest_unstable": {
-      "type": "object",
-      "description": "List Goose-owned extension definitions available to configure or enable.",
-      "x-side": "agent",
-      "x-method": "_goose/unstable/extensions/available"
-    },
-    "GetAvailableExtensionsResponse_unstable": {
-      "type": "object",
-      "properties": {
-        "extensions": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/GooseExtension"
-          }
-        }
-      },
-      "required": [
-        "extensions"
-      ],
-      "x-side": "agent",
-      "x-method": "_goose/unstable/extensions/available"
     },
     "AddConfigExtensionRequest_unstable": {
       "type": "object",
@@ -1594,6 +1581,7 @@
       "required": [
         "sessionId"
       ],
+      "description": "List extensions enabled for an active session.",
       "x-side": "agent",
       "x-method": "_goose/unstable/session/extensions/list"
     },
@@ -1603,7 +1591,7 @@
         "extensions": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/GooseExtension"
+            "$ref": "#/$defs/SessionExtensionEntry"
           }
         }
       },
@@ -1612,6 +1600,21 @@
       ],
       "x-side": "agent",
       "x-method": "_goose/unstable/session/extensions/list"
+    },
+    "SessionExtensionEntry": {
+      "type": "object",
+      "properties": {
+        "extension": {
+          "$ref": "#/$defs/GooseExtension"
+        },
+        "extensionKey": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "extension",
+        "extensionKey"
+      ]
     },
     "ListProvidersRequest_unstable": {
       "type": "object",
@@ -1676,10 +1679,6 @@
         "providerType": {
           "type": "string",
           "description": "Provider classification such as `Preferred`, `Builtin`, `Declarative`, or `Custom`."
-        },
-        "category": {
-          "$ref": "#/$defs/ProviderSetupCategoryDto",
-          "description": "Whether this inventory entry represents an agent provider or a model provider."
         },
         "acp": {
           "type": "boolean",
@@ -1754,13 +1753,6 @@
         "stale": {
           "type": "boolean",
           "description": "Whether we believe this data may be outdated."
-        },
-        "modelSelectionHint": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "Guidance message shown when this provider manages its own model selection externally."
         }
       },
       "required": [
@@ -1771,7 +1763,6 @@
         "configured",
         "available",
         "providerType",
-        "category",
         "visibleInSetup",
         "deprecated",
         "configKeys",
@@ -1782,13 +1773,6 @@
         "stale"
       ],
       "description": "Provider inventory entry."
-    },
-    "ProviderSetupCategoryDto": {
-      "type": "string",
-      "enum": [
-        "agent",
-        "model"
-      ]
     },
     "ProviderConfigKey": {
       "type": "object",
@@ -2079,6 +2063,13 @@
         "supportsAuthStatus"
       ]
     },
+    "ProviderSetupCategoryDto": {
+      "type": "string",
+      "enum": [
+        "agent",
+        "model"
+      ]
+    },
     "ProviderSetupMethodDto": {
       "type": "string",
       "enum": [
@@ -2313,15 +2304,19 @@
             "boolean",
             "null"
           ]
+        },
+        "toolshim": {
+          "type": "boolean"
         }
       },
       "required": [
         "engine",
         "displayName",
         "apiUrl",
-        "requiresAuth"
+        "requiresAuth",
+        "toolshim"
       ],
-      "description": "Create a custom provider backed by Goose's declarative provider store.",
+      "description": "Create a custom provider backed by goose's declarative provider store.",
       "x-side": "agent",
       "x-method": "_goose/unstable/providers/custom/create"
     },
@@ -2496,6 +2491,9 @@
             "null"
           ]
         },
+        "toolshim": {
+          "type": "boolean"
+        },
         "apiKeyEnv": {
           "type": [
             "string",
@@ -2515,6 +2513,7 @@
         "displayName",
         "apiUrl",
         "requiresAuth",
+        "toolshim",
         "apiKeySet",
         "preservesThinking"
       ]
@@ -2580,6 +2579,9 @@
             "boolean",
             "null"
           ]
+        },
+        "toolshim": {
+          "type": "boolean"
         }
       },
       "required": [
@@ -2587,9 +2589,10 @@
         "engine",
         "displayName",
         "apiUrl",
-        "requiresAuth"
+        "requiresAuth",
+        "toolshim"
       ],
-      "description": "Update a custom provider backed by Goose's declarative provider store.",
+      "description": "Update a custom provider backed by goose's declarative provider store.",
       "x-side": "agent",
       "x-method": "_goose/unstable/providers/custom/update"
     },
@@ -2624,7 +2627,7 @@
       "required": [
         "providerId"
       ],
-      "description": "Delete a custom provider from Goose's declarative provider store.",
+      "description": "Delete a custom provider from goose's declarative provider store.",
       "x-side": "agent",
       "x-method": "_goose/unstable/providers/custom/delete"
     },
@@ -2871,7 +2874,7 @@
     },
     "ProviderSecretsListRequest_unstable": {
       "type": "object",
-      "description": "List provider credentials stored locally by Goose.",
+      "description": "List provider credentials stored locally by goose.",
       "x-side": "agent",
       "x-method": "_goose/unstable/providers/secrets/list"
     },
@@ -3147,21 +3150,6 @@
       "x-side": "agent",
       "x-method": "_goose/unstable/preferences/save"
     },
-    "PreferencesRemoveRequest_unstable": {
-      "type": "object",
-      "properties": {
-        "keys": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/PreferenceKey"
-          },
-          "default": []
-        }
-      },
-      "description": "Remove allowlisted user preferences.",
-      "x-side": "agent",
-      "x-method": "_goose/unstable/preferences/remove"
-    },
     "ConfigReadRequest_unstable": {
       "type": "object",
       "properties": {
@@ -3176,6 +3164,7 @@
       "required": [
         "key"
       ],
+      "description": "Read one goose configuration value.",
       "x-side": "agent",
       "x-method": "_goose/unstable/config/read"
     },
@@ -3205,6 +3194,7 @@
         "key",
         "value"
       ],
+      "description": "Create or replace one goose configuration value.",
       "x-side": "agent",
       "x-method": "_goose/unstable/config/upsert"
     },
@@ -3222,11 +3212,13 @@
       "required": [
         "key"
       ],
+      "description": "Remove one goose configuration value.",
       "x-side": "agent",
       "x-method": "_goose/unstable/config/remove"
     },
     "ConfigReadAllRequest_unstable": {
       "type": "object",
+      "description": "Read all non-secret goose configuration values.",
       "x-side": "agent",
       "x-method": "_goose/unstable/config/read-all"
     },
@@ -3246,7 +3238,7 @@
     },
     "DefaultsReadRequest_unstable": {
       "type": "object",
-      "description": "Read Goose default provider and model configuration.",
+      "description": "Read goose default provider and model configuration.",
       "x-side": "agent",
       "x-method": "_goose/unstable/defaults/read"
     },
@@ -3284,13 +3276,13 @@
       "required": [
         "providerId"
       ],
-      "description": "Save Goose default provider and model configuration.",
+      "description": "Save goose default provider and model configuration.",
       "x-side": "agent",
       "x-method": "_goose/unstable/defaults/save"
     },
     "DefaultsClearRequest_unstable": {
       "type": "object",
-      "description": "Clear Goose default provider and model configuration.",
+      "description": "Clear goose default provider and model configuration.",
       "x-side": "agent",
       "x-method": "_goose/unstable/defaults/clear"
     },
@@ -3306,7 +3298,7 @@
           "default": []
         }
       },
-      "description": "Scan for existing Goose and compatible app data that onboarding can import.",
+      "description": "Scan for existing goose and compatible app data that onboarding can import.",
       "x-side": "agent",
       "x-method": "_goose/unstable/onboarding/import/scan"
     },
@@ -3571,6 +3563,7 @@
         "sessionId",
         "relays"
       ],
+      "description": "Share a session through Nostr and return its share links.",
       "x-side": "agent",
       "x-method": "_goose/unstable/session/share/nostr"
     },
@@ -3612,6 +3605,7 @@
       "required": [
         "recipe"
       ],
+      "description": "Encode a recipe as a goose deep link.",
       "x-side": "agent",
       "x-method": "_goose/unstable/recipes/encode"
     },
@@ -4215,6 +4209,7 @@
       "required": [
         "deeplink"
       ],
+      "description": "Decode a goose deep link into a recipe.",
       "x-side": "agent",
       "x-method": "_goose/unstable/recipes/decode"
     },
@@ -4241,6 +4236,7 @@
       "required": [
         "recipe"
       ],
+      "description": "Scan a recipe for security warnings.",
       "x-side": "agent",
       "x-method": "_goose/unstable/recipes/scan"
     },
@@ -4259,6 +4255,7 @@
     },
     "ListRecipesRequest_unstable": {
       "type": "object",
+      "description": "List recipes in the local recipe library.",
       "x-side": "agent",
       "x-method": "_goose/unstable/recipes/list"
     },
@@ -4323,6 +4320,7 @@
       "required": [
         "id"
       ],
+      "description": "Delete a recipe from the local recipe library.",
       "x-side": "agent",
       "x-method": "_goose/unstable/recipes/delete"
     },
@@ -4342,6 +4340,7 @@
       "required": [
         "id"
       ],
+      "description": "Set or clear a recipe's cron schedule.",
       "x-side": "agent",
       "x-method": "_goose/unstable/recipes/schedule"
     },
@@ -4361,6 +4360,7 @@
       "required": [
         "id"
       ],
+      "description": "Set or clear a recipe's slash command.",
       "x-side": "agent",
       "x-method": "_goose/unstable/recipes/slash-command"
     },
@@ -4380,6 +4380,7 @@
       "required": [
         "recipe"
       ],
+      "description": "Save a recipe to the local recipe library.",
       "x-side": "agent",
       "x-method": "_goose/unstable/recipes/save"
     },
@@ -4414,6 +4415,7 @@
       "required": [
         "content"
       ],
+      "description": "Parse serialized recipe content.",
       "x-side": "agent",
       "x-method": "_goose/unstable/recipes/parse"
     },
@@ -4440,6 +4442,7 @@
       "required": [
         "recipe"
       ],
+      "description": "Serialize a recipe as YAML.",
       "x-side": "agent",
       "x-method": "_goose/unstable/recipes/to-yaml"
     },
@@ -4458,6 +4461,7 @@
     },
     "ListSchedulesRequest_unstable": {
       "type": "object",
+      "description": "List scheduled recipe jobs.",
       "x-side": "agent",
       "x-method": "_goose/unstable/schedules/list"
     },
@@ -4537,6 +4541,7 @@
         "scheduleId",
         "limit"
       ],
+      "description": "List recent sessions created by a scheduled recipe job.",
       "x-side": "agent",
       "x-method": "_goose/unstable/schedules/sessions/list"
     },
@@ -4630,6 +4635,7 @@
         "recipe",
         "cron"
       ],
+      "description": "Create a scheduled recipe job.",
       "x-side": "agent",
       "x-method": "_goose/unstable/schedules/create"
     },
@@ -4656,6 +4662,7 @@
       "required": [
         "scheduleId"
       ],
+      "description": "Delete a scheduled recipe job.",
       "x-side": "agent",
       "x-method": "_goose/unstable/schedules/delete"
     },
@@ -4669,6 +4676,7 @@
       "required": [
         "scheduleId"
       ],
+      "description": "Pause a scheduled recipe job.",
       "x-side": "agent",
       "x-method": "_goose/unstable/schedules/pause"
     },
@@ -4682,6 +4690,7 @@
       "required": [
         "scheduleId"
       ],
+      "description": "Resume a paused scheduled recipe job.",
       "x-side": "agent",
       "x-method": "_goose/unstable/schedules/unpause"
     },
@@ -4699,6 +4708,7 @@
         "scheduleId",
         "cron"
       ],
+      "description": "Update the cron expression for a scheduled recipe job.",
       "x-side": "agent",
       "x-method": "_goose/unstable/schedules/update"
     },
@@ -4725,6 +4735,7 @@
       "required": [
         "scheduleId"
       ],
+      "description": "Run a scheduled recipe job immediately.",
       "x-side": "agent",
       "x-method": "_goose/unstable/schedules/run-now"
     },
@@ -4764,6 +4775,7 @@
       "required": [
         "jobId"
       ],
+      "description": "Stop a currently running scheduled job.",
       "x-side": "agent",
       "x-method": "_goose/unstable/schedules/running-job/kill"
     },
@@ -4790,6 +4802,7 @@
       "required": [
         "jobId"
       ],
+      "description": "Inspect the current state of a running scheduled job.",
       "x-side": "agent",
       "x-method": "_goose/unstable/schedules/running-job/inspect"
     },
@@ -5594,38 +5607,6 @@
         "description"
       ]
     },
-    "DictationSecretSaveRequest_unstable": {
-      "type": "object",
-      "properties": {
-        "provider": {
-          "type": "string"
-        },
-        "value": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "provider",
-        "value"
-      ],
-      "description": "Set a dictation provider secret value.",
-      "x-side": "agent",
-      "x-method": "_goose/unstable/dictation/secret/save"
-    },
-    "DictationSecretDeleteRequest_unstable": {
-      "type": "object",
-      "properties": {
-        "provider": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "provider"
-      ],
-      "description": "Remove a dictation provider secret value.",
-      "x-side": "agent",
-      "x-method": "_goose/unstable/dictation/secret/delete"
-    },
     "DictationModelsListRequest_unstable": {
       "type": "object",
       "description": "List available local Whisper models with their download status.",
@@ -5791,26 +5772,9 @@
       "x-side": "agent",
       "x-method": "_goose/unstable/dictation/models/delete"
     },
-    "DictationModelSelectRequest_unstable": {
-      "type": "object",
-      "properties": {
-        "provider": {
-          "type": "string"
-        },
-        "modelId": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "provider",
-        "modelId"
-      ],
-      "description": "Persist the user's model selection for a given provider.",
-      "x-side": "agent",
-      "x-method": "_goose/unstable/dictation/models/select"
-    },
     "LocalInferenceModelsListRequest_unstable": {
       "type": "object",
+      "description": "List locally available inference models.",
       "x-side": "agent",
       "x-method": "_goose/unstable/local-inference/models/list"
     },
@@ -6216,6 +6180,7 @@
       "required": [
         "spec"
       ],
+      "description": "Download a model for local inference.",
       "x-side": "agent",
       "x-method": "_goose/unstable/local-inference/models/download"
     },
@@ -6242,6 +6207,7 @@
       "required": [
         "modelId"
       ],
+      "description": "Get the progress of a local model download.",
       "x-side": "agent",
       "x-method": "_goose/unstable/local-inference/models/download/progress"
     },
@@ -6326,6 +6292,7 @@
       "required": [
         "modelId"
       ],
+      "description": "Cancel a local model download.",
       "x-side": "agent",
       "x-method": "_goose/unstable/local-inference/models/download/cancel"
     },
@@ -6339,6 +6306,7 @@
       "required": [
         "modelId"
       ],
+      "description": "Delete a downloaded local inference model.",
       "x-side": "agent",
       "x-method": "_goose/unstable/local-inference/models/delete"
     },
@@ -6352,6 +6320,7 @@
       "required": [
         "modelId"
       ],
+      "description": "Evict a local inference model from memory.",
       "x-side": "agent",
       "x-method": "_goose/unstable/local-inference/models/evict"
     },
@@ -6365,6 +6334,7 @@
       "required": [
         "modelId"
       ],
+      "description": "Read the sampling settings for a local inference model.",
       "x-side": "agent",
       "x-method": "_goose/unstable/local-inference/models/settings/read"
     },
@@ -6395,6 +6365,7 @@
         "modelId",
         "settings"
       ],
+      "description": "Update the sampling settings for a local inference model.",
       "x-side": "agent",
       "x-method": "_goose/unstable/local-inference/models/settings/update"
     },
@@ -6428,6 +6399,7 @@
       "required": [
         "query"
       ],
+      "description": "Search Hugging Face for local inference models.",
       "x-side": "agent",
       "x-method": "_goose/unstable/local-inference/huggingface/search"
     },
@@ -6591,6 +6563,7 @@
       "required": [
         "repoId"
       ],
+      "description": "List downloadable variants of a Hugging Face model repository.",
       "x-side": "agent",
       "x-method": "_goose/unstable/local-inference/huggingface/repo/variants"
     },
@@ -6638,6 +6611,7 @@
     },
     "LocalInferenceBuiltinChatTemplatesListRequest_unstable": {
       "type": "object",
+      "description": "List built-in chat templates for local inference.",
       "x-side": "agent",
       "x-method": "_goose/unstable/local-inference/chat-templates/builtin/list"
     },
@@ -6966,6 +6940,7 @@
         "sessionId",
         "parameters"
       ],
+      "description": "Ask the client to provide values for a recipe's parameters.",
       "x-side": "client",
       "x-method": "_goose/unstable/session/recipe/request-params"
     },
@@ -7176,15 +7151,6 @@
                   ],
                   "description": "Params for _goose/unstable/config/extensions/list",
                   "title": "GetConfigExtensionsRequest_unstable"
-                },
-                {
-                  "allOf": [
-                    {
-                      "$ref": "#/$defs/GetAvailableExtensionsRequest_unstable"
-                    }
-                  ],
-                  "description": "Params for _goose/unstable/extensions/available",
-                  "title": "GetAvailableExtensionsRequest_unstable"
                 },
                 {
                   "allOf": [
@@ -7410,15 +7376,6 @@
                   ],
                   "description": "Params for _goose/unstable/preferences/save",
                   "title": "PreferencesSaveRequest_unstable"
-                },
-                {
-                  "allOf": [
-                    {
-                      "$ref": "#/$defs/PreferencesRemoveRequest_unstable"
-                    }
-                  ],
-                  "description": "Params for _goose/unstable/preferences/remove",
-                  "title": "PreferencesRemoveRequest_unstable"
                 },
                 {
                   "allOf": [
@@ -7855,24 +7812,6 @@
                 {
                   "allOf": [
                     {
-                      "$ref": "#/$defs/DictationSecretSaveRequest_unstable"
-                    }
-                  ],
-                  "description": "Params for _goose/unstable/dictation/secret/save",
-                  "title": "DictationSecretSaveRequest_unstable"
-                },
-                {
-                  "allOf": [
-                    {
-                      "$ref": "#/$defs/DictationSecretDeleteRequest_unstable"
-                    }
-                  ],
-                  "description": "Params for _goose/unstable/dictation/secret/delete",
-                  "title": "DictationSecretDeleteRequest_unstable"
-                },
-                {
-                  "allOf": [
-                    {
                       "$ref": "#/$defs/DictationModelsListRequest_unstable"
                     }
                   ],
@@ -7914,15 +7853,6 @@
                   ],
                   "description": "Params for _goose/unstable/dictation/models/delete",
                   "title": "DictationModelDeleteRequest_unstable"
-                },
-                {
-                  "allOf": [
-                    {
-                      "$ref": "#/$defs/DictationModelSelectRequest_unstable"
-                    }
-                  ],
-                  "description": "Params for _goose/unstable/dictation/models/select",
-                  "title": "DictationModelSelectRequest_unstable"
                 },
                 {
                   "allOf": [
@@ -8172,14 +8102,6 @@
                         }
                       ],
                       "title": "GetConfigExtensionsResponse_unstable"
-                    },
-                    {
-                      "allOf": [
-                        {
-                          "$ref": "#/$defs/GetAvailableExtensionsResponse_unstable"
-                        }
-                      ],
-                      "title": "GetAvailableExtensionsResponse_unstable"
                     },
                     {
                       "allOf": [

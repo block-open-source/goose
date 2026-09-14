@@ -94,10 +94,7 @@ type ContentIcon = {
 };
 
 export type SystemNotificationType =
-  | 'thinkingMessage'
-  | 'progressMessage'
-  | 'inlineMessage'
-  | 'creditsExhausted';
+  'thinkingMessage' | 'progressMessage' | 'inlineMessage' | 'creditsExhausted';
 
 export type SystemNotificationContent = {
   data?: unknown;
@@ -130,11 +127,6 @@ export type ActionRequiredData =
       id: string;
       user_data: unknown;
     };
-
-export type FrontendToolRequest = {
-  id: string;
-  toolCall: JsonObject;
-};
 
 export type ThinkingContent = {
   signature: string;
@@ -203,7 +195,6 @@ export type MessageContent =
   | (ToolResponse & { type: 'toolResponse' })
   | (ToolConfirmationRequest & { type: 'toolConfirmationRequest' })
   | (ActionRequired & { type: 'actionRequired' })
-  | (FrontendToolRequest & { type: 'frontendToolRequest' })
   | (ThinkingContent & { type: 'thinking' })
   | (RedactedThinkingContent & { type: 'redactedThinking' })
   | (SystemNotificationContent & { type: 'systemNotification' });

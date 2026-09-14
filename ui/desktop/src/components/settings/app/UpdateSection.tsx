@@ -84,31 +84,6 @@ const i18n = defineMessages({
     defaultMessage:
       'Goose will download the update in the background and install it the next time you quit or restart.',
   },
-  manualInstallNote: {
-    id: 'updateSection.manualInstallNote',
-    defaultMessage: "After download, you'll need to manually install the update.",
-  },
-  autoInstallNote: {
-    id: 'updateSection.autoInstallNote',
-    defaultMessage: 'No manual install is needed.',
-  },
-  readyInstallManual: {
-    id: 'updateSection.readyInstallManual',
-    defaultMessage: '✓ Update is ready! Click "Install & Restart" for installation instructions.',
-  },
-  manualInstallRequired: {
-    id: 'updateSection.manualInstallRequired',
-    defaultMessage: 'Manual installation required for this update method.',
-  },
-  readyInstallAuto: {
-    id: 'updateSection.readyInstallAuto',
-    defaultMessage:
-      "✓ Update is ready. Restart Goose to finish installing it, or quit when you're done.",
-  },
-  installNowHint: {
-    id: 'updateSection.installNowHint',
-    defaultMessage: 'Click "Install & Restart" to update now.',
-  },
 });
 
 type UpdateStatus =
@@ -139,18 +114,15 @@ export default function UpdateSection() {
     currentVersion: '',
   });
   const [progress, setProgress] = useState<number>(0);
-  const [isUsingGitHubFallback, setIsUsingGitHubFallback] = useState<boolean>(false);
   const [disableAutoDownload, setDisableAutoDownload] = useState<boolean>(false);
   const [autoDownloadForcedByEnv, setAutoDownloadForcedByEnv] = useState<boolean>(false);
   const progressTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastProgressRef = React.useRef<number>(0); // Track last progress to prevent backward jumps
+  const lastProgressRef = React.useRef<number>(0);
 
   useEffect(() => {
-    // Get current version on mount
     const currentVersion = window.electron.getVersion();
     setUpdateInfo((prev) => ({ ...prev, currentVersion }));
 
-    // Check if there's already an update state from the auto-check
     window.electron.getUpdateState().then((state) => {
       if (state) {
         setUpdateInfo((prev) => ({
@@ -161,22 +133,15 @@ export default function UpdateSection() {
       }
     });
 
-    // Check if using GitHub fallback
-    window.electron.isUsingGitHubFallback().then((isGitHub) => {
-      setIsUsingGitHubFallback(isGitHub);
-    });
-
     window.electron.getSetting('disableAutoDownload').then((stored) => {
       setDisableAutoDownload(!!stored);
     });
     window.electron.getAutoDownloadDisabled().then((effective) => {
       window.electron.getSetting('disableAutoDownload').then((stored) => {
-        // If effective is true but user setting is false, env var is forcing it
         setAutoDownloadForcedByEnv(effective && !stored);
       });
     });
 
-    // Listen for updater events
     window.electron.onUpdaterEvent((event) => {
       switch (event.event) {
         case 'checking-for-update':
@@ -190,10 +155,6 @@ export default function UpdateSection() {
             latestVersion: (event.data as UpdateEventData)?.version,
             isUpdateAvailable: true,
           }));
-          // Check if GitHub fallback is being used
-          window.electron.isUsingGitHubFallback().then((isGitHub) => {
-            setIsUsingGitHubFallback(isGitHub);
-          });
           break;
 
         case 'update-not-available':
@@ -207,23 +168,19 @@ export default function UpdateSection() {
         case 'download-progress': {
           setUpdateStatus('downloading');
 
-          // Get the new progress value (ensure it's a valid number)
           const rawPercent = (event.data as UpdateEventData)?.percent;
           const newProgress = typeof rawPercent === 'number' ? Math.round(rawPercent) : 0;
 
-          // Only update if progress increased (prevents backward jumps from out-of-order events)
           if (newProgress > lastProgressRef.current) {
             lastProgressRef.current = newProgress;
 
-            // Cancel any pending update
             if (progressTimeoutRef.current) {
               clearTimeout(progressTimeoutRef.current);
             }
 
-            // Use a small delay to batch rapid updates
             progressTimeoutRef.current = setTimeout(() => {
               setProgress(newProgress);
-            }, 50); // 50ms delay for smoother batching
+            }, 50);
           }
           break;
         }
@@ -254,7 +211,7 @@ export default function UpdateSection() {
   const checkForUpdates = async () => {
     setUpdateStatus('checking');
     setProgress(0);
-    lastProgressRef.current = 0; // Reset progress tracking for new download
+    lastProgressRef.current = 0;
 
     try {
       const result = await window.electron.checkForUpdates();
@@ -263,12 +220,10 @@ export default function UpdateSection() {
         throw new Error(result.error);
       }
 
-      // If we successfully checked and no update is available, show success
       if (!result.error && updateInfo.isUpdateAvailable === false) {
         setUpdateStatus('success');
         setTimeout(() => setUpdateStatus('idle'), 3000);
       }
-      // The actual status will be handled by the updater events
     } catch (error) {
       console.error('Error checking for updates:', error);
       setUpdateInfo((prev) => ({
@@ -418,7 +373,6 @@ export default function UpdateSection() {
           </div>
         )}
 
-        {/* Update information */}
         {updateInfo.isUpdateAvailable && updateStatus === 'idle' && (
           <div className="text-xs text-text-secondary mt-4 space-y-1">
             {autoDownloadEffectivelyDisabled ? (
@@ -426,48 +380,12 @@ export default function UpdateSection() {
                 {intl.formatMessage(i18n.autoDownloadDisabledNote)}
               </p>
             ) : (
-              <>
-                <p>{intl.formatMessage(i18n.autoDownload)}</p>
-                {isUsingGitHubFallback ? (
-                  <p className="text-xs text-amber-600">
-                    {intl.formatMessage(i18n.manualInstallNote)}
-                  </p>
-                ) : (
-                  <p className="text-xs text-green-600">
-                    {intl.formatMessage(i18n.autoInstallNote)}
-                  </p>
-                )}
-              </>
-            )}
-          </div>
-        )}
-
-        {updateStatus === 'ready' && (
-          <div className="text-xs text-text-secondary mt-4 space-y-1">
-            {isUsingGitHubFallback ? (
-              <>
-                <p className="text-xs text-green-600">
-                  {intl.formatMessage(i18n.readyInstallManual)}
-                </p>
-                <p className="text-xs text-text-secondary">
-                  {intl.formatMessage(i18n.manualInstallRequired)}
-                </p>
-              </>
-            ) : (
-              <>
-                <p className="text-xs text-green-600">
-                  {intl.formatMessage(i18n.readyInstallAuto)}
-                </p>
-                <p className="text-xs text-text-secondary">
-                  {intl.formatMessage(i18n.installNowHint)}
-                </p>
-              </>
+              <p>{intl.formatMessage(i18n.autoDownload)}</p>
             )}
           </div>
         )}
       </div>
 
-      {/* Auto-download toggle */}
       <div className="mt-6 pt-4 border-t border-borderSubtle">
         {autoDownloadForcedByEnv ? (
           <p className="text-xs text-amber-600">

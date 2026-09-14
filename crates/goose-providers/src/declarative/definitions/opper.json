@@ -1,0 +1,30 @@
+{
+  "name": "opper",
+  "engine": "openai",
+  "display_name": "Opper",
+  "description": "European AI gateway: 600+ chat models from Anthropic, OpenAI, Google, Mistral, xAI and open-weights hosts behind one OpenAI-compatible endpoint, with EU-region variants of the same models.",
+  "api_key_env": "OPPER_API_KEY",
+  "base_url": "https://api.opper.ai/v3/compat/chat/completions",
+  "catalog_provider_id": "opper",
+  "models": [
+    { "name": "anthropic/claude-opus-5", "context_limit": 1000000, "reasoning": true },
+    { "name": "anthropic/claude-sonnet-5", "context_limit": 1000000, "reasoning": true },
+    { "name": "anthropic/claude-haiku-4-5", "context_limit": 200000 },
+    { "name": "aws/claude-sonnet-4-6-eu", "context_limit": 1000000, "reasoning": true },
+    { "name": "openai/gpt-5.6-sol", "context_limit": 1050000, "reasoning": true },
+    { "name": "openai/gpt-5.5", "context_limit": 1050000, "reasoning": true },
+    { "name": "gemini/gemini-3.1-pro-preview", "context_limit": 1048576 },
+    { "name": "gemini/gemini-3.6-flash", "context_limit": 1048576 },
+    { "name": "xai/grok-4.6", "context_limit": 500000, "reasoning": true },
+    { "name": "mistral/devstral-2512", "context_limit": 256000 },
+    { "name": "mistral/mistral-large-2512", "context_limit": 256000 }
+  ],
+  "dynamic_models": true,
+  "supports_streaming": true,
+  "model_doc_link": "https://opper.ai/models",
+  "setup_steps": [
+    "Sign up at https://opper.ai",
+    "Create an API key at https://platform.opper.ai",
+    "Paste the key above as OPPER_API_KEY"
+  ]
+}

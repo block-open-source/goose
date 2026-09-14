@@ -15,8 +15,9 @@ export function containsHTML(str: string): boolean {
   const withoutCodeBlocks = str.replace(/```[\s\S]*?```/g, '').replace(/`[^`]*`/g, '');
 
   // Check for HTML comments first
-  const commentRegex = /<!--[\s\S]*?-->/;
-  const hasComments = commentRegex.test(withoutCodeBlocks);
+  const commentStart = withoutCodeBlocks.indexOf('<!--');
+  const hasComments =
+    commentStart !== -1 && withoutCodeBlocks.indexOf('-->', commentStart + 4) !== -1;
 
   // Only detect potentially dangerous HTML tags that could execute or affect layout
   const dangerousHTMLRegex =

@@ -1,4 +1,5 @@
 use crate::conversation::token_usage::{CostSource, ProviderUsage};
+use crate::http_status::read_json_response;
 use crate::images::ImageFormat;
 use anyhow::Error;
 use async_stream::try_stream;
@@ -73,6 +74,7 @@ impl OpenAiCompatibleProvider {
             for_streaming,
             OpenAiFormatOptions {
                 preserve_thinking_context: true,
+                supports_vision: model_config.supports_vision.unwrap_or_default(),
                 ..Default::default()
             },
         )
@@ -126,9 +128,7 @@ impl OpenAiCompatibleProvider {
         if self.supports_streaming {
             stream_openai_compat(response, log)
         } else {
-            let json = response.json().await.map_err(|e| {
-                ProviderError::RequestFailed(format!("Failed to parse JSON: {}", e))
-            })?;
+            let json = read_json_response(response).await?;
             let message = response_to_message(&json).map_err(|e| {
                 ProviderError::RequestFailed(format!("Failed to parse message: {}", e))
             })?;
@@ -380,5 +380,76 @@ mod tests {
 
         assert_eq!(payload.get("stream"), None);
         assert_eq!(payload.get("stream_options"), None);
+    }
+
+    #[tokio::test]
+    async fn nonstreaming_completion_accepts_legitimate_response() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "choices": [{
+                    "message": {"role": "assistant", "content": "hello"}
+                }]
+            })))
+            .mount(&server)
+            .await;
+
+        let provider = OpenAiCompatibleProvider::new(
+            "test".to_string(),
+            ApiClient::new_with_tls(server.uri(), crate::api_client::AuthMethod::NoAuth, None)
+                .unwrap(),
+            String::new(),
+        )
+        .with_supports_streaming(false);
+
+        let _stream = provider
+            .stream(&ModelConfig::new("test-model"), "", &[], &[])
+            .await
+            .expect("legitimate non-streaming response should be accepted");
+    }
+
+    #[tokio::test]
+    async fn nonstreaming_completion_rejects_oversized_response_body() {
+        use crate::http_status::MAX_PROVIDER_JSON_RESPONSE_BYTES;
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "choices": [{
+                    "message": {
+                        "role": "assistant",
+                        "content": "a".repeat(MAX_PROVIDER_JSON_RESPONSE_BYTES + 1)
+                    }
+                }]
+            })))
+            .mount(&server)
+            .await;
+
+        let provider = OpenAiCompatibleProvider::new(
+            "test".to_string(),
+            ApiClient::new_with_tls(server.uri(), crate::api_client::AuthMethod::NoAuth, None)
+                .unwrap(),
+            String::new(),
+        )
+        .with_supports_streaming(false);
+
+        let err = match provider
+            .stream(&ModelConfig::new("test-model"), "", &[], &[])
+            .await
+        {
+            Ok(_) => panic!("oversized response should be rejected"),
+            Err(err) => err,
+        };
+        assert!(
+            err.to_string().contains("response body exceeds"),
+            "got: {err}"
+        );
     }
 }

@@ -24,7 +24,6 @@ use tokio_util::io::StreamReader;
 pub const GOOGLE_PROVIDER_NAME: &str = "google";
 pub const GOOGLE_API_HOST: &str = "https://generativelanguage.googleapis.com";
 pub const GOOGLE_DEFAULT_MODEL: &str = "gemini-2.5-pro";
-pub const GOOGLE_DEFAULT_FAST_MODEL: &str = "gemini-2.5-flash";
 pub const GOOGLE_KNOWN_MODELS: &[&str] = &[
     "gemini-3.6-flash",
     "gemini-3.5-flash",
@@ -128,7 +127,6 @@ impl crate::base::ProviderDescriptor for GoogleProvider {
                 ConfigKey::new("GOOGLE_HOST", false, false, Some(GOOGLE_API_HOST), false),
             ],
         )
-        .with_fast_model(GOOGLE_DEFAULT_FAST_MODEL)
         .with_setup_steps(vec![
             "Go to https://aistudio.google.com and sign in with your Google account",
             "Click 'Get API key' on the left sidebar",

@@ -32,6 +32,40 @@ jobs:
             code:
               - '!documentation/**'
 
+  goose-acp-npm-packages:
+    name: goose ACP npm packages
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.code == 'true' || github.event_name != 'pull_request'
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Install dependencies
+        run: source bin/activate-hermit && pnpm --dir ui install --frozen-lockfile
+
+      - name: Check npm versions
+        run: source bin/activate-hermit && node ui/scripts/npm-versions.mjs check
+
+      - name: Test goose-acp
+        run: source bin/activate-hermit && pnpm --dir ui/goose-acp test
+
+      - name: Pack npm packages
+        run: |
+          source bin/activate-hermit
+          set -euo pipefail
+          client_pack_dir="$RUNNER_TEMP/goose-acp-client"
+          wrapper_pack_dir="$RUNNER_TEMP/goose-acp"
+          mkdir -p "$client_pack_dir" "$wrapper_pack_dir"
+
+          pnpm --dir ui/goose-acp-client pack --pack-destination "$client_pack_dir"
+          pnpm --dir ui/goose-acp pack --pack-destination "$wrapper_pack_dir"
+
+          wrapper_tarball=$(find "$wrapper_pack_dir" -name '*.tgz' -print -quit)
+          tar -xzf "$wrapper_tarball" -C "$wrapper_pack_dir"
+          node ui/scripts/npm-versions.mjs check-packed-wrapper \
+            "$wrapper_pack_dir/package/package.json"
+
   rust-format:
     name: Check Rust Code Format
     runs-on: ubuntu-latest
@@ -41,7 +75,7 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
         with:
           cache: false
 
@@ -57,7 +91,10 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+
+      - name: Repair stale v8 prebuilt marker
+        run: .github/scripts/repair-v8-prebuilt.sh
 
       - name: Install Dependencies
         run: |
@@ -68,8 +105,8 @@ jobs:
         run: |
           gnome-keyring-daemon --components=secrets --daemonize --unlock <<< 'foobar'
           export CARGO_INCREMENTAL=0
-          cargo test -- --skip scenario_tests::scenarios::tests
-          cargo test --jobs 1 scenario_tests::scenarios::tests
+          cargo test --locked -- --skip scenario_tests::scenarios::tests
+          cargo test --locked --jobs 1 scenario_tests::scenarios::tests
         working-directory: crates
         env:
           RUST_MIN_STACK: 8388608
@@ -83,7 +120,7 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
 
       - name: Install Dependencies
         run: |
@@ -97,6 +134,17 @@ jobs:
           cargo test -p goose-sdk --features uniffi --locked
         env:
           RUST_MIN_STACK: 8388608
+
+  kotlin-gdk-smoke-test:
+    name: Test Kotlin GDK package
+    needs: changes
+    if: needs.changes.outputs.code == 'true' || github.event_name != 'pull_request'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/maven-sdk.yml
+    with:
+      publish: false
+      smoke-test: true
 
   rust-build-and-test-tls:
     name: Build and Test TLS Backend (${{ matrix.tls-feature }})
@@ -113,7 +161,7 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
 
       - name: Install Dependencies
         run: |
@@ -136,6 +184,37 @@ jobs:
         env:
           RUST_MIN_STACK: 8388608
 
+
+  rust-build-and-test-roaming:
+    name: Build and Test Roaming Feature
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.code == 'true' || github.event_name != 'pull_request'
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+
+      - name: Install Dependencies
+        run: |
+          sudo apt update -y
+          sudo apt install -y libdbus-1-dev gnome-keyring libxcb1-dev
+
+      - name: Cache Cargo artifacts
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2.9.2
+        with:
+          key: roaming
+
+      - name: Build and Test with roaming
+        run: |
+          gnome-keyring-daemon --components=secrets --daemonize --unlock <<< 'foobar'
+          export CARGO_INCREMENTAL=0
+          cargo test -p goose-roaming
+          cargo build -p goose-cli --features roaming
+          cargo test -p goose-cli --features roaming --test roam_acp_client
+        env:
+          RUST_MIN_STACK: 8388608
 
   rust-build-windows:
     name: Build Rust Project on Windows
@@ -180,7 +259,7 @@ jobs:
           echo "msrv=$msrv" >> "$GITHUB_OUTPUT"
           echo "MSRV: $msrv"
 
-      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659  # v1
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f  # v2.0.0
         with:
           toolchain: ${{ steps.msrv.outputs.msrv }}
 
@@ -189,10 +268,14 @@ jobs:
           sudo apt update -y
           sudo apt install -y libdbus-1-dev libxcb1-dev
 
+      - name: Repair stale v8 prebuilt marker
+        run: .github/scripts/repair-v8-prebuilt.sh
+
       - name: Check with MSRV toolchain
         run: cargo check --workspace --locked --all-targets
         env:
           CARGO_INCREMENTAL: "0"
+          RUSTFLAGS: "-D warnings"
 
   rust-lint:
     name: Lint Rust Code
@@ -202,7 +285,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+
+      - name: Repair stale v8 prebuilt marker
+        run: .github/scripts/repair-v8-prebuilt.sh
 
       - name: Lint
         run: |
@@ -222,7 +308,7 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
 
       - name: Install Dependencies
         run: |
@@ -233,18 +319,37 @@ jobs:
         run: |
           source ./bin/activate-hermit
           cd ui/desktop && pnpm install --frozen-lockfile
-          cd ../sdk && pnpm install --frozen-lockfile
 
-      - name: Check ACP Schema is Up-to-Date
+      - name: Check ACP Artifacts are Up-to-Date
         run: |
           source ./bin/activate-hermit
-          just check-acp-schema
+          just check-acp-artifacts
 
       - name: Check ACP Client SDK
         run: |
           source ./bin/activate-hermit
-          cd ui/sdk
+          cd ui/goose-acp-client
           pnpm run lint
+
+  gdk-release-config-check:
+    name: Check GDK Release Configuration
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Check GDK crate membership and publication order
+        run: python3 crates/goose-sdk/scripts/gdk-release.py check-config
+
+  gdk-api-docs-check:
+    name: Check GDK API Reference is Up-to-Date
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Check generated GDK API reference data
+        run: python3 documentation/automation/gdk-api/generate.py --check
 
   desktop-lint:
     name: Test and Lint Electron Desktop App
@@ -265,4 +370,33 @@ jobs:
 
       - name: Run Tests
         run: source ../../bin/activate-hermit && pnpm run test:run
+        working-directory: ui/desktop
+
+  desktop-updater-install:
+    name: Test Desktop Updater Install (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs: changes
+    if: needs.changes.outputs.code == 'true' || github.event_name != 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
+        with:
+          node-version: 24.10.0
+
+      - name: Install pnpm
+        run: npm install -g pnpm@10.30.3
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: ui/desktop
+
+      - name: Run Updater Install Test
+        run: pnpm exec vitest run src/utils/githubUpdater.install.test.ts
         working-directory: ui/desktop

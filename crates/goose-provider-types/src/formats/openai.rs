@@ -1,6 +1,10 @@
 use crate::base::ThinkingPreservationFormat;
 use crate::conversation::message::{Message, MessageContentBlock, ProviderMetadata};
 use crate::conversation::token_usage::{CostSource, ProviderUsage, Usage};
+use crate::documents::{
+    convert_document, document_media_type_is_supported, unsupported_document_text, DocumentFormat,
+    ASSISTANT_ROLE_REASON, UNSUPPORTED_MEDIA_TYPE_REASON,
+};
 use crate::errors::ProviderError;
 use crate::images::{convert_image, detect_image_path, load_image_file, ImageFormat};
 use crate::json::{parse_tool_arguments, truncation_error_message};
@@ -66,6 +70,7 @@ pub fn is_reserved_request_param_key(key: &str) -> bool {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct OpenAiFormatOptions {
     pub preserve_thinking_context: bool,
+    pub supports_vision: bool,
     pub thinking_preservation_format: Option<ThinkingPreservationFormat>,
 }
 
@@ -256,11 +261,17 @@ pub fn format_messages_with_options(
                 MessageContentBlock::Text(text) => {
                     if !text.text.is_empty() {
                         if message.role == Role::User {
-                            if let Some(image_path) = detect_image_path(&text.text) {
-                                if let Ok(image) = load_image_file(image_path.as_ref()) {
-                                    has_non_text_content = true;
-                                    content_array.push(json!({"type": "text", "text": text.text}));
-                                    content_array.push(convert_image(&image, image_format));
+                            if options.supports_vision {
+                                if let Some(image_path) = detect_image_path(&text.text) {
+                                    if let Ok(image) = load_image_file(image_path.as_ref()) {
+                                        has_non_text_content = true;
+                                        content_array
+                                            .push(json!({"type": "text", "text": text.text}));
+                                        content_array.push(convert_image(&image, image_format));
+                                    } else {
+                                        content_array
+                                            .push(json!({"type": "text", "text": text.text}));
+                                    }
                                 } else {
                                     content_array.push(json!({"type": "text", "text": text.text}));
                                 }
@@ -348,14 +359,19 @@ pub fn format_messages_with_options(
                             for content in result.content.iter() {
                                 match content {
                                     ContentBlock::Image(image) => {
-                                        // Add placeholder text in the tool response
-                                        tool_content.push(ContentBlock::text("This tool result included an image that is uploaded in the next message."));
+                                        if options.supports_vision {
+                                            // Add placeholder text in the tool response
+                                            tool_content.push(ContentBlock::text("This tool result included an image that is uploaded in the next message."));
 
-                                        // Create a separate image message
-                                        image_messages.push(json!({
-                                            "role": "user",
-                                            "content": [convert_image(&image.clone(), image_format)]
-                                        }));
+                                            // Create a separate image message
+                                            image_messages.push(json!({
+                                                "role": "user",
+                                                "content": [convert_image(&image.clone(), image_format)]
+                                            }));
+                                        } else {
+                                            // Add placeholder text in the tool response
+                                            tool_content.push(ContentBlock::text("This tool result included an image that was omitted as the model does not support vision."));
+                                        }
                                     }
                                     ContentBlock::Resource(resource) => {
                                         let text = extract_text_from_resource(&resource.resource);
@@ -398,8 +414,15 @@ pub fn format_messages_with_options(
                 MessageContentBlock::ActionRequired(_) => {}
                 MessageContentBlock::Image(image) => {
                     if message.role == Role::User {
-                        has_non_text_content = true;
-                        content_array.push(convert_image(image, image_format));
+                        if options.supports_vision {
+                            has_non_text_content = true;
+                            content_array.push(convert_image(image, image_format));
+                        } else {
+                            content_array.push(json!({
+                                "type": "text",
+                                "text": "[image omitted: model does not support vision]"
+                            }));
+                        }
                     } else {
                         content_array.push(json!({
                             "type": "text",
@@ -407,39 +430,22 @@ pub fn format_messages_with_options(
                         }));
                     }
                 }
-                MessageContentBlock::FrontendToolRequest(request) => match &request.tool_call {
-                    Ok(tool_call) => {
-                        let sanitized_name = sanitize_function_name(&tool_call.name);
-                        let arguments_str = match &tool_call.arguments {
-                            Some(args) => {
-                                serde_json::to_string(args).unwrap_or_else(|_| "{}".to_string())
-                            }
-                            None => "{}".to_string(),
-                        };
-
-                        let tool_calls = converted
-                            .as_object_mut()
-                            .unwrap()
-                            .entry("tool_calls")
-                            .or_insert(json!([]));
-
-                        tool_calls.as_array_mut().unwrap().push(json!({
-                            "id": request.id,
-                            "type": "function",
-                            "function": {
-                                "name": sanitized_name,
-                                "arguments": arguments_str,
-                            }
+                MessageContentBlock::Document(document) => {
+                    if message.role != Role::User {
+                        content_array.push(json!({
+                            "type": "text",
+                            "text": unsupported_document_text(document, ASSISTANT_ROLE_REASON)
+                        }));
+                    } else if document_media_type_is_supported(&document.mime_type) {
+                        has_non_text_content = true;
+                        content_array.push(convert_document(document, &DocumentFormat::OpenAi));
+                    } else {
+                        content_array.push(json!({
+                            "type": "text",
+                            "text": unsupported_document_text(document, UNSUPPORTED_MEDIA_TYPE_REASON)
                         }));
                     }
-                    Err(e) => {
-                        output.push(json!({
-                            "role": "tool",
-                            "content": format!("Error: {}", e),
-                            "tool_call_id": request.id
-                        }));
-                    }
-                },
+                }
             }
         }
 
@@ -901,6 +907,12 @@ pub fn get_usage(usage: &Value) -> Usage {
     let cache_write_input_tokens = usage
         .get("cache_creation_input_tokens")
         .and_then(|v| v.as_i64())
+        .or_else(|| {
+            usage
+                .get("prompt_tokens_details")
+                .and_then(|d| d.get("cache_write_tokens"))
+                .and_then(|v| v.as_i64())
+        })
         .map(|v| v as i32);
 
     let total_tokens = usage
@@ -1369,7 +1381,12 @@ where
                                     if let Some(delta_tool_calls) = &tool_chunk.choices[0].delta.tool_calls {
                                         for delta_call in delta_tool_calls {
                                             if let Some(index) = delta_call.index {
-                                                if let Some((_, _, ref mut args, ref mut extra)) = tool_call_data.get_mut(&index) {
+                                                if let Some((_, ref mut stored_name, ref mut args, ref mut extra)) = tool_call_data.get_mut(&index) {
+                                                    if let Some(new_name) = &delta_call.function.name {
+                                                        if !new_name.is_empty() {
+                                                            *stored_name = new_name.clone();
+                                                        }
+                                                    }
                                                     args.push_str(&delta_call.function.arguments);
                                                     if extra.is_none() && delta_call.extra.is_some() {
                                                         *extra = delta_call.extra.clone();
@@ -1465,23 +1482,26 @@ where
                         };
 
                         let content = if output_token_limit_reached {
-                            MessageContentBlock::tool_request_with_metadata(
+                            MessageContentBlock::tool_request_with_provider_index(
                                 id.clone(),
                                 Err(output_token_limit_tool_error(function_name, id)),
                                 metadata.as_ref(),
+                                index,
                             )
                         } else if arguments.is_empty() {
-                            MessageContentBlock::tool_request_with_metadata(
+                            MessageContentBlock::tool_request_with_provider_index(
                                 id.clone(),
                                 Ok(CallToolRequestParams::new(function_name.clone()).with_arguments(object(json!({})))),
                                 metadata.as_ref(),
+                                index,
                             )
                         } else {
                             match parse_tool_arguments(arguments) {
-                                Some(params) if params.is_object() => MessageContentBlock::tool_request_with_metadata(
+                                Some(params) if params.is_object() => MessageContentBlock::tool_request_with_provider_index(
                                     id.clone(),
                                     Ok(CallToolRequestParams::new(function_name.clone()).with_arguments(object(params))),
                                     metadata.as_ref(),
+                                    index,
                                 ),
                                 // Valid JSON but NOT an object (a bare array/string/number).
                                 // Surface a tool error so the model retries instead of
@@ -1496,7 +1516,7 @@ where
                                         )),
                                         data: None,
                                     };
-                                    MessageContentBlock::tool_request_with_metadata(id.clone(), Err(error), metadata.as_ref())
+                                    MessageContentBlock::tool_request_with_provider_index(id.clone(), Err(error), metadata.as_ref(), index)
                                 }
                                 None => {
                                     let message_text = truncation_error_message(arguments)
@@ -1508,7 +1528,7 @@ where
                                         message: Cow::from(message_text),
                                         data: None,
                                     };
-                                    MessageContentBlock::tool_request_with_metadata(id.clone(), Err(error), metadata.as_ref())
+                                    MessageContentBlock::tool_request_with_provider_index(id.clone(), Err(error), metadata.as_ref(), index)
                                 }
                             }
                         };
@@ -1657,6 +1677,7 @@ pub fn create_request(
         for_streaming,
         OpenAiFormatOptions {
             preserve_thinking_context: true,
+            supports_vision: model_config.supports_vision.unwrap_or_default(),
             ..Default::default()
         },
     )
@@ -1820,14 +1841,15 @@ pub fn extract_reasoning_effort(model_name: &str) -> (String, Option<String>) {
 /// True when the model should use the OpenAI Responses API.
 ///
 /// The Responses API is backwards-compatible with all OpenAI reasoning
-/// models, so every `o`-series (`o1`, `o3`, `o4`, …) and `gpt-5` variant
+/// models, so every `o`-series (`o1`, `o3`, `o4`, …), `gpt-5`, and `gpt-6` variant
 /// routes here. The matcher intentionally scans the full model identifier so
 /// hosted aliases like `databricks-gpt-5.4`, `goose-o3-mini`, or
 /// `headless-goose-o3-mini` work without provider-specific normalization.
 pub fn is_openai_responses_model(model_name: &str) -> bool {
     static RE: OnceLock<Regex> = OnceLock::new();
-    let re =
-        RE.get_or_init(|| Regex::new(r"(?i)(?:^|[-/])(?:o\d+(?:$|-)|gpt-5(?:$|[-.]))").unwrap());
+    let re = RE.get_or_init(|| {
+        Regex::new(r"(?i)(?:^|[-/])(?:o\d+(?:$|-)|gpt-(?:5|6)(?:$|[-.]))").unwrap()
+    });
     re.is_match(model_name)
 }
 
@@ -1898,7 +1920,7 @@ pub fn openai_reasoning_effort_for_thinking(
 pub(crate) fn openai_reasoning_efforts_for_model(model_name: &str) -> &'static [&'static str] {
     let normalized = model_name.to_ascii_lowercase();
 
-    if normalized.contains("gpt-5") {
+    if normalized.contains("gpt-5") || normalized.contains("gpt-6") {
         if normalized.contains("-pro") || normalized.contains("/pro") {
             &["high"]
         } else if normalized.contains("gpt-5.4")
@@ -1932,6 +1954,73 @@ pub fn is_valid_function_name(name: &str) -> bool {
     static RE: OnceLock<Regex> = OnceLock::new();
     let re = RE.get_or_init(|| Regex::new(r"^[a-zA-Z0-9_-]+$").unwrap());
     re.is_match(name)
+}
+
+#[cfg(test)]
+mod document_tests {
+    use super::*;
+
+    fn format(messages: &[Message]) -> Vec<Value> {
+        format_messages_with_options(
+            messages,
+            &ImageFormat::OpenAi,
+            OpenAiFormatOptions {
+                supports_vision: true,
+                ..Default::default()
+            },
+        )
+    }
+
+    #[test]
+    fn user_document_becomes_a_file_content_part() {
+        let spec = format(&[Message::user().with_document(
+            "cGRmLWJ5dGVz",
+            "application/pdf",
+            Some("q3-report.pdf".to_string()),
+        )]);
+
+        assert_eq!(spec.len(), 1);
+        assert_eq!(
+            spec[0]["content"][0],
+            json!({
+                "type": "file",
+                "file": {
+                    "filename": "q3-report.pdf",
+                    "file_data": "data:application/pdf;base64,cGRmLWJ5dGVz",
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn assistant_document_becomes_a_text_part() {
+        let spec = format(&[Message::assistant().with_document(
+            "cGRmLWJ5dGVz",
+            "application/pdf",
+            Some("q3-report.pdf".to_string()),
+        )]);
+
+        assert_eq!(spec.len(), 1);
+        assert_eq!(spec[0]["role"], "assistant");
+        let text = spec[0]["content"].as_str().unwrap();
+        assert!(text.contains("q3-report.pdf"), "{text}");
+        assert!(text.contains("user messages"), "{text}");
+        assert!(!text.contains("cGRmLWJ5dGVz"), "{text}");
+    }
+
+    #[test]
+    fn unsupported_document_media_type_becomes_an_explicit_text_part() {
+        let spec = format(&[Message::user().with_document(
+            "cm93cw==",
+            "text/csv",
+            Some("rows.csv".to_string()),
+        )]);
+
+        let text = spec[0]["content"].as_str().unwrap();
+        assert!(text.contains("rows.csv"), "{text}");
+        assert!(text.contains("application/pdf"), "{text}");
+        assert!(!text.contains("cm93cw=="), "{text}");
+    }
 }
 
 #[cfg(test)]
@@ -2306,9 +2395,17 @@ mod tests {
         std::fs::write(&png_path, png_data)?;
         let png_path_str = png_path.to_str().unwrap();
 
-        // Create user message with image path - should load the image
+        // Create user message with image path - should load the image when vision is supported
         let user_message = Message::user().with_text(format!("Here is an image: {}", png_path_str));
-        let spec = format_messages(&[user_message], &ImageFormat::OpenAi);
+        let spec = format_messages_with_options(
+            &[user_message],
+            &ImageFormat::OpenAi,
+            OpenAiFormatOptions {
+                preserve_thinking_context: true,
+                supports_vision: true,
+                ..Default::default()
+            },
+        );
 
         assert_eq!(spec.len(), 1);
         assert_eq!(spec[0]["role"], "user");
@@ -2327,7 +2424,15 @@ mod tests {
         // Create assistant message with same text - should NOT load the image
         let assistant_message =
             Message::assistant().with_text(format!("I saved the output to {}", png_path_str));
-        let spec = format_messages(&[assistant_message], &ImageFormat::OpenAi);
+        let spec = format_messages_with_options(
+            &[assistant_message],
+            &ImageFormat::OpenAi,
+            OpenAiFormatOptions {
+                preserve_thinking_context: true,
+                supports_vision: true,
+                ..Default::default()
+            },
+        );
 
         assert_eq!(spec.len(), 1);
         assert_eq!(spec[0]["role"], "assistant");
@@ -2344,13 +2449,214 @@ mod tests {
     }
 
     #[test]
+    fn test_format_messages_with_image_path_passthrough_when_not_vision() -> anyhow::Result<()> {
+        // Create a temporary PNG file with valid PNG magic numbers
+        let temp_dir = tempfile::tempdir()?;
+        let png_path = temp_dir.path().join("test.png");
+        let png_data = [
+            0x89, 0x50, 0x4E, 0x47, // PNG magic number
+            0x0D, 0x0A, 0x1A, 0x0A, // PNG header
+            0x00, 0x00, 0x00, 0x0D, // Rest of fake PNG data
+        ];
+        std::fs::write(&png_path, png_data)?;
+        let png_path_str = png_path.to_str().unwrap();
+
+        // User message with image path: with vision NOT supported, the path must
+        // pass through as plain text (a non-vision model can forward it to a
+        // vision subagent instead of 400ing on an injected image_url block).
+        let user_message = Message::user().with_text(format!("Here is an image: {}", png_path_str));
+
+        let spec = format_messages_with_options(
+            std::slice::from_ref(&user_message),
+            &ImageFormat::OpenAi,
+            OpenAiFormatOptions {
+                preserve_thinking_context: true,
+                supports_vision: false,
+                ..Default::default()
+            },
+        );
+        assert_eq!(spec.len(), 1);
+        assert_eq!(spec[0]["role"], "user");
+        // Single text block collapses to a plain string — the path survives verbatim.
+        let content = spec[0]["content"].as_str().unwrap();
+        assert!(content.contains(png_path_str));
+        assert!(!content.contains("image_url"));
+        assert!(!content.contains("data:image"));
+
+        // Default options (bare format_messages wrapper) must behave the same:
+        // unaffirmed vision -> passthrough.
+        let spec = format_messages(&[user_message], &ImageFormat::OpenAi);
+        let content = spec[0]["content"].as_str().unwrap();
+        assert!(content.contains(png_path_str));
+        assert!(!content.contains("image_url"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_create_request_threads_supports_vision() -> anyhow::Result<()> {
+        // Create a temporary PNG file with valid PNG magic numbers
+        let temp_dir = tempfile::tempdir()?;
+        let png_path = temp_dir.path().join("test.png");
+        let png_data = [
+            0x89, 0x50, 0x4E, 0x47, // PNG magic number
+            0x0D, 0x0A, 0x1A, 0x0A, // PNG header
+            0x00, 0x00, 0x00, 0x0D, // Rest of fake PNG data
+        ];
+        std::fs::write(&png_path, png_data)?;
+        let png_path_str = png_path.to_str().unwrap();
+        let message = Message::user().with_text(format!("Here is an image: {}", png_path_str));
+
+        // Vision affirmed: path is converted to an image_url block.
+        let vision = ModelConfig::new("gpt-4o").with_vision_support(true);
+        let request = create_request(
+            &vision,
+            "system",
+            std::slice::from_ref(&message),
+            &[],
+            &ImageFormat::OpenAi,
+            false,
+        )?;
+        let messages = request["messages"].as_array().unwrap();
+        let content = messages[1]["content"].as_array().unwrap();
+        assert_eq!(content.len(), 2);
+        assert_eq!(content[1]["type"], "image_url");
+
+        // Unknown (None): passthrough, no image_url.
+        let unknown = ModelConfig::new("gpt-4o");
+        let request = create_request(
+            &unknown,
+            "system",
+            std::slice::from_ref(&message),
+            &[],
+            &ImageFormat::OpenAi,
+            false,
+        )?;
+        let messages = request["messages"].as_array().unwrap();
+        let content = messages[1]["content"].as_str().unwrap();
+        assert!(content.contains(png_path_str));
+        assert!(!content.contains("image_url"));
+
+        // Explicitly non-vision: passthrough, no image_url.
+        let non_vision = ModelConfig::new("gpt-4o").with_vision_support(false);
+        let request = create_request(
+            &non_vision,
+            "system",
+            &[message],
+            &[],
+            &ImageFormat::OpenAi,
+            false,
+        )?;
+        let messages = request["messages"].as_array().unwrap();
+        let content = messages[1]["content"].as_str().unwrap();
+        assert!(!content.contains("image_url"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_format_messages_with_image_block_passthrough_when_not_vision() -> anyhow::Result<()> {
+        let user_message = Message::user().with_image("aW1hZ2VkYXRh", "image/png");
+
+        // Non-vision: explicit image content is replaced with a text placeholder
+        // at format time — session history is untouched, so a vision model (or a
+        // delegated vision subagent) can still see the real image later.
+        let spec = format_messages_with_options(
+            std::slice::from_ref(&user_message),
+            &ImageFormat::OpenAi,
+            OpenAiFormatOptions {
+                preserve_thinking_context: true,
+                supports_vision: false,
+                ..Default::default()
+            },
+        );
+        assert_eq!(spec.len(), 1);
+        let content = spec[0]["content"].as_str().unwrap();
+        assert_eq!(content, "[image omitted: model does not support vision]");
+        assert!(!content.contains("image_url"));
+        assert!(!content.contains("data:image"));
+
+        // Vision: the image is converted to an image_url block (existing behavior).
+        let spec = format_messages_with_options(
+            &[user_message],
+            &ImageFormat::OpenAi,
+            OpenAiFormatOptions {
+                preserve_thinking_context: true,
+                supports_vision: true,
+                ..Default::default()
+            },
+        );
+        let content = spec[0]["content"].as_array().unwrap();
+        assert_eq!(content.len(), 1);
+        assert_eq!(content[0]["type"], "image_url");
+        assert!(content[0]["image_url"]["url"]
+            .as_str()
+            .unwrap()
+            .starts_with("data:image/png;base64,"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_tool_response_image_omitted_when_not_vision() -> anyhow::Result<()> {
+        let tool_response = Message::user().with_tool_response(
+            "tool1",
+            Ok(rmcp::model::CallToolResult::success(vec![
+                rmcp::model::ContentBlock::image("aW1hZ2VkYXRh", "image/png"),
+            ])),
+        );
+
+        // Non-vision: the separate user image message is NOT emitted — this is
+        // what un-bricks sessions (a converted image in the next request 400s).
+        let spec = format_messages_with_options(
+            std::slice::from_ref(&tool_response),
+            &ImageFormat::OpenAi,
+            OpenAiFormatOptions {
+                preserve_thinking_context: true,
+                supports_vision: false,
+                ..Default::default()
+            },
+        );
+        let serialized = serde_json::to_value(&spec).unwrap().to_string();
+        assert!(!serialized.contains("image_url"));
+        assert!(serialized.contains(
+            "This tool result included an image that was omitted as the model does not support vision."
+        ));
+
+        // Vision: the separate user image message IS emitted (existing behavior).
+        let spec = format_messages_with_options(
+            &[tool_response],
+            &ImageFormat::OpenAi,
+            OpenAiFormatOptions {
+                preserve_thinking_context: true,
+                supports_vision: true,
+                ..Default::default()
+            },
+        );
+        let serialized = serde_json::to_value(&spec).unwrap().to_string();
+        assert!(serialized.contains("image_url"));
+        assert!(serialized
+            .contains("This tool result included an image that is uploaded in the next message."));
+
+        Ok(())
+    }
+
+    #[test]
     fn test_format_messages_with_text_and_image_preserves_order() {
         // Text before image: order should be [text, image]
         let msg_text_first = Message::user()
             .with_text("Describe this image")
             .with_image("aW1hZ2VkYXRh", "image/png");
 
-        let spec = format_messages(&[msg_text_first], &ImageFormat::OpenAi);
+        let spec = format_messages_with_options(
+            &[msg_text_first],
+            &ImageFormat::OpenAi,
+            OpenAiFormatOptions {
+                preserve_thinking_context: true,
+                supports_vision: true,
+                ..Default::default()
+            },
+        );
         assert_eq!(spec.len(), 1);
         assert_eq!(spec[0]["role"], "user");
 
@@ -2367,7 +2673,15 @@ mod tests {
             .with_image("aW1hZ2VkYXRh", "image/png")
             .with_text("What do you see?");
 
-        let spec2 = format_messages(&[msg_image_first], &ImageFormat::OpenAi);
+        let spec2 = format_messages_with_options(
+            &[msg_image_first],
+            &ImageFormat::OpenAi,
+            OpenAiFormatOptions {
+                preserve_thinking_context: true,
+                supports_vision: true,
+                ..Default::default()
+            },
+        );
         let content2 = spec2[0]["content"]
             .as_array()
             .expect("content should be an array");
@@ -2764,58 +3078,6 @@ mod tests {
     }
 
     #[test]
-    fn test_format_messages_frontend_tool_request_with_none_arguments() -> anyhow::Result<()> {
-        // Test that FrontendToolRequest with None arguments are formatted as "{}" string
-        let message = Message::assistant().with_frontend_tool_request(
-            "frontend_tool1",
-            Ok(CallToolRequestParams::new("frontend_test_tool")),
-        );
-
-        let spec = format_messages(&[message], &ImageFormat::OpenAi);
-
-        assert_eq!(spec.len(), 1);
-        assert_eq!(spec[0]["role"], "assistant");
-        assert!(spec[0]["tool_calls"].is_array());
-
-        let tool_call = &spec[0]["tool_calls"][0];
-        assert_eq!(tool_call["id"], "frontend_tool1");
-        assert_eq!(tool_call["type"], "function");
-        assert_eq!(tool_call["function"]["name"], "frontend_test_tool");
-        // This should be the string "{}", not null
-        assert_eq!(tool_call["function"]["arguments"], "{}");
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_format_messages_frontend_tool_request_with_some_arguments() -> anyhow::Result<()> {
-        // Test that FrontendToolRequest with Some arguments are properly JSON-serialized
-        let message = Message::assistant().with_frontend_tool_request(
-            "frontend_tool1",
-            Ok(CallToolRequestParams::new("frontend_test_tool")
-                .with_arguments(object!({"action": "click", "element": "button"}))),
-        );
-
-        let spec = format_messages(&[message], &ImageFormat::OpenAi);
-
-        assert_eq!(spec.len(), 1);
-        assert_eq!(spec[0]["role"], "assistant");
-        assert!(spec[0]["tool_calls"].is_array());
-
-        let tool_call = &spec[0]["tool_calls"][0];
-        assert_eq!(tool_call["id"], "frontend_tool1");
-        assert_eq!(tool_call["type"], "function");
-        assert_eq!(tool_call["function"]["name"], "frontend_test_tool");
-        // This should be a JSON string representation
-        let args_str = tool_call["function"]["arguments"].as_str().unwrap();
-        let parsed_args: Value = serde_json::from_str(args_str)?;
-        assert_eq!(parsed_args["action"], "click");
-        assert_eq!(parsed_args["element"], "button");
-
-        Ok(())
-    }
-
-    #[test]
     fn test_format_messages_multiple_text_blocks() -> anyhow::Result<()> {
         let message = Message::user()
             .with_text("--- Resource: file:///test.md ---\n# Test\n\n---\n")
@@ -3024,6 +3286,43 @@ mod tests {
     }
 
     #[test]
+    fn test_openai_reasoning_effort_gpt6_does_not_support_none() {
+        for model in [
+            "gpt-6-astra",
+            "data_workflow_tools.goose.goose-gpt-6-astra",
+            "openrouter/openai/gpt-6-astra",
+        ] {
+            assert_eq!(
+                openai_reasoning_effort_for_thinking(model, ThinkingEffort::Off),
+                Some("low".to_string()),
+                "{model} Off should map to low, not none"
+            );
+            assert_eq!(
+                openai_reasoning_effort_for_thinking(model, ThinkingEffort::Medium),
+                Some("medium".to_string()),
+                "{model} medium should remain medium"
+            );
+            assert!(
+                !openai_reasoning_efforts_for_model(model).contains(&"none"),
+                "{model} must not advertise none"
+            );
+        }
+
+        assert_eq!(
+            openai_reasoning_effort_for_thinking("gpt-5.6-luna", ThinkingEffort::Off),
+            Some("none".to_string())
+        );
+        assert_eq!(
+            openai_reasoning_effort_for_thinking("gpt-5.4", ThinkingEffort::Off),
+            Some("none".to_string())
+        );
+        assert_eq!(
+            openai_reasoning_effort_for_thinking("gpt-5", ThinkingEffort::Off),
+            Some("low".to_string())
+        );
+    }
+
+    #[test]
     fn test_create_request_gpt5_pro_max_effort_uses_supported_level() -> anyhow::Result<()> {
         let model_config = test_model_config("gpt-5.2-pro-2025-12-11")
             .with_max_tokens(Some(1024))
@@ -3147,6 +3446,66 @@ mod tests {
         assert_eq!(usage.usage.input_tokens, Some(expected_input));
         assert_eq!(usage.usage.output_tokens, Some(expected_output));
         assert_eq!(usage.usage.total_tokens, Some(expected_total));
+    }
+
+    async fn collect_streamed_tool_requests(
+        response_lines: &str,
+    ) -> Vec<crate::conversation::message::ToolRequest> {
+        let lines: Vec<String> = response_lines.lines().map(|s| s.to_string()).collect();
+        let response_stream = tokio_stream::iter(lines.into_iter().map(Ok));
+        let messages = response_to_streaming_message(response_stream);
+        pin!(messages);
+
+        let mut requests = Vec::new();
+        while let Some(Ok((message, _usage))) = messages.next().await {
+            if let Some(msg) = message {
+                for content in &msg.content {
+                    if let MessageContentBlock::ToolRequest(req) = content {
+                        requests.push(req.clone());
+                    }
+                }
+            }
+        }
+        requests
+    }
+
+    #[tokio::test]
+    async fn test_streaming_reassembles_interleaved_parallel_tool_calls() {
+        let response_lines = concat!(
+            r#"data: {"id":"chatcmpl-par","model":"test-model","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_a","type":"function","function":{"name":"search","arguments":""}},{"index":1,"id":"call_b","type":"function","function":{"name":"write","arguments":""}}]},"finish_reason":null}]}"#,
+            "\n",
+            r#"data: {"id":"chatcmpl-par","model":"test-model","choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"function":{"arguments":"{\"path\":"}}]},"finish_reason":null}]}"#,
+            "\n",
+            r#"data: {"id":"chatcmpl-par","model":"test-model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"query\":"}}]},"finish_reason":null}]}"#,
+            "\n",
+            r#"data: {"id":"chatcmpl-par","model":"test-model","choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"function":{"arguments":"\"/tmp/a.md\"}"}}]},"finish_reason":null}]}"#,
+            "\n",
+            r#"data: {"id":"chatcmpl-par","model":"test-model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"rust\"}"}}]},"finish_reason":"tool_calls"}]}"#,
+            "\n",
+            "data: [DONE]",
+        );
+
+        let requests = collect_streamed_tool_requests(response_lines).await;
+
+        assert_eq!(requests.len(), 2);
+        assert_eq!(
+            requests
+                .iter()
+                .map(|r| r.provider_index())
+                .collect::<Vec<_>>(),
+            vec![Some(0), Some(1)]
+        );
+
+        let search = requests[0].tool_call.as_ref().expect("search args parsed");
+        assert_eq!(search.name, "search");
+        assert_eq!(search.arguments.as_ref().unwrap()["query"], json!("rust"));
+
+        let write = requests[1].tool_call.as_ref().expect("write args parsed");
+        assert_eq!(write.name, "write");
+        assert_eq!(
+            write.arguments.as_ref().unwrap()["path"],
+            json!("/tmp/a.md")
+        );
     }
 
     #[tokio::test]
@@ -4971,7 +5330,7 @@ data: [DONE]"#;
     }
 
     #[test]
-    fn test_is_openai_responses_model_matches_o_and_gpt5_families() {
+    fn test_is_openai_responses_model_matches_openai_reasoning_families() {
         for model in [
             "o3",
             "o3-mini",
@@ -4984,6 +5343,8 @@ data: [DONE]"#;
             "gpt-5-2-pro",
             "databricks-gpt-5.4",
             "goose-gpt-5.4-high",
+            "gpt-6-astra",
+            "data_workflow_tools.goose.goose-gpt-6-astra",
             "headless-goose-o3-mini",
         ] {
             assert!(is_openai_responses_model(model), "{model} should match");
@@ -5225,6 +5586,7 @@ data: [DONE]"#;
             &ImageFormat::OpenAi,
             OpenAiFormatOptions {
                 preserve_thinking_context: true,
+                supports_vision: false,
                 thinking_preservation_format: Some(format),
             },
         )

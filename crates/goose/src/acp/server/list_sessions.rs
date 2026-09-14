@@ -1,4 +1,7 @@
-use super::{build_session_info, meta_string, GooseAcpAgent, ResultExt};
+use super::{
+    build_session_info, is_acp_visible_session_type, meta_string, GooseAcpAgent, ResultExt,
+    ACP_VISIBLE_SESSION_TYPES,
+};
 use crate::session::session_manager::{
     SessionListCursor, SessionListFilters, SessionListPageQuery, SessionType,
 };
@@ -10,8 +13,6 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 const SESSION_LIST_PAGE_SIZE: usize = 50;
-const ACP_SESSION_LIST_TYPES: [SessionType; 3] =
-    [SessionType::User, SessionType::Scheduled, SessionType::Acp];
 
 #[derive(Debug, Serialize, Deserialize)]
 struct SessionListCursorToken {
@@ -48,10 +49,10 @@ fn session_types_from_meta(
     meta: Option<&Meta>,
 ) -> Result<Vec<SessionType>, agent_client_protocol::Error> {
     let Some(value) = meta.and_then(|meta| meta.get("types")) else {
-        return Ok(ACP_SESSION_LIST_TYPES.to_vec());
+        return Ok(ACP_VISIBLE_SESSION_TYPES.to_vec());
     };
     if value.is_null() {
-        return Ok(ACP_SESSION_LIST_TYPES.to_vec());
+        return Ok(ACP_VISIBLE_SESSION_TYPES.to_vec());
     }
 
     let session_types =
@@ -60,11 +61,11 @@ fn session_types_from_meta(
                 .data("types must be an array of session type strings")
         })?;
     if session_types.is_empty() {
-        Ok(ACP_SESSION_LIST_TYPES.to_vec())
+        Ok(ACP_VISIBLE_SESSION_TYPES.to_vec())
     } else {
         if session_types
             .iter()
-            .any(|session_type| !ACP_SESSION_LIST_TYPES.contains(session_type))
+            .any(|session_type| !is_acp_visible_session_type(session_type))
         {
             return Err(agent_client_protocol::Error::invalid_params()
                 .data("types may only include user, scheduled, or acp"));

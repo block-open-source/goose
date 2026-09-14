@@ -1,5 +1,5 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import type { ToolListItem } from '@aaif/goose-sdk';
+import type { ToolListItem } from '@aaif/goose-acp-client';
 import type { GooseApp } from '../types/apps';
 import { getAcpClient } from './acpConnection';
 import { normalizeAcpError } from './errors';
@@ -139,6 +139,7 @@ export async function callMcpAppTool(
   const client = await getAcpClient();
   const response = await client.goose.toolsCall_unstable({
     sessionId,
+    extensionName,
     name: fullToolName,
     arguments: args || {},
   });

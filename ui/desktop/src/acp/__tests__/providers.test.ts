@@ -165,15 +165,14 @@ describe('ACP providers', () => {
     expect((await acpGetProviderDetails('claude-code')).replacement).toBe('claude-acp');
   });
 
-  it('uses the explicit ACP capability instead of category or provider id', async () => {
+  it('uses the explicit ACP capability instead of provider id', async () => {
     const custom = providerEntry({
       providerId: 'custom_example-acp',
       providerType: 'Custom',
-      category: 'model',
       acp: false,
     });
-    const agent = providerEntry({ providerId: 'cursor-agent', category: 'agent', acp: false });
-    const acp = providerEntry({ providerId: 'pi-acp', category: 'agent', acp: true });
+    const agent = providerEntry({ providerId: 'cursor-agent', acp: false });
+    const acp = providerEntry({ providerId: 'pi-acp', acp: true });
     const client = {
       goose: {
         providersList_unstable: vi.fn().mockResolvedValue({ entries: [custom, agent, acp] }),
@@ -219,7 +218,7 @@ describe('ACP providers', () => {
 
     expect(result.connectionChecked).toBe(true);
     expect(result.provider.metadata.known_models).toEqual([
-      { name: 'claude-sonnet', context_limit: 0, reasoning: undefined },
+      { name: 'claude-sonnet', context_limit: undefined, reasoning: undefined },
     ]);
   });
 
@@ -268,7 +267,7 @@ describe('ACP providers', () => {
     });
     expect(enabled.is_configured).toBe(true);
     expect(enabled.metadata.known_models).toEqual([
-      { name: 'claude-sonnet', context_limit: 0, reasoning: undefined },
+      { name: 'claude-sonnet', context_limit: undefined, reasoning: undefined },
     ]);
   });
 
@@ -338,7 +337,6 @@ function providerEntry(overrides: Record<string, unknown> = {}) {
     configured: true,
     available: true,
     providerType: 'Builtin',
-    category: 'agent',
     acp: true,
     visibleInSetup: true,
     deprecated: false,

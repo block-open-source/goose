@@ -1,12 +1,14 @@
 use crate::formats::anthropic::{AnthropicFormatOptions, ANTHROPIC_PROVIDER_NAME};
 use crate::formats::openai::{self, extract_reasoning_effort, is_openai_responses_model};
+use crate::http_status::{read_error_body, read_json_response};
 use crate::images::ImageFormat;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use async_stream::try_stream;
 use async_trait::async_trait;
 use futures::TryStreamExt;
 use serde::Serialize;
 use serde_json::Value;
+use std::collections::HashSet;
 use std::io;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -35,8 +37,47 @@ use crate::retry::{
 use rmcp::model::Tool;
 
 const DATABRICKS_V2_PROVIDER_NAME: &str = "databricks_v2";
+const DATABRICKS_V2_DEFAULT_GATEWAY_PATH: &str = "ai-gateway";
+const DATABRICKS_V2_ROUTE_SUFFIXES: [&str; 3] = [
+    "openai/v1/responses",
+    "anthropic/v1/messages",
+    "mlflow/v1/chat/completions",
+];
 const DATABRICKS_V2_LIST_ENDPOINTS_PATH: &str = "api/ai-gateway/v2/endpoints";
-const DATABRICKS_V2_LIST_ENDPOINTS_PAGE_SIZE: usize = 100;
+const DATABRICKS_V2_LIST_MODEL_SERVICES_PATH: &str = "api/2.1/unity-catalog/model-services";
+const DATABRICKS_V2_MODEL_SERVICE_PREFIX: &str = "model-services/";
+const DATABRICKS_V2_CATALOG_PAGE_SIZE: usize = 100;
+const DATABRICKS_V2_MAX_CATALOG_PAGES: usize = 100;
+// Model-services intermittently uses 499 for transient gateway timeouts.
+const DATABRICKS_V2_TRANSIENT_GATEWAY_STATUS: u16 = 499;
+
+#[derive(Clone, Copy)]
+struct ModelCatalog {
+    path: &'static str,
+    items_key: &'static str,
+    name_prefix: Option<&'static str>,
+    view: Option<&'static str>,
+    label: &'static str,
+}
+
+const DATABRICKS_V2_ENDPOINTS_CATALOG: ModelCatalog = ModelCatalog {
+    path: DATABRICKS_V2_LIST_ENDPOINTS_PATH,
+    items_key: "endpoints",
+    name_prefix: None,
+    view: None,
+    label: "AI Gateway endpoints",
+};
+
+// LIST can include metadata-only services but omits caller-effective grants.
+// Inference enforces EXECUTE.
+const DATABRICKS_V2_MODEL_SERVICES_CATALOG: ModelCatalog = ModelCatalog {
+    path: DATABRICKS_V2_LIST_MODEL_SERVICES_PATH,
+    items_key: "model_services",
+    name_prefix: Some(DATABRICKS_V2_MODEL_SERVICE_PREFIX),
+    view: Some("FULL"),
+    label: "model services",
+};
+
 pub const DATABRICKS_V2_DEFAULT_MODEL: &str = "databricks-gpt-5-5";
 pub const DATABRICKS_V2_KNOWN_MODELS: &[&str] =
     &["databricks-gpt-5-5", "databricks-claude-opus-4-7"];
@@ -62,6 +103,8 @@ pub struct DatabricksV2Provider {
     token_cache: Arc<Mutex<Option<String>>>,
     #[serde(skip)]
     refresh_hook: Option<DatabricksRefreshHook>,
+    #[serde(skip)]
+    gateway_path: String,
 }
 
 impl DatabricksV2Provider {
@@ -108,7 +151,43 @@ impl DatabricksV2Provider {
             name: DATABRICKS_V2_PROVIDER_NAME.to_string(),
             token_cache,
             refresh_hook,
+            gateway_path: DATABRICKS_V2_DEFAULT_GATEWAY_PATH.to_string(),
         })
+    }
+
+    /// Routes requests through a gateway deployment served under a different
+    /// base path. Accepts either the base path (`my-gateway`) or a full route
+    /// (`my-gateway/openai/v1/responses`), since callers configure the latter.
+    pub fn with_gateway_path(mut self, gateway_path: &str) -> Result<Self> {
+        let trimmed = gateway_path.trim().trim_matches('/');
+        if trimmed.is_empty() {
+            return Err(anyhow!(
+                "Databricks gateway path must not be empty; omit it to use the default `{DATABRICKS_V2_DEFAULT_GATEWAY_PATH}`"
+            ));
+        }
+        if trimmed.contains("://") {
+            return Err(anyhow!(
+                "Databricks gateway path must be a path such as `{DATABRICKS_V2_DEFAULT_GATEWAY_PATH}`, not a URL; configure the workspace URL as the provider host instead"
+            ));
+        }
+
+        self.gateway_path = DATABRICKS_V2_ROUTE_SUFFIXES
+            .iter()
+            .find_map(|suffix| trimmed.strip_suffix(suffix))
+            .map(|base| base.trim_matches('/'))
+            .unwrap_or(trimmed)
+            .to_string();
+
+        Ok(self)
+    }
+
+    fn route_path(&self, route: DatabricksV2Route) -> String {
+        let suffix = match route {
+            DatabricksV2Route::OpenAiResponses => "openai/v1/responses",
+            DatabricksV2Route::AnthropicMessages => "anthropic/v1/messages",
+            DatabricksV2Route::MlflowChatCompletions => "mlflow/v1/chat/completions",
+        };
+        format!("{}/{suffix}", self.gateway_path)
     }
 
     pub fn load_retry_config(get_param: impl Fn(&str) -> Option<String>) -> RetryConfig {
@@ -137,16 +216,34 @@ impl DatabricksV2Provider {
     }
 
     fn route_for_model(model_name: &str) -> DatabricksV2Route {
-        let (clean_name, _) = extract_reasoning_effort(model_name);
+        let is_model_service = Self::is_model_service_fqn(model_name);
+        let routing_name = if is_model_service {
+            model_name.rsplit('.').next().unwrap_or(model_name)
+        } else {
+            model_name
+        };
+        let (clean_name, _) = extract_reasoning_effort(routing_name);
         let lower = clean_name.to_lowercase();
 
         if is_openai_responses_model(&clean_name) || Self::looks_like_gpt5(&lower) {
             DatabricksV2Route::OpenAiResponses
+        } else if is_model_service {
+            DatabricksV2Route::MlflowChatCompletions
         } else if Self::is_claude_model(&lower) {
             DatabricksV2Route::AnthropicMessages
         } else {
             DatabricksV2Route::MlflowChatCompletions
         }
+    }
+
+    fn is_model_service_fqn(model_name: &str) -> bool {
+        let Some((catalog, remainder)) = model_name.split_once('.') else {
+            return false;
+        };
+        let Some((schema, service)) = remainder.split_once('.') else {
+            return false;
+        };
+        !catalog.is_empty() && !schema.is_empty() && !service.is_empty()
     }
 
     fn looks_like_gpt5(model_name: &str) -> bool {
@@ -157,26 +254,59 @@ impl DatabricksV2Provider {
         model_name.contains("claude")
     }
 
-    fn parse_list_endpoints_response(
+    fn name_looks_chat_capable(name: &str) -> bool {
+        if name.to_ascii_lowercase().contains("embedding") {
+            return false;
+        }
+        !name
+            .split(|c: char| !c.is_ascii_alphanumeric())
+            .any(|segment| {
+                segment.eq_ignore_ascii_case("bge") || segment.eq_ignore_ascii_case("gte")
+            })
+    }
+
+    fn model_service_supports_chat(item: &Value, fallback_name: &str) -> bool {
+        let Some(api_types) = item.get("supported_api_types") else {
+            // Older workspaces omit capabilities; only the service leaf is safe to inspect.
+            return Self::name_looks_chat_capable(fallback_name);
+        };
+        let Some(api_types) = api_types.as_array() else {
+            return false;
+        };
+
+        api_types.iter().filter_map(Value::as_str).any(|api_type| {
+            api_type.eq_ignore_ascii_case("chat")
+                || api_type.eq_ignore_ascii_case("mlflow/v1/chat/completions")
+        })
+    }
+
+    fn parse_catalog_page(
         json: &Value,
+        catalog: &ModelCatalog,
     ) -> Result<(Vec<String>, Option<String>), ProviderError> {
-        let endpoints = json
-            .get("endpoints")
+        let items = json
+            .get(catalog.items_key)
             .and_then(|v| v.as_array())
             .ok_or_else(|| {
-                ProviderError::RequestFailed(
-                    "Unexpected response format from Databricks AI Gateway endpoints API"
-                        .to_string(),
-                )
+                ProviderError::RequestFailed(format!(
+                    "Unexpected response format from Databricks {} API",
+                    catalog.label
+                ))
             })?;
 
-        let models: Vec<String> = endpoints
+        let models: Vec<String> = items
             .iter()
-            .filter_map(|endpoint| {
-                endpoint
-                    .get("name")
-                    .and_then(|v| v.as_str())
-                    .map(str::to_string)
+            .filter_map(|item| {
+                let name = item.get("name").and_then(Value::as_str)?;
+                let (name, is_chat_capable) = match catalog.name_prefix {
+                    Some(prefix) => {
+                        let name = name.strip_prefix(prefix)?;
+                        let leaf = name.rsplit('.').next().unwrap_or(name);
+                        (name, Self::model_service_supports_chat(item, leaf))
+                    }
+                    None => (name, Self::name_looks_chat_capable(name)),
+                };
+                (!name.is_empty() && is_chat_capable).then(|| name.to_string())
             })
             .collect();
 
@@ -205,7 +335,7 @@ impl DatabricksV2Provider {
             .with_retry(|| async {
                 let resp = self
                     .api_client
-                    .request("ai-gateway/openai/v1/responses")
+                    .request(&self.route_path(DatabricksV2Route::OpenAiResponses))
                     .model_headers(model_config)?
                     .streaming(true)
                     .response_post(&payload)
@@ -227,14 +357,23 @@ impl DatabricksV2Provider {
         messages: &[Message],
         tools: &[Tool],
     ) -> Result<MessageStream, ProviderError> {
+        let is_model_service = Self::is_model_service_fqn(&model_config.model_name);
+        let mut format_config = model_config.clone();
+        if is_model_service {
+            // Keep UC namespace text out of OpenAI format heuristics.
+            format_config.model_name = "model-service".to_string();
+        }
         let mut payload = openai::create_request(
-            model_config,
+            &format_config,
             system,
             messages,
             tools,
             &ImageFormat::OpenAi,
             true,
         )?;
+        if is_model_service {
+            payload["model"] = Value::String(model_config.model_name.clone());
+        }
         if payload.get("max_tokens").is_none() {
             payload["max_tokens"] = Value::from(model_config.max_output_tokens());
         }
@@ -244,7 +383,7 @@ impl DatabricksV2Provider {
             .with_retry(|| async {
                 let resp = self
                     .api_client
-                    .request("ai-gateway/mlflow/v1/chat/completions")
+                    .request(&self.route_path(DatabricksV2Route::MlflowChatCompletions))
                     .model_headers(model_config)?
                     .streaming(true)
                     .response_post(&payload)
@@ -281,7 +420,7 @@ impl DatabricksV2Provider {
             .with_retry(|| async {
                 let resp = self
                     .api_client
-                    .request("ai-gateway/anthropic/v1/messages")
+                    .request(&self.route_path(DatabricksV2Route::AnthropicMessages))
                     .model_headers(model_config)?
                     .streaming(true)
                     .response_post(&payload)
@@ -370,49 +509,105 @@ impl Provider for DatabricksV2Provider {
     }
 
     async fn fetch_supported_models(&self) -> Result<Vec<String>, ProviderError> {
-        let mut models = Vec::new();
-        let mut page_token: Option<String> = None;
+        let (endpoint_result, service_result) = tokio::join!(
+            self.fetch_model_catalog(&DATABRICKS_V2_ENDPOINTS_CATALOG),
+            self.fetch_model_catalog(&DATABRICKS_V2_MODEL_SERVICES_CATALOG),
+        );
 
-        loop {
-            let mut path = format!(
-                "{}?page_size={}",
-                DATABRICKS_V2_LIST_ENDPOINTS_PATH, DATABRICKS_V2_LIST_ENDPOINTS_PAGE_SIZE
-            );
-            if let Some(token) = &page_token {
-                path.push_str(&format!("&page_token={}", urlencoding::encode(token)));
+        let mut names = Vec::new();
+        let mut failures = Vec::new();
+        let mut any_catalog_succeeded = false;
+        for (catalog, result) in [
+            (&DATABRICKS_V2_ENDPOINTS_CATALOG, endpoint_result),
+            (&DATABRICKS_V2_MODEL_SERVICES_CATALOG, service_result),
+        ] {
+            match result {
+                Ok(models) => {
+                    any_catalog_succeeded = true;
+                    names.extend(models);
+                }
+                Err(error) => failures.push((catalog.label, error)),
             }
-
-            let response = self.api_client.response_get(&path).await.map_err(|e| {
-                ProviderError::RequestFailed(format!(
-                    "Failed to fetch Databricks AI Gateway endpoints: {e}"
-                ))
-            })?;
-
-            if !response.status().is_success() {
-                let status = response.status();
-                let detail = response.text().await.unwrap_or_default();
-                return Err(ProviderError::RequestFailed(format!(
-                    "Failed to fetch Databricks AI Gateway endpoints: {status} {detail}"
-                )));
-            }
-
-            let json: Value = response.json().await.map_err(|e| {
-                ProviderError::RequestFailed(format!(
-                    "Failed to parse Databricks AI Gateway endpoints response: {e}"
-                ))
-            })?;
-
-            let (page_models, next_page_token) = Self::parse_list_endpoints_response(&json)?;
-            models.extend(page_models);
-
-            if next_page_token.is_none() || next_page_token == page_token {
-                break;
-            }
-            page_token = next_page_token;
         }
 
-        models.sort();
-        Ok(models)
+        if !any_catalog_succeeded {
+            let details = failures
+                .into_iter()
+                .map(|(_, error)| match error {
+                    ProviderError::RequestFailed(message) => message,
+                    error => error.to_string(),
+                })
+                .collect::<Vec<_>>()
+                .join("; ");
+            return Err(ProviderError::RequestFailed(details));
+        }
+        for (label, error) in failures {
+            tracing::warn!(catalog = label, %error, "Failed to fetch Databricks model catalog");
+        }
+
+        names.sort();
+        names.dedup();
+        Ok(names)
+    }
+}
+
+impl DatabricksV2Provider {
+    async fn fetch_model_catalog(
+        &self,
+        catalog: &ModelCatalog,
+    ) -> Result<Vec<String>, ProviderError> {
+        let ModelCatalog { path, label, .. } = catalog;
+        let mut models = Vec::new();
+        let mut page_token: Option<String> = None;
+        let mut seen_page_tokens = HashSet::new();
+
+        for _ in 0..DATABRICKS_V2_MAX_CATALOG_PAGES {
+            let mut path_with_query = format!("{path}?page_size={DATABRICKS_V2_CATALOG_PAGE_SIZE}");
+            if let Some(view) = catalog.view {
+                path_with_query.push_str(&format!("&view={}", urlencoding::encode(view)));
+            }
+            if let Some(token) = &page_token {
+                path_with_query.push_str(&format!("&page_token={}", urlencoding::encode(token)));
+            }
+
+            let json: Value = self
+                .with_retry_config(
+                    || async {
+                        let response = self.api_client.response_get(&path_with_query).await?;
+                        if response.status().as_u16() == DATABRICKS_V2_TRANSIENT_GATEWAY_STATUS {
+                            let detail = read_error_body(response).await.unwrap_or_default();
+                            return Err(ProviderError::ServerError(format!(
+                                "Databricks {label} returned {DATABRICKS_V2_TRANSIENT_GATEWAY_STATUS}: {detail}"
+                            )));
+                        }
+                        read_json_response(handle_status(response).await?).await
+                    },
+                    self.retry_config.clone().transient_only(),
+                )
+                .await
+                .map_err(|error| {
+                    ProviderError::RequestFailed(format!(
+                        "Failed to fetch Databricks {label}: {error}"
+                    ))
+                })?;
+
+            let (page_models, next_page_token) = Self::parse_catalog_page(&json, catalog)?;
+            models.extend(page_models);
+
+            let Some(next_page_token) = next_page_token else {
+                return Ok(models);
+            };
+            if !seen_page_tokens.insert(next_page_token.clone()) {
+                return Err(ProviderError::RequestFailed(format!(
+                    "Databricks {label} returned a repeated page token"
+                )));
+            }
+            page_token = Some(next_page_token);
+        }
+
+        Err(ProviderError::RequestFailed(format!(
+            "Databricks {label} pagination exceeded {DATABRICKS_V2_MAX_CATALOG_PAGES} pages"
+        )))
     }
 }
 
@@ -422,7 +617,11 @@ mod tests {
 
     #[test]
     fn routes_known_model_families() {
-        for model in ["databricks-gpt-5-5", "databricks-gpt5"] {
+        for model in [
+            "databricks-gpt-5-5",
+            "databricks-gpt5",
+            "data_workflow_tools.goose.goose-gpt-6-astra",
+        ] {
             assert_eq!(
                 DatabricksV2Provider::route_for_model(model),
                 DatabricksV2Route::OpenAiResponses,
@@ -442,6 +641,10 @@ mod tests {
             DatabricksV2Provider::route_for_model("custom-model"),
             DatabricksV2Route::MlflowChatCompletions
         );
+        assert_eq!(
+            DatabricksV2Provider::route_for_model("catalog.schema.claude-alias"),
+            DatabricksV2Route::MlflowChatCompletions
+        );
     }
 
     #[test]
@@ -456,7 +659,8 @@ mod tests {
         });
 
         let (models, next_page_token) =
-            DatabricksV2Provider::parse_list_endpoints_response(&json).unwrap();
+            DatabricksV2Provider::parse_catalog_page(&json, &DATABRICKS_V2_ENDPOINTS_CATALOG)
+                .unwrap();
 
         assert_eq!(
             models,
@@ -473,11 +677,476 @@ mod tests {
     fn errors_when_list_endpoints_response_has_no_endpoints_array() {
         let json = serde_json::json!({"data": []});
 
-        let error = DatabricksV2Provider::parse_list_endpoints_response(&json).unwrap_err();
+        let error =
+            DatabricksV2Provider::parse_catalog_page(&json, &DATABRICKS_V2_ENDPOINTS_CATALOG)
+                .unwrap_err();
 
         assert!(matches!(error, ProviderError::RequestFailed(_)));
         assert!(error
             .to_string()
             .contains("Unexpected response format from Databricks AI Gateway endpoints API"));
+    }
+
+    #[test]
+    fn filters_non_chat_endpoints() {
+        let json = serde_json::json!({
+            "endpoints": [
+                {"name": "databricks-bge-large-en"},
+                {"name": "my-gte-small"},
+                {"name": "text-embedding-3-large"},
+                {"name": "databricks-gpt-5-5"},
+                {"name": "custom-model"}
+            ]
+        });
+
+        let (models, _) =
+            DatabricksV2Provider::parse_catalog_page(&json, &DATABRICKS_V2_ENDPOINTS_CATALOG)
+                .unwrap();
+
+        assert_eq!(
+            models,
+            vec!["databricks-gpt-5-5".to_string(), "custom-model".to_string(),]
+        );
+    }
+
+    #[test]
+    fn parses_and_filters_model_services() {
+        let json = serde_json::json!({
+            "model_services": [
+                {
+                    "name": "model-services/catalog.schema.vector-search",
+                    "supported_api_types": ["mlflow/v1/embeddings"]
+                },
+                {
+                    "name": "model-services/catalog.schema.embedding-assistant",
+                    "supported_api_types": ["mlflow/v1/chat/completions"]
+                },
+                {"name": "model-services/embedding_catalog.gte_schema.chat-model"},
+                {"name": "model-services/catalog.schema.bge-embedding"},
+                {"name": "model-services/"},
+                {"name": "no-prefix"}
+            ]
+        });
+
+        let (models, _) =
+            DatabricksV2Provider::parse_catalog_page(&json, &DATABRICKS_V2_MODEL_SERVICES_CATALOG)
+                .unwrap();
+
+        assert_eq!(
+            models,
+            vec![
+                "catalog.schema.embedding-assistant",
+                "embedding_catalog.gte_schema.chat-model",
+            ]
+        );
+    }
+
+    #[test]
+    fn routes_model_service_fqns_to_mlflow() {
+        for model in ["team.claude.kimi-chat", "gpt-5.schema.kimi-chat"] {
+            assert_eq!(
+                DatabricksV2Provider::route_for_model(model),
+                DatabricksV2Route::MlflowChatCompletions,
+                "unexpected route for {model}"
+            );
+        }
+    }
+
+    mod gateway_path {
+        use super::*;
+        use serde_json::json;
+        use wiremock::matchers::{body_partial_json, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        fn provider(host: String) -> DatabricksV2Provider {
+            DatabricksV2Provider::new(
+                host,
+                DatabricksAuth::token("test-token".to_string()),
+                RetryConfig::new(0, 0, 1.0, 0),
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap()
+        }
+
+        fn all_route_paths(provider: &DatabricksV2Provider) -> Vec<String> {
+            [
+                DatabricksV2Route::OpenAiResponses,
+                DatabricksV2Route::AnthropicMessages,
+                DatabricksV2Route::MlflowChatCompletions,
+            ]
+            .into_iter()
+            .map(|route| provider.route_path(route))
+            .collect()
+        }
+
+        #[test]
+        fn default_matches_the_paths_used_before_the_path_became_configurable() {
+            assert_eq!(
+                all_route_paths(&provider("https://workspace".to_string())),
+                vec![
+                    "ai-gateway/openai/v1/responses",
+                    "ai-gateway/anthropic/v1/messages",
+                    "ai-gateway/mlflow/v1/chat/completions",
+                ]
+            );
+        }
+
+        #[test]
+        fn configured_path_is_preserved_for_every_route() {
+            let provider = provider("https://workspace".to_string())
+                .with_gateway_path("/gateways/team-a/")
+                .unwrap();
+
+            assert_eq!(
+                all_route_paths(&provider),
+                vec![
+                    "gateways/team-a/openai/v1/responses",
+                    "gateways/team-a/anthropic/v1/messages",
+                    "gateways/team-a/mlflow/v1/chat/completions",
+                ]
+            );
+        }
+
+        #[test]
+        fn accepts_a_full_route_and_reuses_its_base_for_the_other_routes() {
+            let provider = provider("https://workspace".to_string())
+                .with_gateway_path("ai-gateway/openai/v1/responses")
+                .unwrap();
+
+            assert_eq!(
+                all_route_paths(&provider),
+                vec![
+                    "ai-gateway/openai/v1/responses",
+                    "ai-gateway/anthropic/v1/messages",
+                    "ai-gateway/mlflow/v1/chat/completions",
+                ]
+            );
+        }
+
+        #[test]
+        fn rejects_paths_that_cannot_be_joined_to_a_route() {
+            for (input, expected) in [
+                ("   ", "must not be empty"),
+                ("https://workspace/ai-gateway", "not a URL"),
+            ] {
+                let err = match provider("https://workspace".to_string()).with_gateway_path(input) {
+                    Ok(_) => panic!("{input:?} should be rejected"),
+                    Err(err) => err,
+                };
+                assert!(
+                    err.to_string().contains(expected),
+                    "error for {input:?} should mention {expected:?}, got: {err}"
+                );
+            }
+        }
+
+        #[tokio::test]
+        async fn model_service_gpt_6_uses_responses_route_and_preserves_fqn() {
+            let model = "data_workflow_tools.goose.goose-gpt-6-astra";
+            let completed = format!(
+                r#"data: {{"type":"response.completed","sequence_number":1,"response":{{"id":"resp_1","object":"response","created_at":0,"status":"completed","model":"{model}","output":[],"usage":{{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}}}}"#
+            );
+            let body = format!("{completed}\n\ndata: [DONE]\n\n");
+
+            let server = MockServer::start().await;
+            Mock::given(method("POST"))
+                .and(path("/ai-gateway/openai/v1/responses"))
+                .and(body_partial_json(json!({"model": model})))
+                .respond_with(
+                    ResponseTemplate::new(200)
+                        .set_body_string(body)
+                        .append_header("content-type", "text/event-stream"),
+                )
+                .expect(1)
+                .mount(&server)
+                .await;
+
+            provider(server.uri())
+                .complete(&ModelConfig::new(model), "system", &[], &[])
+                .await
+                .expect("GPT-6 model service should use the Responses API");
+        }
+
+        #[tokio::test]
+        async fn responses_api_streams_text_tool_calls_and_usage_over_the_configured_path() {
+            let created = r#"data: {"type":"response.created","sequence_number":1,"response":{"id":"resp_1","object":"response","created_at":0,"status":"in_progress","model":"databricks-gpt-5-5","output":[]}}"#;
+            let delta = r#"data: {"type":"response.output_text.delta","sequence_number":2,"item_id":"m1","output_index":0,"content_index":0,"delta":"Hello"}"#;
+            let completed = r#"data: {"type":"response.completed","sequence_number":3,"response":{"id":"resp_1","object":"response","created_at":0,"status":"completed","model":"databricks-gpt-5-5","output":[{"type":"function_call","id":"fc_1","call_id":"call_1","name":"shell","arguments":"{\"command\":\"ls\"}"}],"usage":{"input_tokens":11,"output_tokens":3,"total_tokens":14}}}"#;
+            let body = format!("{created}\n\n{delta}\n\n{completed}\n\ndata: [DONE]\n\n");
+
+            let server = MockServer::start().await;
+            Mock::given(method("POST"))
+                .and(path("/gateways/team-a/openai/v1/responses"))
+                .respond_with(
+                    ResponseTemplate::new(200)
+                        .set_body_string(body)
+                        .append_header("content-type", "text/event-stream"),
+                )
+                .expect(1)
+                .mount(&server)
+                .await;
+
+            let provider = provider(server.uri())
+                .with_gateway_path("gateways/team-a")
+                .unwrap();
+            let (message, usage) = provider
+                .complete(
+                    &ModelConfig::new("databricks-gpt-5-5"),
+                    "system",
+                    &[],
+                    &[Tool::new(
+                        "shell",
+                        "run a shell command",
+                        std::sync::Arc::new(
+                            json!({"type": "object", "properties": {}})
+                                .as_object()
+                                .unwrap()
+                                .clone(),
+                        ),
+                    )],
+                )
+                .await
+                .expect("responses stream should decode");
+
+            assert_eq!(message.as_concat_text(), "Hello");
+            let tool_request = message
+                .content
+                .iter()
+                .find_map(|content| content.as_tool_request())
+                .expect("tool call should decode");
+            assert_eq!(tool_request.tool_call.as_ref().unwrap().name, "shell");
+            assert_eq!(usage.usage.input_tokens, Some(11));
+            assert_eq!(usage.usage.output_tokens, Some(3));
+            assert_eq!(usage.usage.total_tokens, Some(14));
+        }
+    }
+
+    mod fetch_supported_models {
+        use super::*;
+        use serde_json::json;
+        use wiremock::matchers::{method, path, query_param, query_param_is_missing};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        fn provider(server: &MockServer) -> DatabricksV2Provider {
+            provider_with_retry(server, RetryConfig::new(0, 0, 1.0, 0))
+        }
+
+        fn provider_with_retry(
+            server: &MockServer,
+            retry_config: RetryConfig,
+        ) -> DatabricksV2Provider {
+            DatabricksV2Provider::new(
+                server.uri(),
+                DatabricksAuth::token("test-token".to_string()),
+                retry_config,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap()
+        }
+
+        async fn mount_endpoints(server: &MockServer, body: serde_json::Value) {
+            Mock::given(method("GET"))
+                .and(path(format!("/{DATABRICKS_V2_LIST_ENDPOINTS_PATH}")))
+                .and(query_param("page_size", "100"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(body))
+                .expect(1)
+                .mount(server)
+                .await;
+        }
+
+        #[tokio::test]
+        async fn returns_union_of_both_catalogs_sorted_and_deduplicated() {
+            let server = MockServer::start().await;
+            mount_endpoints(
+                &server,
+                json!({"endpoints": [
+                    {"name": "databricks-gpt-5-5"},
+                    {"name": "catalog.schema.shared-model"}
+                ]}),
+            )
+            .await;
+            Mock::given(method("GET"))
+                .and(path(format!("/{DATABRICKS_V2_LIST_MODEL_SERVICES_PATH}")))
+                .and(query_param("page_size", "100"))
+                .and(query_param("view", "FULL"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "model_services": [
+                        {"name": "model-services/catalog.schema.shared-model"},
+                        {"name": "model-services/data.goose.goose-kimi-k3"}
+                    ]
+                })))
+                .expect(1)
+                .mount(&server)
+                .await;
+
+            let models = provider(&server).fetch_supported_models().await.unwrap();
+
+            assert_eq!(
+                models,
+                vec![
+                    "catalog.schema.shared-model",
+                    "data.goose.goose-kimi-k3",
+                    "databricks-gpt-5-5",
+                ]
+            );
+        }
+
+        #[tokio::test]
+        async fn paginates_model_services_with_url_encoded_tokens() {
+            let server = MockServer::start().await;
+            mount_endpoints(&server, json!({"endpoints": [{"name": "endpoint"}]})).await;
+
+            for (page_token, name, next_page_token) in [
+                (None, "a.b.c", Some("svc tok%")),
+                (Some("svc tok%"), "a.b.d", Some("token-b")),
+                (Some("token-b"), "a.b.e", None),
+            ] {
+                let mut mock = Mock::given(method("GET"))
+                    .and(path(format!("/{DATABRICKS_V2_LIST_MODEL_SERVICES_PATH}")))
+                    .and(query_param("page_size", "100"))
+                    .and(query_param("view", "FULL"));
+                mock = match page_token {
+                    Some(page_token) => mock.and(query_param("page_token", page_token)),
+                    None => mock.and(query_param_is_missing("page_token")),
+                };
+                mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "model_services": [{"name": format!("model-services/{name}")}],
+                    "next_page_token": next_page_token
+                })))
+                .expect(1)
+                .mount(&server)
+                .await;
+            }
+
+            let models = provider(&server).fetch_supported_models().await.unwrap();
+
+            assert_eq!(models, vec!["a.b.c", "a.b.d", "a.b.e", "endpoint"]);
+        }
+
+        #[tokio::test]
+        async fn rejects_model_service_page_token_cycles() {
+            let server = MockServer::start().await;
+            for page_token in [None, Some("token-a")] {
+                let mut mock = Mock::given(method("GET"))
+                    .and(path(format!("/{DATABRICKS_V2_LIST_MODEL_SERVICES_PATH}")));
+                mock = match page_token {
+                    Some(page_token) => mock.and(query_param("page_token", page_token)),
+                    None => mock.and(query_param_is_missing("page_token")),
+                };
+                mock.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "model_services": [],
+                    "next_page_token": "token-a"
+                })))
+                .expect(1)
+                .mount(&server)
+                .await;
+            }
+
+            let error = provider(&server)
+                .fetch_model_catalog(&DATABRICKS_V2_MODEL_SERVICES_CATALOG)
+                .await
+                .unwrap_err();
+
+            assert!(error.to_string().contains("repeated page token"));
+        }
+
+        #[tokio::test]
+        async fn does_not_retry_permanent_catalog_failures() {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path(format!("/{DATABRICKS_V2_LIST_MODEL_SERVICES_PATH}")))
+                .respond_with(ResponseTemplate::new(404).set_body_json(json!({
+                    "message": "not available"
+                })))
+                .expect(1)
+                .mount(&server)
+                .await;
+
+            let error = provider_with_retry(&server, RetryConfig::new(3, 0, 1.0, 0))
+                .fetch_model_catalog(&DATABRICKS_V2_MODEL_SERVICES_CATALOG)
+                .await
+                .unwrap_err();
+
+            assert!(error.to_string().contains("not available"));
+        }
+
+        #[tokio::test]
+        async fn retries_transient_catalog_failures() {
+            for status in [500, DATABRICKS_V2_TRANSIENT_GATEWAY_STATUS] {
+                let server = MockServer::start().await;
+                Mock::given(method("GET"))
+                    .and(path(format!("/{DATABRICKS_V2_LIST_MODEL_SERVICES_PATH}")))
+                    .respond_with(ResponseTemplate::new(status))
+                    .up_to_n_times(1)
+                    .mount(&server)
+                    .await;
+                Mock::given(method("GET"))
+                    .and(path(format!("/{DATABRICKS_V2_LIST_MODEL_SERVICES_PATH}")))
+                    .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                        "model_services": []
+                    })))
+                    .expect(1)
+                    .mount(&server)
+                    .await;
+
+                let models = provider_with_retry(&server, RetryConfig::new(1, 0, 1.0, 0))
+                    .fetch_model_catalog(&DATABRICKS_V2_MODEL_SERVICES_CATALOG)
+                    .await
+                    .unwrap();
+
+                assert!(models.is_empty());
+            }
+        }
+
+        #[tokio::test]
+        async fn returns_endpoints_when_services_fail() {
+            let server = MockServer::start().await;
+            mount_endpoints(&server, json!({"endpoints": [{"name": "only-endpoint"}]})).await;
+            Mock::given(method("GET"))
+                .and(path(format!("/{DATABRICKS_V2_LIST_MODEL_SERVICES_PATH}")))
+                .respond_with(ResponseTemplate::new(500).set_body_json(json!({"message": "boom"})))
+                .mount(&server)
+                .await;
+
+            let models = provider(&server).fetch_supported_models().await.unwrap();
+
+            assert_eq!(models, vec!["only-endpoint"]);
+        }
+
+        #[tokio::test]
+        async fn errors_when_both_catalogs_fail() {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path(format!("/{DATABRICKS_V2_LIST_ENDPOINTS_PATH}")))
+                .respond_with(
+                    ResponseTemplate::new(500).set_body_json(json!({"message": "endpoints down"})),
+                )
+                .mount(&server)
+                .await;
+            Mock::given(method("GET"))
+                .and(path(format!("/{DATABRICKS_V2_LIST_MODEL_SERVICES_PATH}")))
+                .respond_with(
+                    ResponseTemplate::new(500).set_body_json(json!({"message": "services down"})),
+                )
+                .mount(&server)
+                .await;
+
+            let err = provider(&server)
+                .fetch_supported_models()
+                .await
+                .unwrap_err();
+
+            assert!(matches!(err, ProviderError::RequestFailed(_)));
+            assert!(err.to_string().contains("endpoints down"));
+            assert!(err.to_string().contains("services down"));
+        }
     }
 }

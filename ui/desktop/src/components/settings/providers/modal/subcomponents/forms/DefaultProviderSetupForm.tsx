@@ -102,10 +102,13 @@ export default function DefaultProviderSetupForm({
       const values: { [k: string]: ConfigInput } = {};
 
       let fields: Awaited<ReturnType<typeof acpReadProviderConfig>> = [];
+      let readFailed = false;
       try {
         fields = await acpReadProviderConfig(provider.name);
       } catch {
-        // Provider may not be in the registry yet; fall back to defaults below.
+        // A failed read cannot be distinguished from "nothing is stored", so
+        // seeding defaults here would submit them over values already on disk.
+        readFailed = true;
       }
       const fieldByKey = new Map(fields.map((field) => [field.key, field]));
 
@@ -119,7 +122,7 @@ export default function DefaultProviderSetupForm({
             ? { maskedValue: field.value }
             : field.value;
           values[parameter.name] = { serverValue };
-        } else if (parameter.default !== undefined && parameter.default !== null) {
+        } else if (!readFailed && parameter.default !== undefined && parameter.default !== null) {
           values[parameter.name] = { value: parameter.default };
         }
       }

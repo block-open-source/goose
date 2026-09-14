@@ -1,5 +1,4 @@
 use crate::agents::extension::{Envs, ExtensionConfig};
-use rmcp::model::Tool;
 use serde::de::Deserializer;
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -76,30 +75,6 @@ enum RecipeExtensionConfigInternal {
         #[serde(default)]
         available_tools: Vec<String>,
     },
-    #[serde(rename = "frontend")]
-    Frontend {
-        name: String,
-        #[serde(default)]
-        description: Option<String>,
-        tools: Vec<Tool>,
-        instructions: Option<String>,
-        #[serde(default)]
-        bundled: Option<bool>,
-        #[serde(default)]
-        available_tools: Vec<String>,
-    },
-    #[serde(rename = "inline_python")]
-    InlinePython {
-        name: String,
-        #[serde(default)]
-        description: Option<String>,
-        code: String,
-        timeout: Option<u64>,
-        #[serde(default)]
-        dependencies: Option<Vec<String>>,
-        #[serde(default)]
-        available_tools: Vec<String>,
-    },
 }
 
 macro_rules! map_recipe_extensions {
@@ -156,18 +131,6 @@ impl From<RecipeExtensionConfigInternal> for ExtensionConfig {
                 client_secret_key,
                 scopes,
                 bundled,
-                available_tools
-            },
-            Frontend {
-                tools,
-                instructions,
-                bundled,
-                available_tools
-            },
-            InlinePython {
-                code,
-                timeout,
-                dependencies,
                 available_tools
             }
         )

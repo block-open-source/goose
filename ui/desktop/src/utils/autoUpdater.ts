@@ -4,9 +4,7 @@ import {
   ipcMain,
   nativeImage,
   Tray,
-  shell,
   app,
-  dialog,
   Menu,
   MenuItemConstructorOptions,
   Notification,
@@ -272,60 +270,33 @@ export function registerUpdateIpcHandlers() {
 
   ipcMain.handle('install-update', async () => {
     if (isUsingGitHubFallback) {
-      // For GitHub fallback, we need to handle the installation differently
       log.info('Installing update from GitHub fallback...');
 
-      try {
-        // Use the stored extracted path if available, otherwise download path
-        const updatePath = githubUpdateInfo.extractedPath || githubUpdateInfo.downloadPath;
-
-        if (!updatePath) {
-          throw new Error('Update file path not found. Please download the update first.');
-        }
-
-        // Check if the update path exists
-        try {
-          await fs.access(updatePath);
-        } catch {
-          throw new Error('Update file not found. Please download the update first.');
-        }
-
-        // Improved dialog with clearer instructions
-        const dialogResult = (await dialog.showMessageBox({
-          type: 'info',
-          title: 'Update Ready to Install',
-          message: `Version ${githubUpdateInfo.latestVersion} is ready to install.`,
-          detail: `The update has been downloaded and extracted. To complete the installation:\n\n1. Click "Open Folder" to view the new Goose.app\n2. Quit Goose (this app will close)\n3. Drag the new Goose.app to your Applications folder\n4. Replace the existing app when prompted\n\nThe update will be available the next time you launch Goose.`,
-          buttons: ['Open Folder & Quit', 'Open Folder Only', 'Cancel'],
-          defaultId: 0,
-          cancelId: 2,
-        })) as unknown as { response: number };
-
-        if (dialogResult.response === 0) {
-          trackUpdateInstallInitiated(
-            githubUpdateInfo.latestVersion || 'unknown',
-            'github-fallback',
-            'open_folder_and_quit'
-          );
-          // Open folder and quit app for easy replacement
-          shell.showItemInFolder(updatePath);
-          setTimeout(() => {
-            app.quit();
-          }, 1500); // Give user time to see the folder open
-        } else if (dialogResult.response === 1) {
-          trackUpdateInstallInitiated(
-            githubUpdateInfo.latestVersion || 'unknown',
-            'github-fallback',
-            'open_folder_only'
-          );
-          // Just open folder, don't quit
-          shell.showItemInFolder(updatePath);
-        }
-        // response === 2 is Cancel, no tracking needed
-      } catch (error) {
-        log.error('Error installing GitHub update:', error);
-        throw error;
+      const downloadPath = githubUpdateInfo.downloadPath;
+      if (!downloadPath) {
+        throw new Error('Update file path not found. Please download the update first.');
       }
+
+      try {
+        await fs.access(downloadPath);
+      } catch {
+        throw new Error('Update file not found. Please download the update first.');
+      }
+
+      trackUpdateInstallInitiated(
+        githubUpdateInfo.latestVersion || 'unknown',
+        'github-fallback',
+        'auto_swap_and_relaunch'
+      );
+
+      const result = await githubUpdater.installUpdate(downloadPath);
+      if (!result.success) {
+        log.error('Error installing GitHub update:', result.error);
+        throw new Error(result.error || 'Failed to install update');
+      }
+
+      log.info('Quitting app so the update swap can complete...');
+      setTimeout(() => app.quit(), 0);
     } else {
       // Use electron-updater's built-in install
       trackUpdateInstallInitiated(

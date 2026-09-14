@@ -28,14 +28,16 @@ pub fn contains_unicode_tags(text: &str) -> bool {
     text.chars().any(is_in_unicode_tag_range)
 }
 
+pub fn strip_unicode_tags(text: &str) -> String {
+    text.chars()
+        .filter(|&c| !is_in_unicode_tag_range(c))
+        .collect()
+}
+
 /// Sanitize Unicode Tags Block characters from text
 pub fn sanitize_unicode_tags(text: &str) -> String {
     let normalized: String = text.nfc().collect();
-
-    normalized
-        .chars()
-        .filter(|&c| !is_in_unicode_tag_range(c))
-        .collect()
+    strip_unicode_tags(&normalized)
 }
 
 /// Safely truncate a string at character boundaries, not byte boundaries
@@ -132,6 +134,12 @@ mod tests {
         let clean_text = "Hello world 世界 🌍";
         let cleaned = sanitize_unicode_tags(clean_text);
         assert_eq!(cleaned, clean_text);
+    }
+
+    #[test]
+    fn test_strip_unicode_tags_preserves_canonical_form() {
+        let decomposed = "cafe\u{301}\u{E0041}";
+        assert_eq!(strip_unicode_tags(decomposed), "cafe\u{301}");
     }
 
     #[test]

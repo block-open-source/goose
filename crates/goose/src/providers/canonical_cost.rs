@@ -219,13 +219,13 @@ mod tests {
 
     #[test]
     fn pricing_from_model_info_returns_none_without_prices() {
-        let info = ModelInfo::new("m", 1_000);
+        let info = ModelInfo::new("m").with_context_limit(1_000);
         assert!(pricing_from_model_info(&info).is_none());
     }
 
     #[test]
     fn partial_pricing_is_rejected() {
-        let mut info = ModelInfo::new("m", 1_000);
+        let mut info = ModelInfo::new("m").with_context_limit(1_000);
         info.input_token_cost = Some(0.000002);
         assert!(pricing_from_model_info(&info).is_none());
     }
@@ -355,7 +355,7 @@ mod tests {
 
     #[test]
     fn missing_or_usd_currency_falls_back_to_the_dollar_symbol() {
-        let mut info = ModelInfo::new("m", 1_000);
+        let mut info = ModelInfo::new("m").with_context_limit(1_000);
         assert_eq!(display_currency(Some(&info)), "$");
         assert_eq!(display_currency(None), "$");
 

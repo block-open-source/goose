@@ -1,6 +1,6 @@
 # goose-sdk
 
-Python bindings for the Goose SDK.
+Python bindings for the goose Development Kit (GDK).
 
 This package is generated from the Rust `goose-sdk` crate using UniFFI.
 

@@ -50,6 +50,28 @@ pub type Error = rmcp::ServiceError;
 const MCP_APPS_UI_EXTENSION_ID: &str = "io.modelcontextprotocol/ui";
 const MCP_APPS_UI_MIME_TYPE: &str = "text/html;profile=mcp-app";
 
+fn extract_sampling_text(
+    content: &[crate::conversation::message::MessageContent],
+) -> Option<String> {
+    let visible_content = content
+        .iter()
+        .filter_map(crate::conversation::message::MessageContent::user_visible_content)
+        .collect::<Vec<_>>();
+    let text = visible_content
+        .iter()
+        .filter_map(|content| match content {
+            crate::conversation::message::MessageContent::Text(text)
+                if !text.text.trim().is_empty() =>
+            {
+                Some(text.text.as_str())
+            }
+            _ => None,
+        })
+        .collect::<String>();
+
+    (!text.is_empty()).then_some(text)
+}
+
 fn resolve_sampling_model_config() -> anyhow::Result<goose_providers::model::ModelConfig> {
     let config = crate::config::Config::global();
     let provider_name = config.get_goose_provider()?;
@@ -469,26 +491,33 @@ impl ClientHandler for GooseClient {
             )
         })?;
 
+        let sampling_content = if let Some(text) = extract_sampling_text(&response.content) {
+            SamplingMessageContentBlock::text(text)
+        } else if let Some(crate::conversation::message::MessageContent::Image(img)) = response
+            .content
+            .iter()
+            .filter_map(crate::conversation::message::MessageContent::user_visible_content)
+            .find(|content| {
+                matches!(
+                    content,
+                    crate::conversation::message::MessageContent::Image(_)
+                )
+            })
+        {
+            SamplingMessageContentBlock::Image(rmcp::model::ImageContent::new(
+                img.data.clone(),
+                img.mime_type.clone(),
+            ))
+        } else {
+            return Err(ErrorData::new(
+                ErrorCode::INTERNAL_ERROR,
+                "Provider returned no usable text or image content for sampling",
+                None,
+            ));
+        };
+
         Ok(CreateMessageResult::new(
-            SamplingMessage::new(
-                Role::Assistant,
-                if let Some(content) = response.content.first() {
-                    match content {
-                        crate::conversation::message::MessageContent::Text(text) => {
-                            SamplingMessageContentBlock::text(&text.text)
-                        }
-                        crate::conversation::message::MessageContent::Image(img) => {
-                            SamplingMessageContentBlock::Image(rmcp::model::ImageContent::new(
-                                img.data.clone(),
-                                img.mime_type.clone(),
-                            ))
-                        }
-                        _ => SamplingMessageContentBlock::text(""),
-                    }
-                } else {
-                    SamplingMessageContentBlock::text("")
-                },
-            ),
+            SamplingMessage::new(Role::Assistant, sampling_content),
             usage.model,
         )
         .with_stop_reason(CreateMessageResult::STOP_REASON_END_TURN))
@@ -689,7 +718,7 @@ impl McpClient {
                         transport,
                         ClientLifecycleMode::Auto {
                             preferred_versions: vec![ProtocolVersion::V_2026_07_28],
-                            legacy_version: Some(ProtocolVersion::LATEST),
+                            legacy_version: Some(ProtocolVersion::V_2025_11_25),
                         },
                     )
                     .await?
@@ -1153,6 +1182,75 @@ fn inject_session_context_into_request(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sampling_text_preserves_text_first_provider_responses() {
+        let response = crate::conversation::message::Message::assistant().with_text("answer");
+
+        assert_eq!(
+            extract_sampling_text(&response.content).as_deref(),
+            Some("answer")
+        );
+    }
+
+    #[test]
+    fn sampling_text_skips_thinking_before_final_text() {
+        let response = crate::conversation::message::Message::assistant()
+            .with_thinking("internal reasoning", "signature")
+            .with_text("final answer");
+
+        assert_eq!(
+            extract_sampling_text(&response.content).as_deref(),
+            Some("final answer")
+        );
+    }
+
+    #[test]
+    fn sampling_text_preserves_fragments_around_thinking() {
+        let response = crate::conversation::message::Message::assistant()
+            .with_text("first")
+            .with_thinking("internal reasoning", "signature")
+            .with_text(" second");
+
+        assert_eq!(
+            extract_sampling_text(&response.content).as_deref(),
+            Some("first second")
+        );
+    }
+
+    #[test]
+    fn sampling_text_excludes_assistant_only_blocks_without_changing_visible_text() {
+        let assistant_only = rmcp::model::TextContent::new("assistant only").with_annotations(
+            rmcp::model::Annotations::default().with_audience(vec![Role::Assistant]),
+        );
+        let response = crate::conversation::message::Message::assistant()
+            .with_text("Hello")
+            .with_content(crate::conversation::message::MessageContent::Text(
+                assistant_only,
+            ))
+            .with_text(" world");
+
+        assert_eq!(
+            extract_sampling_text(&response.content).as_deref(),
+            Some("Hello world")
+        );
+    }
+
+    #[test]
+    fn sampling_text_rejects_thinking_only_responses() {
+        let response = crate::conversation::message::Message::assistant()
+            .with_thinking("internal reasoning", "signature");
+
+        assert_eq!(extract_sampling_text(&response.content), None);
+    }
+
+    #[test]
+    fn sampling_does_not_expose_json_from_thinking_only_response() {
+        let response = crate::conversation::message::Message::assistant()
+            .with_thinking("{\"private\":true}", "signature");
+
+        assert_eq!(extract_sampling_text(&response.content), None);
+    }
     use crate::agents::extension::ExtensionConfig;
     use crate::agents::GoosePlatform;
     use rmcp::model::Tool;
@@ -1257,13 +1355,7 @@ mod tests {
             available_tools: vec![],
         };
         extension_manager
-            .add_client(
-                "dynamic".to_string(),
-                config,
-                tools_client.clone(),
-                None,
-                None,
-            )
+            .add_client("dynamic".to_string(), config, tools_client.clone(), None)
             .await;
 
         let goose_client = GooseClient::new(

@@ -1,0 +1,104 @@
+name: Publish GDK
+
+on:
+  push:
+    tags:
+      - "gdk-v*"
+permissions:
+  contents: read
+
+concurrency:
+  group: gdk-release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  validate-version:
+    name: Validate package versions
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.value }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Resolve release version
+        id: version
+        shell: bash
+        run: echo "value=${GITHUB_REF_NAME#gdk-v}" >> "$GITHUB_OUTPUT"
+
+      - name: Install just
+        uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
+
+      - name: Validate package versions
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.value }}
+        run: just --justfile crates/goose-sdk/justfile check-version "$RELEASE_VERSION"
+
+  crates-io:
+    name: Publish Rust crates
+    needs: validate-version
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ubuntu-latest
+    environment: crates-io
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Rust
+        uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+        with:
+          cache: false
+
+      - name: Install just
+        uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
+
+      - name: Authenticate with crates.io
+        id: crates-io-auth
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+
+      - name: Publish to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates-io-auth.outputs.token }}
+        run: just --justfile crates/goose-sdk/justfile crates-publish false
+
+  maven-central:
+    name: Publish Maven package
+    needs: validate-version
+    permissions:
+      contents: read
+    uses: ./.github/workflows/maven-sdk.yml
+    with:
+      publish: true
+      smoke-test: false
+    secrets: inherit
+
+  python-wheels:
+    name: Build Python wheels
+    needs: validate-version
+    permissions:
+      contents: read
+    uses: ./.github/workflows/python-sdk-wheels.yml
+
+  pypi:
+    name: Publish Python wheels to PyPI
+    needs: python-wheels
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download wheel artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: goose-sdk-wheel-*
+          path: dist
+          merge-multiple: true
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          packages-dir: dist
+          skip-existing: true

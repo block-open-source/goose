@@ -28,6 +28,7 @@ pub const CURRENT_SCHEMA_VERSION: i32 = 16;
 pub const SESSIONS_FOLDER: &str = "sessions";
 pub const DB_NAME: &str = "sessions.db";
 const MILLISECOND_TIMESTAMP_THRESHOLD: i64 = 10_000_000_000;
+const SESSION_COUNT_BATCH_SIZE: usize = 900;
 
 #[derive(
     Debug,
@@ -436,6 +437,17 @@ impl SessionManager {
         SessionUpdateBuilder::new(self, id.to_string())
     }
 
+    pub(crate) async fn update_project_for_session_types(
+        &self,
+        id: &str,
+        project_id: Option<String>,
+        session_types: &[SessionType],
+    ) -> Result<bool> {
+        self.storage
+            .update_project_for_session_types(id, project_id, session_types)
+            .await
+    }
+
     async fn apply_update_inner(&self, builder: SessionUpdateBuilder<'_>) -> Result<()> {
         self.storage.apply_update(builder).await
     }
@@ -450,6 +462,19 @@ impl SessionManager {
 
     pub async fn list_sessions(&self) -> Result<Vec<Session>> {
         self.storage.list_sessions().await
+    }
+
+    pub async fn list_sessions_with_limit(&self, limit: usize) -> Result<Vec<Session>> {
+        self.storage
+            .list_sessions_matching(SessionListQuery {
+                filters: SessionListFilters {
+                    types: Some(&[SessionType::User, SessionType::Scheduled]),
+                    ..Default::default()
+                },
+                limit: Some(limit),
+                ..Default::default()
+            })
+            .await
     }
 
     pub async fn list_sessions_by_types(&self, types: &[SessionType]) -> Result<Vec<Session>> {
@@ -613,8 +638,14 @@ impl SessionManager {
         };
 
         if should_generate_name {
-            let name =
-                generate_session_name(provider.as_ref(), &model_config, id, &conversation).await?;
+            let name = generate_session_name(
+                provider.as_ref(),
+                &model_config,
+                id,
+                &conversation,
+                Some(session.working_dir.as_path()),
+            )
+            .await?;
             return Ok(Some(self.system_generated_name_update(id, name).await?));
         }
         Ok(None)
@@ -897,6 +928,12 @@ impl SessionStorage {
     fn create_pool(path: &Path) -> Pool<Sqlite> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).expect("Failed to create session database directory");
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(parent, fs::Permissions::from_mode(0o700))
+                    .expect("Failed to secure session database directory");
+            }
         }
 
         let options = SqliteConnectOptions::new()
@@ -1083,6 +1120,11 @@ impl SessionStorage {
         .execute(&mut *tx)
         .await?;
 
+        // Create the inventory tables inside the same transaction so that a
+        // second SessionStorage opening the same DB file never observes a
+        // committed schema_version (and thus takes the migration path) while
+        // the inventory tables don't yet exist — which raced as
+        // `no such table: provider_inventory_entries`.
         crate::providers::inventory::create_tables(&mut tx).await?;
 
         tx.commit().await?;
@@ -1798,6 +1840,34 @@ impl SessionStorage {
         Ok(())
     }
 
+    async fn update_project_for_session_types(
+        &self,
+        id: &str,
+        project_id: Option<String>,
+        session_types: &[SessionType],
+    ) -> Result<bool> {
+        if session_types.is_empty() {
+            return Ok(false);
+        }
+
+        let placeholders = session_types
+            .iter()
+            .map(|_| "?")
+            .collect::<Vec<_>>()
+            .join(", ");
+        let query = format!(
+            "UPDATE sessions SET project_id = ?, updated_at = datetime('now') \
+             WHERE id = ? AND session_type IN ({placeholders})"
+        );
+        let pool = self.pool().await?;
+        let mut query = sqlx::query(AssertSqlSafe(query)).bind(project_id).bind(id);
+        for session_type in session_types {
+            query = query.bind(session_type.to_string());
+        }
+
+        Ok(query.execute(pool).await?.rows_affected() == 1)
+    }
+
     async fn get_conversation(&self, session_id: &str) -> Result<Conversation> {
         let pool = self.pool().await?;
         let rows = sqlx::query_as::<_, (String, String, i64, Option<String>, Option<String>)>(
@@ -1936,6 +2006,7 @@ impl SessionStorage {
             return Ok(Vec::new());
         }
 
+        let has_limit = query.limit.is_some();
         let keywords = keyword_terms(filters.keyword);
         let mut where_clauses = Vec::new();
         let mut having_clauses = Vec::new();
@@ -1976,6 +2047,14 @@ impl SessionStorage {
         let order_by = "ORDER BY sort_timestamp DESC, s.id DESC";
         let limit_clause = if query.limit.is_some() { "LIMIT ?" } else { "" };
 
+        let message_count_sql = if has_limit {
+            "0".to_string()
+        } else {
+            format!(
+                "COUNT(m.id) FILTER (WHERE {})",
+                user_visible_message_sql("m.metadata_json")
+            )
+        };
         let sql = format!(
             r#"
             SELECT s.id, s.working_dir, s.name, s.description, s.user_set_name, s.session_type, s.created_at, s.updated_at, s.extension_data,
@@ -1987,7 +2066,7 @@ impl SessionStorage {
                    s.schedule_id, s.recipe_json, s.user_recipe_values_json,
                    s.provider_name, s.model_config_json, s.goose_mode,
                    s.archived_at, s.project_id, s.parent_session_id,
-                   COUNT(m.id) FILTER (WHERE {}) as message_count,
+                   {} as message_count,
                    MAX({}) as last_message_timestamp,
                    {} as sort_timestamp
             FROM sessions s
@@ -1998,7 +2077,7 @@ impl SessionStorage {
             {}
             {}
             "#,
-            user_visible_message_sql("m.metadata_json"),
+            message_count_sql,
             normalized_message_timestamp,
             sort_timestamp_sql,
             message_join,
@@ -2031,7 +2110,50 @@ impl SessionStorage {
         }
 
         let pool = self.pool().await?;
-        q.fetch_all(pool).await.map_err(Into::into)
+        if has_limit {
+            let mut tx = pool.begin().await?;
+            let mut sessions = q.fetch_all(&mut *tx).await?;
+            Self::populate_visible_message_counts(&mut tx, &mut sessions).await?;
+            tx.commit().await?;
+            Ok(sessions)
+        } else {
+            q.fetch_all(pool).await.map_err(Into::into)
+        }
+    }
+
+    async fn populate_visible_message_counts(
+        tx: &mut sqlx::Transaction<'_, Sqlite>,
+        sessions: &mut [Session],
+    ) -> Result<()> {
+        let mut counts = HashMap::with_capacity(sessions.len());
+
+        for chunk in sessions.chunks(SESSION_COUNT_BATCH_SIZE) {
+            let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+            let sql = format!(
+                r#"
+                SELECT m.session_id,
+                       COUNT(m.id) FILTER (WHERE {}) as message_count
+                FROM messages m
+                WHERE m.session_id IN ({})
+                GROUP BY m.session_id
+                "#,
+                user_visible_message_sql("m.metadata_json"),
+                placeholders
+            );
+            let mut q = sqlx::query_as::<_, (String, i64)>(AssertSqlSafe(sql));
+            for session in chunk {
+                q = q.bind(&session.id);
+            }
+            for (session_id, message_count) in q.fetch_all(&mut **tx).await? {
+                counts.insert(session_id, message_count as usize);
+            }
+        }
+
+        for session in sessions {
+            session.message_count = counts.get(&session.id).copied().unwrap_or_default();
+        }
+
+        Ok(())
     }
 
     async fn list_sessions_by_types(&self, types: Option<&[SessionType]>) -> Result<Vec<Session>> {
@@ -2672,6 +2794,58 @@ mod tests {
     const NUM_CONCURRENT_SESSIONS: i32 = 10;
     const GENERATED_SESSION_NAME: &str = "Generated session name";
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn session_directory_is_owner_private_for_fresh_and_existing_database() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp_dir = TempDir::new().unwrap();
+        let session_dir = temp_dir.path().join(SESSIONS_FOLDER);
+        let database_path = session_dir.join(DB_NAME);
+
+        let storage = SessionStorage::new(temp_dir.path().to_path_buf());
+        storage.pool().await.unwrap();
+        assert_eq!(
+            fs::metadata(&session_dir).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        storage.pool.close().await;
+        drop(storage);
+
+        fs::set_permissions(&database_path, fs::Permissions::from_mode(0o644)).unwrap();
+        fs::set_permissions(&session_dir, fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(
+            fs::metadata(&database_path).unwrap().permissions().mode() & 0o777,
+            0o644
+        );
+        assert_eq!(
+            fs::metadata(&session_dir).unwrap().permissions().mode() & 0o777,
+            0o755
+        );
+
+        let session_manager = SessionManager::new(temp_dir.path().to_path_buf());
+        let session = session_manager
+            .create_session(
+                PathBuf::from("/tmp/private-session-store"),
+                "Private session".to_string(),
+                SessionType::User,
+                GooseMode::default(),
+            )
+            .await
+            .unwrap();
+        let loaded = session_manager
+            .get_session(&session.id, false)
+            .await
+            .unwrap();
+
+        assert_eq!(loaded.id, session.id);
+        assert_eq!(loaded.name, "Private session");
+        assert_eq!(
+            fs::metadata(&session_dir).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+    }
+
     #[test]
     fn azure_session_model_config_preserves_suffixed_deployment_id() {
         let json = serde_json::to_string(&ModelConfig {
@@ -2683,6 +2857,7 @@ mod tests {
             toolshim_model: None,
             request_params: None,
             reasoning: None,
+            supports_vision: None,
             request_headers: None,
         })
         .unwrap();
@@ -2695,6 +2870,18 @@ mod tests {
 
         assert_eq!(config.model_name, "gpt-5-high");
         assert_eq!(config.thinking_effort(), None);
+        assert!(!json.contains("context_limit"));
+    }
+
+    #[test]
+    fn legacy_session_context_limit_is_ignored() {
+        let config = deserialize_session_model_config(
+            Some("openai"),
+            r#"{"model_name":"gpt-4o","context_limit":64000,"temperature":null,"max_tokens":null,"toolshim":false,"toolshim_model":null}"#,
+        )
+        .unwrap();
+
+        assert_eq!(config.context_limit, None);
     }
 
     #[test]
@@ -2730,6 +2917,8 @@ mod tests {
     struct NamingTestProvider;
 
     struct StatefulNamingTestProvider;
+
+    struct LocalNamingTestProvider;
 
     #[async_trait::async_trait]
     impl Provider for NamingTestProvider {
@@ -2778,6 +2967,27 @@ mod tests {
         }
 
         fn manages_own_context(&self) -> bool {
+            true
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Provider for LocalNamingTestProvider {
+        fn get_name(&self) -> &str {
+            "local-naming-test"
+        }
+
+        async fn stream(
+            &self,
+            _model_config: &ModelConfig,
+            _system: &str,
+            _messages: &[Message],
+            _tools: &[Tool],
+        ) -> Result<MessageStream, ProviderError> {
+            panic!("local session naming must not call the provider")
+        }
+
+        fn uses_local_session_naming(&self) -> bool {
             true
         }
     }
@@ -3073,6 +3283,10 @@ mod tests {
         let listed = sm.list_sessions().await.unwrap();
         let listed_session = listed.iter().find(|s| s.id == session.id).unwrap();
         assert_eq!(listed_session.message_count, 2);
+
+        let limited = sm.list_sessions_with_limit(1).await.unwrap();
+        assert_eq!(limited[0].id, session.id);
+        assert_eq!(limited[0].message_count, 2);
     }
 
     #[tokio::test]
@@ -3201,6 +3415,41 @@ mod tests {
             .unwrap();
 
         assert_eq!(update.name, "investigate session naming with");
+    }
+
+    #[tokio::test]
+    async fn test_maybe_update_name_uses_local_name_for_stateless_provider() {
+        let temp_dir = TempDir::new().unwrap();
+        let sm = SessionManager::new(temp_dir.path().to_path_buf());
+        let session = sm
+            .create_session(
+                temp_dir.path().to_path_buf(),
+                "New Chat".to_string(),
+                SessionType::User,
+                GooseMode::default(),
+            )
+            .await
+            .unwrap();
+
+        sm.update(&session.id)
+            .model_config(ModelConfig::new("test-model"))
+            .apply()
+            .await
+            .unwrap();
+        sm.add_message(
+            &session.id,
+            &Message::user().with_text("investigate local naming without provider completion"),
+        )
+        .await
+        .unwrap();
+
+        let update = sm
+            .maybe_update_name(&session.id, Arc::new(LocalNamingTestProvider))
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(update.name, "investigate local naming without");
     }
 
     #[tokio::test]
@@ -3527,6 +3776,114 @@ mod tests {
             assert_session_list_page(&sm, cursor.as_ref(), None, 2, &expected_ids[2..4], true)
                 .await;
         assert_session_list_page(&sm, cursor.as_ref(), None, 2, &expected_ids[4..5], false).await;
+    }
+
+    #[tokio::test]
+    async fn test_list_sessions_with_limit_counts_visible_and_legacy_messages() {
+        let temp_dir = TempDir::new().unwrap();
+        let sm = SessionManager::new(temp_dir.path().to_path_buf());
+        let older = create_session_for_list(&sm, "/tmp/session-list", false).await;
+        add_message_at(&sm, &older, "older", "2026-01-01T00:00:00Z").await;
+
+        let selected = create_session_for_list(&sm, "/tmp/session-list", false).await;
+        sm.add_message(
+            &selected,
+            &Message::user().with_id("legacy").with_text("legacy"),
+        )
+        .await
+        .unwrap();
+        set_message_timestamp(&sm, &selected, "legacy", "2026-01-02T00:00:00Z").await;
+        sqlx::query(
+            "UPDATE messages SET metadata_json = '{}' WHERE session_id = ? AND message_id = ?",
+        )
+        .bind(&selected)
+        .bind("legacy")
+        .execute(sm.storage().pool().await.unwrap())
+        .await
+        .unwrap();
+
+        sm.add_message(
+            &selected,
+            &Message::user()
+                .with_id("hidden")
+                .with_text("hidden")
+                .with_visibility(false, true),
+        )
+        .await
+        .unwrap();
+        set_message_timestamp(&sm, &selected, "hidden", "2026-01-03T00:00:00Z").await;
+
+        sm.add_message(
+            &selected,
+            &Message::assistant().with_id("visible").with_text("visible"),
+        )
+        .await
+        .unwrap();
+        set_message_timestamp(&sm, &selected, "visible", "2026-01-04T00:00:00Z").await;
+
+        let sessions = sm.list_sessions_with_limit(1).await.unwrap();
+
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].id, selected);
+        assert_eq!(sessions[0].message_count, 2);
+        assert_eq!(
+            sessions[0].last_message_at,
+            Some(
+                chrono::DateTime::parse_from_rfc3339("2026-01-04T00:00:00Z")
+                    .unwrap()
+                    .with_timezone(&Utc)
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn test_session_list_paged_includes_hidden_only_session_with_zero_count() {
+        let temp_dir = TempDir::new().unwrap();
+        let sm = SessionManager::new(temp_dir.path().to_path_buf());
+        let hidden_only = create_session_for_list(&sm, "/tmp/session-list", false).await;
+        sm.add_message(
+            &hidden_only,
+            &Message::user()
+                .with_text("hidden")
+                .with_visibility(false, true),
+        )
+        .await
+        .unwrap();
+        create_session_for_list(&sm, "/tmp/session-list", false).await;
+
+        let types = [SessionType::User];
+        let page = sm
+            .list_sessions_paged(SessionListPageQuery {
+                filters: SessionListFilters {
+                    types: Some(&types),
+                    only_sessions_with_messages: true,
+                    ..Default::default()
+                },
+                cursor: None,
+                page_size: 10,
+                include_last_message_snippet: false,
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(page.sessions.len(), 1);
+        assert_eq!(page.sessions[0].id, hidden_only);
+        assert_eq!(page.sessions[0].message_count, 0);
+        assert!(page.sessions[0].last_message_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_list_sessions_with_limit_returns_empty_session_with_zero_count() {
+        let temp_dir = TempDir::new().unwrap();
+        let sm = SessionManager::new(temp_dir.path().to_path_buf());
+        let empty = create_session_for_list(&sm, "/tmp/session-list", false).await;
+
+        let sessions = sm.list_sessions_with_limit(1).await.unwrap();
+
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].id, empty);
+        assert_eq!(sessions[0].message_count, 0);
+        assert_eq!(sessions[0].last_message_at, None);
     }
 
     #[tokio::test]

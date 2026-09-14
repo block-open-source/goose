@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, type RefObject } from 'react';
 import { IpcRendererEvent } from 'electron';
 import { HashRouter, Routes, Route, useNavigate, useLocation, useSearchParams } from 'react-router';
 import { importNostrSessionFromDeepLink } from './sessionLinks';
@@ -59,9 +59,9 @@ function PageViewTracker() {
 }
 
 // Route Components
-const HubRouteWrapper = () => {
+const HubRouteWrapper = ({ draftRef }: { draftRef: RefObject<string> }) => {
   const setView = useNavigation();
-  return <Hub setView={setView} />;
+  return <Hub setView={setView} draftRef={draftRef} />;
 };
 
 export function resolveSessionInitialMessage(
@@ -317,6 +317,12 @@ export function AppInner() {
     messages: [],
     recipe: null,
   });
+
+  // New Chat is the only chat that unmounts on navigation; the rest stay mounted in
+  // `ChatSessionsContainer` and keep their text in local state. Its unsent input lives
+  // here so it outlives that unmount, and in a ref rather than state because nothing
+  // above the outlet has to render on a keystroke.
+  const hubDraftRef = useRef('');
 
   const MAX_ACTIVE_SESSIONS = 10;
 
@@ -641,7 +647,7 @@ export function AppInner() {
                 </OnboardingGuard>
               }
             >
-              <Route index element={<HubRouteWrapper />} />
+              <Route index element={<HubRouteWrapper draftRef={hubDraftRef} />} />
               <Route
                 path="pair"
                 element={

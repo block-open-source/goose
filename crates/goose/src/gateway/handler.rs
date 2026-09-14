@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -13,8 +13,7 @@ use crate::config::paths::Paths;
 use crate::config::Config;
 use crate::conversation::message::{ActionRequiredData, Message, MessageContent};
 use crate::execution::manager::AgentManager;
-use crate::permission::permission_confirmation::PrincipalType;
-use crate::permission::{Permission, PermissionConfirmation};
+use crate::permission::Permission;
 use crate::session::SessionType;
 use crate::session::{EnabledExtensionsState, ExtensionState, Session};
 
@@ -42,8 +41,12 @@ fn resolve_gateway_max_turns(gateway_override: Option<u32>, global_max_turns: Op
 
 struct PendingConfirmation {
     agent: Arc<Agent>,
-    request_id: String,
+    session_id: String,
+    request_ids: VecDeque<String>,
+    cancel_token: CancellationToken,
 }
+
+type PerUserLocks = Arc<Mutex<HashMap<PlatformUser, Arc<Mutex<()>>>>>;
 
 #[derive(Clone)]
 pub struct GatewayHandler {
@@ -54,7 +57,11 @@ pub struct GatewayHandler {
     /// Tracks users who have a tool-confirmation prompt awaiting their reply.
     pending_confirmations: Arc<Mutex<HashMap<PlatformUser, PendingConfirmation>>>,
     /// Serializes `relay_to_session` per user; confirmation replies bypass this lock.
-    turn_locks: Arc<Mutex<HashMap<PlatformUser, Arc<Mutex<()>>>>>,
+    turn_locks: PerUserLocks,
+    /// Serializes confirmation replies without waiting for the active turn to finish.
+    confirmation_reply_locks: PerUserLocks,
+    /// When set, only platform user IDs in this list may enter the pairing flow.
+    allowed_user_ids: Option<HashSet<String>>,
 }
 
 impl GatewayHandler {
@@ -64,6 +71,7 @@ impl GatewayHandler {
         gateway: Arc<dyn Gateway>,
         config: GatewayConfig,
     ) -> Self {
+        let allowed_user_ids = allowed_user_ids_from_config(&config);
         Self {
             agent_manager,
             pairing_store,
@@ -71,27 +79,43 @@ impl GatewayHandler {
             config,
             pending_confirmations: Arc::new(Mutex::new(HashMap::new())),
             turn_locks: Arc::new(Mutex::new(HashMap::new())),
+            confirmation_reply_locks: Arc::new(Mutex::new(HashMap::new())),
+            allowed_user_ids,
         }
     }
 
     pub async fn deny_pending_confirmations(&self) {
         let pending: Vec<_> = self.pending_confirmations.lock().await.drain().collect();
-        for (_, confirmation) in pending {
-            confirmation
-                .agent
-                .handle_confirmation(
-                    confirmation.request_id,
-                    PermissionConfirmation {
-                        principal_type: PrincipalType::Tool,
-                        permission: Permission::DenyOnce,
-                    },
-                )
-                .await;
+        for (_, pending) in pending {
+            let PendingConfirmation {
+                agent,
+                session_id,
+                request_ids,
+                cancel_token,
+            } = pending;
+            for request_id in request_ids {
+                if let Err(error) = agent
+                    .submit_tool_confirmation(&session_id, &request_id, Permission::DenyOnce)
+                    .await
+                {
+                    tracing::error!(%error, %request_id, "failed to deny pending gateway confirmation");
+                    cancel_token.cancel();
+                }
+            }
         }
     }
 
-    async fn prune_turn_lock(&self, user: &PlatformUser) {
-        let mut locks = self.turn_locks.lock().await;
+    async fn per_user_lock(locks: &PerUserLocks, user: &PlatformUser) -> Arc<Mutex<()>> {
+        let mut locks = locks.lock().await;
+        Arc::clone(
+            locks
+                .entry(user.clone())
+                .or_insert_with(|| Arc::new(Mutex::new(()))),
+        )
+    }
+
+    async fn prune_per_user_lock(locks: &PerUserLocks, user: &PlatformUser) {
+        let mut locks = locks.lock().await;
         let in_use = locks
             .get(user)
             .is_some_and(|lock| Arc::strong_count(lock) > 1);
@@ -101,6 +125,15 @@ impl GatewayHandler {
     }
 
     pub async fn handle_message(&self, message: IncomingMessage) -> anyhow::Result<()> {
+        if !is_user_allowed(&self.allowed_user_ids, &message.user) {
+            tracing::info!(
+                platform = %message.user.platform,
+                user_id = %message.user.user_id,
+                "gateway allowlist denied unlisted user"
+            );
+            return Ok(());
+        }
+
         let pairing = self.pairing_store.get(&message.user).await?;
 
         match pairing {
@@ -166,19 +199,12 @@ impl GatewayHandler {
                 {
                     self.handle_pending_confirmation(&message).await?;
                 } else {
-                    let turn_lock = {
-                        let mut locks = self.turn_locks.lock().await;
-                        Arc::clone(
-                            locks
-                                .entry(message.user.clone())
-                                .or_insert_with(|| Arc::new(Mutex::new(()))),
-                        )
-                    };
+                    let turn_lock = Self::per_user_lock(&self.turn_locks, &message.user).await;
                     let turn_guard = turn_lock.lock().await;
                     let result = self.relay_to_session(&message, &session_id).await;
                     drop(turn_guard);
                     drop(turn_lock);
-                    self.prune_turn_lock(&message.user).await;
+                    Self::prune_per_user_lock(&self.turn_locks, &message.user).await;
                     result?;
                 }
             }
@@ -210,25 +236,55 @@ impl GatewayHandler {
             return Ok(());
         };
 
-        let Some(pending) = self
-            .pending_confirmations
-            .lock()
-            .await
-            .remove(&message.user)
-        else {
+        let reply_lock = Self::per_user_lock(&self.confirmation_reply_locks, &message.user).await;
+        let reply_guard = reply_lock.lock().await;
+        let result = self.submit_pending_confirmation(message, permission).await;
+        drop(reply_guard);
+        drop(reply_lock);
+        Self::prune_per_user_lock(&self.confirmation_reply_locks, &message.user).await;
+        result
+    }
+
+    async fn submit_pending_confirmation(
+        &self,
+        message: &IncomingMessage,
+        permission: Permission,
+    ) -> anyhow::Result<()> {
+        let pending_confirmations = self.pending_confirmations.lock().await;
+        let Some(pending) = pending_confirmations.get(&message.user) else {
             return Ok(());
         };
+        let Some(request_id) = pending.request_ids.front().cloned() else {
+            return Ok(());
+        };
+        let agent = pending.agent.clone();
+        let session_id = pending.session_id.clone();
+        let cancel_token = pending.cancel_token.clone();
+        drop(pending_confirmations);
+        if let Err(error) = agent
+            .submit_tool_confirmation(&session_id, &request_id, permission)
+            .await
+        {
+            cancel_token.cancel();
+            self.pending_confirmations
+                .lock()
+                .await
+                .remove(&message.user);
+            return Err(error);
+        }
 
-        pending
-            .agent
-            .handle_confirmation(
-                pending.request_id,
-                PermissionConfirmation {
-                    principal_type: PrincipalType::Tool,
-                    permission,
-                },
-            )
-            .await;
+        let mut pending_confirmations = self.pending_confirmations.lock().await;
+        let remove_pending = pending_confirmations
+            .get_mut(&message.user)
+            .is_some_and(|pending| {
+                if pending.request_ids.front() == Some(&request_id) {
+                    pending.request_ids.pop_front();
+                }
+                pending.request_ids.is_empty()
+            });
+        if remove_pending {
+            pending_confirmations.remove(&message.user);
+        }
 
         Ok(())
     }
@@ -490,7 +546,7 @@ impl GatewayHandler {
         };
 
         let mut stream = match agent
-            .reply(user_message, session_config, Some(cancel))
+            .reply(user_message, session_config, Some(cancel.clone()))
             .await
         {
             Ok(s) => s,
@@ -506,7 +562,6 @@ impl GatewayHandler {
                 return Ok(());
             }
         };
-
         // Telegram stops showing "typing…" after ~5 seconds.  Re-send the
         // indicator every 4 s so the user always sees activity while the
         // agent is working (tool calls, LLM round-trips, etc.).
@@ -635,13 +690,19 @@ impl GatewayHandler {
                                              • deny always — always deny",
                                         );
 
-                                        self.pending_confirmations.lock().await.insert(
-                                            message.user.clone(),
-                                            PendingConfirmation {
+                                        self.pending_confirmations
+                                            .lock()
+                                            .await
+                                            .entry(message.user.clone())
+                                            .and_modify(|pending| {
+                                                pending.request_ids.push_back(id.clone());
+                                            })
+                                            .or_insert_with(|| PendingConfirmation {
                                                 agent: agent.clone(),
-                                                request_id: id.clone(),
-                                            },
-                                        );
+                                                session_id: session_id.to_string(),
+                                                request_ids: VecDeque::from([id.clone()]),
+                                                cancel_token: cancel.clone(),
+                                            });
 
                                         let send_result = self
                                             .gateway
@@ -659,19 +720,41 @@ impl GatewayHandler {
                                                 error = %e,
                                                 "failed to deliver tool approval prompt; denying tool call"
                                             );
-                                            self.pending_confirmations
-                                                .lock()
-                                                .await
-                                                .remove(&message.user);
-                                            agent
-                                                .handle_confirmation(
-                                                    id.clone(),
-                                                    PermissionConfirmation {
-                                                        principal_type: PrincipalType::Tool,
-                                                        permission: Permission::DenyOnce,
-                                                    },
+                                            let mut pending =
+                                                self.pending_confirmations.lock().await;
+                                            let remove_pending = pending
+                                                .get_mut(&message.user)
+                                                .is_some_and(|pending| {
+                                                    pending
+                                                        .request_ids
+                                                        .retain(|request_id| request_id != id);
+                                                    pending.request_ids.is_empty()
+                                                });
+                                            if remove_pending {
+                                                pending.remove(&message.user);
+                                            }
+                                            drop(pending);
+                                            if let Err(error) = agent
+                                                .submit_tool_confirmation(
+                                                    session_id,
+                                                    id,
+                                                    Permission::DenyOnce,
                                                 )
-                                                .await;
+                                                .await
+                                            {
+                                                tracing::error!(
+                                                    session_id,
+                                                    request_id = %id,
+                                                    %error,
+                                                    "failed to deny undeliverable tool approval"
+                                                );
+                                                cancel.cancel();
+                                                self.pending_confirmations
+                                                    .lock()
+                                                    .await
+                                                    .remove(&message.user);
+                                            }
+                                            sent_any = true;
                                         } else {
                                             sent_any = true;
                                         }
@@ -755,6 +838,34 @@ fn gateway_working_dir(platform: &str, user_id: &str) -> PathBuf {
         .join(user_id)
 }
 
+/// Operator-configured list of platform user IDs that may pair with the gateway,
+/// read from `platform_config.allowed_user_ids`. An absent or empty list keeps
+/// the default behavior of letting anyone attempt pairing.
+fn allowed_user_ids_from_config(config: &GatewayConfig) -> Option<HashSet<String>> {
+    let ids: HashSet<String> = config.platform_config["allowed_user_ids"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|id| {
+            id.as_str()
+                .map(ToOwned::to_owned)
+                .or_else(|| id.as_u64().map(|n| n.to_string()))
+        })
+        .collect();
+    if ids.is_empty() {
+        None
+    } else {
+        Some(ids)
+    }
+}
+
+fn is_user_allowed(allowed: &Option<HashSet<String>>, user: &PlatformUser) -> bool {
+    match allowed {
+        None => true,
+        Some(ids) => ids.contains(&user.user_id),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -780,5 +891,54 @@ mod tests {
     #[test]
     fn gateway_override_used_when_global_unset() {
         assert_eq!(resolve_gateway_max_turns(Some(25), None), 25);
+    }
+
+    fn platform_user(user_id: &str) -> PlatformUser {
+        PlatformUser {
+            platform: "telegram".to_string(),
+            user_id: user_id.to_string(),
+            display_name: None,
+        }
+    }
+
+    fn config_with_platform(platform_config: serde_json::Value) -> GatewayConfig {
+        GatewayConfig {
+            gateway_type: "telegram".to_string(),
+            platform_config,
+            max_sessions: 1,
+        }
+    }
+
+    #[test]
+    fn allowlist_absent_or_empty_allows_everyone() {
+        for platform_config in [
+            serde_json::json!({}),
+            serde_json::json!({"allowed_user_ids": []}),
+        ] {
+            let allowed = allowed_user_ids_from_config(&config_with_platform(platform_config));
+            assert!(allowed.is_none());
+            assert!(is_user_allowed(&allowed, &platform_user("999999")));
+        }
+    }
+
+    #[test]
+    fn allowlist_admits_listed_and_blocks_unlisted_users() {
+        let config = config_with_platform(serde_json::json!({"allowed_user_ids": ["111", 222]}));
+        let allowed = allowed_user_ids_from_config(&config).expect("allowlist should be set");
+        assert_eq!(allowed.len(), 2);
+        assert!(is_user_allowed(
+            &Some(allowed.clone()),
+            &platform_user("111")
+        ));
+        assert!(is_user_allowed(&Some(allowed), &platform_user("222")));
+
+        let allowed = allowed_user_ids_from_config(&config).expect("allowlist should be set");
+        assert!(!is_user_allowed(&Some(allowed), &platform_user("333")));
+    }
+
+    #[test]
+    fn allowlist_ignores_non_id_values() {
+        let config = config_with_platform(serde_json::json!({"allowed_user_ids": [true, null]}));
+        assert!(allowed_user_ids_from_config(&config).is_none());
     }
 }

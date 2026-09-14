@@ -1,12 +1,12 @@
 [package]
 name = "goose-sdk-types"
-version = "0.1.0-alpha.6"
+version = "0.1.0-alpha.9"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Shared types for the Goose SDK"
+description = "Shared types for the goose Development Kit (GDK)"
 
 [dependencies]
 agent-client-protocol = { workspace = true }

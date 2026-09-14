@@ -1,7 +1,7 @@
 use rmcp::model::Tool;
 use std::any::Any;
 
-use crate::local_model_registry::ModelSettings;
+use crate::model::ModelSettings;
 use goose_provider_types::conversation::message::Message;
 use goose_provider_types::errors::ProviderError;
 use goose_provider_types::request_log::RequestLogHandle;

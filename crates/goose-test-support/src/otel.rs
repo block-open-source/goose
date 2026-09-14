@@ -26,9 +26,6 @@ impl Drop for OtelTestGuard {
 }
 
 pub fn clear_otel_env(overrides: &[(&'static str, &'static str)]) -> OtelTestGuard {
-    let prev_tracer = global::tracer_provider();
-    let prev_meter = global::meter_provider();
-
     let mut keys: Vec<&'static str> = vec![
         "OTEL_EXPORTER_OTLP_ENDPOINT",
         "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
@@ -40,6 +37,7 @@ pub fn clear_otel_env(overrides: &[(&'static str, &'static str)]) -> OtelTestGua
         "OTEL_EXPORTER_OTLP_TIMEOUT",
         "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
         "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL",
+        "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT",
         "OTEL_LOG_LEVEL",
         "OTEL_LOGS_EXPORTER",
         "OTEL_METRICS_EXPORTER",
@@ -55,6 +53,8 @@ pub fn clear_otel_env(overrides: &[(&'static str, &'static str)]) -> OtelTestGua
     }
 
     let guard = env_lock::lock_env(keys.into_iter().map(|k| (k, None::<&str>)));
+    let prev_tracer = global::tracer_provider();
+    let prev_meter = global::meter_provider();
     for &(k, v) in overrides {
         env::set_var(k, v);
     }

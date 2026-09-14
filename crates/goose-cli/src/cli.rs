@@ -18,6 +18,8 @@ use crate::commands::configure::handle_configure;
 use crate::commands::info::handle_info;
 use crate::commands::plugin::{handle_plugin_install, handle_plugin_update};
 use crate::commands::recipe::{handle_deeplink, handle_list, handle_open, handle_validate};
+#[cfg(feature = "roaming")]
+use crate::commands::roam::{handle_roam_command, RoamCommand};
 use crate::commands::term::{
     handle_term_info, handle_term_init, handle_term_log, handle_term_run, Shell,
 };
@@ -840,6 +842,14 @@ enum Command {
         enable_scheduler: bool,
     },
 
+    /// Share or connect to agents peer-to-peer over iroh
+    #[cfg(feature = "roaming")]
+    #[command(about = "Share or connect to agents peer-to-peer (roaming)")]
+    Roam {
+        #[command(subcommand)]
+        command: RoamCommand,
+    },
+
     /// Start ACP server over HTTP and WebSocket
     #[command(about = "Start ACP server over HTTP and WebSocket")]
     Serve {
@@ -887,6 +897,14 @@ enum Command {
 
         #[arg(long, help = "Enable scheduled recipe execution")]
         enable_scheduler: bool,
+
+        /// Also expose this server over goose roam (p2p) so paired devices can connect remotely
+        #[cfg(feature = "roaming")]
+        #[arg(
+            long,
+            help = "Also expose this server over goose roam (p2p) so paired devices can connect remotely"
+        )]
+        roam: bool,
     },
 
     /// Start or resume interactive chat sessions
@@ -935,6 +953,15 @@ enum Command {
             requires = "resume"
         )]
         history: bool,
+
+        /// Additional system prompt to customize agent behavior
+        #[arg(
+            long = "system",
+            value_name = "TEXT",
+            help = "Additional system prompt to customize agent behavior",
+            long_help = "Provide additional system instructions to customize the agent's behavior"
+        )]
+        system: Option<String>,
 
         #[command(flatten)]
         session_opts: SessionOptions,
@@ -1043,27 +1070,6 @@ enum Command {
     Term {
         #[command(subcommand)]
         command: TermCommand,
-    },
-
-    /// Launch the goose terminal UI (TUI)
-    #[cfg(feature = "tui")]
-    #[command(
-        about = "Launch the goose terminal UI",
-        long_about = "Launch the goose terminal UI (the @aaif/goose npm package).\n\
-                      \n\
-                      Resolution order:\n  \
-                      1. GOOSE_TUI_SCRIPT, if set to an existing dist/tui.js\n  \
-                      2. A local checkout's ui/text/dist/tui.js (dev workflow)\n  \
-                      3. `npx --yes --package <spec> -- goose-tui` (deployed installs)\n\
-                      \n\
-                      Override the npm spec via GOOSE_TUI_NPM_SPEC (default: @aaif/goose@latest).\n\
-                      Local script mode requires `node` on PATH; npx mode requires `npx` on PATH.\n\
-                      Any extra arguments are passed through to the TUI."
-    )]
-    Tui {
-        /// Arguments forwarded to the TUI
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        args: Vec<String>,
     },
 
     /// Manage local inference models
@@ -1377,6 +1383,8 @@ fn get_command_name(command: &Option<Command>) -> &'static str {
         Some(Command::Info { .. }) => "info",
         Some(Command::Mcp { .. }) => "mcp",
         Some(Command::Acp { .. }) => "acp",
+        #[cfg(feature = "roaming")]
+        Some(Command::Roam { .. }) => "roam",
         Some(Command::Serve { .. }) => "serve",
         Some(Command::Session { .. }) => "session",
         Some(Command::Run { .. }) => "run",
@@ -1388,8 +1396,6 @@ fn get_command_name(command: &Option<Command>) -> &'static str {
         Some(Command::Skills { .. }) => "skills",
         Some(Command::Plugin { .. }) => "plugin",
         Some(Command::Term { .. }) => "term",
-        #[cfg(feature = "tui")]
-        Some(Command::Tui { .. }) => "tui",
         #[cfg(feature = "local-inference")]
         Some(Command::LocalModels { .. }) => "local-models",
         Some(Command::Completion { .. }) => "completion",
@@ -1629,6 +1635,127 @@ struct ServeCommandArgs {
     dangerously_unauthenticated: bool,
     allowed_origins: Vec<String>,
     enable_scheduler: bool,
+    #[cfg(feature = "roaming")]
+    roam: bool,
+}
+
+#[cfg(feature = "roaming")]
+type RoamShareSlot =
+    std::sync::Arc<tokio::sync::RwLock<Option<std::sync::Arc<goose_roaming::RoamingNode>>>>;
+
+#[cfg(feature = "roaming")]
+fn spawn_roam_share(
+    server: std::sync::Arc<goose::acp::server_factory::AcpServer>,
+) -> RoamShareSlot {
+    use crate::commands::roam::try_acquire_roam_lock_owner;
+
+    let slot = RoamShareSlot::default();
+    let task_slot = slot.clone();
+    tokio::spawn(async move {
+        let mut standing_by = false;
+        loop {
+            match try_acquire_roam_lock_owner() {
+                Ok(Some(lock)) => match start_roam_share(server.clone()).await {
+                    Ok(node) => {
+                        *task_slot.write().await = Some(node);
+                        let _lock = lock;
+                        std::future::pending::<()>().await;
+                    }
+                    Err(error) => {
+                        tracing::error!("roam share failed to start: {error}");
+                        drop(lock);
+                    }
+                },
+                Ok(None) => {
+                    if !standing_by {
+                        standing_by = true;
+                        eprintln!(
+                            "another goose process owns the roaming endpoint; standing by to take over if it exits"
+                        );
+                    }
+                }
+                // A real failure (unwritable data dir, filesystem error) will
+                // not fix itself: surface it and stop instead of retrying as
+                // if the endpoint were merely busy.
+                Err(error) => {
+                    eprintln!("roaming disabled: cannot acquire the endpoint lock: {error:#}");
+                    return;
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        }
+    });
+    slot
+}
+
+#[cfg(feature = "roaming")]
+async fn start_roam_share(
+    server: std::sync::Arc<goose::acp::server_factory::AcpServer>,
+) -> Result<std::sync::Arc<goose_roaming::RoamingNode>> {
+    use crate::commands::roam::{
+        directory_path, load_identity, resolve_relay_settings, trust_path,
+    };
+    use crate::commands::roam_full_bridge::FullAcpBridge;
+    use goose::config::paths::Paths;
+    use goose_roaming::{RoamingConfig, RoamingNode, TrustBook};
+    use std::sync::Arc;
+
+    let status_path = Paths::data_dir().join("roam/serve.json");
+    let _ = std::fs::remove_file(&status_path);
+
+    let identity = load_identity()?;
+    let node = RoamingNode::bind(RoamingConfig {
+        identity,
+        relay: resolve_relay_settings()?,
+        trust: TrustBook::new(),
+        trust_path: Some(trust_path()),
+        directory: goose_roaming::Directory::persistent_owned(directory_path()),
+        bind_addr: None,
+        relay_tls: None,
+    })
+    .await?;
+
+    let agent_id = node.endpoint_id().to_string();
+    // Roaming sessions run where `goose serve` was started: the connector's
+    // machine-local path is meaningless on this host, and the serve-wide
+    // server keeps `session_cwd: None` for local ACP clients.
+    let session_cwd =
+        std::env::current_dir().map_err(|e| anyhow::anyhow!("could not determine cwd: {e}"))?;
+    node.share(Arc::new(FullAcpBridge::new(server, agent_id, session_cwd)))
+        .await?;
+
+    if !node.wait_online(std::time::Duration::from_secs(15)).await {
+        tracing::warn!(
+            "roaming endpoint did not come online; the card may lack a reachable address"
+        );
+    }
+
+    let card = node.card();
+    let card_encoded = card.encode()?;
+    let started_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let status = serde_json::json!({
+        "card": card_encoded,
+        "endpointId": card.endpoint_id.to_string(),
+        "fingerprint": card.fingerprint(),
+        "startedAt": started_at,
+    });
+    if let Some(dir) = status_path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let tmp_path = status_path.with_extension("json.tmp");
+    std::fs::write(&tmp_path, serde_json::to_vec_pretty(&status)?)?;
+    std::fs::rename(&tmp_path, &status_path)?;
+
+    eprintln!("roam is enabled for this server");
+    eprintln!("  endpoint id : {}", card.endpoint_id);
+    eprintln!("  fingerprint : {}", card.fingerprint());
+    eprintln!("your connection card (share with a peer so it can reach you):");
+    eprintln!("{card_encoded}");
+
+    Ok(node)
 }
 
 async fn handle_serve_command(args: ServeCommandArgs) -> Result<()> {
@@ -1652,6 +1779,8 @@ async fn handle_serve_command(args: ServeCommandArgs) -> Result<()> {
         dangerously_unauthenticated,
         allowed_origins,
         enable_scheduler,
+        #[cfg(feature = "roaming")]
+        roam,
     } = args;
 
     let builtins = AcpBuiltinSelection::from_requested(builtins);
@@ -1674,6 +1803,7 @@ async fn handle_serve_command(args: ServeCommandArgs) -> Result<()> {
         config_dir: Paths::config_dir(),
         goose_platform: platform.into(),
         additional_source_roots,
+        session_cwd: None,
         enable_scheduler,
     }));
     let env_secret = std::env::var(GOOSE_SERVER_SECRET_KEY_ENV)
@@ -1707,6 +1837,12 @@ async fn handle_serve_command(args: ServeCommandArgs) -> Result<()> {
     if let Err(error) = server.start_scheduler().await {
         warn!("Scheduler failed to start; scheduled jobs will not run until a client connects: {error}");
     }
+    #[cfg(feature = "roaming")]
+    let roam_share = if roam {
+        Some(spawn_roam_share(server.clone()))
+    } else {
+        None
+    };
     let router = create_router(
         server,
         secret_key,
@@ -1762,6 +1898,13 @@ async fn handle_serve_command(args: ServeCommandArgs) -> Result<()> {
             router.into_make_service_with_connect_info::<SocketAddr>(),
         )
         .await?;
+    }
+
+    #[cfg(feature = "roaming")]
+    if let Some(slot) = roam_share {
+        if let Some(node) = slot.write().await.take() {
+            let _ = node.shutdown().await;
+        }
     }
 
     Ok(())
@@ -1849,6 +1992,7 @@ struct InteractiveSessionArgs {
     fork: bool,
     edit: bool,
     history: bool,
+    system: Option<String>,
     session_opts: SessionOptions,
     extension_opts: ExtensionOptions,
     model_opts: ModelOptions,
@@ -1861,6 +2005,7 @@ async fn handle_interactive_session(args: InteractiveSessionArgs) -> Result<()> 
         fork,
         edit,
         history,
+        system,
         session_opts,
         extension_opts,
         model_opts,
@@ -1938,7 +2083,7 @@ async fn handle_interactive_session(args: InteractiveSessionArgs) -> Result<()> 
         builtins: extension_opts.builtins,
         no_profile: extension_opts.no_profile,
         recipe: None,
-        additional_system_prompt: None,
+        additional_system_prompt: system,
         provider: model_opts.provider,
         model: model_opts.model,
         debug: session_opts.debug,
@@ -2200,7 +2345,10 @@ async fn handle_gateway_command(command: GatewayCommand) -> Result<()> {
             gateway_type,
             bot_token,
         } => {
-            let platform_config = serde_json::json!({ "bot_token": bot_token });
+            let mut platform_config = serde_json::json!({ "bot_token": bot_token });
+            if let Some(ids) = goose::gateway::manager::saved_allowed_user_ids(&gateway_type) {
+                platform_config["allowed_user_ids"] = serde_json::json!(ids);
+            }
             gateway::handle_gateway_start(gateway_type, platform_config).await
         }
         GatewayCommand::Stop { gateway_type } => gateway::handle_gateway_stop(gateway_type).await,
@@ -2393,7 +2541,6 @@ fn recommended_variant(
 #[cfg(feature = "local-inference")]
 async fn handle_local_models_command(command: LocalModelsCommand) -> Result<()> {
     use goose::providers::local_inference::hf_models;
-    use goose::providers::local_inference::local_model_registry::get_registry;
 
     goose::providers::local_inference::configure_huggingface_auth();
 
@@ -2553,7 +2700,7 @@ async fn handle_local_models_command(command: LocalModelsCommand) -> Result<()> 
             let total_size = resolved.total_size();
 
             println!(
-                "\nDownloaded {} ({}). Registering...",
+                "\nDownloaded {} ({})",
                 model_id,
                 if total_size > 0 {
                     format!("{:.1}GB", total_size as f64 / (1024.0 * 1024.0 * 1024.0))
@@ -2561,16 +2708,9 @@ async fn handle_local_models_command(command: LocalModelsCommand) -> Result<()> 
                     "unknown size".to_string()
                 }
             );
-
-            let model_id = hf_models::register_resolved_model(resolved, &spec)?;
-
-            println!("Registered: {}", model_id);
         }
         LocalModelsCommand::List => {
-            let registry = get_registry()
-                .lock()
-                .map_err(|_| anyhow::anyhow!("Failed to acquire registry lock"))?;
-            let models = registry.list_models();
+            let models = hf_models::cached_local_models().await?;
 
             if models.is_empty() {
                 println!("No local models downloaded.");
@@ -2582,23 +2722,13 @@ async fn handle_local_models_command(command: LocalModelsCommand) -> Result<()> 
                 "ID", "Backend", "Variant"
             );
             println!("{}", "-".repeat(88));
-            for m in models {
-                println!(
-                    "{:<50} {:<10} {:<12} {}",
-                    m.id,
-                    m.backend_id.as_deref().unwrap_or("llamacpp"),
-                    m.quantization,
-                    if m.is_downloaded() { "✓" } else { "✗" }
-                );
+            for m in &models {
+                println!("{:<50} {:<10} {:<12} ✓", m.id, m.backend_id, m.quantization);
             }
         }
         LocalModelsCommand::Delete { id } => {
-            let mut registry = get_registry()
-                .lock()
-                .map_err(|_| anyhow::anyhow!("Failed to acquire registry lock"))?;
-
-            if registry.get_model(&id).is_some() {
-                registry.delete_model(&id)?;
+            if hf_models::cached_local_model(&id).await?.is_some() {
+                hf_models::delete_cached_local_model(&id).await?;
                 println!("Deleted model: {}", id);
             } else {
                 println!("Model not found: {}", id);
@@ -2675,6 +2805,8 @@ pub async fn cli() -> anyhow::Result<()> {
             builtins,
             enable_scheduler,
         }) => goose::acp::server::run(builtins, enable_scheduler).await,
+        #[cfg(feature = "roaming")]
+        Some(Command::Roam { command }) => handle_roam_command(command).await,
         Some(Command::Serve {
             host,
             port,
@@ -2686,6 +2818,8 @@ pub async fn cli() -> anyhow::Result<()> {
             dangerously_unauthenticated,
             allowed_origins,
             enable_scheduler,
+            #[cfg(feature = "roaming")]
+            roam,
         }) => {
             handle_serve_command(ServeCommandArgs {
                 host,
@@ -2698,6 +2832,8 @@ pub async fn cli() -> anyhow::Result<()> {
                 dangerously_unauthenticated,
                 allowed_origins,
                 enable_scheduler,
+                #[cfg(feature = "roaming")]
+                roam,
             })
             .await
         }
@@ -2711,6 +2847,7 @@ pub async fn cli() -> anyhow::Result<()> {
             fork,
             edit,
             history,
+            system,
             session_opts,
             extension_opts,
             model_opts,
@@ -2721,6 +2858,7 @@ pub async fn cli() -> anyhow::Result<()> {
                 fork,
                 edit,
                 history,
+                system,
                 session_opts,
                 extension_opts,
                 model_opts,
@@ -2761,8 +2899,6 @@ pub async fn cli() -> anyhow::Result<()> {
         Some(Command::Skills { command }) => handle_skills_subcommand(command).await,
         Some(Command::Plugin { command }) => handle_plugin_subcommand(command),
         Some(Command::Term { command }) => handle_term_subcommand(command).await,
-        #[cfg(feature = "tui")]
-        Some(Command::Tui { args }) => crate::commands::tui::handle_tui(args),
         #[cfg(feature = "local-inference")]
         Some(Command::LocalModels { command }) => handle_local_models_command(command).await,
         Some(Command::Review {
@@ -2891,6 +3027,19 @@ mod tests {
             }) => {
                 assert!(!resume);
                 assert_eq!(model_opts.model.as_deref(), Some("gpt-5.4"));
+            }
+            _ => panic!("expected session command"),
+        }
+    }
+
+    #[test]
+    fn session_accepts_system_prompt() {
+        let cli = Cli::try_parse_from(["goose", "session", "--system", "extra instructions"])
+            .expect("system prompt should work for a new session");
+
+        match cli.command {
+            Some(Command::Session { system, .. }) => {
+                assert_eq!(system.as_deref(), Some("extra instructions"));
             }
             _ => panic!("expected session command"),
         }
@@ -3052,18 +3201,6 @@ mod tests {
                 assert_eq!(severity, "low");
             }
             _ => panic!("expected review command"),
-        }
-    }
-
-    #[cfg(feature = "tui")]
-    #[test]
-    fn tui_command_accepts_trailing_args() {
-        let cli =
-            Cli::try_parse_from(["goose", "tui", "--", "--theme", "dark"]).expect("parse failed");
-
-        match cli.command {
-            Some(Command::Tui { args }) => assert_eq!(args, vec!["--theme", "dark"]),
-            _ => panic!("expected tui command"),
         }
     }
 

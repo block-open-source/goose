@@ -76,6 +76,13 @@ impl CompactionOperation {
         (tokens as f64 / self.context_limit as f64) > self.threshold
     }
 
+    async fn context_tokens(&self, session: &Session, conversation: &Conversation) -> Result<i32> {
+        match session.usage.total_tokens {
+            Some(tokens) => Ok(tokens),
+            None => crate::context_mgmt::count_context_tokens(conversation).await,
+        }
+    }
+
     async fn command_error(
         conversation: &Conversation,
         message: String,
@@ -195,13 +202,13 @@ impl Operation<Session, GooseEffect> for CompactionOperation {
     async fn moim_parts(
         &self,
         session: &Session,
-        _conversation: &Conversation,
+        conversation: &Conversation,
     ) -> Result<Vec<String>> {
         if self.manages_own_context {
             return Ok(Vec::new());
         }
         Ok(compaction_part(
-            session.usage.total_tokens,
+            Some(self.context_tokens(session, conversation).await?),
             self.context_limit,
             self.threshold,
         )
@@ -240,9 +247,9 @@ impl Operation<Session, GooseEffect> for CompactionOperation {
             if last_effective_role(messages)? != EffectiveRole::User {
                 return not_applicable();
             }
-            match session.usage.total_tokens {
-                Some(tokens) if tokens > 0 && self.over_threshold(tokens as usize) => {}
-                _ => return not_applicable(),
+            let tokens = self.context_tokens(session, conversation).await?;
+            if tokens <= 0 || !self.over_threshold(tokens as usize) {
+                return not_applicable();
             }
         }
 

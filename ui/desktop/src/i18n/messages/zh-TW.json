@@ -330,10 +330,10 @@
     "defaultMessage": "Goose 要求使用者輸入前的最大代理回合數"
   },
   "costTracker.costUnavailable": {
-    "defaultMessage": "{model} 無可用的費用資料（輸入 {inputTokens} 個權杖，輸出 {outputTokens} 個權杖）"
+    "defaultMessage": "{model} 無可用的費用資料（輸入 {inputTokens} 個詞元，輸出 {outputTokens} 個詞元）"
   },
   "costTracker.inputOutputTooltip": {
-    "defaultMessage": "輸入：{inputTokens} 個權杖（{inputCost}）｜輸出：{outputTokens} 個權杖（{outputCost}）"
+    "defaultMessage": "輸入：{inputTokens} 個詞元（{inputCost}）｜輸出：{outputTokens} 個詞元（{outputCost}）"
   },
   "costTracker.pricingUnavailable": {
     "defaultMessage": "{model} 無可用的定價資料"
@@ -616,6 +616,9 @@
   },
   "customProviderForm.add": {
     "defaultMessage": "新增"
+  },
+  "customProviderForm.alwaysUseToolshim": {
+    "defaultMessage": "一律為此供應商使用 Toolshim"
   },
   "customProviderForm.anthropicCompatible": {
     "defaultMessage": "Anthropic 相容"
@@ -917,6 +920,15 @@
   "dirSwitcher.currentDirectory": {
     "defaultMessage": "目前目錄"
   },
+  "dirSwitcher.enterPath": {
+    "defaultMessage": "Enter path"
+  },
+  "dirSwitcher.enterPathPlaceholder": {
+    "defaultMessage": "Enter an absolute path (e.g. /home/goose/workspace)"
+  },
+  "dirSwitcher.enterPathInvalid": {
+    "defaultMessage": "Working directory must be an absolute path"
+  },
   "dirSwitcher.failedToUpdateWorkingDir": {
     "defaultMessage": "無法更新工作目錄"
   },
@@ -1042,9 +1054,6 @@
   },
   "extensionInfoFields.typeLabel": {
     "defaultMessage": "類型"
-  },
-  "extensionInfoFields.typeSseUnsupported": {
-    "defaultMessage": "SSE（不支援）"
   },
   "extensionInfoFields.typeStandardIo": {
     "defaultMessage": "標準 IO (STDIO)"
@@ -1749,13 +1758,10 @@
     "defaultMessage": "要刪除此模型嗎？您之後可以重新下載。"
   },
   "localInferenceSettings.description": {
-    "defaultMessage": "下載並管理本機 LLM 模型，無需 API 金鑰即可進行推論。在 HuggingFace 搜尋 GGUF 或 MLX 模型，或使用下方的精選推薦。"
+    "defaultMessage": "下載並管理本機 LLM 模型，無需 API 金鑰即可進行推論。在 Hugging Face 搜尋 GGUF 或 MLX 模型。"
   },
   "localInferenceSettings.dismiss": {
     "defaultMessage": "關閉"
-  },
-  "localInferenceSettings.download": {
-    "defaultMessage": "下載"
   },
   "localInferenceSettings.downloadCancelled": {
     "defaultMessage": "下載已取消"
@@ -1774,9 +1780,6 @@
   },
   "localInferenceSettings.evictFromMemory": {
     "defaultMessage": "Evict from memory"
-  },
-  "localInferenceSettings.featuredModels": {
-    "defaultMessage": "精選模型"
   },
   "localInferenceSettings.huggingFaceSignInNote": {
     "defaultMessage": "登入以在搜尋與下載模型時提高速率上限，並存取私人或受限的 Hugging Face 儲存庫。"
@@ -1801,12 +1804,6 @@
   },
   "localInferenceSettings.retry": {
     "defaultMessage": "重試"
-  },
-  "localInferenceSettings.showAllFeatured": {
-    "defaultMessage": "顯示全部精選（還有 {count} 個）"
-  },
-  "localInferenceSettings.showRecommendedOnly": {
-    "defaultMessage": "僅顯示建議項目"
   },
   "localInferenceSettings.title": {
     "defaultMessage": "本機推論模型"
@@ -2043,7 +2040,7 @@
     "defaultMessage": "（估算）"
   },
   "messageUsageStats.firstToken": {
-    "defaultMessage": "首個權杖"
+    "defaultMessage": "首個詞元"
   },
   "messageUsageStats.input": {
     "defaultMessage": "輸入"
@@ -2220,10 +2217,10 @@
     "defaultMessage": "防止模型被置換到磁碟"
   },
   "modelSettingsPanel.maxOutputTokens": {
-    "defaultMessage": "最大輸出 token 數"
+    "defaultMessage": "最大輸出詞元數"
   },
   "modelSettingsPanel.maxOutputTokensDescription": {
-    "defaultMessage": "生成 token 的上限"
+    "defaultMessage": "生成詞元的上限"
   },
   "modelSettingsPanel.minP": {
     "defaultMessage": "Min P"
@@ -2247,7 +2244,7 @@
     "defaultMessage": "重複視窗"
   },
   "modelSettingsPanel.repeatWindowDescription": {
-    "defaultMessage": "回溯的 token 數"
+    "defaultMessage": "回溯的詞元數"
   },
   "modelSettingsPanel.repetitionPenalty": {
     "defaultMessage": "重複懲罰"
@@ -2583,7 +2580,7 @@
     "defaultMessage": "所使用的提供者與模型"
   },
   "privacyInfoModal.collectSession": {
-    "defaultMessage": "工作階段指標（持續時間、互動次數、權杖用量）"
+    "defaultMessage": "工作階段指標（持續時間、互動次數、詞元用量）"
   },
   "privacyInfoModal.collectVersion": {
     "defaultMessage": "goose 版本與安裝方式"
@@ -3162,7 +3159,7 @@
     "defaultMessage": "尚無已儲存的食譜"
   },
   "recipesView.noSavedRecipesDescription": {
-    "defaultMessage": "從聊天儲存的食譜會顯示在這裡。"
+    "defaultMessage": "已儲存的食譜會顯示在這裡。"
   },
   "recipesView.openInNewWindow": {
     "defaultMessage": "在新視窗中開啟"
@@ -3699,7 +3696,7 @@
     "defaultMessage": "工作階段 JSON 已複製"
   },
   "sessionActionsHeader.copiedModelInteractions": {
-    "defaultMessage": "Recent model interactions copied"
+    "defaultMessage": "已複製最近的模型互動"
   },
   "sessionActionsHeader.copiedText": {
     "defaultMessage": "文字已複製"
@@ -3732,10 +3729,10 @@
     "defaultMessage": "正在載入 JSON…"
   },
   "sessionActionsHeader.modelInteractionsFailed": {
-    "defaultMessage": "Failed to load model interactions: {error}"
+    "defaultMessage": "載入模型互動失敗：{error}"
   },
   "sessionActionsHeader.modelInteractionsTitle": {
-    "defaultMessage": "Recent model interactions"
+    "defaultMessage": "最近的模型互動"
   },
   "sessionActionsHeader.renameFailed": {
     "defaultMessage": "重新命名工作階段失敗：{error}"
@@ -3762,7 +3759,7 @@
     "defaultMessage": "檢視工作階段 JSON"
   },
   "sessionActionsHeader.viewModelInteractions": {
-    "defaultMessage": "View recent model interactions"
+    "defaultMessage": "檢視最近的模型互動"
   },
   "sessionIndicators.error": {
     "defaultMessage": "工作階段發生錯誤"
@@ -3772,6 +3769,9 @@
   },
   "sessionIndicators.streaming": {
     "defaultMessage": "串流中"
+  },
+  "sessions.acpBadge": {
+    "defaultMessage": "ACP"
   },
   "sessions.action.delete": {
     "defaultMessage": "刪除工作階段"
@@ -3850,6 +3850,9 @@
   },
   "sessions.importing": {
     "defaultMessage": "正在匯入…"
+  },
+  "sessions.includeAcp": {
+    "defaultMessage": "包含 ACP 工作階段"
   },
   "sessions.loadingMore": {
     "defaultMessage": "正在載入更多工作階段…"
@@ -4305,7 +4308,7 @@
     "defaultMessage": "中 - 適度思考"
   },
   "switchModelModal.claudeEnabled": {
-    "defaultMessage": "啟用 - 思考使用固定的權杖預算"
+    "defaultMessage": "啟用 - 思考使用固定的詞元預算"
   },
   "switchModelModal.couldNotContactProvider": {
     "defaultMessage": "無法連絡提供者"
@@ -4371,7 +4374,7 @@
     "defaultMessage": "選擇思考模式"
   },
   "switchModelModal.thinkingBudget": {
-    "defaultMessage": "思考預算（權杖）"
+    "defaultMessage": "思考預算（詞元）"
   },
   "switchModelModal.thinkingEffort": {
     "defaultMessage": "思考用力程度"
@@ -4520,9 +4523,6 @@
   "updateSection.autoDownloadDisabledNote": {
     "defaultMessage": "已停用自動下載。請點選「立即下載」以手動下載。"
   },
-  "updateSection.autoInstallNote": {
-    "defaultMessage": "無需手動安裝。"
-  },
   "updateSection.checkForUpdates": {
     "defaultMessage": "檢查更新"
   },
@@ -4553,26 +4553,11 @@
   "updateSection.installAndRestart": {
     "defaultMessage": "安裝並重新啟動"
   },
-  "updateSection.installNowHint": {
-    "defaultMessage": "請點選「安裝並重新啟動」以立即更新。"
-  },
   "updateSection.latestVersion": {
     "defaultMessage": "您執行的是最新版本！"
   },
   "updateSection.loading": {
     "defaultMessage": "載入中..."
-  },
-  "updateSection.manualInstallNote": {
-    "defaultMessage": "下載後，您需要手動安裝更新。"
-  },
-  "updateSection.manualInstallRequired": {
-    "defaultMessage": "此更新方式需要手動安裝。"
-  },
-  "updateSection.readyInstallAuto": {
-    "defaultMessage": "✓ 更新已就緒。重新啟動 Goose 即可完成安裝，或在您完成後結束。"
-  },
-  "updateSection.readyInstallManual": {
-    "defaultMessage": "✓ 更新已就緒！請點選「安裝並重新啟動」以取得安裝指示。"
   },
   "updateSection.upToDate": {
     "defaultMessage": "（為最新版本）"

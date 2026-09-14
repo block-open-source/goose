@@ -13,7 +13,8 @@ use crate::agents::final_output_tool::{
     FINAL_OUTPUT_SUCCESS_MESSAGE, FINAL_OUTPUT_TOOL_NAME,
 };
 use crate::agents::state_machine::ops_toolcalling::{
-    emit_post_tool_use, pending_tool_requests, run_pre_tool_hooks, tool_span, ToolDisposition,
+    emit_post_tool_use, pending_advertised_tool_requests, run_pre_tool_hooks, tool_span,
+    ToolDisposition,
 };
 use crate::agents::state_machine::{
     applied, ends_turn, last_effective_role, messages_since_kickoff, not_applicable, yielded_with,
@@ -299,15 +300,15 @@ impl Operation<Session, GooseEffect> for RecipeOperation {
         }
 
         let messages = messages_since_kickoff(conversation)?;
-        let pending = pending_tool_requests(messages)
-            .into_iter()
-            .find(|(request, disposition)| {
+        let pending = pending_advertised_tool_requests(messages).into_iter().find(
+            |(request, disposition)| {
                 *disposition == ToolDisposition::Execute
                     && request
                         .tool_call
                         .as_ref()
                         .is_ok_and(|tool_call| tool_call.name == FINAL_OUTPUT_TOOL_NAME)
-            });
+            },
+        );
         if let Some((request, _)) = pending {
             if session.goose_mode == GooseMode::Chat {
                 let mut response = Message::user();

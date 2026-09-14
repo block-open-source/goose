@@ -5,8 +5,7 @@ use goose::acp::ACP_CURRENT_MODEL;
 use goose::agents::{Agent, AgentConfig, AgentEvent, GoosePlatform, PromptManager, SessionConfig};
 use goose::config::{ExtensionConfig, GooseMode, PermissionManager};
 use goose::conversation::message::{ActionRequiredData, Message, MessageContent};
-use goose::permission::permission_confirmation::PrincipalType;
-use goose::permission::{Permission, PermissionConfirmation};
+use goose::permission::Permission;
 use goose::providers::anthropic::ANTHROPIC_DEFAULT_MODEL;
 use goose::providers::azure::AZURE_DEFAULT_MODEL;
 use goose::providers::base::Provider;
@@ -600,14 +599,8 @@ impl ProviderFixture {
                         if let ActionRequiredData::ToolConfirmation { ref id, .. } = ar.data {
                             saw_action_required = true;
                             self.agent
-                                .handle_confirmation(
-                                    id.clone(),
-                                    PermissionConfirmation {
-                                        principal_type: PrincipalType::Tool,
-                                        permission: permission.clone(),
-                                    },
-                                )
-                                .await;
+                                .submit_tool_confirmation(&self.session_id, id, permission.clone())
+                                .await?;
                         }
                     }
                 }

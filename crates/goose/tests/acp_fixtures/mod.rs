@@ -400,7 +400,9 @@ pub async fn spawn_acp_server_in_process(
         disable_session_naming,
         goose_platform: GoosePlatform::GooseCli,
         additional_source_roots: Vec::new(),
+        session_cwd: None,
         scheduler: Some(Arc::new(FixtureScheduler::new())),
+        active_prompt_runs: Default::default(),
     })
     .await
     .unwrap();
@@ -478,7 +480,6 @@ pub fn to_notifications(updates: &[SessionUpdate]) -> Vec<Notification> {
                 }
             }
             SessionUpdate::Plan(_) => out.push(Notification::Plan),
-            SessionUpdate::AvailableCommandsUpdate(_) => out.push(Notification::AvailableCommands),
             SessionUpdate::CurrentModeUpdate(_) => out.push(Notification::CurrentMode),
             SessionUpdate::ConfigOptionUpdate(_) => out.push(Notification::ConfigOption),
             SessionUpdate::SessionInfoUpdate(update) => {

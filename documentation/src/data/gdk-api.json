@@ -1,0 +1,1151 @@
+{
+  "versions": [
+    {
+      "version": "0.1.0-alpha.9",
+      "docVersion": "0.1",
+      "source": "crates/goose-sdk/src/bindings.rs",
+      "functions": [
+        {
+          "name": "anthropic_default_model",
+          "docs": "",
+          "params": [],
+          "returns": "String",
+          "throws": null,
+          "isAsync": false
+        },
+        {
+          "name": "anthropic_provider",
+          "docs": "",
+          "params": [
+            {
+              "name": "api_key",
+              "type": "String",
+              "default": null,
+              "docs": ""
+            },
+            {
+              "name": "base_url",
+              "type": "Option<String>",
+              "default": null,
+              "docs": ""
+            },
+            {
+              "name": "beta_headers",
+              "type": "Vec<String>",
+              "default": null,
+              "docs": ""
+            }
+          ],
+          "returns": "Provider",
+          "throws": "GooseError",
+          "isAsync": false
+        },
+        {
+          "name": "databricks_default_model",
+          "docs": "",
+          "params": [],
+          "returns": "String",
+          "throws": null,
+          "isAsync": false
+        },
+        {
+          "name": "databricks_provider",
+          "docs": "",
+          "params": [
+            {
+              "name": "host",
+              "type": "String",
+              "default": null,
+              "docs": ""
+            },
+            {
+              "name": "token",
+              "type": "String",
+              "default": null,
+              "docs": ""
+            }
+          ],
+          "returns": "Provider",
+          "throws": "GooseError",
+          "isAsync": false
+        },
+        {
+          "name": "databricks_v2_default_model",
+          "docs": "",
+          "params": [],
+          "returns": "String",
+          "throws": null,
+          "isAsync": false
+        },
+        {
+          "name": "databricks_v2_provider",
+          "docs": "",
+          "params": [
+            {
+              "name": "host",
+              "type": "String",
+              "default": null,
+              "docs": ""
+            },
+            {
+              "name": "token",
+              "type": "String",
+              "default": null,
+              "docs": ""
+            },
+            {
+              "name": "gateway_path",
+              "type": "Option<String>",
+              "default": "None",
+              "docs": ""
+            }
+          ],
+          "returns": "Provider",
+          "throws": "GooseError",
+          "isAsync": false
+        },
+        {
+          "name": "declarative_provider_from_json",
+          "docs": "",
+          "params": [
+            {
+              "name": "json",
+              "type": "String",
+              "default": null,
+              "docs": ""
+            }
+          ],
+          "returns": "Provider",
+          "throws": "GooseError",
+          "isAsync": false
+        },
+        {
+          "name": "default_compaction_templates",
+          "docs": "",
+          "params": [],
+          "returns": "CompactionTemplates",
+          "throws": null,
+          "isAsync": false
+        },
+        {
+          "name": "groq_default_model",
+          "docs": "",
+          "params": [],
+          "returns": "String",
+          "throws": null,
+          "isAsync": false
+        },
+        {
+          "name": "groq_provider",
+          "docs": "",
+          "params": [
+            {
+              "name": "api_key",
+              "type": "String",
+              "default": null,
+              "docs": ""
+            }
+          ],
+          "returns": "Provider",
+          "throws": "GooseError",
+          "isAsync": false
+        },
+        {
+          "name": "install_request_logger",
+          "docs": "Installs the process-wide provider request logger.\n\nA logger can only be installed once for the lifetime of the process.",
+          "params": [
+            {
+              "name": "logger",
+              "type": "RequestLogger",
+              "default": null,
+              "docs": ""
+            }
+          ],
+          "returns": null,
+          "throws": "GooseError",
+          "isAsync": false
+        },
+        {
+          "name": "openai_default_model",
+          "docs": "",
+          "params": [],
+          "returns": "String",
+          "throws": null,
+          "isAsync": false
+        },
+        {
+          "name": "openai_provider",
+          "docs": "",
+          "params": [
+            {
+              "name": "api_key",
+              "type": "String",
+              "default": null,
+              "docs": ""
+            }
+          ],
+          "returns": "Provider",
+          "throws": "GooseError",
+          "isAsync": false
+        }
+      ],
+      "items": [
+        {
+          "name": "GooseError",
+          "kind": "error",
+          "docs": "",
+          "fields": [],
+          "variants": [
+            {
+              "name": "RateLimited",
+              "fields": [
+                {
+                  "name": "retry_after_ms",
+                  "type": "Option<u64>",
+                  "default": null,
+                  "docs": ""
+                },
+                {
+                  "name": "retry_after_suffix",
+                  "type": "String",
+                  "default": null,
+                  "docs": ""
+                }
+              ]
+            },
+            {
+              "name": "OutputTokenLimitExceeded",
+              "fields": [
+                {
+                  "name": "details",
+                  "type": "String",
+                  "default": null,
+                  "docs": ""
+                }
+              ]
+            },
+            {
+              "name": "ContextLengthExceeded",
+              "fields": [
+                {
+                  "name": "details",
+                  "type": "String",
+                  "default": null,
+                  "docs": ""
+                }
+              ]
+            },
+            {
+              "name": "Authentication",
+              "fields": [
+                {
+                  "name": "details",
+                  "type": "String",
+                  "default": null,
+                  "docs": ""
+                }
+              ]
+            },
+            {
+              "name": "Timeout",
+              "fields": [
+                {
+                  "name": "details",
+                  "type": "String",
+                  "default": null,
+                  "docs": ""
+                }
+              ]
+            },
+            {
+              "name": "ProviderUnavailable",
+              "fields": [
+                {
+                  "name": "details",
+                  "type": "String",
+                  "default": null,
+                  "docs": ""
+                }
+              ]
+            },
+            {
+              "name": "Generic",
+              "fields": [
+                {
+                  "name": "details",
+                  "type": "String",
+                  "default": null,
+                  "docs": ""
+                }
+              ]
+            }
+          ],
+          "methods": []
+        },
+        {
+          "name": "RequestLogger",
+          "kind": "callback",
+          "docs": "Receives provider request logs as JSONL records.\n\n`start` returns an identifier that is passed to `write` for every record in\nthat request, allowing callers to keep concurrent request logs separate.",
+          "fields": [],
+          "variants": [],
+          "methods": [
+            {
+              "name": "start",
+              "docs": "",
+              "params": [],
+              "returns": "u64",
+              "throws": "GooseError",
+              "isAsync": false
+            },
+            {
+              "name": "write",
+              "docs": "",
+              "params": [
+                {
+                  "name": "request_id",
+                  "type": "u64",
+                  "default": null,
+                  "docs": ""
+                },
+                {
+                  "name": "record",
+                  "type": "String",
+                  "default": null,
+                  "docs": ""
+                }
+              ],
+              "returns": null,
+              "throws": "GooseError",
+              "isAsync": false
+            }
+          ]
+        },
+        {
+          "name": "ProviderMessage",
+          "kind": "record",
+          "docs": "A text message passed to a provider.",
+          "fields": [
+            {
+              "name": "role",
+              "type": "MessageRole",
+              "default": null,
+              "docs": ""
+            },
+            {
+              "name": "content",
+              "type": "Vec<MessageContent>",
+              "default": null,
+              "docs": ""
+            }
+          ],
+          "variants": [],
+          "methods": []
+        },
+        {
+          "name": "MessageRole",
+          "kind": "enum",
+          "docs": "",
+          "fields": [],
+          "variants": [
+            {
+              "name": "User",
+              "fields": []
+            },
+            {
+              "name": "Assistant",
+              "fields": []
+            },
+            {
+              "name": "Tool",
+              "fields": []
+            }
+          ],
+          "methods": []
+        },
+        {
+          "name": "MessageContent",
+          "kind": "enum",
+          "docs": "",
+          "fields": [],
+          "variants": [
+            {
+              "name": "Text",
+              "fields": [
+                {
+                  "name": "text",
+                  "type": "String",
+                  "default": null,
+                  "docs": ""
+                }
+              ]
+            },
+            {
+              "name": "Image",
+              "fields": [
+                {
+                  "name": "mime_type",
+                  "type": "String",
+                  "default": null,
+                  "docs": ""
+                },
+                {
+                  "name": "data",
+                  "type": "Vec<u8>",
+                  "default": null,
+                  "docs": ""
+                }
+              ]
+            },
+            {
+              "name": "Document",
+              "fields": [
+                {
+                  "name": "mime_type",
+                  "type": "String",
+                  "default": null,
+                  "docs": ""
+                },
+                {
+                  "name": "data",
+                  "type": "Vec<u8>",
+                  "default": null,
+                  "docs": ""
+                },
+                {
+                  "name": "name",
+                  "type": "Option<String>",
+                  "default": null,
+                  "docs": ""
+                }
+              ]
+            },
+            {
+              "name": "ToolRequest",
+              "fields": [
+                {
+                  "name": "id",
+                  "type": "String",
+                  "default": null,
+                  "docs": ""
+                },
+                {
+                  "name": "name",
+                  "type": "String",
+                  "default": null,
+                  "docs": ""
+                },
+                {
+                  "name": "arguments_json",
+                  "type": "String",
+                  "default": null,
+                  "docs": ""
+                },
+                {
+                  "name": "provider_metadata_json",
+                  "type": "Option<String>",
+                  "default": null,
+                  "docs": ""
+                },
+                {
+                  "name": "tool_error_json",
+                  "type": "Option<String>",
+                  "default": null,
+                  "docs": ""
+                }
+              ]
+            },
+            {
+              "name": "ToolResult",
+              "fields": [
+                {
+                  "name": "id",
+                  "type": "String",
+                  "default": null,
+                  "docs": ""
+                },
+                {
+                  "name": "success",
+                  "type": "bool",
+                  "default": null,
+                  "docs": ""
+                },
+                {
+                  "name": "content_json",
+                  "type": "String",
+                  "default": null,
+                  "docs": ""
+                }
+              ]
+            },
+            {
+              "name": "Thinking",
+              "fields": [
+                {
+                  "name": "thinking",
+                  "type": "String",
+                  "default": null,
+                  "docs": ""
+                },
+                {
+                  "name": "signature",
+                  "type": "String",
+                  "default": null,
+                  "docs": ""
+                }
+              ]
+            },
+            {
+              "name": "RedactedThinking",
+              "fields": [
+                {
+                  "name": "data",
+                  "type": "String",
+                  "default": null,
+                  "docs": ""
+                }
+              ]
+            }
+          ],
+          "methods": []
+        },
+        {
+          "name": "ProviderTool",
+          "kind": "record",
+          "docs": "",
+          "fields": [
+            {
+              "name": "name",
+              "type": "String",
+              "default": null,
+              "docs": ""
+            },
+            {
+              "name": "description",
+              "type": "String",
+              "default": null,
+              "docs": ""
+            },
+            {
+              "name": "input_schema_json",
+              "type": "String",
+              "default": null,
+              "docs": ""
+            },
+            {
+              "name": "annotations_json",
+              "type": "Option<String>",
+              "default": "None",
+              "docs": ""
+            }
+          ],
+          "variants": [],
+          "methods": []
+        },
+        {
+          "name": "ProviderModelConfig",
+          "kind": "record",
+          "docs": "",
+          "fields": [
+            {
+              "name": "model_name",
+              "type": "String",
+              "default": null,
+              "docs": ""
+            },
+            {
+              "name": "context_limit",
+              "type": "Option<i32>",
+              "default": "None",
+              "docs": ""
+            },
+            {
+              "name": "temperature",
+              "type": "Option<f32>",
+              "default": "None",
+              "docs": ""
+            },
+            {
+              "name": "max_tokens",
+              "type": "Option<i32>",
+              "default": "None",
+              "docs": ""
+            },
+            {
+              "name": "toolshim",
+              "type": "bool",
+              "default": "false",
+              "docs": ""
+            },
+            {
+              "name": "toolshim_model",
+              "type": "Option<String>",
+              "default": "None",
+              "docs": ""
+            },
+            {
+              "name": "request_params_json",
+              "type": "Option<String>",
+              "default": "None",
+              "docs": ""
+            },
+            {
+              "name": "provider_params_json",
+              "type": "Option<String>",
+              "default": "None",
+              "docs": ""
+            },
+            {
+              "name": "reasoning",
+              "type": "Option<bool>",
+              "default": "None",
+              "docs": ""
+            },
+            {
+              "name": "timeout_ms",
+              "type": "Option<u64>",
+              "default": "None",
+              "docs": ""
+            },
+            {
+              "name": "request_headers",
+              "type": "Option<HashMap<String, String>>",
+              "default": "None",
+              "docs": "Per-request HTTP headers attached to the outgoing provider call. These override any static headers configured on the provider."
+            }
+          ],
+          "variants": [],
+          "methods": []
+        },
+        {
+          "name": "Usage",
+          "kind": "record",
+          "docs": "",
+          "fields": [
+            {
+              "name": "input_tokens",
+              "type": "Option<i32>",
+              "default": null,
+              "docs": ""
+            },
+            {
+              "name": "output_tokens",
+              "type": "Option<i32>",
+              "default": null,
+              "docs": ""
+            },
+            {
+              "name": "total_tokens",
+              "type": "Option<i32>",
+              "default": null,
+              "docs": ""
+            },
+            {
+              "name": "cache_read_input_tokens",
+              "type": "Option<i32>",
+              "default": null,
+              "docs": ""
+            },
+            {
+              "name": "cache_creation_input_tokens",
+              "type": "Option<i32>",
+              "default": null,
+              "docs": ""
+            },
+            {
+              "name": "reasoning_tokens",
+              "type": "Option<i32>",
+              "default": null,
+              "docs": ""
+            },
+            {
+              "name": "model",
+              "type": "String",
+              "default": null,
+              "docs": ""
+            },
+            {
+              "name": "provider_metadata_json",
+              "type": "Option<String>",
+              "default": null,
+              "docs": ""
+            },
+            {
+              "name": "additional_data_json",
+              "type": "Option<String>",
+              "default": null,
+              "docs": "Provider-specific response fields as a JSON object, present only when the provider reported fields with no canonical `Usage` equivalent."
+            }
+          ],
+          "variants": [],
+          "methods": []
+        },
+        {
+          "name": "StreamChunk",
+          "kind": "enum",
+          "docs": "",
+          "fields": [],
+          "variants": [
+            {
+              "name": "TextChunk",
+              "fields": [
+                {
+                  "name": "text",
+                  "type": "String",
+                  "default": null,
+                  "docs": ""
+                }
+              ]
+            },
+            {
+              "name": "ToolChunk",
+              "fields": [
+                {
+                  "name": "id",
+                  "type": "String",
+                  "default": null,
+                  "docs": ""
+                },
+                {
+                  "name": "name",
+                  "type": "String",
+                  "default": null,
+                  "docs": ""
+                },
+                {
+                  "name": "arguments_json",
+                  "type": "String",
+                  "default": null,
+                  "docs": ""
+                },
+                {
+                  "name": "index",
+                  "type": "Option<i32>",
+                  "default": null,
+                  "docs": ""
+                },
+                {
+                  "name": "provider_metadata_json",
+                  "type": "Option<String>",
+                  "default": null,
+                  "docs": ""
+                }
+              ]
+            },
+            {
+              "name": "ThinkingChunk",
+              "fields": [
+                {
+                  "name": "thinking",
+                  "type": "String",
+                  "default": null,
+                  "docs": ""
+                },
+                {
+                  "name": "signature",
+                  "type": "String",
+                  "default": null,
+                  "docs": ""
+                }
+              ]
+            },
+            {
+              "name": "RedactedThinkingChunk",
+              "fields": [
+                {
+                  "name": "data",
+                  "type": "String",
+                  "default": null,
+                  "docs": ""
+                }
+              ]
+            },
+            {
+              "name": "EndChunk",
+              "fields": [
+                {
+                  "name": "usage",
+                  "type": "Option<Usage>",
+                  "default": null,
+                  "docs": ""
+                }
+              ]
+            },
+            {
+              "name": "ErrorChunk",
+              "fields": [
+                {
+                  "name": "error",
+                  "type": "GooseStreamError",
+                  "default": null,
+                  "docs": ""
+                }
+              ]
+            }
+          ],
+          "methods": []
+        },
+        {
+          "name": "GooseStreamError",
+          "kind": "record",
+          "docs": "",
+          "fields": [
+            {
+              "name": "kind",
+              "type": "GooseStreamErrorKind",
+              "default": null,
+              "docs": ""
+            },
+            {
+              "name": "message",
+              "type": "String",
+              "default": null,
+              "docs": ""
+            },
+            {
+              "name": "retry_after_ms",
+              "type": "Option<u64>",
+              "default": null,
+              "docs": ""
+            }
+          ],
+          "variants": [],
+          "methods": []
+        },
+        {
+          "name": "GooseStreamErrorKind",
+          "kind": "enum",
+          "docs": "",
+          "fields": [],
+          "variants": [
+            {
+              "name": "RateLimited",
+              "fields": []
+            },
+            {
+              "name": "OutputTokenLimitExceeded",
+              "fields": []
+            },
+            {
+              "name": "ContextLengthExceeded",
+              "fields": []
+            },
+            {
+              "name": "Authentication",
+              "fields": []
+            },
+            {
+              "name": "Timeout",
+              "fields": []
+            },
+            {
+              "name": "ProviderUnavailable",
+              "fields": []
+            },
+            {
+              "name": "Generic",
+              "fields": []
+            }
+          ],
+          "methods": []
+        },
+        {
+          "name": "ProviderCompletion",
+          "kind": "record",
+          "docs": "",
+          "fields": [
+            {
+              "name": "message_json",
+              "type": "String",
+              "default": null,
+              "docs": ""
+            },
+            {
+              "name": "content",
+              "type": "Vec<MessageContent>",
+              "default": null,
+              "docs": "The assistant turn as binding types, ready to append to history and replay on the next request without reparsing `message_json`."
+            },
+            {
+              "name": "usage",
+              "type": "Option<Usage>",
+              "default": null,
+              "docs": ""
+            }
+          ],
+          "variants": [],
+          "methods": []
+        },
+        {
+          "name": "Feature",
+          "kind": "enum",
+          "docs": "",
+          "fields": [],
+          "variants": [
+            {
+              "name": "Tools",
+              "fields": []
+            },
+            {
+              "name": "Streaming",
+              "fields": []
+            },
+            {
+              "name": "Images",
+              "fields": []
+            },
+            {
+              "name": "Documents",
+              "fields": []
+            },
+            {
+              "name": "JsonSchema",
+              "fields": []
+            },
+            {
+              "name": "Reasoning",
+              "fields": []
+            }
+          ],
+          "methods": []
+        },
+        {
+          "name": "Provider",
+          "kind": "object",
+          "docs": "",
+          "fields": [],
+          "variants": [],
+          "methods": [
+            {
+              "name": "name",
+              "docs": "",
+              "params": [],
+              "returns": "String",
+              "throws": null,
+              "isAsync": false
+            },
+            {
+              "name": "supported_features",
+              "docs": "",
+              "params": [],
+              "returns": "Vec<Feature>",
+              "throws": null,
+              "isAsync": false
+            },
+            {
+              "name": "context_limit",
+              "docs": "",
+              "params": [
+                {
+                  "name": "model",
+                  "type": "ProviderModelConfig",
+                  "default": null,
+                  "docs": ""
+                }
+              ],
+              "returns": "u64",
+              "throws": "GooseError",
+              "isAsync": true
+            },
+            {
+              "name": "stream",
+              "docs": "",
+              "params": [
+                {
+                  "name": "model",
+                  "type": "ProviderModelConfig",
+                  "default": null,
+                  "docs": ""
+                },
+                {
+                  "name": "system",
+                  "type": "String",
+                  "default": null,
+                  "docs": ""
+                },
+                {
+                  "name": "messages",
+                  "type": "Vec<ProviderMessage>",
+                  "default": null,
+                  "docs": ""
+                },
+                {
+                  "name": "tools",
+                  "type": "Vec<ProviderTool>",
+                  "default": null,
+                  "docs": ""
+                }
+              ],
+              "returns": "ProviderStream",
+              "throws": "GooseError",
+              "isAsync": true
+            },
+            {
+              "name": "complete",
+              "docs": "",
+              "params": [
+                {
+                  "name": "model",
+                  "type": "ProviderModelConfig",
+                  "default": null,
+                  "docs": ""
+                },
+                {
+                  "name": "system",
+                  "type": "String",
+                  "default": null,
+                  "docs": ""
+                },
+                {
+                  "name": "messages",
+                  "type": "Vec<ProviderMessage>",
+                  "default": null,
+                  "docs": ""
+                },
+                {
+                  "name": "tools",
+                  "type": "Vec<ProviderTool>",
+                  "default": null,
+                  "docs": ""
+                }
+              ],
+              "returns": "ProviderCompletion",
+              "throws": "GooseError",
+              "isAsync": true
+            },
+            {
+              "name": "compact",
+              "docs": "Summarizes a conversation down to a single message so it can continue\npast this model's context window.",
+              "params": [
+                {
+                  "name": "model_name",
+                  "type": "String",
+                  "default": null,
+                  "docs": ""
+                },
+                {
+                  "name": "messages",
+                  "type": "Vec<CompactionMessage>",
+                  "default": null,
+                  "docs": ""
+                },
+                {
+                  "name": "templates",
+                  "type": "Option<CompactionTemplates>",
+                  "default": null,
+                  "docs": ""
+                }
+              ],
+              "returns": "CompactionSummary",
+              "throws": "GooseError",
+              "isAsync": true
+            }
+          ]
+        },
+        {
+          "name": "CompactionMessage",
+          "kind": "record",
+          "docs": "A text-only message. Compaction reads conversations as text, so this is the\nwhole input shape callers need across the language boundary.",
+          "fields": [
+            {
+              "name": "role",
+              "type": "MessageRole",
+              "default": null,
+              "docs": ""
+            },
+            {
+              "name": "text",
+              "type": "String",
+              "default": null,
+              "docs": ""
+            }
+          ],
+          "variants": [],
+          "methods": []
+        },
+        {
+          "name": "CompactionTemplates",
+          "kind": "record",
+          "docs": "Overrides for the summarization and summary-rendering prompts.",
+          "fields": [
+            {
+              "name": "compaction",
+              "type": "String",
+              "default": null,
+              "docs": ""
+            },
+            {
+              "name": "summary",
+              "type": "String",
+              "default": null,
+              "docs": ""
+            }
+          ],
+          "variants": [],
+          "methods": []
+        },
+        {
+          "name": "CompactionSummary",
+          "kind": "record",
+          "docs": "",
+          "fields": [
+            {
+              "name": "text",
+              "type": "String",
+              "default": null,
+              "docs": ""
+            },
+            {
+              "name": "input_tokens",
+              "type": "Option<i32>",
+              "default": null,
+              "docs": ""
+            },
+            {
+              "name": "output_tokens",
+              "type": "Option<i32>",
+              "default": null,
+              "docs": ""
+            },
+            {
+              "name": "total_tokens",
+              "type": "Option<i32>",
+              "default": null,
+              "docs": ""
+            },
+            {
+              "name": "cache_read_input_tokens",
+              "type": "Option<i32>",
+              "default": null,
+              "docs": ""
+            },
+            {
+              "name": "cache_creation_input_tokens",
+              "type": "Option<i32>",
+              "default": null,
+              "docs": ""
+            }
+          ],
+          "variants": [],
+          "methods": []
+        },
+        {
+          "name": "ProviderStream",
+          "kind": "object",
+          "docs": "",
+          "fields": [],
+          "variants": [],
+          "methods": [
+            {
+              "name": "next_chunk",
+              "docs": "",
+              "params": [],
+              "returns": "Option<StreamChunk>",
+              "throws": "GooseError",
+              "isAsync": true
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

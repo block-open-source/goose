@@ -285,9 +285,7 @@ pub struct AcpProvider {
     /// Failed or abandoned first prompts reset this so the next prompt can retry it.
     handoff_context_sent: Arc<AtomicBool>,
     /// Latest `size` reported by the ACP server in a `session/update` →
-    /// `usage_update` notification. 0 means no real update has arrived yet,
-    /// in which case `get_context_limit()` falls back to the supplied model
-    /// configuration's context limit.
+    /// `usage_update` notification. 0 means no real update has arrived yet.
     context_size: Arc<AtomicU64>,
 
     /// Config option id used to select the model, if this agent supports it.
@@ -659,7 +657,9 @@ impl AcpProvider {
             }
         };
 
-        let context_limit = self.get_context_limit(model_config).await.ok()?;
+        let context_limit = crate::context_limit::get_context_limit(self, &model_config.model_name)
+            .await
+            .ok()?;
         let budget = memo_token_budget(context_limit, prompt_token_cost(current_prompt, &counter));
 
         build_handoff_context_memo(&messages[..last_user_index], budget, &counter)
@@ -706,12 +706,13 @@ impl Provider for AcpProvider {
         Ok(())
     }
 
-    async fn get_context_limit(&self, model_config: &ModelConfig) -> Result<usize, ProviderError> {
-        let size = self.context_size.load(Ordering::Relaxed);
-        if size > 0 {
-            return Ok(size as usize);
-        }
-        Ok(model_config.context_limit())
+    async fn get_context_limit(&self, model: &str, override_limit: Option<usize>) -> usize {
+        goose_providers::context_limit::ContextLimitResolver::new(self.get_name())
+            .resolve(model, override_limit, || async {
+                let size = self.context_size.load(Ordering::Relaxed);
+                Ok((size > 0).then_some(size as usize))
+            })
+            .await
     }
 
     async fn update_mode(&self, session_id: &str, mode: GooseMode) -> Result<(), ProviderError> {
@@ -1874,9 +1875,6 @@ pub fn extension_configs_to_mcp_servers(configs: &[ExtensionConfig]) -> Vec<McpS
                         .env(env_vars),
                 ));
             }
-            ExtensionConfig::Sse { name, .. } => {
-                tracing::debug!(name, "skipping SSE extension, migrate to streamable_http");
-            }
             _ => {}
         }
     }
@@ -2888,12 +2886,35 @@ mod tests {
     async fn get_context_limit_surfaces_captured_context_size() {
         let (provider, model) = test_provider();
         assert_eq!(
-            provider.get_context_limit(&model).await.unwrap(),
+            provider.get_context_limit(&model.model_name, None).await,
             goose_providers::model::DEFAULT_CONTEXT_LIMIT
         );
 
         provider.context_size.store(200_000, Ordering::Relaxed);
-        assert_eq!(provider.get_context_limit(&model).await.unwrap(), 200_000);
+        assert_eq!(
+            provider.get_context_limit(&model.model_name, None).await,
+            200_000
+        );
+    }
+
+    #[tokio::test]
+    async fn handoff_budget_honors_global_context_limit_override() {
+        let _guard = env_lock::lock_env([("GOOSE_CONTEXT_LIMIT", Some("64"))]);
+        let (provider, model) = test_provider();
+        provider.context_size.store(200_000, Ordering::Relaxed);
+        let messages = vec![
+            Message::assistant().with_text("prior answer"),
+            Message::user().with_text("current request"),
+        ];
+        let current_prompt = vec![ContentBlock::Text(TextContent::new("current request"))];
+
+        assert!(
+            provider
+                .bounded_handoff_memo(&model, &messages, &current_prompt)
+                .await
+                .is_none(),
+            "the global limit should leave too little room for a handoff memo"
+        );
     }
 
     #[tokio::test]
@@ -3064,6 +3085,7 @@ mod tests {
 
     #[tokio::test]
     async fn failed_handoff_send_consumes_the_claim() {
+        let _guard = env_lock::lock_env([("GOOSE_CONTEXT_LIMIT", None::<&str>)]);
         let (tx, rx) = mpsc::channel(1);
         drop(rx);
         let (provider, model) = test_provider_with_tx(Some(tx));
@@ -4249,17 +4271,6 @@ mod tests {
                 _ => panic!("server type mismatch"),
             }
         }
-    }
-
-    #[test]
-    fn test_sse_skips() {
-        let config = ExtensionConfig::Sse {
-            name: "test-sse".into(),
-            description: String::new(),
-            uri: Some("https://example.com/sse".into()),
-        };
-        let result = extension_configs_to_mcp_servers(&[config]);
-        assert!(result.is_empty());
     }
 
     #[test]

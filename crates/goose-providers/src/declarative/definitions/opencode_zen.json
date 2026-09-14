@@ -1,0 +1,28 @@
+{
+  "name": "opencode_zen",
+  "engine": "openai",
+  "display_name": "OpenCode Zen",
+  "description": "OpenCode Zen gateway — curated, benchmarked models through the OpenAI-compatible API.",
+  "api_key_env": "OPENCODE_API_KEY",
+  "base_url": "https://opencode.ai/zen/v1",
+  "catalog_provider_id": "opencode",
+  "dynamic_models": false,
+  "model_doc_link": "https://opencode.ai/docs/zen",
+  "preserves_thinking": true,
+  "models": [
+    {"name": "kimi-k3", "context_limit": 262144},
+    {"name": "kimi-k2.7-code", "context_limit": 262144},
+    {"name": "kimi-k2.6", "context_limit": 262144},
+    {"name": "kimi-k2.5", "context_limit": 262144},
+    {"name": "glm-5.2", "context_limit": 204800},
+    {"name": "glm-5.1", "context_limit": 204800},
+    {"name": "deepseek-v4-pro", "context_limit": 1000000},
+    {"name": "deepseek-v4-flash", "context_limit": 1000000},
+    {"name": "deepseek-v4-flash-free", "context_limit": 1000000},
+    {"name": "minimax-m3", "context_limit": 204800},
+    {"name": "minimax-m2.7", "context_limit": 204800},
+    {"name": "minimax-m2.5", "context_limit": 204800},
+    {"name": "mimo-v2.5-free", "context_limit": 262144}
+  ],
+  "supports_streaming": true
+}

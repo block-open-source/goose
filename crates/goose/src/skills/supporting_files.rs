@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 use std::path::{Component, Path};
 
 const LOADED_FILE_PREFIX: &str = "# Loaded: ";
@@ -67,6 +67,22 @@ pub(crate) fn read_source_file(source_dir: &Path, relative: &Path) -> io::Result
         ReadLimit::Bytes(MAX_SOURCE_FILE_BYTES),
         |_| {},
     )
+}
+
+pub(crate) fn write_source_file(
+    source_dir: &Path,
+    relative: &Path,
+    content: &[u8],
+) -> io::Result<()> {
+    write_confined_file_with_hook(source_dir, relative, content, false, |_| {})
+}
+
+pub(crate) fn create_source_file(
+    source_dir: &Path,
+    relative: &Path,
+    content: &[u8],
+) -> io::Result<()> {
+    write_confined_file_with_hook(source_dir, relative, content, true, |_| {})
 }
 
 fn read_supporting_file_with_hook(
@@ -300,6 +316,58 @@ fn read_confined_file_with_hook(
 }
 
 #[cfg(unix)]
+fn write_confined_file_with_hook(
+    source_dir: &Path,
+    relative: &Path,
+    content: &[u8],
+    create_new: bool,
+    mut after_opened_component: impl FnMut(&Path),
+) -> io::Result<()> {
+    let components = validated_relative_components(relative)?;
+    let (file_name, ancestors) = components.split_last().unwrap();
+    let mut directory = open_skill_root(source_dir, &mut after_opened_component)?;
+
+    let mut opened_path = std::path::PathBuf::new();
+    for ancestor in ancestors {
+        directory = open_at(&directory, ancestor, directory_traversal_flags())?;
+        opened_path.push(ancestor);
+        after_opened_component(&opened_path);
+    }
+
+    let mut flags =
+        libc::O_WRONLY | libc::O_CREAT | libc::O_NONBLOCK | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+    if create_new {
+        flags |= libc::O_EXCL;
+    }
+    let mut file = open_at_with_mode(&directory, file_name, flags, 0o666)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "source path is not a regular file",
+        ));
+    }
+    ensure_source_file_has_single_link(&file, &metadata)?;
+    if !create_new {
+        file.set_len(0)?;
+    }
+    file.write_all(content)
+}
+
+#[cfg(unix)]
+fn ensure_source_file_has_single_link(_file: &fs::File, metadata: &fs::Metadata) -> io::Result<()> {
+    use std::os::unix::fs::MetadataExt;
+
+    if metadata.nlink() != 1 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "source path must have exactly one hard link",
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
 fn open_at(
     directory: &fs::File,
     name: &std::ffi::OsStr,
@@ -317,6 +385,39 @@ fn open_at(
     })?;
     // SAFETY: openat does not retain the name pointer, and no creation flag requiring a mode is set.
     let descriptor = unsafe { libc::openat(directory.as_raw_fd(), name.as_ptr(), flags) };
+    if descriptor < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: openat returned a new owned descriptor on success.
+    Ok(unsafe { fs::File::from_raw_fd(descriptor) })
+}
+
+#[cfg(unix)]
+fn open_at_with_mode(
+    directory: &fs::File,
+    name: &std::ffi::OsStr,
+    flags: libc::c_int,
+    mode: libc::mode_t,
+) -> io::Result<fs::File> {
+    use std::ffi::CString;
+    use std::os::fd::{AsRawFd, FromRawFd};
+    use std::os::unix::ffi::OsStrExt;
+
+    let name = CString::new(name.as_bytes()).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "source file path contains a NUL byte",
+        )
+    })?;
+    // SAFETY: openat does not retain the name pointer, and mode is supplied for O_CREAT.
+    let descriptor = unsafe {
+        libc::openat(
+            directory.as_raw_fd(),
+            name.as_ptr(),
+            flags,
+            libc::c_uint::from(mode),
+        )
+    };
     if descriptor < 0 {
         return Err(io::Error::last_os_error());
     }
@@ -431,24 +532,130 @@ fn read_confined_file_with_hook(
 }
 
 #[cfg(windows)]
+fn write_confined_file_with_hook(
+    source_dir: &Path,
+    relative: &Path,
+    content: &[u8],
+    create_new: bool,
+    mut after_opened_component: impl FnMut(&Path),
+) -> io::Result<()> {
+    let components = validated_relative_components(relative)?;
+    let (file_name, ancestors) = components.split_last().unwrap();
+    let mut directory = open_skill_root(source_dir, &mut after_opened_component)?;
+
+    let mut opened_path = std::path::PathBuf::new();
+    for ancestor in ancestors {
+        directory = windows_open_at(&directory, ancestor, true)?;
+        let metadata = directory.metadata()?;
+        if windows_metadata_is_reparse_point(&metadata) || !metadata.is_dir() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "source path ancestor is not a regular directory",
+            ));
+        }
+        opened_path.push(ancestor);
+        after_opened_component(&opened_path);
+    }
+
+    let mut file = windows_open_file_at(&directory, file_name, create_new)?;
+    let metadata = file.metadata()?;
+    if windows_metadata_is_reparse_point(&metadata) || !metadata.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "source path is not a regular file",
+        ));
+    }
+    ensure_source_file_has_single_link(&file, &metadata)?;
+    if !create_new {
+        file.set_len(0)?;
+    }
+    file.write_all(content)
+}
+
+#[cfg(windows)]
+fn ensure_source_file_has_single_link(file: &fs::File, _metadata: &fs::Metadata) -> io::Result<()> {
+    use std::os::windows::io::AsRawHandle;
+    use winapi::um::fileapi::{GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION};
+
+    // SAFETY: BY_HANDLE_FILE_INFORMATION is a plain C data structure initialized before the call.
+    let mut information: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
+    // SAFETY: the file owns a valid handle and information points to writable initialized storage.
+    if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut information) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if information.nNumberOfLinks != 1 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "source path must have exactly one hard link",
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
 fn windows_open_at(
     directory: &fs::File,
     name: &std::ffi::OsStr,
     directory_only: bool,
 ) -> io::Result<fs::File> {
     use ntapi::ntioapi::{
-        NtCreateFile, FILE_DIRECTORY_FILE, FILE_OPEN, FILE_OPEN_REPARSE_POINT,
-        FILE_SYNCHRONOUS_IO_NONALERT, IO_STATUS_BLOCK,
+        FILE_DIRECTORY_FILE, FILE_OPEN, FILE_OPEN_REPARSE_POINT, FILE_SYNCHRONOUS_IO_NONALERT,
     };
+    use winapi::um::winnt::{FILE_GENERIC_READ, FILE_READ_ATTRIBUTES, FILE_TRAVERSE, SYNCHRONIZE};
+
+    let mut create_options = FILE_OPEN_REPARSE_POINT | FILE_SYNCHRONOUS_IO_NONALERT;
+    if directory_only {
+        create_options |= FILE_DIRECTORY_FILE;
+    }
+    let desired_access = if directory_only {
+        FILE_TRAVERSE | FILE_READ_ATTRIBUTES | SYNCHRONIZE
+    } else {
+        FILE_GENERIC_READ
+    };
+    windows_open_at_with_options(directory, name, desired_access, FILE_OPEN, create_options)
+}
+
+#[cfg(windows)]
+fn windows_open_file_at(
+    directory: &fs::File,
+    name: &std::ffi::OsStr,
+    create_new: bool,
+) -> io::Result<fs::File> {
+    use ntapi::ntioapi::{
+        FILE_CREATE, FILE_NON_DIRECTORY_FILE, FILE_OPEN_IF, FILE_OPEN_REPARSE_POINT,
+        FILE_SYNCHRONOUS_IO_NONALERT,
+    };
+    use winapi::um::winnt::{FILE_GENERIC_WRITE, FILE_READ_ATTRIBUTES, SYNCHRONIZE};
+
+    let create_disposition = if create_new {
+        FILE_CREATE
+    } else {
+        FILE_OPEN_IF
+    };
+    windows_open_at_with_options(
+        directory,
+        name,
+        FILE_GENERIC_WRITE | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
+        create_disposition,
+        FILE_NON_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT | FILE_SYNCHRONOUS_IO_NONALERT,
+    )
+}
+
+#[cfg(windows)]
+fn windows_open_at_with_options(
+    directory: &fs::File,
+    name: &std::ffi::OsStr,
+    desired_access: u32,
+    create_disposition: u32,
+    create_options: u32,
+) -> io::Result<fs::File> {
+    use ntapi::ntioapi::{NtCreateFile, IO_STATUS_BLOCK};
     use std::os::windows::ffi::OsStrExt;
     use std::os::windows::io::{AsRawHandle, FromRawHandle};
     use winapi::shared::ntdef::{
         HANDLE, NT_SUCCESS, OBJECT_ATTRIBUTES, OBJ_CASE_INSENSITIVE, UNICODE_STRING,
     };
-    use winapi::um::winnt::{
-        FILE_GENERIC_READ, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ,
-        FILE_SHARE_WRITE, FILE_TRAVERSE, SYNCHRONIZE,
-    };
+    use winapi::um::winnt::{FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE};
 
     let mut name: Vec<u16> = name.encode_wide().collect();
     let name_bytes = name
@@ -477,15 +684,6 @@ fn windows_open_at(
     let mut handle: HANDLE = std::ptr::null_mut();
     // SAFETY: IO_STATUS_BLOCK is a plain C data structure initialized before the synchronous call.
     let mut io_status: IO_STATUS_BLOCK = unsafe { std::mem::zeroed() };
-    let mut create_options = FILE_OPEN_REPARSE_POINT | FILE_SYNCHRONOUS_IO_NONALERT;
-    if directory_only {
-        create_options |= FILE_DIRECTORY_FILE;
-    }
-    let desired_access = if directory_only {
-        FILE_TRAVERSE | FILE_READ_ATTRIBUTES | SYNCHRONIZE
-    } else {
-        FILE_GENERIC_READ
-    };
     // SAFETY: all pointers reference initialized values for the duration of the synchronous call.
     let status = unsafe {
         NtCreateFile(
@@ -496,7 +694,7 @@ fn windows_open_at(
             std::ptr::null_mut(),
             0,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-            FILE_OPEN,
+            create_disposition,
             create_options,
             std::ptr::null_mut(),
             0,
@@ -535,6 +733,21 @@ fn read_confined_file_with_hook(
     Err(io::Error::new(
         io::ErrorKind::Unsupported,
         "secure supporting file reads are not supported on this platform",
+    ))
+}
+
+#[cfg(not(any(unix, windows)))]
+fn write_confined_file_with_hook(
+    _source_dir: &Path,
+    relative: &Path,
+    _content: &[u8],
+    _create_new: bool,
+    _after_opened_component: impl FnMut(&Path),
+) -> io::Result<()> {
+    validated_relative_components(relative)?;
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "secure source file writes are not supported on this platform",
     ))
 }
 

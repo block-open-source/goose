@@ -1,5 +1,9 @@
 use crate::conversation::message::{Message, MessageContentBlock};
 use crate::conversation::token_usage::{ProviderUsage, Usage};
+use crate::documents::{
+    convert_document, document_media_type_is_supported, unsupported_document_text, DocumentFormat,
+    ASSISTANT_ROLE_REASON, UNSUPPORTED_MEDIA_TYPE_REASON,
+};
 use crate::errors::ProviderError;
 use crate::formats::openai::{
     extract_reasoning_effort, is_openai_responses_model, openai_reasoning_effort_for_thinking,
@@ -399,7 +403,7 @@ pub enum ContentBlockPart {
     },
 }
 
-fn add_message_items(input_items: &mut Vec<Value>, messages: &[Message]) {
+fn add_message_items(input_items: &mut Vec<Value>, messages: &[Message], supports_vision: bool) {
     for message in messages.iter().filter(|m| m.is_agent_visible()) {
         let role = match message.role {
             Role::User => "user",
@@ -468,10 +472,36 @@ fn add_message_items(input_items: &mut Vec<Value>, messages: &[Message]) {
                     }
                 }
                 MessageContentBlock::Image(image) => {
-                    text_items.push(json!({
-                        "type": "input_image",
-                        "image_url": format!("data:{};base64,{}", image.mime_type, image.data)
-                    }));
+                    if supports_vision {
+                        text_items.push(json!({
+                            "type": "input_image",
+                            "image_url": format!("data:{};base64,{}", image.mime_type, image.data)
+                        }));
+                    } else {
+                        text_items.push(json!({
+                            "type": "input_text",
+                            "text": "[image omitted: model does not support vision]"
+                        }));
+                    }
+                }
+                MessageContentBlock::Document(document) => {
+                    if message.role != Role::User {
+                        text_items.push(json!({
+                            "type": "output_text",
+                            "text": unsupported_document_text(document, ASSISTANT_ROLE_REASON),
+                            "annotations": []
+                        }));
+                    } else if document_media_type_is_supported(&document.mime_type) {
+                        let mut converted = convert_document(document, &DocumentFormat::OpenAi);
+                        let mut file = converted["file"].take();
+                        file["type"] = json!("input_file");
+                        text_items.push(file);
+                    } else {
+                        text_items.push(json!({
+                            "type": "input_text",
+                            "text": unsupported_document_text(document, UNSUPPORTED_MEDIA_TYPE_REASON)
+                        }));
+                    }
                 }
                 MessageContentBlock::ToolResponse(response) => {
                     if !text_items.is_empty() {
@@ -485,10 +515,11 @@ fn add_message_items(input_items: &mut Vec<Value>, messages: &[Message]) {
 
                     match &response.tool_result {
                         Ok(contents) => {
-                            let has_images = contents
-                                .content
-                                .iter()
-                                .any(|c| matches!(c, ContentBlock::Image(_)));
+                            let has_images = supports_vision
+                                && contents
+                                    .content
+                                    .iter()
+                                    .any(|c| matches!(c, ContentBlock::Image(_)));
 
                             let output = if has_images {
                                 json!(contents
@@ -524,17 +555,18 @@ fn add_message_items(input_items: &mut Vec<Value>, messages: &[Message]) {
                                 json!(contents
                                     .content
                                     .iter()
-                                    .filter_map(|c| match c {
-                                        ContentBlock::Text(t) => Some(t.text.clone()),
+                                    .map(|c| match c {
+                                        ContentBlock::Text(t) => t.text.clone(),
                                         ContentBlock::Resource(r) => {
-                                            Some(extract_text_from_resource(&r.resource))
+                                            extract_text_from_resource(&r.resource)
                                         }
-                                        ContentBlock::Audio(_) => Some("[Audio content]".into()),
+                                        ContentBlock::Audio(_) => "[Audio content]".into(),
                                         ContentBlock::ResourceLink(_) => {
-                                            Some("[Resource link]".into())
+                                            "[Resource link]".into()
                                         }
-                                        ContentBlock::Image(_) => None,
-                                        _ => Some("[Unsupported content]".into()),
+                                        ContentBlock::Image(_) =>
+                                            "[image omitted: model does not support vision]".into(),
+                                        _ => "[Unsupported content]".into(),
                                     })
                                     .collect::<Vec<String>>()
                                     .join("\n"))
@@ -555,43 +587,6 @@ fn add_message_items(input_items: &mut Vec<Value>, messages: &[Message]) {
                                 "type": "function_call_output",
                                 "call_id": response.id,
                                 "output": format!("Error: {}", error_data.message)
-                            }));
-                        }
-                    }
-                }
-                MessageContentBlock::FrontendToolRequest(request) => {
-                    if !text_items.is_empty() {
-                        input_items.push(json!({
-                            "type": "message",
-                            "role": role,
-                            "content": text_items
-                        }));
-                        text_items = Vec::new();
-                    }
-
-                    match &request.tool_call {
-                        Ok(tool_call) => {
-                            let sanitized_name = sanitize_function_name(&tool_call.name);
-                            let arguments_str = tool_call
-                                .arguments
-                                .as_ref()
-                                .map(|args| {
-                                    serde_json::to_string(args).unwrap_or_else(|_| "{}".to_string())
-                                })
-                                .unwrap_or_else(|| "{}".to_string());
-
-                            input_items.push(json!({
-                                "type": "function_call",
-                                "call_id": request.id,
-                                "name": sanitized_name,
-                                "arguments": arguments_str
-                            }));
-                        }
-                        Err(e) => {
-                            input_items.push(json!({
-                                "type": "function_call_output",
-                                "call_id": request.id,
-                                "output": format!("Error: {}", e.message)
                             }));
                         }
                     }
@@ -663,7 +658,11 @@ pub fn create_responses_request_for_model(
         }));
     }
 
-    add_message_items(&mut input_items, messages);
+    add_message_items(
+        &mut input_items,
+        messages,
+        model_config.supports_vision.unwrap_or_default(),
+    );
 
     let (model_name, legacy_reasoning_effort) = extract_reasoning_effort(capability_model_name);
     // All models routed here are responses-capable; temperature is rejected
@@ -1219,6 +1218,55 @@ where
 }
 
 #[cfg(test)]
+mod document_tests {
+    use super::*;
+
+    fn format(messages: &[Message]) -> Vec<Value> {
+        let mut items = Vec::new();
+        add_message_items(&mut items, messages, true);
+        items
+    }
+
+    #[test]
+    fn user_document_becomes_an_input_file_item() {
+        let items = format(&[Message::user().with_document(
+            "cGRmLWJ5dGVz",
+            "application/pdf",
+            Some("q3-report.pdf".to_string()),
+        )]);
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["role"], "user");
+        assert_eq!(
+            items[0]["content"][0],
+            json!({
+                "type": "input_file",
+                "filename": "q3-report.pdf",
+                "file_data": "data:application/pdf;base64,cGRmLWJ5dGVz",
+            })
+        );
+    }
+
+    #[test]
+    fn assistant_document_becomes_an_output_text_item() {
+        let items = format(&[Message::assistant().with_document(
+            "cGRmLWJ5dGVz",
+            "application/pdf",
+            Some("q3-report.pdf".to_string()),
+        )]);
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["role"], "assistant");
+        let part = &items[0]["content"][0];
+        assert_eq!(part["type"], "output_text");
+        let text = part["text"].as_str().unwrap();
+        assert!(text.contains("q3-report.pdf"), "{text}");
+        assert!(text.contains("user messages"), "{text}");
+        assert!(!text.contains("cGRmLWJ5dGVz"), "{text}");
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::conversation::message::MessageContentBlock;
@@ -1670,6 +1718,7 @@ mod tests {
             toolshim_model: None,
             request_params: None,
             reasoning: None,
+            supports_vision: None,
             request_headers: None,
         };
 
@@ -1905,6 +1954,7 @@ mod tests {
             toolshim_model: None,
             request_params: None,
             reasoning: None,
+            supports_vision: None,
             request_headers: None,
         };
 
@@ -1949,6 +1999,7 @@ mod tests {
                 toolshim_model: None,
                 request_params: None,
                 reasoning: None,
+                supports_vision: None,
                 request_headers: None,
             };
 
@@ -1987,6 +2038,28 @@ mod tests {
         assert_eq!(result["model"], "gpt-5.6-sol");
         assert_eq!(result["reasoning"]["effort"], "xhigh");
         assert_eq!(result["reasoning"]["summary"], "auto");
+    }
+
+    #[test]
+    fn test_responses_request_gpt6_astra_off_uses_low_not_none() {
+        for model_name in ["gpt-6-astra", "data_workflow_tools.goose.goose-gpt-6-astra"] {
+            let model_config = ModelConfig::new(model_name)
+                .with_thinking_effort(crate::thinking::ThinkingEffort::Off);
+
+            let result =
+                create_responses_request(&model_config, "You are helpful.", &[], &[]).unwrap();
+
+            assert_eq!(result["model"], model_name, "{model_name}");
+            assert_eq!(
+                result["reasoning"]["effort"], "low",
+                "{model_name} Off should serialize as low, not none"
+            );
+        }
+
+        let model_config = ModelConfig::new("gpt-5.6-luna")
+            .with_thinking_effort(crate::thinking::ThinkingEffort::Off);
+        let result = create_responses_request(&model_config, "You are helpful.", &[], &[]).unwrap();
+        assert_eq!(result["reasoning"]["effort"], "none");
     }
 
     #[test]
@@ -2037,6 +2110,7 @@ mod tests {
                 toolshim_model: None,
                 request_params: None,
                 reasoning: None,
+                supports_vision: None,
                 request_headers: None,
             };
 
@@ -2088,6 +2162,7 @@ mod tests {
             toolshim_model: None,
             request_params: None,
             reasoning: None,
+            supports_vision: None,
             request_headers: None,
         };
 
@@ -2114,6 +2189,7 @@ mod tests {
                 serde_json::json!(true),
             )])),
             reasoning: None,
+            supports_vision: None,
             request_headers: None,
         };
 
@@ -2139,6 +2215,7 @@ mod tests {
             toolshim_model: None,
             request_params: None,
             reasoning: None,
+            supports_vision: Some(true),
             request_headers: None,
         };
 
@@ -2188,6 +2265,7 @@ mod tests {
             toolshim_model: None,
             request_params: None,
             reasoning: None,
+            supports_vision: Some(true),
             request_headers: None,
         };
 
@@ -2225,6 +2303,7 @@ mod tests {
             toolshim_model: None,
             request_params: None,
             reasoning: None,
+            supports_vision: None,
             request_headers: None,
         };
 
@@ -2257,6 +2336,7 @@ mod tests {
             toolshim_model: None,
             request_params: None,
             reasoning: None,
+            supports_vision: None,
             request_headers: None,
         };
 
@@ -2288,6 +2368,7 @@ mod tests {
             toolshim_model: None,
             request_params: None,
             reasoning: None,
+            supports_vision: None,
             request_headers: None,
         };
 
@@ -2322,6 +2403,7 @@ mod tests {
             toolshim_model: None,
             request_params: None,
             reasoning: None,
+            supports_vision: None,
             request_headers: None,
         };
 
@@ -2361,6 +2443,7 @@ mod tests {
             toolshim_model: None,
             request_params: None,
             reasoning: None,
+            supports_vision: None,
             request_headers: None,
         };
 
@@ -2387,6 +2470,7 @@ mod tests {
             toolshim_model: None,
             request_params: None,
             reasoning: None,
+            supports_vision: Some(true),
             request_headers: None,
         };
 
@@ -2419,6 +2503,7 @@ mod tests {
             toolshim_model: None,
             request_params: None,
             reasoning: None,
+            supports_vision: Some(true),
             request_headers: None,
         };
 
@@ -2437,6 +2522,68 @@ mod tests {
     }
 
     #[test]
+    fn test_user_image_omitted_when_not_vision() {
+        use crate::conversation::message::Message;
+
+        let messages = vec![Message::user()
+            .with_text("describe this image")
+            .with_image("aW1hZ2VkYXRh", "image/png")];
+
+        // Non-vision: explicit image content is replaced with a text placeholder
+        // at format time — session history is untouched.
+        let model_config = ModelConfig::new("o3-mini");
+        let result = create_responses_request(&model_config, "", &messages, &[]).unwrap();
+        let input = result["input"].as_array().unwrap();
+
+        assert_eq!(input.len(), 1);
+        assert_eq!(input[0]["role"], "user");
+        let content = input[0]["content"].as_array().unwrap();
+        assert_eq!(content.len(), 2);
+        assert_eq!(content[0]["type"], "input_text");
+        assert_eq!(content[0]["text"], "describe this image");
+        assert_eq!(content[1]["type"], "input_text");
+        assert_eq!(
+            content[1]["text"],
+            "[image omitted: model does not support vision]"
+        );
+
+        let serialized = serde_json::to_string(&result).unwrap();
+        assert!(!serialized.contains("input_image"));
+        assert!(!serialized.contains("data:image"));
+    }
+
+    #[test]
+    fn test_tool_response_image_omitted_when_not_vision() {
+        use crate::conversation::message::Message;
+        use rmcp::model::{CallToolResult, ContentBlock};
+
+        let messages = vec![
+            Message::user().with_content(MessageContentBlock::tool_response(
+                "call_1",
+                Ok(CallToolResult::success(vec![
+                    ContentBlock::text("caption"),
+                    ContentBlock::image("a+/=".to_string(), "image/png".to_string()),
+                ])),
+            )),
+        ];
+
+        // Non-vision: images in tool results are omitted from the output
+        // string (with a note) instead of being emitted as input_image items.
+        let model_config = ModelConfig::new("o3-mini");
+        let result = create_responses_request(&model_config, "", &messages, &[]).unwrap();
+        let input = result["input"].as_array().unwrap();
+
+        assert_eq!(input[0]["type"], "function_call_output");
+        let output = input[0]["output"].as_str().unwrap();
+        assert!(output.contains("caption"));
+        assert!(output.contains("[image omitted: model does not support vision]"));
+
+        let serialized = serde_json::to_string(&result).unwrap();
+        assert!(!serialized.contains("input_image"));
+        assert!(!serialized.contains("data:image"));
+    }
+
+    #[test]
     fn test_assistant_text_uses_output_text_with_annotations() {
         use crate::conversation::message::Message;
 
@@ -2451,6 +2598,7 @@ mod tests {
             toolshim_model: None,
             request_params: None,
             reasoning: None,
+            supports_vision: None,
             request_headers: None,
         };
 
@@ -2866,47 +3014,6 @@ mod tests {
     }
 
     #[test]
-    fn test_frontend_tool_request_serialized_in_responses_request() {
-        use crate::conversation::message::Message;
-        use rmcp::model::{CallToolResult, ContentBlock};
-
-        let messages = vec![
-            Message::assistant().with_frontend_tool_request(
-                "call_ft1",
-                Ok(CallToolRequestParams::new("browser_click")
-                    .with_arguments(object!({"selector": "#btn"}))),
-            ),
-            Message::user().with_content(MessageContentBlock::tool_response(
-                "call_ft1",
-                Ok(CallToolResult::success(vec![ContentBlock::text("clicked")])),
-            )),
-        ];
-
-        let model_config = ModelConfig {
-            model_name: "gpt-5.5".to_string(),
-            context_limit: None,
-            temperature: None,
-            max_tokens: None,
-            toolshim: false,
-            toolshim_model: None,
-            request_params: None,
-            reasoning: None,
-            request_headers: None,
-        };
-
-        let result = create_responses_request(&model_config, "", &messages, &[]).unwrap();
-        let input = result["input"].as_array().unwrap();
-
-        assert_eq!(input[0]["type"], "function_call");
-        assert_eq!(input[0]["call_id"], "call_ft1");
-        assert_eq!(input[0]["name"], "browser_click");
-
-        assert_eq!(input[1]["type"], "function_call_output");
-        assert_eq!(input[1]["call_id"], "call_ft1");
-        assert_eq!(input[1]["output"], "clicked");
-    }
-
-    #[test]
     fn test_responses_request_sanitizes_replayed_function_call_names() {
         use crate::conversation::message::Message;
 
@@ -2916,8 +3023,8 @@ mod tests {
                 Ok(CallToolRequestParams::new("Crack Catcher")
                     .with_arguments(object!({"prompt": "verify the work"}))),
             ),
-            Message::assistant().with_frontend_tool_request(
-                "call_frontend_agent",
+            Message::assistant().with_tool_request(
+                "call_review_agent",
                 Ok(CallToolRequestParams::new("@Review Agent")
                     .with_arguments(object!({"prompt": "check it"}))),
             ),
@@ -2932,6 +3039,7 @@ mod tests {
             toolshim_model: None,
             request_params: None,
             reasoning: None,
+            supports_vision: None,
             request_headers: None,
         };
 
@@ -2943,7 +3051,7 @@ mod tests {
         assert_eq!(input[0]["name"], "Crack_Catcher");
 
         assert_eq!(input[1]["type"], "function_call");
-        assert_eq!(input[1]["call_id"], "call_frontend_agent");
+        assert_eq!(input[1]["call_id"], "call_review_agent");
         assert_eq!(input[1]["name"], "_Review_Agent");
     }
 
@@ -2964,6 +3072,7 @@ mod tests {
             toolshim_model: None,
             request_params: None,
             reasoning: None,
+            supports_vision: None,
             request_headers: None,
         };
 
@@ -2996,6 +3105,7 @@ mod tests {
             toolshim_model: None,
             request_params: None,
             reasoning: None,
+            supports_vision: None,
             request_headers: None,
         };
 
@@ -3009,43 +3119,5 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("invalid arguments"));
-    }
-
-    #[test]
-    fn test_frontend_tool_request_error_emits_function_call_output() {
-        use crate::conversation::message::Message;
-        use rmcp::model::{ErrorCode, ErrorData};
-
-        let messages = vec![Message::assistant().with_frontend_tool_request(
-            "call_ft_err",
-            Err(ErrorData {
-                code: ErrorCode::INTERNAL_ERROR,
-                message: "malformed arguments".into(),
-                data: None,
-            }),
-        )];
-
-        let model_config = ModelConfig {
-            model_name: "gpt-5.5".to_string(),
-            context_limit: None,
-            temperature: None,
-            max_tokens: None,
-            toolshim: false,
-            toolshim_model: None,
-            request_params: None,
-            reasoning: None,
-            request_headers: None,
-        };
-
-        let result = create_responses_request(&model_config, "", &messages, &[]).unwrap();
-        let input = result["input"].as_array().unwrap();
-
-        assert_eq!(input.len(), 1);
-        assert_eq!(input[0]["type"], "function_call_output");
-        assert_eq!(input[0]["call_id"], "call_ft_err");
-        assert!(input[0]["output"]
-            .as_str()
-            .unwrap()
-            .contains("malformed arguments"));
     }
 }

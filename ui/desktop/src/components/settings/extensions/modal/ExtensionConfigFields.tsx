@@ -29,7 +29,7 @@ const i18n = defineMessages({
 });
 
 interface ExtensionConfigFieldsProps {
-  type: 'stdio' | 'sse' | 'streamable_http' | 'builtin';
+  type: 'stdio' | 'streamable_http' | 'builtin';
   full_cmd: string;
   endpoint: string;
   onChange: (key: string, value: string) => void;
@@ -51,7 +51,9 @@ export default function ExtensionConfigFields({
     return (
       <div className="space-y-4">
         <div>
-          <label className="text-sm font-medium mb-2 block text-text-primary">{intl.formatMessage(i18n.commandLabel)}</label>
+          <label className="text-sm font-medium mb-2 block text-text-primary">
+            {intl.formatMessage(i18n.commandLabel)}
+          </label>
           <div className="relative">
             <Input
               value={full_cmd}
@@ -60,7 +62,9 @@ export default function ExtensionConfigFields({
               className={`w-full ${!submitAttempted || isValid ? 'border-border-primary' : 'border-red-500'} text-text-primary`}
             />
             {submitAttempted && !isValid && (
-              <div className="absolute text-xs text-red-500 mt-1">{intl.formatMessage(i18n.commandRequired)}</div>
+              <div className="absolute text-xs text-red-500 mt-1">
+                {intl.formatMessage(i18n.commandRequired)}
+              </div>
             )}
           </div>
         </div>
@@ -69,7 +73,9 @@ export default function ExtensionConfigFields({
   } else {
     return (
       <div>
-        <label className="text-sm font-medium mb-2 block text-text-primary">{intl.formatMessage(i18n.endpointLabel)}</label>
+        <label className="text-sm font-medium mb-2 block text-text-primary">
+          {intl.formatMessage(i18n.endpointLabel)}
+        </label>
         <div className="relative">
           <Input
             value={endpoint}
@@ -78,7 +84,9 @@ export default function ExtensionConfigFields({
             className={`w-full ${!submitAttempted || isValid ? 'border-border-primary' : 'border-red-500'} text-text-primary`}
           />
           {submitAttempted && !isValid && (
-            <div className="absolute text-xs text-red-500 mt-1">{intl.formatMessage(i18n.endpointRequired)}</div>
+            <div className="absolute text-xs text-red-500 mt-1">
+              {intl.formatMessage(i18n.endpointRequired)}
+            </div>
           )}
         </div>
       </div>

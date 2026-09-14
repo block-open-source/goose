@@ -2,12 +2,27 @@ import type { ExtensionConfig } from '../types/extensions';
 import { getAcpClient } from './acpConnection';
 import { extensionConfigToGooseExtension, gooseExtensionToExtensionConfig } from './extensions';
 
-export async function getSessionExtensions(sessionId: string): Promise<ExtensionConfig[]> {
+export type SessionExtension = ExtensionConfig & { extensionKey: string };
+
+export async function getSessionExtensions(sessionId: string): Promise<SessionExtension[]> {
   const client = await getAcpClient();
   const response = await client.goose.sessionExtensionsList_unstable({ sessionId });
-  return response.extensions
-    .map(gooseExtensionToExtensionConfig)
-    .filter((config): config is ExtensionConfig => config !== null);
+  const extensionKeys = new Set<string>();
+  const extensions: SessionExtension[] = [];
+
+  for (const entry of response.extensions) {
+    if (extensionKeys.has(entry.extensionKey)) {
+      throw new Error(`Duplicate session extension key '${entry.extensionKey}'`);
+    }
+    extensionKeys.add(entry.extensionKey);
+
+    const config = gooseExtensionToExtensionConfig(entry.extension);
+    if (config) {
+      extensions.push({ ...config, extensionKey: entry.extensionKey });
+    }
+  }
+
+  return extensions;
 }
 
 export async function addSessionExtension(
@@ -22,7 +37,10 @@ export async function addSessionExtension(
   await client.goose.sessionExtensionsAdd_unstable({ sessionId, extension });
 }
 
-export async function removeSessionExtension(sessionId: string, name: string): Promise<void> {
+export async function removeSessionExtension(
+  sessionId: string,
+  extensionKey: string
+): Promise<void> {
   const client = await getAcpClient();
-  await client.goose.sessionExtensionsRemove_unstable({ sessionId, name });
+  await client.goose.sessionExtensionsRemove_unstable({ sessionId, extensionKey });
 }

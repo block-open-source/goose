@@ -6,6 +6,10 @@ use crate::formats::anthropic::{
 };
 use crate::model::{is_goose_internal_request_param, ModelConfig};
 
+use crate::documents::{
+    convert_document, document_media_type_is_supported, unsupported_document_text, DocumentFormat,
+    ASSISTANT_ROLE_REASON, UNSUPPORTED_MEDIA_TYPE_REASON,
+};
 use crate::formats::openai::{
     extract_reasoning_effort, is_openai_responses_model, is_valid_function_name,
     openai_reasoning_effort_for_thinking, sanitize_function_name, validate_tool_schemas,
@@ -30,13 +34,21 @@ struct DatabricksMessage {
     tool_call_id: Option<String>,
 }
 
-fn format_text_content(text: &str, image_format: &ImageFormat) -> (Vec<Value>, bool) {
+fn format_text_content(
+    text: &str,
+    image_format: &ImageFormat,
+    supports_vision: bool,
+) -> (Vec<Value>, bool) {
     let mut items = vec![json!({"type": "text", "text": text})];
-    let has_image = if let Some(path) = detect_image_path(text) {
-        if let Ok(image) = load_image_file(path.as_ref()) {
-            items.push(convert_image(&image, image_format));
+    let has_image = if supports_vision {
+        if let Some(path) = detect_image_path(text) {
+            if let Ok(image) = load_image_file(path.as_ref()) {
+                items.push(convert_image(&image, image_format));
+            }
+            true
+        } else {
+            false
         }
-        true
     } else {
         false
     };
@@ -46,6 +58,7 @@ fn format_text_content(text: &str, image_format: &ImageFormat) -> (Vec<Value>, b
 fn format_tool_response(
     response: &crate::conversation::message::ToolResponse,
     image_format: &ImageFormat,
+    supports_vision: bool,
 ) -> Vec<DatabricksMessage> {
     let mut result = Vec::new();
 
@@ -59,15 +72,21 @@ fn format_tool_response(
             for content in abridged {
                 match content {
                     ContentBlock::Image(image) => {
-                        tool_content.push(ContentBlock::text(
+                        if supports_vision {
+                            tool_content.push(ContentBlock::text(
                             "This tool result included an image that is uploaded in the next message.",
                         ));
-                        image_messages.push(DatabricksMessage {
-                            role: "user".to_string(),
-                            content: [convert_image(&image, image_format)].into(),
-                            tool_calls: None,
-                            tool_call_id: None,
-                        });
+                            image_messages.push(DatabricksMessage {
+                                role: "user".to_string(),
+                                content: [convert_image(&image, image_format)].into(),
+                                tool_calls: None,
+                                tool_call_id: None,
+                            });
+                        } else {
+                            tool_content.push(ContentBlock::text(
+                                "This tool result included an image that was omitted as the model does not support vision.",
+                            ));
+                        }
                     }
                     ContentBlock::Resource(resource) => {
                         let text = extract_text_from_resource(&resource.resource);
@@ -108,6 +127,7 @@ fn format_messages(
     messages: &[Message],
     image_format: &ImageFormat,
     current_model: Option<&str>,
+    supports_vision: bool,
 ) -> Vec<DatabricksMessage> {
     let mut result = Vec::new();
     for message in messages {
@@ -132,7 +152,8 @@ fn format_messages(
             match content {
                 MessageContentBlock::Text(text) => {
                     if !text.text.is_empty() {
-                        let (items, multi) = format_text_content(&text.text, image_format);
+                        let (items, multi) =
+                            format_text_content(&text.text, image_format, supports_vision);
                         content_array.extend(items);
                         has_multiple_content |= multi;
                     }
@@ -209,7 +230,7 @@ fn format_messages(
                     }
                 }
                 MessageContentBlock::ToolResponse(response) => {
-                    for msg in format_tool_response(response, image_format) {
+                    for msg in format_tool_response(response, image_format, supports_vision) {
                         if msg.role == "user" {
                             pending_image_messages.push(msg);
                         } else {
@@ -218,18 +239,29 @@ fn format_messages(
                     }
                 }
                 MessageContentBlock::Image(image) => {
-                    content_array.push(convert_image(image, image_format));
+                    if supports_vision {
+                        content_array.push(convert_image(image, image_format));
+                    } else {
+                        content_array.push(json!({
+                            "type": "text",
+                            "text": "[image omitted: model does not support vision]"
+                        }));
+                    }
                 }
-                MessageContentBlock::FrontendToolRequest(req) => {
-                    let text = match &req.tool_call {
-                        Ok(tool_call) => format!(
-                            "Frontend tool request: {} ({})",
-                            tool_call.name,
-                            serde_json::to_string_pretty(&tool_call.arguments).unwrap()
-                        ),
-                        Err(e) => format!("Frontend tool request error: {}", e),
-                    };
-                    content_array.push(json!({"type": "text", "text": text}));
+                MessageContentBlock::Document(document) => {
+                    if message.role != Role::User {
+                        content_array.push(json!({
+                            "type": "text",
+                            "text": unsupported_document_text(document, ASSISTANT_ROLE_REASON)
+                        }));
+                    } else if document_media_type_is_supported(&document.mime_type) {
+                        content_array.push(convert_document(document, &DocumentFormat::OpenAi));
+                    } else {
+                        content_array.push(json!({
+                            "type": "text",
+                            "text": unsupported_document_text(document, UNSUPPORTED_MEDIA_TYPE_REASON)
+                        }));
+                    }
                 }
                 MessageContentBlock::SystemNotification(_)
                 | MessageContentBlock::Error(_)
@@ -535,7 +567,13 @@ pub fn create_request_for_provider(
         tool_call_id: None,
     };
 
-    let messages_spec = format_messages(messages, image_format, Some(&model_config.model_name));
+    let model_supports_vision = model_config.supports_vision.unwrap_or_default();
+    let messages_spec = format_messages(
+        messages,
+        image_format,
+        Some(&model_config.model_name),
+        model_supports_vision,
+    );
     let mut tools_spec = if !tools.is_empty() {
         format_tools(tools, &model_config.model_name)?
     } else {
@@ -608,6 +646,53 @@ pub fn create_request_for_provider(
 }
 
 #[cfg(test)]
+mod document_tests {
+    use super::*;
+    use crate::conversation::message::Message;
+
+    fn format(messages: &[Message]) -> Vec<DatabricksMessage> {
+        format_messages(messages, &ImageFormat::OpenAi, None, true)
+    }
+
+    #[test]
+    fn user_document_becomes_a_file_content_part() {
+        let spec = format(&[Message::user().with_document(
+            "cGRmLWJ5dGVz",
+            "application/pdf",
+            Some("q3-report.pdf".to_string()),
+        )]);
+
+        assert_eq!(spec.len(), 1);
+        assert_eq!(
+            spec[0].content[0],
+            json!({
+                "type": "file",
+                "file": {
+                    "filename": "q3-report.pdf",
+                    "file_data": "data:application/pdf;base64,cGRmLWJ5dGVz",
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn assistant_document_becomes_a_text_part() {
+        let spec = format(&[Message::assistant().with_document(
+            "cGRmLWJ5dGVz",
+            "application/pdf",
+            Some("q3-report.pdf".to_string()),
+        )]);
+
+        assert_eq!(spec.len(), 1);
+        assert_eq!(spec[0].role, "assistant");
+        let text = spec[0].content.as_str().unwrap();
+        assert!(text.contains("q3-report.pdf"), "{text}");
+        assert!(text.contains("user messages"), "{text}");
+        assert!(!text.contains("cGRmLWJ5dGVz"), "{text}");
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::conversation::message::{Message, MessageContent};
@@ -638,7 +723,7 @@ mod tests {
     #[test]
     fn test_format_messages() -> anyhow::Result<()> {
         let message = Message::user().with_text("Hello");
-        let spec = format_messages(&[message], &ImageFormat::OpenAi, None);
+        let spec = format_messages(&[message], &ImageFormat::OpenAi, None, false);
 
         assert_eq!(spec.len(), 1);
         assert_eq!(spec[0].role, "user");
@@ -663,6 +748,7 @@ mod tests {
             &[message],
             &ImageFormat::OpenAi,
             Some("databricks-claude-opus-4-1"),
+            false,
         );
         let has_reasoning = spec[0]
             .content
@@ -689,6 +775,7 @@ mod tests {
             &[message],
             &ImageFormat::OpenAi,
             Some("databricks-claude-sonnet-4-5"),
+            false,
         );
         let has_reasoning = spec[0]
             .content
@@ -716,6 +803,7 @@ mod tests {
             &[message],
             &ImageFormat::OpenAi,
             Some("databricks-claude-opus-4-1"),
+            false,
         );
         let has_reasoning = spec[0]
             .content
@@ -741,7 +829,12 @@ mod tests {
                 provider_session_id: None,
             });
 
-        let spec = format_messages(&[message], &ImageFormat::OpenAi, Some("claude-opus-4.1"));
+        let spec = format_messages(
+            &[message],
+            &ImageFormat::OpenAi,
+            Some("claude-opus-4.1"),
+            false,
+        );
         let has_reasoning = spec[0]
             .content
             .as_array()
@@ -763,7 +856,7 @@ mod tests {
             )])),
         );
 
-        let spec = format_messages(&[message], &ImageFormat::OpenAi, None);
+        let spec = format_messages(&[message], &ImageFormat::OpenAi, None, false);
 
         assert_eq!(spec[0].content, "visibletext");
     }
@@ -830,8 +923,13 @@ mod tests {
             Ok(CallToolResult::success(vec![ContentBlock::text("Result")])),
         ));
 
-        let as_value =
-            serde_json::to_value(format_messages(&messages, &ImageFormat::OpenAi, None)).unwrap();
+        let as_value = serde_json::to_value(format_messages(
+            &messages,
+            &ImageFormat::OpenAi,
+            None,
+            false,
+        ))
+        .unwrap();
         let spec = as_value.as_array().unwrap();
 
         assert_eq!(spec.len(), 4);
@@ -866,8 +964,13 @@ mod tests {
             Ok(CallToolResult::success(vec![ContentBlock::text("Result")])),
         ));
 
-        let as_value =
-            serde_json::to_value(format_messages(&messages, &ImageFormat::OpenAi, None)).unwrap();
+        let as_value = serde_json::to_value(format_messages(
+            &messages,
+            &ImageFormat::OpenAi,
+            None,
+            false,
+        ))
+        .unwrap();
         let spec = as_value.as_array().unwrap();
 
         assert_eq!(spec.len(), 2);
@@ -936,8 +1039,13 @@ mod tests {
 
         // Create message with image path
         let message = Message::user().with_text(format!("Here is an image: {}", png_path_str));
-        let as_value =
-            serde_json::to_value(format_messages(&[message], &ImageFormat::OpenAi, None)).unwrap();
+        let as_value = serde_json::to_value(format_messages(
+            &[message],
+            &ImageFormat::OpenAi,
+            None,
+            true,
+        ))
+        .unwrap();
         let spec = as_value.as_array().unwrap();
 
         assert_eq!(spec.len(), 1);
@@ -953,6 +1061,118 @@ mod tests {
             .as_str()
             .unwrap()
             .starts_with("data:image/png;base64,"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_format_messages_with_image_path_passthrough_when_not_vision() -> anyhow::Result<()> {
+        let temp_dir = tempfile::tempdir()?;
+        let png_path = temp_dir.path().join("test.png");
+        let png_data = [
+            0x89, 0x50, 0x4E, 0x47, // PNG magic number
+            0x0D, 0x0A, 0x1A, 0x0A, // PNG header
+            0x00, 0x00, 0x00, 0x0D, // Rest of fake PNG data
+        ];
+        std::fs::write(&png_path, png_data)?;
+        let png_path_str = png_path.to_str().unwrap();
+
+        // Without vision support the path must pass through as plain text —
+        // a non-vision model can forward it to a vision subagent instead of
+        // 400ing on an injected image_url block.
+        let message = Message::user().with_text(format!("Here is an image: {}", png_path_str));
+        let as_value = serde_json::to_value(format_messages(
+            &[message],
+            &ImageFormat::OpenAi,
+            None,
+            false,
+        ))
+        .unwrap();
+        let spec = as_value.as_array().unwrap();
+
+        assert_eq!(spec.len(), 1);
+        assert_eq!(spec[0]["role"], "user");
+        let content = spec[0]["content"].as_str().unwrap();
+        assert!(content.contains(png_path_str));
+        assert!(!content.contains("image_url"));
+        assert!(!content.contains("data:image"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_format_messages_with_image_block_passthrough_when_not_vision() -> anyhow::Result<()> {
+        let message = Message::user().with_image("aW1hZ2VkYXRh", "image/png");
+
+        // Non-vision: explicit image content is replaced with a text placeholder
+        // at format time — session history is untouched.
+        let as_value = serde_json::to_value(format_messages(
+            std::slice::from_ref(&message),
+            &ImageFormat::OpenAi,
+            None,
+            false,
+        ))
+        .unwrap();
+        let spec = as_value.as_array().unwrap();
+        let content = spec[0]["content"].as_str().unwrap();
+        assert_eq!(content, "[image omitted: model does not support vision]");
+        assert!(!content.contains("image_url"));
+
+        // Vision: the image is converted to an image_url block (existing behavior).
+        let as_value = serde_json::to_value(format_messages(
+            &[message],
+            &ImageFormat::OpenAi,
+            None,
+            true,
+        ))
+        .unwrap();
+        let spec = as_value.as_array().unwrap();
+        let content = spec[0]["content"].as_array().unwrap();
+        assert_eq!(content[0]["type"], "image_url");
+        assert!(content[0]["image_url"]["url"]
+            .as_str()
+            .unwrap()
+            .starts_with("data:image/png;base64,"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_tool_response_image_omitted_when_not_vision() -> anyhow::Result<()> {
+        let tool_response = Message::user().with_tool_response(
+            "tool1",
+            Ok(rmcp::model::CallToolResult::success(vec![
+                rmcp::model::ContentBlock::image("aW1hZ2VkYXRh", "image/png"),
+            ])),
+        );
+
+        // Non-vision: no separate user image message is emitted — this is what
+        // un-bricks sessions (a converted image in the next request 400s).
+        let as_value = serde_json::to_value(format_messages(
+            std::slice::from_ref(&tool_response),
+            &ImageFormat::OpenAi,
+            None,
+            false,
+        ))
+        .unwrap();
+        let serialized = as_value.to_string();
+        assert!(!serialized.contains("image_url"));
+        assert!(serialized.contains(
+            "This tool result included an image that was omitted as the model does not support vision."
+        ));
+
+        // Vision: the separate user image message IS emitted (existing behavior).
+        let as_value = serde_json::to_value(format_messages(
+            &[tool_response],
+            &ImageFormat::OpenAi,
+            None,
+            true,
+        ))
+        .unwrap();
+        let serialized = as_value.to_string();
+        assert!(serialized.contains("image_url"));
+        assert!(serialized
+            .contains("This tool result included an image that is uploaded in the next message."));
 
         Ok(())
     }
@@ -1118,6 +1338,7 @@ mod tests {
             toolshim_model: None,
             request_params: None,
             reasoning: None,
+            supports_vision: None,
             request_headers: None,
         };
         let request = create_request(&model_config, "system", &[], &[], &ImageFormat::OpenAi)?;
@@ -1153,6 +1374,7 @@ mod tests {
             toolshim_model: None,
             request_params: Some(params),
             reasoning: None,
+            supports_vision: None,
             request_headers: None,
         };
         let request = create_request(&model_config, "system", &[], &[], &ImageFormat::OpenAi)?;
@@ -1173,6 +1395,7 @@ mod tests {
             toolshim_model: None,
             request_params: Some(params),
             reasoning: None,
+            supports_vision: None,
             request_headers: None,
         };
         let request = create_request(&model_config, "system", &[], &[], &ImageFormat::OpenAi)?;
@@ -1194,6 +1417,7 @@ mod tests {
             toolshim_model: None,
             request_params: Some(params),
             reasoning: None,
+            supports_vision: None,
             request_headers: None,
         };
         let request = create_request(&model_config, "system", &[], &[], &ImageFormat::OpenAi)?;
@@ -1213,6 +1437,7 @@ mod tests {
             toolshim_model: None,
             request_params: None,
             reasoning: None,
+            supports_vision: None,
             request_headers: None,
         };
         let request = create_request(&model_config, "system", &[], &[], &ImageFormat::OpenAi)?;
@@ -1232,6 +1457,7 @@ mod tests {
             toolshim_model: None,
             request_params: None,
             reasoning: None,
+            supports_vision: None,
             request_headers: None,
         };
         let request = create_request(&model_config, "system", &[], &[], &ImageFormat::OpenAi)?;
@@ -1251,6 +1477,7 @@ mod tests {
             toolshim_model: None,
             request_params: None,
             reasoning: None,
+            supports_vision: None,
             request_headers: None,
         };
         let request = create_request(&model_config, "system", &[], &[], &ImageFormat::OpenAi)?;
@@ -1490,7 +1717,7 @@ mod tests {
         let message = Message::assistant()
             .with_tool_request("tool1", Ok(CallToolRequestParams::new("test_tool")));
 
-        let spec = format_messages(&[message], &ImageFormat::OpenAi, None);
+        let spec = format_messages(&[message], &ImageFormat::OpenAi, None, false);
         let as_value = serde_json::to_value(spec)?;
         let spec_array = as_value.as_array().unwrap();
 
@@ -1527,7 +1754,12 @@ mod tests {
             final_resp,
         ];
 
-        let spec = serde_json::to_value(format_messages(&messages, &ImageFormat::OpenAi, None))?;
+        let spec = serde_json::to_value(format_messages(
+            &messages,
+            &ImageFormat::OpenAi,
+            None,
+            false,
+        ))?;
         let mut open = std::collections::HashSet::new();
         for m in spec.as_array().unwrap() {
             match m.get("role").and_then(|v| v.as_str()) {
@@ -1562,7 +1794,7 @@ mod tests {
                 .with_arguments(object!({"param": "value", "number": 42}))),
         );
 
-        let spec = format_messages(&[message], &ImageFormat::OpenAi, None);
+        let spec = format_messages(&[message], &ImageFormat::OpenAi, None, false);
         let as_value = serde_json::to_value(spec)?;
         let spec_array = as_value.as_array().unwrap();
 
@@ -1609,7 +1841,7 @@ mod tests {
             None,
         );
 
-        let spec = format_messages(&[message], &ImageFormat::OpenAi, None);
+        let spec = format_messages(&[message], &ImageFormat::OpenAi, None, false);
         let as_value = serde_json::to_value(spec)?;
         let spec_array = as_value.as_array().unwrap();
 
@@ -1633,6 +1865,7 @@ mod tests {
             toolshim_model: None,
             request_params: None,
             reasoning: None,
+            supports_vision: None,
             request_headers: None,
         };
 
@@ -1686,6 +1919,7 @@ mod tests {
             toolshim_model: None,
             request_params: None,
             reasoning: None,
+            supports_vision: None,
             request_headers: None,
         };
 
@@ -1741,7 +1975,7 @@ mod tests {
             None,
         );
 
-        let spec = format_messages(&[message], &ImageFormat::OpenAi, None);
+        let spec = format_messages(&[message], &ImageFormat::OpenAi, None, false);
         let as_value = serde_json::to_value(spec)?;
         let spec_array = as_value.as_array().unwrap();
 
@@ -1781,7 +2015,8 @@ mod tests {
         ];
 
         let as_value =
-            serde_json::to_value(format_messages(&messages, &ImageFormat::OpenAi, None)).unwrap();
+            serde_json::to_value(format_messages(&messages, &ImageFormat::OpenAi, None, true))
+                .unwrap();
         let spec = as_value.as_array().unwrap();
         let roles: Vec<&str> = spec.iter().map(|m| m["role"].as_str().unwrap()).collect();
 
@@ -1815,7 +2050,8 @@ mod tests {
         ];
 
         let as_value =
-            serde_json::to_value(format_messages(&messages, &ImageFormat::OpenAi, None)).unwrap();
+            serde_json::to_value(format_messages(&messages, &ImageFormat::OpenAi, None, true))
+                .unwrap();
         let spec = as_value.as_array().unwrap();
         let roles: Vec<&str> = spec.iter().map(|m| m["role"].as_str().unwrap()).collect();
 

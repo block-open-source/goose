@@ -389,6 +389,16 @@ impl ShellTool {
             return Self::error_result("Command cannot be empty.", None);
         }
 
+        #[cfg(windows)]
+        if shell_basename(&windows_shell()) == "cmd" && params.command.contains(['\n', '\r']) {
+            return Self::error_result(
+                "cmd.exe silently truncates commands at newlines — only the first line executes, \
+                 with exit code 0. Use `&` to chain commands on one line \
+                 (e.g. `echo a & echo b`), or set GOOSE_SHELL=powershell.",
+                None,
+            );
+        }
+
         #[cfg(not(windows))]
         let login_path = self.login_path.get().await;
         #[cfg(not(windows))]
@@ -1269,6 +1279,29 @@ mod tests {
                 let slot = tool.call_index.fetch_add(1, Ordering::Relaxed) % OUTPUT_SLOTS;
                 assert_eq!(slot, expected);
             }
+        }
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn cmd_rejects_newline_in_command() {
+        for command in ["echo a\necho b", "echo a\r\necho b", "echo a\recho b"] {
+            let tool = ShellTool::new_for_test().unwrap();
+            let result = tool
+                .shell(ShellParams {
+                    command: command.to_string(),
+                    timeout_secs: None,
+                })
+                .await;
+            assert_eq!(
+                result.is_error,
+                Some(true),
+                "expected error for {command:?}"
+            );
+            assert!(
+                extract_text(&result).contains("cmd.exe"),
+                "error should mention cmd.exe for {command:?}"
+            );
         }
     }
 

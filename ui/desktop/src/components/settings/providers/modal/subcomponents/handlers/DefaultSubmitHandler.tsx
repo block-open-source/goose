@@ -11,18 +11,18 @@ export const providerConfigSubmitHandler = async (
   provider: {
     name: string;
     metadata: {
-      config_keys?: Array<{ name: string; default?: unknown }>;
+      config_keys?: Array<{ name: string }>;
     };
   },
   configValues: Record<string, string>
 ) => {
   const fields: { key: string; value: string }[] = [];
-  for (const { name, default: defaultValue } of provider.metadata.config_keys ?? []) {
-    const value = configValues[name] ?? defaultValue;
-    if (value === undefined || value === null || value === '') {
+  for (const { name } of provider.metadata.config_keys ?? []) {
+    const value = configValues[name];
+    if (value === undefined || value === '') {
       continue;
     }
-    fields.push({ key: name, value: String(value) });
+    fields.push({ key: name, value });
   }
 
   await acpSaveProviderConfig(provider.name, fields);

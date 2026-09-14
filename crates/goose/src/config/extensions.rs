@@ -279,15 +279,20 @@ pub fn get_warnings() -> Vec<String> {
 
     let mut warnings = Vec::new();
     for (k, v) in raw {
-        if let (serde_yaml::Value::String(key), Ok(entry)) =
-            (k, serde_yaml::from_value::<ExtensionEntry>(v))
-        {
-            if matches!(entry.config, ExtensionConfig::Sse { .. }) {
-                warnings.push(format!(
-                    "'{}': SSE is unsupported, migrate to streamable_http",
-                    key
-                ));
-            }
+        let Some(key) = k.as_str() else {
+            continue;
+        };
+        let Some(extension) = v.as_mapping() else {
+            continue;
+        };
+        let extension_type = extension
+            .get(serde_yaml::Value::String("type".to_string()))
+            .and_then(serde_yaml::Value::as_str);
+        if extension_type == Some("sse") {
+            warnings.push(format!(
+                "'{}': SSE is unsupported, migrate to streamable_http",
+                key
+            ));
         }
     }
     warnings

@@ -8,7 +8,7 @@ resolver = "2"
 
 [workspace.package]
 edition = "2021"
-version = "1.47.0"
+version = "1.50.0"
 rust-version = "1.94.1"
 authors = ["AAIF <ai-oss-tools@block.xyz>"]
 license = "Apache-2.0"
@@ -20,7 +20,7 @@ uninlined_format_args = "allow"
 string_slice = "warn"
 
 [workspace.dependencies]
-rmcp = { version = "3.0.0", default-features = false, features = ["schemars", "auth"] }
+rmcp = { version = "3.2.0", default-features = false, features = ["schemars", "auth"] }
 agent-client-protocol-schema = { version = "=1.5.0", default-features = false }
 agent-client-protocol = { version = "2.0.0", default-features = false }
 agent-client-protocol-http = { version = "2.0.0", default-features = false }
@@ -36,7 +36,7 @@ candle-core = { version = "0.11", default-features = false }
 candle-nn = { version = "0.11", default-features = false }
 chrono = { version = "0.4.44", default-features = false, features = ["serde", "std"] }
 clap = { version = "4.1.14", default-features = false, features = ["derive", "std", "help", "suggestions", "usage", "color", "error-context"] }
-dirs = { version = "6", default-features = false }
+dirs = { version = "7", default-features = false }
 dotenvy = { version = "0.15.7", default-features = false }
 env-lock = { version = "1", default-features = false }
 etcetera = { version = "0.11", default-features = false }
@@ -46,6 +46,8 @@ http = { version = "1.1", default-features = false, features = ["std"] }
 ignore = { version = "0.4.12", default-features = false }
 include_dir = { version = "0.7", default-features = false }
 indoc = { version = "2", default-features = false }
+iroh = { version = "=1.1.0", default-features = false }
+iroh-relay = { version = "1", default-features = false }
 keyring = { version = "3.6.3", default-features = false, features = ["vendored"] }
 lru = { version = "0.18", default-features = false }
 once_cell = { version = "1.21.3", default-features = false, features = ["std"] }

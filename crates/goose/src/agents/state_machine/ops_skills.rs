@@ -12,7 +12,8 @@ use serde_json::Value;
 use tracing_futures::Instrument;
 
 use crate::agents::state_machine::ops_toolcalling::{
-    emit_post_tool_use, pending_tool_requests, run_pre_tool_hooks, tool_span, ToolDisposition,
+    emit_post_tool_use, pending_advertised_tool_requests, run_pre_tool_hooks, tool_span,
+    ToolDisposition,
 };
 use crate::agents::state_machine::{
     applied, messages_since_kickoff, not_applicable, yielded_with, ConversationEffect, Emitter,
@@ -301,7 +302,8 @@ impl Operation<Session, GooseEffect> for SkillOperation {
         conversation: &Conversation,
         emit: &Emitter,
     ) -> Result<OperationResult<GooseEffect>> {
-        let pending: Vec<_> = pending_tool_requests(messages_since_kickoff(conversation)?)
+        let messages = messages_since_kickoff(conversation)?;
+        let pending: Vec<_> = pending_advertised_tool_requests(messages)
             .into_iter()
             .filter(|(request, _)| {
                 request

@@ -1,7 +1,7 @@
 ---
 sidebar_position: 1
 title: Reusable Recipes
-description: "Share a goose session setup (including tools, goals, and instructions) as a reusable recipe that others can launch with a single click"
+description: "Package tools, goals, and instructions as a reusable recipe that others can launch with a single click"
 ---
 
 import Tabs from '@theme/Tabs';
@@ -9,57 +9,27 @@ import TabItem from '@theme/TabItem';
 import { PanelLeft, ChefHat, SquarePen, Link, Clock, Terminal, Share2 } from 'lucide-react';
 import RecipeFields from '@site/src/components/RecipeFields';
 
-Sometimes you finish a task in goose and realize, "Hey, this setup could be useful again." Maybe you have curated a great combination of tools, defined a clear goal, and want to preserve that flow. Or maybe you're trying to help someone else replicate what you just did without walking them through it step by step. 
-
-You can turn your current goose session into a reusable recipe that includes the tools, goals, and setup you're using right now and package it into a new Agent that others (or future you) can launch with a single click.
+Recipes package tools, goals, and instructions into reusable workflows that others (or future you) can launch with a single click.
 
 ## Create Recipe
 
 <Tabs groupId="interface">
   <TabItem value="ui" label="goose Desktop" default>
 
-  Create a recipe from the current session or from a template.
-
-  <Tabs>
-    <TabItem value="session" label="Current Session" default>
-      1. While in the session you want to save as a recipe, click the <ChefHat className="inline" size={16} /> button at the bottom of the app
-      2. In the dialog that opens, review and edit the recipe fields as needed:
-         <RecipeFields />
-      3. When you're finished, you can:
-         - Click `Create Recipe` to save the recipe to your Recipe Library
-         - Click `Create & Run Recipe` to save and immediately run the recipe in a new session
-    </TabItem>
-    <TabItem value="new" label="Template">
-      1. Click the <PanelLeft className="inline" size={16} /> button in the top-left to open the sidebar
-      2. Click `Recipes` in the sidebar
-      3. Click `Create Recipe`
-      4. In the dialog that opens, fill in the recipe fields as needed:
-         <RecipeFields />
-      5. When you're finished, you can:
-         - Copy the recipe link to share the recipe with others
-         - Click `Save Recipe` to save the recipe to your Recipe Library
-         - Click `Save & Run Recipe` to save and immediately run the recipe in a new session
-    </TabItem>
-  </Tabs>
-
-   :::warning
-   You cannot create a recipe from an existing recipe session, but you can view or [edit the recipe](#edit-recipe).
-   :::
+  1. Click the <PanelLeft className="inline" size={16} /> button in the top-left to open the sidebar
+  2. Click `Recipes` in the sidebar
+  3. Click `Create Recipe`
+  4. In the dialog that opens, fill in the recipe fields as needed:
+     <RecipeFields />
+  5. When you're finished, you can:
+     - Copy the recipe link to share the recipe with others
+     - Click `Save Recipe` to save the recipe to your Recipe Library
+     - Click `Save & Run Recipe` to save and immediately run the recipe in a new session
 
   </TabItem>
 
   <TabItem value="cli" label="goose CLI">
-   Recipe files can be either JSON (.json) or YAML (.yaml) files. While in a [session](/docs/guides/sessions/session-management#start-session), run this command to generate a recipe.yaml file in your current directory:
-
-   ```sh
-   /recipe
-   ```
-
-   If you want to specify a different name, you can provide it as an argument:
-
-   ```sh
-   /recipe my-custom-recipe.yaml
-   ```
+   Create a JSON or YAML file in your editor using the recipe structure below.
 
    <details>
    <summary>recipe file structure</summary>
@@ -91,10 +61,6 @@ You can turn your current goose session into a reusable recipe that includes the
    </details>
 
     For detailed descriptions and example configurations of all recipe fields, see the [Recipe Reference Guide](/docs/guides/recipes/recipe-reference).
-
-   :::warning
-   You cannot create a recipe from an existing recipe session - the `/recipe` command will not work.
-   :::
 
    :::tip Validate Your Recipe
    You should [validate your recipe](#validate-recipe) to verify that it's complete and properly formatted.
@@ -160,10 +126,6 @@ You can turn your current goose session into a reusable recipe that includes the
 
    </TabItem> 
 </Tabs>
-
-:::tip Customize Recipe Generation
-You can customize how goose generates recipes by editing the `recipe.md` [prompt template](/docs/guides/context-engineering/prompt-templates).
-:::
 
 ## Edit Recipe
 <Tabs groupId="interface">

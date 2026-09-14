@@ -1,7 +1,7 @@
 use anyhow::Result;
-use goose_providers::conversation::message::{Message, MessageContent};
-use goose_providers::conversation::token_usage::ProviderUsage;
-use goose_providers::errors::ProviderError;
+use goose_provider_types::conversation::message::{Message, MessageContent};
+use goose_provider_types::conversation::token_usage::ProviderUsage;
+use goose_provider_types::errors::ProviderError;
 use rmcp::model::Role;
 use serde::Serialize;
 use tracing::warn;
@@ -21,6 +21,7 @@ struct SummarizeContext {
     messages: String,
 }
 
+#[derive(Debug)]
 pub struct Summary {
     pub message: Message,
     pub usage: ProviderUsage,
@@ -127,6 +128,7 @@ pub async fn summarize(
     messages: &[Message],
 ) -> Result<Summary> {
     let request = vec![Message::user().with_text(SUMMARIZE_REQUEST_TEXT)];
+    let has_tool_responses = messages.iter().any(has_tool_response);
 
     for (attempt, &remove_percent) in REMOVAL_PERCENTAGES.iter().enumerate() {
         let filtered = filter_tool_responses(messages, remove_percent);
@@ -158,6 +160,11 @@ pub async fn summarize(
                     usage,
                 });
             }
+            Err(ProviderError::ContextLengthExceeded(_)) if !has_tool_responses => {
+                return Err(anyhow::anyhow!(
+                    "Failed to compact: the base prompt (system prompt, tool schemas, and conversation) exceeds the model's effective context window, and there are no tool responses to remove. Use a model or configuration with a larger usable context, disable some extensions to reduce the tool-schema payload, or start a new session."
+                ));
+            }
             Err(ProviderError::ContextLengthExceeded(_))
                 if attempt < REMOVAL_PERCENTAGES.len() - 1 => {}
             Err(ProviderError::ContextLengthExceeded(_)) => {
@@ -172,4 +179,86 @@ pub async fn summarize(
     Err(anyhow::anyhow!(
         "Unexpected: exhausted all attempts without returning"
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::CompactionModel;
+    use crate::templates::Templates;
+    use async_trait::async_trait;
+    use rmcp::model::CallToolResult;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct OverflowingModel {
+        request_count: AtomicUsize,
+    }
+
+    impl OverflowingModel {
+        fn new() -> Self {
+            Self {
+                request_count: AtomicUsize::new(0),
+            }
+        }
+
+        fn request_count(&self) -> usize {
+            self.request_count.load(Ordering::Relaxed)
+        }
+    }
+
+    #[async_trait]
+    impl CompactionModel for OverflowingModel {
+        async fn complete(
+            &self,
+            _system: &str,
+            _messages: &[Message],
+        ) -> Result<(Message, ProviderUsage), ProviderError> {
+            self.request_count.fetch_add(1, Ordering::Relaxed);
+            Err(ProviderError::ContextLengthExceeded(
+                "Prompt exceeds context limit".to_string(),
+            ))
+        }
+    }
+
+    #[tokio::test]
+    async fn summarize_without_tool_responses_fails_fast() {
+        let model = OverflowingModel::new();
+        let messages = vec![Message::user().with_text("oversized conversation")];
+
+        let error = summarize(&model, None, &Templates::default(), &messages)
+            .await
+            .unwrap_err();
+        let error_message = error.to_string();
+
+        assert_eq!(model.request_count(), 1);
+        assert!(error_message.contains("there are no tool responses to remove"));
+        assert!(!error_message.contains("even after removing all tool responses"));
+        assert!(error_message.contains("larger usable context"));
+        assert!(error_message.contains("disable some extensions"));
+        assert!(error_message.contains("start a new session"));
+    }
+
+    #[tokio::test]
+    async fn summarize_with_tool_responses_preserves_exhausted_removal_error() {
+        let model = OverflowingModel::new();
+        let messages = vec![
+            Message::user().with_text("please read the file"),
+            Message::user().with_tool_response(
+                "tool_0",
+                Ok(CallToolResult::success(vec![
+                    rmcp::model::ContentBlock::text("contents"),
+                ])),
+            ),
+        ];
+
+        let error = summarize(&model, None, &Templates::default(), &messages)
+            .await
+            .unwrap_err();
+
+        assert_eq!(model.request_count(), REMOVAL_PERCENTAGES.len());
+        assert_eq!(
+            error.to_string(),
+            "Failed to compact: context limit exceeded even after removing all tool responses"
+        );
+    }
 }

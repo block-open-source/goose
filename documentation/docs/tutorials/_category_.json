@@ -1,6 +1,6 @@
 {
   "label": "Tutorials",
-  "position": 4,
+  "position": 5,
   "link": {
     "type": "generated-index",
     "description": "How to use goose in various ways"

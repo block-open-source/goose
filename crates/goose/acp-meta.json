@@ -96,11 +96,6 @@
       "responseType": "GetConfigExtensionsResponse_unstable"
     },
     {
-      "method": "_goose/unstable/extensions/available",
-      "requestType": "GetAvailableExtensionsRequest_unstable",
-      "responseType": "GetAvailableExtensionsResponse_unstable"
-    },
-    {
       "method": "_goose/unstable/config/extensions/add",
       "requestType": "AddConfigExtensionRequest_unstable",
       "responseType": "EmptyResponse"
@@ -223,11 +218,6 @@
     {
       "method": "_goose/unstable/preferences/save",
       "requestType": "PreferencesSaveRequest_unstable",
-      "responseType": "EmptyResponse"
-    },
-    {
-      "method": "_goose/unstable/preferences/remove",
-      "requestType": "PreferencesRemoveRequest_unstable",
       "responseType": "EmptyResponse"
     },
     {
@@ -471,16 +461,6 @@
       "responseType": "DictationConfigResponse_unstable"
     },
     {
-      "method": "_goose/unstable/dictation/secret/save",
-      "requestType": "DictationSecretSaveRequest_unstable",
-      "responseType": "EmptyResponse"
-    },
-    {
-      "method": "_goose/unstable/dictation/secret/delete",
-      "requestType": "DictationSecretDeleteRequest_unstable",
-      "responseType": "EmptyResponse"
-    },
-    {
       "method": "_goose/unstable/dictation/models/list",
       "requestType": "DictationModelsListRequest_unstable",
       "responseType": "DictationModelsListResponse_unstable"
@@ -503,11 +483,6 @@
     {
       "method": "_goose/unstable/dictation/models/delete",
       "requestType": "DictationModelDeleteRequest_unstable",
-      "responseType": "EmptyResponse"
-    },
-    {
-      "method": "_goose/unstable/dictation/models/select",
-      "requestType": "DictationModelSelectRequest_unstable",
       "responseType": "EmptyResponse"
     },
     {

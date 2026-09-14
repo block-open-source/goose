@@ -1,4 +1,4 @@
-import type { GooseSessionNotification_unstable } from '@aaif/goose-sdk';
+import type { GooseSessionNotification_unstable } from '@aaif/goose-acp-client';
 import type { MessageUsage } from '../../types/message';
 import { type AcpChatStateChange, type AdapterState, messagesChange } from './shared';
 
@@ -15,6 +15,7 @@ export function applyGooseSessionNotification(
           type: 'tokenState',
           tokenState: {
             totalTokens: update.used,
+            contextLimit: update.contextLimit,
             accumulatedInputTokens: update.accumulatedInputTokens,
             accumulatedOutputTokens: update.accumulatedOutputTokens,
             accumulatedTotalTokens: update.accumulatedInputTokens + update.accumulatedOutputTokens,

@@ -13,7 +13,6 @@ use goose_providers::model::ModelConfig;
 use goose_providers::request_log::{start_log, LoggerHandleExt};
 
 const GEMINI_OAUTH_DEFAULT_MODEL: &str = "gemini-3-flash-preview";
-const GEMINI_OAUTH_DEFAULT_FAST_MODEL: &str = "gemini-2.5-flash-lite";
 use crate::providers::retry::ProviderRetry;
 use anyhow::{anyhow, Result};
 use async_stream::try_stream;
@@ -946,7 +945,6 @@ impl goose_providers::base::ProviderDescriptor for GeminiOAuthProvider {
                 false,
             )],
         )
-        .with_fast_model(GEMINI_OAUTH_DEFAULT_FAST_MODEL)
     }
 }
 

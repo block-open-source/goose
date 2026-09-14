@@ -1,6 +1,6 @@
 # UniFFI examples
 
-These examples exercise the in-process Goose SDK UniFFI bindings from Python and Kotlin.
+These examples exercise the in-process GDK UniFFI bindings from Python and Kotlin.
 
 ## Prerequisites
 
@@ -55,4 +55,4 @@ just --justfile crates/goose-sdk/justfile kotlin
 
 The Kotlin example consumes the local Maven artifact `io.github.aaif-goose:gdk` from `mavenLocal()` and imports the generated package namespace `io.github.aaif_goose`.
 
-On newer JDKs, the example enables native access with `--enable-native-access=ALL-UNNAMED` because the SDK uses JNA to load the bundled native library.
+On newer JDKs, the example enables native access with `--enable-native-access=ALL-UNNAMED` because the GDK uses JNA to load the bundled native library.

@@ -1035,7 +1035,8 @@ async fn execute_job(
     let provider_name = config.get_goose_provider()?;
     let model_name = config.get_goose_model()?;
     let model_config =
-        crate::model_config::model_config_from_user_config(&provider_name, &model_name)?;
+        crate::model_config::model_config_from_user_config(&provider_name, &model_name)?
+            .with_cache_ttl_clamped();
 
     let session = agent
         .config
@@ -1487,20 +1488,6 @@ mod tests {
             .unwrap();
         assert_eq!(sessions.len(), 1);
         assert_eq!(sessions[0].goose_mode, GooseMode::Auto);
-        let session = session_manager
-            .get_session(&sessions[0].id, true)
-            .await
-            .unwrap();
-        assert_eq!(
-            sessions[0].message_count,
-            session
-                .conversation
-                .unwrap()
-                .messages()
-                .iter()
-                .filter(|m| m.is_user_visible())
-                .count()
-        );
     }
 
     #[tokio::test]

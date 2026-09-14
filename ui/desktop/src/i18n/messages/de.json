@@ -617,6 +617,9 @@
   "customProviderForm.add": {
     "defaultMessage": "Hinzufügen"
   },
+  "customProviderForm.alwaysUseToolshim": {
+    "defaultMessage": "Toolshim für diesen Anbieter immer verwenden"
+  },
   "customProviderForm.anthropicCompatible": {
     "defaultMessage": "Anthropic-kompatibel"
   },
@@ -917,6 +920,15 @@
   "dirSwitcher.currentDirectory": {
     "defaultMessage": "Aktuelles Verzeichnis"
   },
+  "dirSwitcher.enterPath": {
+    "defaultMessage": "Pfad eingeben"
+  },
+  "dirSwitcher.enterPathPlaceholder": {
+    "defaultMessage": "Absoluten Pfad eingeben (z. B. /home/goose/workspace)"
+  },
+  "dirSwitcher.enterPathInvalid": {
+    "defaultMessage": "Arbeitsverzeichnis muss ein absoluter Pfad sein"
+  },
   "dirSwitcher.failedToUpdateWorkingDir": {
     "defaultMessage": "Aktualisieren des Arbeitsverzeichnisses fehlgeschlagen"
   },
@@ -1042,9 +1054,6 @@
   },
   "extensionInfoFields.typeLabel": {
     "defaultMessage": "Typ"
-  },
-  "extensionInfoFields.typeSseUnsupported": {
-    "defaultMessage": "SSE (nicht unterstützt)"
   },
   "extensionInfoFields.typeStandardIo": {
     "defaultMessage": "Standard IO (STDIO)"
@@ -1749,13 +1758,10 @@
     "defaultMessage": "Dieses Modell löschen? Sie können es später erneut herunterladen."
   },
   "localInferenceSettings.description": {
-    "defaultMessage": "Lokale LLM-Modelle für die Inferenz ohne API-Schlüssel herunterladen und verwalten. Durchsuchen Sie HuggingFace nach GGUF- oder MLX-Modellen oder verwenden Sie die unten empfohlenen Modelle."
+    "defaultMessage": "Lokale LLM-Modelle für die Inferenz ohne API-Schlüssel herunterladen und verwalten. Durchsuchen Sie Hugging Face nach GGUF- oder MLX-Modellen."
   },
   "localInferenceSettings.dismiss": {
     "defaultMessage": "Schließen"
-  },
-  "localInferenceSettings.download": {
-    "defaultMessage": "Herunterladen"
   },
   "localInferenceSettings.downloadCancelled": {
     "defaultMessage": "Download abgebrochen"
@@ -1774,9 +1780,6 @@
   },
   "localInferenceSettings.evictFromMemory": {
     "defaultMessage": "Evict from memory"
-  },
-  "localInferenceSettings.featuredModels": {
-    "defaultMessage": "Empfohlene Modelle"
   },
   "localInferenceSettings.huggingFaceSignInNote": {
     "defaultMessage": "Melden Sie sich an, um die Ratenbegrenzungen beim Suchen und Herunterladen von Modellen zu erhöhen und auf private oder zugriffsbeschränkte Hugging-Face-Repositories zuzugreifen."
@@ -1801,12 +1804,6 @@
   },
   "localInferenceSettings.retry": {
     "defaultMessage": "Erneut versuchen"
-  },
-  "localInferenceSettings.showAllFeatured": {
-    "defaultMessage": "Alle empfohlenen anzeigen ({count} weitere)"
-  },
-  "localInferenceSettings.showRecommendedOnly": {
-    "defaultMessage": "Nur empfohlene anzeigen"
   },
   "localInferenceSettings.title": {
     "defaultMessage": "Lokale Inferenzmodelle"
@@ -3162,7 +3159,7 @@
     "defaultMessage": "Keine gespeicherten Rezepte"
   },
   "recipesView.noSavedRecipesDescription": {
-    "defaultMessage": "Aus Chats gespeicherte Rezepte werden hier angezeigt."
+    "defaultMessage": "Gespeicherte Rezepte werden hier angezeigt."
   },
   "recipesView.openInNewWindow": {
     "defaultMessage": "In neuem Fenster öffnen"
@@ -3699,7 +3696,7 @@
     "defaultMessage": "Sitzungs-JSON kopiert"
   },
   "sessionActionsHeader.copiedModelInteractions": {
-    "defaultMessage": "Recent model interactions copied"
+    "defaultMessage": "Letzte Modellinteraktionen kopiert"
   },
   "sessionActionsHeader.copiedText": {
     "defaultMessage": "Text kopiert"
@@ -3732,10 +3729,10 @@
     "defaultMessage": "JSON wird geladen..."
   },
   "sessionActionsHeader.modelInteractionsFailed": {
-    "defaultMessage": "Failed to load model interactions: {error}"
+    "defaultMessage": "Modellinteraktionen konnten nicht geladen werden: {error}"
   },
   "sessionActionsHeader.modelInteractionsTitle": {
-    "defaultMessage": "Recent model interactions"
+    "defaultMessage": "Letzte Modellinteraktionen"
   },
   "sessionActionsHeader.renameFailed": {
     "defaultMessage": "Sitzung konnte nicht umbenannt werden: {error}"
@@ -3762,7 +3759,7 @@
     "defaultMessage": "Sitzungs-JSON anzeigen"
   },
   "sessionActionsHeader.viewModelInteractions": {
-    "defaultMessage": "View recent model interactions"
+    "defaultMessage": "Letzte Modellinteraktionen anzeigen"
   },
   "sessionIndicators.error": {
     "defaultMessage": "In der Sitzung ist ein Fehler aufgetreten"
@@ -3772,6 +3769,9 @@
   },
   "sessionIndicators.streaming": {
     "defaultMessage": "Streaming"
+  },
+  "sessions.acpBadge": {
+    "defaultMessage": "ACP"
   },
   "sessions.action.delete": {
     "defaultMessage": "Sitzung löschen"
@@ -3850,6 +3850,9 @@
   },
   "sessions.importing": {
     "defaultMessage": "Wird importiert..."
+  },
+  "sessions.includeAcp": {
+    "defaultMessage": "ACP-Sitzungen einschließen"
   },
   "sessions.loadingMore": {
     "defaultMessage": "Weitere Sitzungen werden geladen..."
@@ -4520,9 +4523,6 @@
   "updateSection.autoDownloadDisabledNote": {
     "defaultMessage": "Automatischer Download ist deaktiviert. Klicken Sie auf \"Jetzt herunterladen\", um manuell herunterzuladen."
   },
-  "updateSection.autoInstallNote": {
-    "defaultMessage": "Keine manuelle Installation erforderlich."
-  },
   "updateSection.checkForUpdates": {
     "defaultMessage": "Nach Updates suchen"
   },
@@ -4553,26 +4553,11 @@
   "updateSection.installAndRestart": {
     "defaultMessage": "Installieren & Neustarten"
   },
-  "updateSection.installNowHint": {
-    "defaultMessage": "Klicken Sie auf \"Installieren & Neustarten\", um jetzt zu aktualisieren."
-  },
   "updateSection.latestVersion": {
     "defaultMessage": "Sie verwenden die neueste Version!"
   },
   "updateSection.loading": {
     "defaultMessage": "Wird geladen..."
-  },
-  "updateSection.manualInstallNote": {
-    "defaultMessage": "Nach dem Download müssen Sie das Update manuell installieren."
-  },
-  "updateSection.manualInstallRequired": {
-    "defaultMessage": "Für diese Update-Methode ist eine manuelle Installation erforderlich."
-  },
-  "updateSection.readyInstallAuto": {
-    "defaultMessage": "✓ Update ist bereit. Starten Sie Goose neu, um die Installation abzuschließen, oder beenden Sie es, wenn Sie fertig sind."
-  },
-  "updateSection.readyInstallManual": {
-    "defaultMessage": "✓ Update ist bereit! Klicken Sie auf \"Installieren & Neustarten\", um die Installationsanweisungen zu erhalten."
   },
   "updateSection.upToDate": {
     "defaultMessage": "(aktuell)"

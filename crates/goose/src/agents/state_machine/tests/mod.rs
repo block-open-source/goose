@@ -111,6 +111,36 @@ async fn bang_shell_requests_the_shell_tool() -> Result<()> {
 }
 
 #[tokio::test]
+async fn doctor_refuses_without_developer_before_inference() -> Result<()> {
+    let (pipeline, api) = test_pipeline().await?;
+    let agent = crate::execution::manager::AgentManager::instance()
+        .await?
+        .get_or_create_agent(pipeline.session_id.clone())
+        .await?;
+    agent
+        .extension_manager
+        .remove_extension(crate::agents::platform_extensions::developer::EXTENSION_NAME)
+        .await?;
+
+    let result = pipeline.run(["/doctor"]).await?;
+
+    result.assert_message(
+        -1,
+        Agent,
+        crate::doctor::DEVELOPER_EXTENSION_REQUIRED_MESSAGE,
+    );
+    assert_eq!(api.call_count(), 0);
+    assert!(
+        !agent
+            .extension_manager
+            .is_extension_enabled(crate::agents::platform_extensions::developer::EXTENSION_NAME)
+            .await
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn max_turns_counts_inference_calls_and_injects_budget() -> Result<()> {
     let (pipeline, api) = test_pipeline().await?;
     api.on("keep going").call(ADD, value(1));

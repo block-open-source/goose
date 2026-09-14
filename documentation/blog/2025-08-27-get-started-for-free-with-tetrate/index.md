@@ -55,7 +55,7 @@ Browse and select from a wide range of options, including:
 - **Specialized models** optimized for different use cases
 
 :::tip Protip 
- Want the best of both worlds? Use a dedicated [planner model](/docs/guides/context-engineering/creating-plans) for complex strategy and a faster default model for execution. Pair this with `/plan` to get strong reasoning only when you need it—saving both time and credits.
+ Want the best of both worlds? Use a strong reasoning model for complex strategy and a faster default model for execution. See the [multi-model guide](/docs/guides/multi-model/) to get strong reasoning only when you need it, saving both time and credits.
 :::
 
 ---

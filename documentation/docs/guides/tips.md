@@ -57,9 +57,6 @@ goose Desktop lets you [customize the sidebar](/docs/guides/desktop-navigation) 
 ### Keep goose updated
 Regularly [update](/docs/guides/updating-goose) goose to benefit from the latest features, bug fixes, and performance improvements.
 
-### Use a Dedicated Planner Model
-Use [planning mode](/docs/guides/context-engineering/creating-plans) with a dedicated planner model for complex reasoning, while keeping a faster default model for everyday execution.
-
 ### Make Recipes Safe to Re-run
 Write [recipes](/docs/guides/recipes/session-recipes) that check your current state before acting, so they can be run multiple times without causing any errors or duplication. 
 

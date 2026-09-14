@@ -8,7 +8,7 @@ authors:
 ---
 
 :::danger Outdated
-Lead/Worker mode has been removed from goose. It has been replaced by [Planning Mode](/docs/guides/context-engineering/creating-plans), which uses a dedicated planner model with the `/plan` command. See the [multi-model guide](/docs/guides/multi-model/) for current workflows.
+Lead/Worker mode has been removed from goose, as has the Planning Mode that replaced it. See the [multi-model guide](/docs/guides/multi-model/) for current workflows.
 :::
 
 ![blog cover](multi-model-ai-agent.png)
@@ -84,7 +84,7 @@ export GOOSE_MODEL="claude-4-sonnet"
 
 From there, Goose takes care of the hand off, the fallback, and the recovery. You just... keep vibing.
 
-If you're curious how it all works under the hood, see the [planning guide](/docs/guides/context-engineering/creating-plans).
+If you're curious how it all works under the hood, see the [multi-model guide](/docs/guides/multi-model/).
 
 ---
 

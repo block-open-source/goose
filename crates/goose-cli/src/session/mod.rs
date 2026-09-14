@@ -12,7 +12,7 @@ mod thinking;
 use crate::session::task_execution_display::{
     format_task_execution_notification, TASK_EXECUTION_NOTIFICATION_TYPE,
 };
-use goose::conversation::{fix_conversation, merge_consecutive_messages_for_request, Conversation};
+use goose::conversation::Conversation;
 use std::io::Write;
 use std::str::FromStr;
 use tokio::signal::ctrl_c;
@@ -27,7 +27,6 @@ use goose::agents::platform_extensions::developer::shell::{
 use goose::agents::AgentEvent;
 use goose::agents::SUBAGENT_TOOL_REQUEST_TYPE;
 use goose::permission::Permission;
-use goose::providers::base::Provider;
 use goose::providers::base::ProviderUsage;
 use goose::utils::safe_truncate;
 
@@ -122,19 +121,6 @@ pub(crate) fn derive_extension_name_from_command(cmd: &str, args: &[String]) -> 
     }
 }
 
-fn planner_provider_messages(plan_messages: &Conversation) -> Conversation {
-    // The planner prompt has no turn-context instructions; drop the blocks.
-    let projected_messages: Vec<Message> = plan_messages
-        .agent_visible_messages()
-        .into_iter()
-        .filter(|message| !message.is_turn_context())
-        .collect();
-    let fixed = fix_conversation(Conversation::new_unvalidated(projected_messages)).0;
-    Conversation::new_unvalidated(merge_consecutive_messages_for_request(
-        fixed.messages().clone(),
-    ))
-}
-
 #[derive(Serialize, Deserialize, Debug)]
 struct JsonOutput {
     messages: Vec<Message>,
@@ -199,11 +185,6 @@ enum NotificationData {
     },
 }
 
-pub enum RunMode {
-    Normal,
-    Plan,
-}
-
 struct HistoryManager {
     history_file: PathBuf,
     old_history_file: PathBuf,
@@ -257,7 +238,6 @@ pub struct CliSession {
     session_id: String,
     completion_cache: Arc<std::sync::RwLock<CompletionCache>>,
     debug: bool,
-    run_mode: RunMode,
     scheduled_job_id: Option<String>,
     max_turns: Option<u32>,
     edit_mode: Option<EditMode>,
@@ -301,55 +281,6 @@ impl CompletionCache {
             hint_status: HintStatus::Default,
         }
     }
-}
-
-pub enum PlannerResponseType {
-    Plan,
-    ClarifyingQuestions,
-}
-
-/// Decide if the planner's response is a plan or a clarifying question
-///
-/// This function is called after the planner has generated a response
-/// to the user's message. The response is either a plan or a clarifying
-/// question.
-pub async fn classify_planner_response(
-    session_id: &str,
-    message_text: String,
-    provider: Arc<dyn Provider>,
-    model_config: goose_providers::model::ModelConfig,
-) -> Result<PlannerResponseType> {
-    let prompt = format!(
-        "The text below is the output from an AI model which can either provide a plan or list of clarifying questions. Based on the text below, decide if the output is a \"plan\" or \"clarifying questions\".\n---\n{message_text}"
-    );
-
-    let message = Message::user().with_text(&prompt);
-    let (result, _usage) = goose::session_context::with_session_id(
-        Some(session_id.to_string()),
-        provider.complete(
-            &model_config,
-            "Reply only with the classification label: \"plan\" or \"clarifying questions\"",
-            &[message],
-            &[],
-        ),
-    )
-    .await?;
-
-    let predicted = result.as_concat_text();
-    if predicted.to_lowercase().contains("plan") {
-        Ok(PlannerResponseType::Plan)
-    } else {
-        Ok(PlannerResponseType::ClarifyingQuestions)
-    }
-}
-
-fn planner_classification_text(response: &Message) -> Result<String> {
-    let text = response.agent_visible_content().as_concat_text();
-    anyhow::ensure!(
-        !text.trim().is_empty(),
-        "Planner returned no agent-visible text to classify"
-    );
-    Ok(text)
 }
 
 impl CliSession {
@@ -396,7 +327,6 @@ impl CliSession {
             session_id,
             completion_cache,
             debug,
-            run_mode: RunMode::Normal,
             scheduled_job_id,
             max_turns,
             edit_mode,
@@ -788,13 +718,6 @@ impl CliSession {
                 history.save(editor);
                 self.handle_model(options).await?;
             }
-            InputResult::Plan(options) => {
-                self.handle_plan_mode(options).await?;
-            }
-            InputResult::EndPlan => {
-                self.run_mode = RunMode::Normal;
-                output::render_exit_plan_mode();
-            }
             InputResult::Clear => {
                 history.save(editor);
                 self.handle_clear().await?;
@@ -860,33 +783,22 @@ impl CliSession {
         history: &HistoryManager,
         editor: &mut rustyline::Editor<GooseCompleter, rustyline::history::DefaultHistory>,
     ) -> Result<()> {
-        match self.run_mode {
-            RunMode::Normal => {
-                history.save(editor);
-                self.push_message(Message::user().with_text(content));
+        history.save(editor);
+        self.push_message(Message::user().with_text(content));
 
-                let _provider = self.agent.provider().await?;
+        let _provider = self.agent.provider().await?;
 
-                println!();
-                output::run_status_hook("thinking");
-                output::show_thinking();
-                let start_time = Instant::now();
-                self.process_agent_response(true, CancellationToken::default())
-                    .await?;
-                output::hide_thinking();
+        println!();
+        output::run_status_hook("thinking");
+        output::show_thinking();
+        let start_time = Instant::now();
+        self.process_agent_response(true, CancellationToken::default())
+            .await?;
+        output::hide_thinking();
 
-                let elapsed = start_time.elapsed();
-                let elapsed_str = format_elapsed_time(elapsed);
-                println!("{}", console::style(format!("  ⏱ {}", elapsed_str)).dim());
-            }
-            RunMode::Plan => {
-                let mut plan_messages = self.messages.clone();
-                plan_messages.push(Message::user().with_text(content));
-                let (reasoner, reasoner_model_config) = get_reasoner().await?;
-                self.plan_with_reasoner_model(plan_messages, reasoner, reasoner_model_config)
-                    .await?;
-            }
-        }
+        let elapsed = start_time.elapsed();
+        let elapsed_str = format_elapsed_time(elapsed);
+        println!("{}", console::style(format!("  ⏱ {}", elapsed_str)).dim());
         Ok(())
     }
 
@@ -1141,22 +1053,6 @@ impl CliSession {
         Ok(())
     }
 
-    async fn handle_plan_mode(&mut self, options: input::PlanCommandOptions) -> Result<()> {
-        self.run_mode = RunMode::Plan;
-        output::render_enter_plan_mode();
-
-        if options.message_text.is_empty() {
-            return Ok(());
-        }
-
-        let mut plan_messages = self.messages.clone();
-        plan_messages.push(Message::user().with_text(&options.message_text));
-
-        let (reasoner, reasoner_model_config) = get_reasoner().await?;
-        self.plan_with_reasoner_model(plan_messages, reasoner, reasoner_model_config)
-            .await
-    }
-
     async fn handle_clear(&mut self) -> Result<()> {
         let provider = self.agent.provider().await?;
         if provider.manages_own_context() {
@@ -1237,7 +1133,6 @@ impl CliSession {
 
         self.session_id = new_session_id;
         self.messages.clear();
-        self.run_mode = RunMode::Normal;
         self.agent.set_goal(None).await;
         self.agent.set_grind(None).await;
 
@@ -1387,105 +1282,6 @@ impl CliSession {
         } else {
             println!("{}", console::style("Compaction cancelled.").yellow());
         }
-        Ok(())
-    }
-
-    async fn plan_with_reasoner_model(
-        &mut self,
-        plan_messages: Conversation,
-        reasoner: Arc<dyn Provider>,
-        model_config: goose_providers::model::ModelConfig,
-    ) -> Result<(), anyhow::Error> {
-        let plan_prompt = self.agent.get_plan_prompt(&self.session_id).await?;
-        let provider_messages = planner_provider_messages(&plan_messages);
-        output::show_thinking();
-        let (plan_response, _usage) = goose::session_context::with_session_id(
-            Some(self.session_id.clone()),
-            reasoner.complete(
-                &model_config,
-                &plan_prompt,
-                provider_messages.messages(),
-                &[],
-            ),
-        )
-        .await?;
-        let classifier_text = planner_classification_text(&plan_response);
-        let plan_response = plan_response.user_visible_content();
-        output::render_message(&plan_response, self.debug);
-        output::hide_thinking();
-        let classifier_text = classifier_text?;
-        anyhow::ensure!(
-            !plan_response.content.is_empty(),
-            "Planner returned no user-visible content"
-        );
-        let planner_response_type = classify_planner_response(
-            &self.session_id,
-            classifier_text,
-            self.agent.provider().await?,
-            self.agent
-                .model_config_for_session(&self.session_id)
-                .await?,
-        )
-        .await?;
-
-        output::emit_attention_bell();
-
-        match planner_response_type {
-            PlannerResponseType::Plan => {
-                println!();
-                let should_act = match cliclack::confirm(
-                    "Do you want to clear message history & act on this plan?",
-                )
-                .initial_value(true)
-                .interact()
-                {
-                    Ok(choice) => choice,
-                    Err(e) => {
-                        if e.kind() == std::io::ErrorKind::Interrupted {
-                            false // If interrupted, set should_act to false
-                        } else {
-                            return Err(e.into());
-                        }
-                    }
-                };
-                if should_act {
-                    output::render_act_on_plan();
-                    self.run_mode = RunMode::Normal;
-                    // set goose mode: auto if that isn't already the case
-                    let config = Config::global();
-                    let curr_goose_mode = config.get_goose_mode().unwrap_or_default();
-                    if curr_goose_mode != GooseMode::Auto {
-                        config.set_goose_mode(GooseMode::Auto).unwrap();
-                    }
-
-                    // clear the messages before acting on the plan
-                    self.messages.clear();
-                    // add the plan response as a user message
-                    let plan_message = Message::user().with_text(plan_response.as_concat_text());
-                    self.push_message(plan_message);
-                    // act on the plan
-                    output::show_thinking();
-                    self.process_agent_response(true, CancellationToken::default())
-                        .await?;
-                    output::hide_thinking();
-
-                    // Reset run & goose mode
-                    if curr_goose_mode != GooseMode::Auto {
-                        config.set_goose_mode(curr_goose_mode)?;
-                    }
-                } else {
-                    // add the plan response (assistant message) & carry the conversation forward
-                    // in the next round, the user might wanna slightly modify the plan
-                    self.push_message(plan_response);
-                }
-            }
-            PlannerResponseType::ClarifyingQuestions => {
-                // add the plan response (assistant message) & carry the conversation forward
-                // in the next round, the user will answer the clarifying questions
-                self.push_message(plan_response);
-            }
-        }
-
         Ok(())
     }
 
@@ -2831,40 +2627,6 @@ fn headless_run_error(
         })
 }
 
-async fn get_reasoner(
-) -> Result<(Arc<dyn Provider>, goose_providers::model::ModelConfig), anyhow::Error> {
-    use goose::providers::create;
-
-    let config = Config::global();
-
-    // Try planner-specific provider first, fall back to default provider
-    let provider = if let Ok(provider) = config.get_param::<String>("GOOSE_PLANNER_PROVIDER") {
-        provider
-    } else {
-        println!("WARNING: GOOSE_PLANNER_PROVIDER not found. Using default provider...");
-        config
-            .get_goose_provider()
-            .expect("No provider configured. Run 'goose configure' first")
-    };
-
-    // Try planner-specific model first, fall back to default model
-    let model = if let Ok(model) = config.get_param::<String>("GOOSE_PLANNER_MODEL") {
-        model
-    } else {
-        println!("WARNING: GOOSE_PLANNER_MODEL not found. Using default model...");
-        config
-            .get_goose_model()
-            .expect("No model configured. Run 'goose configure' first")
-    };
-
-    let model_config =
-        goose::model_config::model_config_from_user_config(&provider, model.as_str())?;
-    let extensions = goose::config::extensions::get_enabled_extensions_with_config(config);
-    let reasoner = create(&provider, extensions).await?;
-
-    Ok((reasoner, model_config))
-}
-
 /// Format elapsed time duration
 /// Shows seconds if less than 60, otherwise shows minutes:seconds
 fn format_elapsed_time(duration: std::time::Duration) -> String {
@@ -2899,6 +2661,7 @@ mod tests {
     use goose::agents::extension::Envs;
     use goose::config::ExtensionConfig;
     use goose::conversation::message::MessageErrorKind;
+    use goose::providers::base::Provider;
     use serde_json::json;
     use std::collections::HashMap;
     use std::time::Duration;
@@ -2961,81 +2724,6 @@ mod tests {
         assert_eq!(request.tool_name, "Bash");
         assert_eq!(request.arguments, arguments);
         assert_eq!(request.prompt.as_deref(), Some("Review this request"));
-    }
-
-    #[test]
-    fn planner_classification_excludes_user_only_content() {
-        use rmcp::model::{Annotations, Role, TextContent};
-
-        let user_only = TextContent::new("user-only plan")
-            .with_annotations(Annotations::default().with_audience(vec![Role::User]));
-        let assistant_only = TextContent::new("agent classification text")
-            .with_annotations(Annotations::default().with_audience(vec![Role::Assistant]));
-        let mixed = Message::assistant()
-            .with_content(MessageContent::Text(user_only.clone()))
-            .with_content(MessageContent::Text(assistant_only));
-
-        assert_eq!(
-            planner_classification_text(&mixed).unwrap(),
-            "agent classification text"
-        );
-        assert!(planner_classification_text(
-            &Message::assistant().with_content(MessageContent::Text(user_only))
-        )
-        .is_err());
-    }
-
-    #[test]
-    fn planner_history_is_fixed_after_audience_projection() {
-        use rmcp::model::{Annotations, Role, TextContent};
-
-        let hidden_separator = MessageContent::Text(
-            TextContent::new("hidden separator")
-                .with_annotations(Annotations::default().with_audience(vec![Role::User])),
-        );
-        let history = Conversation::new_unvalidated([
-            Message::user().with_text("first request"),
-            Message::assistant().with_content(hidden_separator),
-            Message::user().with_text("second request"),
-        ]);
-
-        let provider_messages = planner_provider_messages(&history).agent_visible_messages();
-
-        assert_eq!(provider_messages.len(), 1);
-        assert_eq!(provider_messages[0].role, Role::User);
-        assert_eq!(
-            provider_messages[0].as_concat_text(),
-            "first request\nsecond request"
-        );
-        assert!(!provider_messages[0]
-            .as_concat_text()
-            .contains("hidden separator"));
-    }
-
-    #[test]
-    fn planner_history_excludes_turn_context_events() {
-        use goose::conversation::message::MessageMetadata;
-
-        let history = Conversation::new_unvalidated([
-            Message::user().with_text("plan the refactor"),
-            Message::user()
-                .with_text("<turn-context>cwd /repo, todo: ship v2</turn-context>")
-                .with_metadata(MessageMetadata::agent_only().with_turn_context()),
-            Message::assistant().with_text("on it"),
-        ]);
-
-        let provider_text = planner_provider_messages(&history)
-            .agent_visible_messages()
-            .iter()
-            .map(|message| message.as_concat_text())
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        assert!(provider_text.contains("plan the refactor"));
-        assert!(
-            !provider_text.contains("turn-context"),
-            "the planner prompt has no turn-context instructions, so blocks must not reach it"
-        );
     }
 
     #[test]
@@ -3542,17 +3230,9 @@ mod tests {
         let handled = tokio::spawn(async move {
             let history = HistoryManager::new();
             session
-                .handle_input(
-                    InputResult::Plan(input::PlanCommandOptions {
-                        message_text: String::new(),
-                    }),
-                    &history,
-                    &mut editor,
-                    &[],
-                )
+                .handle_input(InputResult::ListSkills, &history, &mut editor, &[])
                 .await
                 .expect("handle_input failed");
-            session.run_mode
         });
 
         tokio::time::sleep(Duration::from_millis(250)).await;
@@ -3562,8 +3242,7 @@ mod tests {
         );
 
         release.send(()).unwrap();
-        let run_mode = handled.await.unwrap();
-        assert!(matches!(run_mode, RunMode::Plan));
+        handled.await.unwrap();
     }
 
     #[tokio::test]

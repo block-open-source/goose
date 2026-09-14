@@ -87,23 +87,6 @@ export CLAUDE_THINKING_TYPE=disabled
 To see Claude's thinking output in the **CLI**, you also need to set `GOOSE_CLI_SHOW_THINKING=1`. In **goose Desktop**, thinking output is shown automatically in a collapsible "Show reasoning" toggle.
 :::
 
-### Planning Mode Configuration
-
-These variables control goose's [planning functionality](/docs/guides/context-engineering/creating-plans).
-
-| Variable | Purpose | Values | Default |
-|----------|---------|---------|---------|
-| `GOOSE_PLANNER_PROVIDER` | Specifies which provider to use for planning mode | [See available providers](/docs/getting-started/providers#available-providers) | Falls back to GOOSE_PROVIDER |
-| `GOOSE_PLANNER_MODEL` | Specifies which model to use for planning mode | Model name (e.g., "gpt-4", "claude-sonnet-4-20250514")| Falls back to GOOSE_MODEL |
-
-**Examples**
-
-```bash
-# Planning mode with different model
-export GOOSE_PLANNER_PROVIDER="openai"
-export GOOSE_PLANNER_MODEL="gpt-4"
-```
-
 ### Provider Retries
 
 Configurable retry parameters for LLM providers. 
@@ -663,4 +646,3 @@ When deploying goose in enterprise environments, administrators might need to co
 - Environment variables take precedence over configuration files.
 - For security-sensitive variables (like API keys), consider using the system keyring instead of environment variables.
 - Some variables may require restarting goose to take effect.
-- When using the planning mode, if planner-specific variables are not set, goose will fall back to the main model configuration.

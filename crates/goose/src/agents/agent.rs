@@ -21,10 +21,8 @@ use super::tool_execution::{
     DECLINED_RESPONSE,
 };
 use crate::action_required_manager::ElicitationOutcome;
-use crate::agents::extension::{ExtensionConfig, ExtensionResult, ToolInfo};
-use crate::agents::extension_manager::{
-    get_parameter_names, ExtensionManager, ExtensionManagerCapabilities,
-};
+use crate::agents::extension::{ExtensionConfig, ExtensionResult};
+use crate::agents::extension_manager::{ExtensionManager, ExtensionManagerCapabilities};
 use crate::agents::final_output_tool::{
     structured_output_unsupported_message, FINAL_OUTPUT_CONTINUATION_MESSAGE,
     FINAL_OUTPUT_TOOL_NAME,
@@ -3970,32 +3968,6 @@ impl Agent {
         }
 
         Err(anyhow!("Prompt '{}' not found", name))
-    }
-
-    pub async fn get_plan_prompt(&self, session_id: &str) -> Result<String> {
-        let tools = self
-            .extension_manager
-            .get_prefixed_tools(session_id, None)
-            .await?;
-        let tools_info: Vec<_> = tools
-            .into_iter()
-            .map(|tool| {
-                ToolInfo::new(
-                    &tool.name,
-                    tool.description
-                        .as_ref()
-                        .map(|d| d.as_ref())
-                        .unwrap_or_default(),
-                    get_parameter_names(&tool),
-                    None,
-                )
-            })
-            .collect();
-
-        let context = HashMap::from([("tools", serde_json::to_value(tools_info)?)]);
-        Ok(crate::prompt_template::render_template(
-            "plan.md", &context,
-        )?)
     }
 }
 

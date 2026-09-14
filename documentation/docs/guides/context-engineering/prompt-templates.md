@@ -24,7 +24,7 @@ When you customize a template:
 
 Your changes can range from major updates to minor adjustments such as:
 - Edit `system.md` to have goose respond in Dutch by adding an instruction to "Reply in Dutch"
-- Edit `plan.md` to add time estimates by adding instructions to "Include an estimated time for each step (e.g., "~5 min", "~30 min", "~2 hours")."
+- Edit `compaction.md` to keep more detail when summarizing by adding an instruction to "Preserve every file path and command that was run."
 
 See [Template Variable Syntax](#template-variable-syntax) for important information about modifying template variables.
 
@@ -95,7 +95,6 @@ The following default templates can be customized.
 | [apps_iterate.md](https://github.com/aaif-goose/goose/blob/main/crates/goose/src/prompts/apps_iterate.md) | Prompt for updating existing standalone apps (in development) | Desktop only |
 | [compaction.md](https://github.com/aaif-goose/goose/blob/main/crates/goose/src/prompts/compaction.md) | Prompt for summarizing conversation history when context limits are reached | Desktop and CLI |
 | [permission_judge.md](https://github.com/aaif-goose/goose/blob/main/crates/goose/src/prompts/permission_judge.md) | Prompt for analyzing tool operations for read-only detection | Desktop and CLI |
-| [plan.md](https://github.com/aaif-goose/goose/blob/main/crates/goose/src/prompts/plan.md) | Instructions for creating detailed, actionable plans with clarifying questions | CLI only |
 | [subagent_system.md](https://github.com/aaif-goose/goose/blob/main/crates/goose/src/prompts/subagent_system.md) | System prompt for subagents spawned to handle specific tasks | Desktop and CLI |
 | [tiny_model_system.md](https://github.com/aaif-goose/goose/blob/main/crates/goose/src/prompts/tiny_model_system.md) | System prompt for tiny local models using shell command emulation | CLI |
 | [session_name.md](https://github.com/aaif-goose/goose/blob/main/crates/goose/src/prompts/session_name.md) | Prompt for generating short session names from conversation history | Desktop and CLI |

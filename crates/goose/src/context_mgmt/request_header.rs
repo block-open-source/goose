@@ -10,6 +10,10 @@ const MAX_SESSIONS: usize = 64;
 
 #[derive(Clone, Default)]
 pub struct RequestHeader {
+    /// The provider this header was routed to. Switching providers mid-session
+    /// (`/model --provider ...`) leaves a header describing the old provider's
+    /// wire shape, which is worse than no header at all.
+    pub provider: String,
     pub system_prompt: String,
     pub tools: Vec<Tool>,
     /// Real tool definitions when toolshim is active (`tools` is empty then):
@@ -42,6 +46,14 @@ pub fn record(session_id: &str, header: RequestHeader) {
     registry.headers.insert(session_id.to_string(), header);
 }
 
-pub fn last_for_session(session_id: &str) -> Option<RequestHeader> {
-    registry().lock().unwrap().headers.get(session_id).cloned()
+/// `None` when the session last routed to a different provider: the recorded
+/// wire shape no longer describes what a request would look like now.
+pub fn last_for_session(session_id: &str, provider: &str) -> Option<RequestHeader> {
+    registry()
+        .lock()
+        .unwrap()
+        .headers
+        .get(session_id)
+        .filter(|header| header.provider == provider)
+        .cloned()
 }

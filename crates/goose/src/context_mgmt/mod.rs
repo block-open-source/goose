@@ -435,7 +435,8 @@ async fn do_compact(
     let summary_template = crate::prompt_template::template_source(
         goose_context_management::templates::COMPACTION_SUMMARY_TEMPLATE,
     )?;
-    let header = request_header::last_for_session(session_id).unwrap_or_default();
+    let header =
+        request_header::last_for_session(session_id, provider.get_name()).unwrap_or_default();
 
     // Cache stays on and thinking is inherited: both are part of the
     // provider's cache key, so this request extends the conversation's own
@@ -1485,6 +1486,7 @@ mod tests {
         request_header::record(
             session_id,
             request_header::RequestHeader {
+                provider: "mock".to_string(),
                 system_prompt,
                 tools,
                 toolshim_tools: vec![],
@@ -1551,6 +1553,7 @@ mod tests {
         request_header::record(
             session_id,
             request_header::RequestHeader {
+                provider: "mock".to_string(),
                 system_prompt,
                 tools: vec![],
                 toolshim_tools: vec![],
@@ -1582,6 +1585,44 @@ mod tests {
             elided_response_count(&request),
             0,
             "dropping the header was enough, so every tool response must survive"
+        );
+    }
+
+    /// Switching providers mid-session leaves a header describing the old
+    /// provider's wire shape. Replaying it would mix a shim system prompt with
+    /// native tools, or the reverse.
+    #[tokio::test]
+    async fn header_from_another_provider_is_not_replayed() {
+        let conversation = Conversation::new_unvalidated(vec![
+            Message::user().with_text("what does this do?"),
+            Message::assistant().with_text("it compacts"),
+        ]);
+        let session_id = "provider-switch-session";
+        request_header::record(
+            session_id,
+            request_header::RequestHeader {
+                provider: "some-other-provider".to_string(),
+                system_prompt: "STALE HEADER FROM THE OLD PROVIDER".to_string(),
+                tools: vec![],
+                toolshim_tools: vec![],
+            },
+        );
+        let provider = MockProvider::new(Message::assistant().with_text("<mock summary>"), 200_000);
+
+        compact_messages(
+            &provider,
+            &provider.config.clone(),
+            session_id,
+            &conversation,
+            false,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            provider.captured_system.lock().unwrap().clone().unwrap(),
+            "",
+            "a header recorded against another provider must be ignored"
         );
     }
 

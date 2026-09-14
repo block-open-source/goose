@@ -386,6 +386,7 @@ pub(crate) async fn stream_response_from_provider(
     crate::context_mgmt::request_header::record(
         &session_id,
         crate::context_mgmt::request_header::RequestHeader {
+            provider: provider.get_name().to_string(),
             system_prompt: system_prompt.clone(),
             tools: tools.clone(),
             toolshim_tools: toolshim_tools.clone(),

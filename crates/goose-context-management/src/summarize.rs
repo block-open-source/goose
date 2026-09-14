@@ -352,12 +352,22 @@ async fn fit_plans(
     plans.extend(
         REMOVAL_PERCENTAGES
             .iter()
+            .filter(|&&percent| percent < 100)
             .map(|&percent| FitPlan {
                 drop_header: false,
                 elide: middle_out_tool_response_indices(messages, percent),
             })
             .filter(|plan| plan.elide.len() > measured_count),
     );
+    // Before sacrificing every tool response to keep the header, try keeping
+    // every response without it. Pointless when there is no header to give
+    // back, which is the same request the ladder already sent.
+    if !system.is_empty() || !tools.is_empty() {
+        plans.push(FitPlan {
+            drop_header: true,
+            elide: Vec::new(),
+        });
+    }
     plans.push(headerless);
     plans.dedup();
     plans

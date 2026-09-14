@@ -122,6 +122,7 @@ fn record_header(session_id: &str) {
     request_header::record(
         session_id,
         request_header::RequestHeader {
+            provider: "anthropic".to_string(),
             system_prompt: SYSTEM.to_string(),
             tools: tools(),
             toolshim_tools: Vec::new(),
@@ -135,6 +136,7 @@ fn record_toolshim_header(session_id: &str) {
     request_header::record(
         session_id,
         request_header::RequestHeader {
+            provider: "anthropic".to_string(),
             system_prompt: SYSTEM.to_string(),
             tools: Vec::new(),
             toolshim_tools: tools(),

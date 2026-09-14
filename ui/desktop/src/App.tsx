@@ -132,6 +132,9 @@ export const PairRouteWrapper = ({
     }
 
     isCreatingSessionRef.current = true;
+    // The draft this request owns; a newer one typed after returning to Hub
+    // replaces the ref object and must survive both settle paths below.
+    const draftAtSubmit = draftRef?.current;
 
     (async () => {
       try {
@@ -149,7 +152,7 @@ export const PairRouteWrapper = ({
           recipeId: recipeIdFromConfig ?? undefined,
           ...sessionOptions,
         });
-        if (draftRef) {
+        if (draftRef && draftRef.current === draftAtSubmit) {
           draftRef.current = emptyHubDraft();
         }
         const sessionInitialMessage = resolveSessionInitialMessage(newSession, initialMessage);
@@ -179,7 +182,7 @@ export const PairRouteWrapper = ({
           { replace: true, state: location.state }
         );
       } catch (error) {
-        if (draftRef && initialMessage) {
+        if (draftRef && initialMessage && draftRef.current === draftAtSubmit) {
           draftRef.current = {
             msg: initialMessage.msg,
             images: [...initialMessage.images],

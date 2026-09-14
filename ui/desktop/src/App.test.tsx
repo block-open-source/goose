@@ -568,6 +568,78 @@ describe('App Component - Brand New State', () => {
     }
   });
 
+  it('keeps a newer Hub draft when a pending createSession succeeds', async () => {
+    let resolveSession: ((value: Awaited<ReturnType<typeof createSession>>) => void) | undefined;
+    vi.mocked(createSession).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveSession = resolve;
+        })
+    );
+    const draftRef = { current: { msg: 'first submit', images: [] } };
+    mockLocation.state = {
+      initialMessage: { msg: 'first submit', images: [] },
+      workingDir: '/tmp/hub-dir',
+    };
+    mockLocation.pathname = '/pair';
+
+    render(
+      <PairRouteWrapper activeSessions={[]} setActiveSessions={vi.fn()} draftRef={draftRef} />,
+      { wrapper: AppInnerTestWrapper }
+    );
+
+    await waitFor(() => {
+      expect(createSession).toHaveBeenCalled();
+    });
+
+    // The user returns to Hub and starts a newer draft while the request is pending.
+    draftRef.current = { msg: 'newer draft', images: [] };
+
+    resolveSession?.({
+      id: 'session-newer-draft',
+      recipe: null,
+    } as Awaited<ReturnType<typeof createSession>>);
+
+    await waitFor(() => {
+      expect(mockSetSearchParams).toHaveBeenCalled();
+    });
+    expect(draftRef.current).toEqual({ msg: 'newer draft', images: [] });
+  });
+
+  it('keeps a newer Hub draft when a pending createSession fails', async () => {
+    let rejectSession: ((error: Error) => void) | undefined;
+    vi.mocked(createSession).mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectSession = reject;
+        })
+    );
+    const draftRef = { current: { msg: 'first submit', images: [] } };
+    mockLocation.state = {
+      initialMessage: { msg: 'first submit', images: [] },
+      workingDir: '/tmp/hub-dir',
+    };
+    mockLocation.pathname = '/pair';
+
+    render(
+      <PairRouteWrapper activeSessions={[]} setActiveSessions={vi.fn()} draftRef={draftRef} />,
+      { wrapper: AppInnerTestWrapper }
+    );
+
+    await waitFor(() => {
+      expect(createSession).toHaveBeenCalled();
+    });
+
+    draftRef.current = { msg: 'newer draft', images: [] };
+
+    rejectSession?.(new Error('backend down'));
+
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith('/');
+    });
+    expect(draftRef.current).toEqual({ msg: 'newer draft', images: [] });
+  });
+
   it('should navigate home when the main process emits new-chat', async () => {
     mockElectron.getConfig.mockReturnValue({
       GOOSE_DEFAULT_PROVIDER: 'openai',

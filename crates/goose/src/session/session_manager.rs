@@ -433,6 +433,16 @@ impl SessionManager {
         self.storage.get_session(id, include_messages).await
     }
 
+    pub async fn find_child_session(
+        &self,
+        parent_session_id: &str,
+        session_type: SessionType,
+    ) -> Result<Option<Session>> {
+        self.storage
+            .find_child_session(parent_session_id, session_type)
+            .await
+    }
+
     pub fn update(&self, id: &str) -> SessionUpdateBuilder<'_> {
         SessionUpdateBuilder::new(self, id.to_string())
     }
@@ -1701,6 +1711,29 @@ impl SessionStorage {
         }
 
         Ok(session)
+    }
+
+    async fn find_child_session(
+        &self,
+        parent_session_id: &str,
+        session_type: SessionType,
+    ) -> Result<Option<Session>> {
+        let pool = self.pool().await?;
+        let ids = sqlx::query_scalar::<_, String>(
+            "SELECT id FROM sessions WHERE parent_session_id = ? AND session_type = ? LIMIT 2",
+        )
+        .bind(parent_session_id)
+        .bind(session_type.to_string())
+        .fetch_all(pool)
+        .await?;
+        match ids.as_slice() {
+            [] => Ok(None),
+            [id] => self.get_session(id, false).await.map(Some),
+            _ => anyhow::bail!(
+                "multiple {:?} child sessions found for parent {parent_session_id}",
+                session_type
+            ),
+        }
     }
 
     #[allow(clippy::too_many_lines)]

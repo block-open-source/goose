@@ -1,9 +1,11 @@
-use super::call::{LiveVoiceCall, LiveVoiceCallId, LiveVoiceCallState};
+use super::call::{DelegationInput, LiveVoiceCall, LiveVoiceCallId, LiveVoiceCallState};
 use crate::acp::server::ActiveRunRegistry;
 use crate::config::GooseMode;
-use crate::conversation::message::Message;
+use crate::conversation::message::{Message, MessageContent};
 use crate::conversation::Conversation;
 use crate::session::SessionManager;
+use crate::token_counter::TokenCounter;
+use futures::future::BoxFuture;
 use goose_providers::live_voice_provider::{
     LiveVoiceInputMessage, LiveVoiceProvider, LiveVoiceProviderAvailability,
     ProviderConnectionEvent,
@@ -19,10 +21,20 @@ use tokio_util::sync::CancellationToken;
 
 const PROVIDER_CLEANUP_TIMEOUT: Duration = Duration::from_secs(20);
 const LIVE_VOICE_INPUT_MESSAGE_COUNT: usize = 10;
+const DELEGATION_UPDATE_TOKEN_LIMIT: usize = 500;
+const SAVED_RESULT_NOTICE: &str = "\n\nThe full result is saved in Goose.";
 
 type LiveCallControls = Arc<StdMutex<HashMap<String, LiveCallControl>>>;
 pub(super) type LiveVoiceCallEndedHandler = Arc<dyn Fn(LiveVoiceCallEnded) + Send + Sync>;
 pub(super) type LiveVoiceTranscriptHandler = Arc<dyn Fn(Message) + Send + Sync>;
+pub(super) type LiveVoiceDelegationHandler =
+    Arc<dyn Fn(String, String, CancellationToken) -> BoxFuture<'static, String> + Send + Sync>;
+
+struct PendingDelegation {
+    provider_delegation_id: String,
+    cancellation: CancellationToken,
+    future: BoxFuture<'static, String>,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct LiveVoiceCallEnded {
@@ -128,6 +140,7 @@ impl LiveVoiceService {
         session_manager: Arc<SessionManager>,
         transcript_handler: LiveVoiceTranscriptHandler,
         call_ended_handler: LiveVoiceCallEndedHandler,
+        delegation_handler: LiveVoiceDelegationHandler,
     ) -> Result<StartLiveVoiceCallResult, LiveVoiceError> {
         if self.provider.availability() != LiveVoiceProviderAvailability::Ready {
             return Err(LiveVoiceError::Unavailable);
@@ -147,12 +160,17 @@ impl LiveVoiceService {
         let input_messages = live_voice_input_messages(&session.conversation.unwrap_or_default());
         let (answer, provider_connection) = self
             .provider
-            .start(offer, input_messages)
+            .start(offer, input_messages.clone())
             .await
             .map_err(|_| LiveVoiceError::StartFailed)?;
 
         let call_id = LiveVoiceCallId::new();
-        let call = LiveVoiceCall::new(session_id.to_string(), call_id.clone(), provider_connection);
+        let call = LiveVoiceCall::new(
+            session_id.to_string(),
+            call_id.clone(),
+            provider_connection,
+            input_messages,
+        );
         let stop_requested = CancellationToken::new();
         let (finished_state_tx, finished_state_rx) = watch::channel(None);
         let mut calls = self
@@ -177,6 +195,7 @@ impl LiveVoiceService {
             session_manager,
             transcript_handler,
             call_ended_handler,
+            delegation_handler,
         );
         Ok(StartLiveVoiceCallResult {
             call_id,
@@ -212,15 +231,22 @@ impl LiveVoiceService {
 
 fn live_voice_input_messages(conversation: &Conversation) -> Vec<LiveVoiceInputMessage> {
     let messages = conversation
-        .user_visible_messages()
+        .messages()
+        .iter()
+        .filter(|message| message.is_user_visible() || is_delegated_outcome(message))
         .into_iter()
         .filter_map(|message| {
-            let text = message.as_concat_text();
+            let text = message
+                .user_visible_content()
+                .content
+                .iter()
+                .filter_map(MessageContent::as_text)
+                .collect::<String>();
             if text.trim().is_empty() {
                 return None;
             }
             Some(LiveVoiceInputMessage {
-                role: message.role,
+                role: message.role.clone(),
                 text,
             })
         })
@@ -229,6 +255,13 @@ fn live_voice_input_messages(conversation: &Conversation) -> Vec<LiveVoiceInputM
         .len()
         .saturating_sub(LIVE_VOICE_INPUT_MESSAGE_COUNT);
     messages.into_iter().skip(start).collect()
+}
+
+fn is_delegated_outcome(message: &Message) -> bool {
+    message
+        .metadata
+        .operation_note("live_delegation", "outcome")
+        .is_some_and(|value| value.as_bool() == Some(true))
 }
 
 pub(super) async fn wait_until_finished(
@@ -253,6 +286,7 @@ fn spawn_live_call(
     session_manager: Arc<SessionManager>,
     transcript_handler: LiveVoiceTranscriptHandler,
     call_ended_handler: LiveVoiceCallEndedHandler,
+    delegation_handler: LiveVoiceDelegationHandler,
 ) {
     tokio::spawn(async move {
         let session_id = call.session_id().to_string();
@@ -262,6 +296,7 @@ fn spawn_live_call(
             &session_id,
             &session_manager,
             transcript_handler.as_ref(),
+            delegation_handler,
         )
         .await;
         let call_id = call.id().clone();
@@ -281,8 +316,10 @@ async fn run_live_call(
     session_id: &str,
     session_manager: &SessionManager,
     transcript_handler: &(dyn Fn(Message) + Send + Sync),
+    delegation_handler: LiveVoiceDelegationHandler,
 ) -> LiveVoiceCallState {
     let mut stopping = false;
+    let mut pending_delegation: Option<PendingDelegation> = None;
     loop {
         let event = if stopping {
             call.next_provider_event().await
@@ -290,6 +327,7 @@ async fn run_live_call(
             tokio::select! {
                 biased;
                 _ = stop_requested.cancelled() => {
+                    cancel_delegation(&mut pending_delegation).await;
                     match timeout(PROVIDER_CLEANUP_TIMEOUT, call.cleanup_provider()).await {
                         Ok(Ok(())) => {
                             stopping = true;
@@ -306,6 +344,33 @@ async fn run_live_call(
                         }
                     }
                 }
+                result = async {
+                    let pending = pending_delegation
+                        .as_mut()
+                        .expect("delegation is pending");
+                    pending.future.as_mut().await
+                }, if pending_delegation.is_some() => {
+                    let pending = pending_delegation.take().expect("delegation is pending");
+                    if call
+                        .send_delegation_update(
+                            pending.provider_delegation_id,
+                            bound_delegation_update(result).await,
+                        )
+                        .await
+                        .is_err()
+                    {
+                        cancel_delegation(&mut pending_delegation).await;
+                        let _ = timeout(PROVIDER_CLEANUP_TIMEOUT, call.cleanup_provider()).await;
+                        let _ = persist_transcript(
+                            session_manager,
+                            session_id,
+                            call.take_transcript(),
+                        )
+                        .await;
+                        return call.fail();
+                    }
+                    continue;
+                }
                 event = call.next_provider_event() => event,
             }
         };
@@ -315,13 +380,18 @@ async fn run_live_call(
                 event_id,
                 role,
                 text,
+                start_ms,
+                end_ms,
             } => {
-                if let Some((finalized, delta)) = call.observe_transcript(event_id, role, &text) {
+                if let Some((finalized, delta)) =
+                    call.observe_transcript(event_id, role, &text, start_ms, end_ms)
+                {
                     transcript_handler(delta);
                     if persist_transcript(session_manager, session_id, finalized)
                         .await
                         .is_err()
                     {
+                        cancel_delegation(&mut pending_delegation).await;
                         if !stopping {
                             let _ =
                                 timeout(PROVIDER_CLEANUP_TIMEOUT, call.cleanup_provider()).await;
@@ -330,7 +400,38 @@ async fn run_live_call(
                     }
                 }
             }
+            ProviderConnectionEvent::DelegationRequested {
+                event_id,
+                delegation_id,
+                offset_ms,
+            } => match call.accept_delegation(event_id, delegation_id.clone(), offset_ms) {
+                DelegationInput::Ignore => {}
+                DelegationInput::Reject(text) => {
+                    if call
+                        .send_delegation_update(delegation_id, bound_delegation_update(text).await)
+                        .await
+                        .is_err()
+                    {
+                        let _ = timeout(PROVIDER_CLEANUP_TIMEOUT, call.cleanup_provider()).await;
+                        let _ =
+                            persist_transcript(session_manager, session_id, call.take_transcript())
+                                .await;
+                        return call.fail();
+                    }
+                }
+                DelegationInput::Accept(input) => {
+                    let cancellation = CancellationToken::new();
+                    let future =
+                        delegation_handler(session_id.to_string(), input, cancellation.clone());
+                    pending_delegation = Some(PendingDelegation {
+                        provider_delegation_id: delegation_id,
+                        cancellation,
+                        future,
+                    });
+                }
+            },
             ProviderConnectionEvent::Closed => {
+                cancel_delegation(&mut pending_delegation).await;
                 let persisted =
                     persist_transcript(session_manager, session_id, call.take_transcript())
                         .await
@@ -342,13 +443,16 @@ async fn run_live_call(
                 };
             }
             ProviderConnectionEvent::ReceiverLagged => {
-                call.take_transcript();
+                cancel_delegation(&mut pending_delegation).await;
+                let _ =
+                    persist_transcript(session_manager, session_id, call.take_transcript()).await;
                 if !stopping {
                     let _ = timeout(PROVIDER_CLEANUP_TIMEOUT, call.cleanup_provider()).await;
                 }
                 return call.fail();
             }
             ProviderConnectionEvent::Failed => {
+                cancel_delegation(&mut pending_delegation).await;
                 let _ =
                     persist_transcript(session_manager, session_id, call.take_transcript()).await;
                 if !stopping {
@@ -358,6 +462,47 @@ async fn run_live_call(
             }
         }
     }
+}
+
+async fn cancel_delegation(pending: &mut Option<PendingDelegation>) {
+    let Some(PendingDelegation {
+        cancellation,
+        future,
+        ..
+    }) = pending.take()
+    else {
+        return;
+    };
+    cancellation.cancel();
+    let _ = timeout(PROVIDER_CLEANUP_TIMEOUT, future).await;
+}
+
+async fn bound_delegation_update(text: String) -> String {
+    let Ok(counter) = TokenCounter::new().await else {
+        return text;
+    };
+    if counter.count_tokens(&text) <= DELEGATION_UPDATE_TOKEN_LIMIT {
+        return text;
+    }
+
+    let allowed = DELEGATION_UPDATE_TOKEN_LIMIT - counter.count_tokens(SAVED_RESULT_NOTICE);
+    let boundaries = text
+        .char_indices()
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    let mut low = 0;
+    let mut high = boundaries.len();
+    while low < high {
+        let middle = (low + high).div_ceil(2);
+        let end = boundaries.get(middle).copied().unwrap_or(text.len());
+        if counter.count_tokens(&text[..end]) <= allowed {
+            low = middle;
+        } else {
+            high = middle - 1;
+        }
+    }
+    let end = boundaries.get(low).copied().unwrap_or(text.len());
+    format!("{}{}", text[..end].trim_end(), SAVED_RESULT_NOTICE)
 }
 
 async fn persist_transcript(
@@ -403,6 +548,10 @@ mod tests {
 
     fn ignore_transcript() -> LiveVoiceTranscriptHandler {
         Arc::new(|_| {})
+    }
+
+    fn ignore_delegation() -> LiveVoiceDelegationHandler {
+        Arc::new(|_, _, _| Box::pin(async { "unused".to_string() }))
     }
 
     fn session_manager() -> Arc<SessionManager> {
@@ -454,6 +603,7 @@ mod tests {
                     session_manager,
                     ignore_transcript(),
                     ignore_call_ended(),
+                    ignore_delegation(),
                 )
                 .await
         })
@@ -543,14 +693,29 @@ mod tests {
                 Message::assistant().with_text(format!("message {index}"))
             }
         }));
+        let mut outcome_metadata = crate::conversation::message::MessageMetadata::agent_only();
+        outcome_metadata.set_operation_note(
+            "live_delegation",
+            "outcome",
+            serde_json::Value::Bool(true),
+        );
+        messages.push(
+            Message::assistant()
+                .with_text("delegated result")
+                .with_metadata(outcome_metadata),
+        );
+        messages.push(Message::assistant().with_text("other hidden").agent_only());
         let conversation = Conversation::new_unvalidated(messages);
 
         let input_messages = live_voice_input_messages(&conversation);
         assert_eq!(input_messages.len(), LIVE_VOICE_INPUT_MESSAGE_COUNT);
-        assert_eq!(input_messages.first().unwrap().text, "message 2");
-        assert_eq!(input_messages.first().unwrap().role, Role::User);
-        assert_eq!(input_messages.last().unwrap().text, "message 11");
+        assert_eq!(input_messages.first().unwrap().text, "message 3");
+        assert_eq!(input_messages.first().unwrap().role, Role::Assistant);
+        assert_eq!(input_messages.last().unwrap().text, "delegated result");
         assert_eq!(input_messages.last().unwrap().role, Role::Assistant);
+        assert!(!input_messages
+            .iter()
+            .any(|message| message.text == "other hidden"));
     }
 
     #[tokio::test]
@@ -590,6 +755,7 @@ mod tests {
                 manager,
                 ignore_transcript(),
                 ignore_call_ended(),
+                ignore_delegation(),
             )
             .await;
         assert!(matches!(second, Err(LiveVoiceError::Unavailable)));
@@ -717,6 +883,7 @@ mod tests {
                     start_manager,
                     transcript_handler,
                     ignore_call_ended(),
+                    ignore_delegation(),
                 )
                 .await
         });
@@ -731,12 +898,25 @@ mod tests {
             event_id: event_id.into(),
             role: Role::User,
             text: text.into(),
+            start_ms: 0,
+            end_ms: 1,
         };
 
         connection.send_event(delta("1", "hello")).unwrap();
         assert_eq!(
             transcript_rx.recv().await.unwrap().as_concat_text(),
             "hello"
+        );
+        connection
+            .send_event(ProviderConnectionEvent::DelegationRequested {
+                event_id: "delegation-event".into(),
+                delegation_id: "delegation".into(),
+                offset_ms: 1,
+            })
+            .unwrap();
+        assert_eq!(
+            connection.next_delegation_update().await.unwrap().text,
+            "unused"
         );
         assert!(session_manager
             .get_session(&session.id, true)
@@ -827,6 +1007,7 @@ mod tests {
                     manager,
                     ignore_transcript(),
                     call_ended_handler,
+                    ignore_delegation(),
                 )
                 .await
         });

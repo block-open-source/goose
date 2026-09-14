@@ -204,7 +204,7 @@ pub fn custom_methods(_attr: TokenStream, item: TokenStream) -> TokenStream {
     // Generate the handle_custom_request method.
     let dispatcher = quote! {
         async fn handle_custom_request(
-            &self,
+            self: &std::sync::Arc<Self>,
             cx: &agent_client_protocol::ConnectionTo<agent_client_protocol::Client>,
             method: &str,
             params: serde_json::Value,

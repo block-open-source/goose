@@ -38,6 +38,7 @@ fn valid_sdp(sdp: &str) -> bool {
 #[async_trait]
 pub trait ProviderConnection: Send {
     async fn next_event(&mut self) -> ProviderConnectionEvent;
+    async fn send_delegation_update(&mut self, update: DelegationUpdate) -> Result<()>;
     async fn stop(&mut self) -> Result<()>;
 }
 
@@ -47,10 +48,23 @@ pub enum ProviderConnectionEvent {
         event_id: String,
         role: rmcp::model::Role,
         text: String,
+        start_ms: u64,
+        end_ms: u64,
+    },
+    DelegationRequested {
+        event_id: String,
+        delegation_id: String,
+        offset_ms: u64,
     },
     ReceiverLagged,
     Closed,
     Failed,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DelegationUpdate {
+    pub provider_delegation_id: String,
+    pub text: String,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -158,18 +172,21 @@ pub mod fake {
         pub fn accept(self, answer: WebRtcAnswer) -> Result<FakeConnectionDriver> {
             let (stop_request_tx, stop_request_rx) = mpsc::unbounded_channel();
             let (event_tx, event_rx) = mpsc::unbounded_channel();
+            let (delegation_update_tx, delegation_update_rx) = mpsc::unbounded_channel();
             self.response_tx
                 .send(Ok((
                     answer,
                     Box::new(FakeProviderConnection {
                         stop_request_tx,
                         event_rx,
+                        delegation_update_tx,
                     }),
                 )))
                 .map_err(|_| anyhow::anyhow!("fake provider start caller dropped"))?;
             Ok(FakeConnectionDriver {
                 stop_request_rx,
                 event_tx,
+                delegation_update_rx,
             })
         }
 
@@ -183,6 +200,7 @@ pub mod fake {
     pub struct FakeConnectionDriver {
         stop_request_rx: mpsc::UnboundedReceiver<oneshot::Sender<Result<(), String>>>,
         event_tx: mpsc::UnboundedSender<ProviderConnectionEvent>,
+        delegation_update_rx: mpsc::UnboundedReceiver<DelegationUpdate>,
     }
 
     impl FakeConnectionDriver {
@@ -195,11 +213,16 @@ pub mod fake {
                 .send(event)
                 .map_err(|_| anyhow::anyhow!("fake provider event receiver dropped"))
         }
+
+        pub async fn next_delegation_update(&mut self) -> Option<DelegationUpdate> {
+            self.delegation_update_rx.recv().await
+        }
     }
 
     struct FakeProviderConnection {
         stop_request_tx: mpsc::UnboundedSender<oneshot::Sender<Result<(), String>>>,
         event_rx: mpsc::UnboundedReceiver<ProviderConnectionEvent>,
+        delegation_update_tx: mpsc::UnboundedSender<DelegationUpdate>,
     }
 
     #[async_trait]
@@ -209,6 +232,12 @@ pub mod fake {
                 .recv()
                 .await
                 .unwrap_or(ProviderConnectionEvent::Failed)
+        }
+
+        async fn send_delegation_update(&mut self, update: DelegationUpdate) -> Result<()> {
+            self.delegation_update_tx
+                .send(update)
+                .map_err(|_| anyhow::anyhow!("fake provider driver dropped"))
         }
 
         async fn stop(&mut self) -> Result<()> {

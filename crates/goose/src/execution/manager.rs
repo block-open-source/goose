@@ -202,6 +202,7 @@ impl AgentManager {
         config.session_name_update_tx = runtime_context.session_name_update_tx;
         let agent = Arc::new(Agent::with_config(config));
         let mut extension_results = Vec::new();
+        let mut provider_restore_error = None;
 
         if let Ok(session) = self
             .agent_config
@@ -223,6 +224,7 @@ impl AgentManager {
                         session_id,
                         error
                     );
+                    provider_restore_error = Some(error);
                 }
             }
             extension_results = agent.load_extensions_from_session(&session).await;
@@ -255,6 +257,18 @@ impl AgentManager {
                     .update_mode(session_id, mode)
                     .await
                     .map_err(|e| anyhow::anyhow!("Failed to propagate mode to provider: {}", e))?;
+            }
+        }
+
+        // A session whose record names a provider must not be cached with a
+        // provider-less agent: the cache fast path would keep returning the
+        // broken agent, so every subsequent load fails with "Provider not
+        // set" until the process restarts — even after the underlying issue
+        // (e.g. expired cloud credentials) is fixed.  Surface the restore
+        // error instead so the next attempt runs the restore again.
+        if agent.provider().await.is_err() {
+            if let Some(error) = provider_restore_error {
+                return Err(error);
             }
         }
 
@@ -705,6 +719,135 @@ mod tests {
         assert!(
             !manager.has_session(&session_id).await,
             "failed creation must not insert into the LRU cache"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_failed_provider_restore_is_not_cached_and_can_recover() {
+        // Regression test: a session whose record names a provider used to
+        // be cached with a provider-less agent when the provider could not
+        // be recreated (e.g. expired cloud credentials).  The cache fast
+        // path then returned the broken agent forever, so every session
+        // load failed with "Provider not set" until the process restarted —
+        // even after the credentials were fixed.
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        use async_trait::async_trait;
+        use futures::future::BoxFuture;
+        use rmcp::model::Tool;
+
+        use crate::conversation::message::Message;
+        use crate::providers::base::{
+            MessageStream, Provider, ProviderDef, ProviderDescriptor, ProviderMetadata,
+        };
+        use goose_providers::conversation::token_usage::{ProviderUsage, Usage};
+        use goose_providers::model::ModelConfig;
+
+        const PROVIDER_NAME: &str = "restore-failure-test-provider";
+        static CREATION_FAILS: AtomicBool = AtomicBool::new(true);
+
+        struct StubProvider;
+
+        #[async_trait]
+        impl Provider for StubProvider {
+            fn get_name(&self) -> &str {
+                PROVIDER_NAME
+            }
+
+            async fn stream(
+                &self,
+                _model_config: &ModelConfig,
+                _system: &str,
+                _messages: &[Message],
+                _tools: &[Tool],
+            ) -> std::result::Result<MessageStream, goose_providers::errors::ProviderError>
+            {
+                Ok(crate::providers::base::stream_from_single_message(
+                    Message::assistant().with_text("unused"),
+                    ProviderUsage::new(PROVIDER_NAME.into(), Usage::default()),
+                ))
+            }
+        }
+
+        struct RestoreFailureProviderDef;
+
+        impl ProviderDescriptor for RestoreFailureProviderDef {
+            fn metadata() -> ProviderMetadata {
+                ProviderMetadata::new(
+                    PROVIDER_NAME,
+                    "Restore Failure Test",
+                    "Test-only provider whose creation can be toggled to fail",
+                    "test-model",
+                    vec!["test-model"],
+                    "",
+                    vec![],
+                )
+            }
+        }
+
+        impl ProviderDef for RestoreFailureProviderDef {
+            type Provider = StubProvider;
+
+            fn from_env(
+                _extensions: Vec<crate::config::ExtensionConfig>,
+                _tls_config: Option<crate::providers::api_client::TlsConfig>,
+            ) -> BoxFuture<'static, anyhow::Result<StubProvider>> {
+                Box::pin(async {
+                    if CREATION_FAILS.load(Ordering::SeqCst) {
+                        Err(anyhow::anyhow!("credentials expired"))
+                    } else {
+                        Ok(StubProvider)
+                    }
+                })
+            }
+        }
+
+        crate::providers::register_provider_for_tests::<RestoreFailureProviderDef>().await;
+
+        let temp_dir = TempDir::new().unwrap();
+        let manager = create_test_manager(&temp_dir).await;
+
+        let session = manager
+            .session_manager()
+            .create_session(
+                temp_dir.path().to_path_buf(),
+                "restore-failure".into(),
+                crate::session::SessionType::User,
+                GooseMode::default(),
+            )
+            .await
+            .unwrap();
+        manager
+            .session_manager()
+            .update(&session.id)
+            .provider_name(PROVIDER_NAME)
+            .model_config(ModelConfig::new("test-model"))
+            .apply()
+            .await
+            .unwrap();
+
+        CREATION_FAILS.store(true, Ordering::SeqCst);
+        let result = manager.get_or_create_agent(session.id.clone()).await;
+        assert!(
+            result.is_err(),
+            "failed provider restore must propagate instead of caching a provider-less agent"
+        );
+        assert!(
+            !manager.has_session(&session.id).await,
+            "session with failed provider restore must not be cached"
+        );
+
+        // Simulate the user fixing the underlying issue (e.g. re-running
+        // `aws sso login`): the next attempt must run the restore again and
+        // succeed without a process restart.
+        CREATION_FAILS.store(false, Ordering::SeqCst);
+        let agent = manager
+            .get_or_create_agent(session.id.clone())
+            .await
+            .expect("retry after fixing credentials must succeed");
+        assert!(
+            agent.provider().await.is_ok(),
+            "retry must restore the session provider"
         );
     }
 

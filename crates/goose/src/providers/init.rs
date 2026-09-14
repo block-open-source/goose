@@ -250,6 +250,14 @@ pub async fn refresh_custom_providers() -> Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
+pub(crate) async fn register_provider_for_tests<F>()
+where
+    F: super::base::ProviderDef + 'static,
+{
+    get_registry().await.write().unwrap().register::<F>(false);
+}
+
 pub async fn get_from_registry(name: &str) -> Result<ProviderEntry> {
     let guard = get_registry().await.read().unwrap();
     guard

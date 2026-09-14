@@ -495,7 +495,20 @@ impl GatewayHandler {
                     .await?;
                 return Ok(());
             }
-            Err(error) => return Err(error),
+            Err(error) => {
+                // Agent creation also fails when the session's provider
+                // cannot be restored (e.g. expired credentials); tell the
+                // user instead of dropping their message silently.
+                self.gateway
+                    .send_message(
+                        &message.user,
+                        OutgoingMessage::Text {
+                            body: format!("⚠️ Failed to load session: {error}"),
+                        },
+                    )
+                    .await?;
+                return Err(error);
+            }
         };
 
         // Re-read the session after sync so restore picks up the new values.

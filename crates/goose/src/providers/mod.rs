@@ -98,6 +98,8 @@ pub mod utils;
 pub mod xai;
 pub mod xai_oauth;
 
+#[cfg(test)]
+pub(crate) use init::register_provider_for_tests;
 pub use init::{
     cleanup_provider, create, create_with_default_model, create_with_named_model,
     create_with_working_dir, get_from_registry, inventory_identity, providers,

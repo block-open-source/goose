@@ -195,7 +195,7 @@
     "env": [
       "AMD_API_KEY"
     ],
-    "model_count": 2
+    "model_count": 4
   },
   {
     "id": "anyapi",
@@ -261,7 +261,7 @@
     "env": [
       "BASETEN_API_KEY"
     ],
-    "model_count": 21
+    "model_count": 22
   },
   {
     "id": "berget",
@@ -272,7 +272,7 @@
     "env": [
       "BERGET_API_KEY"
     ],
-    "model_count": 11
+    "model_count": 6
   },
   {
     "id": "blueclaw",
@@ -338,7 +338,7 @@
     "env": [
       "CLINE_API_KEY"
     ],
-    "model_count": 13
+    "model_count": 14
   },
   {
     "id": "cloudferro-sherlock",
@@ -383,7 +383,7 @@
     "env": [
       "CORTECS_API_KEY"
     ],
-    "model_count": 112
+    "model_count": 105
   },
   {
     "id": "crof",
@@ -394,7 +394,7 @@
     "env": [
       "CROF_API_KEY"
     ],
-    "model_count": 23
+    "model_count": 24
   },
   {
     "id": "crossmodel",
@@ -405,7 +405,7 @@
     "env": [
       "CROSSMODEL_API_KEY"
     ],
-    "model_count": 56
+    "model_count": 59
   },
   {
     "id": "crusoe",
@@ -416,7 +416,7 @@
     "env": [
       "CRUSOE_API_KEY"
     ],
-    "model_count": 8
+    "model_count": 11
   },
   {
     "id": "daoxe",
@@ -461,7 +461,7 @@
     "env": [
       "DIGITALOCEAN_ACCESS_TOKEN"
     ],
-    "model_count": 94
+    "model_count": 95
   },
   {
     "id": "dinference",
@@ -516,7 +516,7 @@
     "env": [
       "EDENAI_API_KEY"
     ],
-    "model_count": 239
+    "model_count": 250
   },
   {
     "id": "empiriolabs",
@@ -527,7 +527,7 @@
     "env": [
       "EMPIRIOLABS_API_KEY"
     ],
-    "model_count": 56
+    "model_count": 58
   },
   {
     "id": "evroc",
@@ -560,7 +560,7 @@
     "env": [
       "FIREWORKS_API_KEY"
     ],
-    "model_count": 18
+    "model_count": 21
   },
   {
     "id": "freemodel",
@@ -604,7 +604,7 @@
     "env": [
       "GITHUB_TOKEN"
     ],
-    "model_count": 33
+    "model_count": 28
   },
   {
     "id": "gmicloud",
@@ -670,7 +670,7 @@
     "env": [
       "HF_TOKEN"
     ],
-    "model_count": 72
+    "model_count": 73
   },
   {
     "id": "hyper",
@@ -681,7 +681,7 @@
     "env": [
       "HYPER_API_KEY"
     ],
-    "model_count": 31
+    "model_count": 33
   },
   {
     "id": "iflowcn",
@@ -781,7 +781,7 @@
     "env": [
       "ITERACOMPUTE_API_KEY"
     ],
-    "model_count": 1
+    "model_count": 2
   },
   {
     "id": "jalapeno",
@@ -825,14 +825,14 @@
     "env": [
       "KILO_API_KEY"
     ],
-    "model_count": 363
+    "model_count": 367
   },
   {
     "id": "kimi-for-coding",
     "display_name": "Kimi For Coding",
     "npm": "@ai-sdk/anthropic",
     "api": "https://api.kimi.com/coding/v1",
-    "doc": "https://www.kimi.com/code/docs/en/third-party-tools/other-coding-agents.html",
+    "doc": "https://www.kimi.com/code/docs/en/kimi-code/models.html",
     "env": [
       "KIMI_API_KEY"
     ],
@@ -891,7 +891,7 @@
     "env": [
       "LLMGATEWAY_API_KEY"
     ],
-    "model_count": 180
+    "model_count": 186
   },
   {
     "id": "llmgateway-providers",
@@ -902,7 +902,7 @@
     "env": [
       "LLMGATEWAY_API_KEY"
     ],
-    "model_count": 360
+    "model_count": 373
   },
   {
     "id": "llmtech",
@@ -990,7 +990,7 @@
     "env": [
       "META_MODEL_API_KEY"
     ],
-    "model_count": 3
+    "model_count": 5
   },
   {
     "id": "meta-llama",
@@ -1122,7 +1122,7 @@
     "env": [
       "MOONSHOT_API_KEY"
     ],
-    "model_count": 10
+    "model_count": 4
   },
   {
     "id": "moonshotai-cn",
@@ -1133,7 +1133,7 @@
     "env": [
       "MOONSHOT_API_KEY"
     ],
-    "model_count": 10
+    "model_count": 4
   },
   {
     "id": "morph",
@@ -1147,6 +1147,17 @@
     "model_count": 3
   },
   {
+    "id": "nan",
+    "display_name": "NaN",
+    "npm": "@ai-sdk/openai-compatible",
+    "api": "https://api.nan.builders/v1",
+    "doc": "https://nan.builders/docs/models",
+    "env": [
+      "NAN_API_KEY"
+    ],
+    "model_count": 7
+  },
+  {
     "id": "nano-gpt",
     "display_name": "NanoGPT",
     "npm": "@ai-sdk/openai-compatible",
@@ -1155,7 +1166,7 @@
     "env": [
       "NANO_GPT_API_KEY"
     ],
-    "model_count": 608
+    "model_count": 593
   },
   {
     "id": "nearai",
@@ -1177,7 +1188,7 @@
     "env": [
       "NEBIUS_API_KEY"
     ],
-    "model_count": 34
+    "model_count": 17
   },
   {
     "id": "neon",
@@ -1189,7 +1200,7 @@
       "NEON_AI_GATEWAY_BASE_URL",
       "NEON_AI_GATEWAY_TOKEN"
     ],
-    "model_count": 42
+    "model_count": 46
   },
   {
     "id": "neosmith",
@@ -1255,7 +1266,7 @@
     "env": [
       "OFOX_API_KEY"
     ],
-    "model_count": 112
+    "model_count": 115
   },
   {
     "id": "ollama-cloud",
@@ -1277,7 +1288,7 @@
     "env": [
       "OPENCODE_API_KEY"
     ],
-    "model_count": 94
+    "model_count": 102
   },
   {
     "id": "opencode-go",
@@ -1288,7 +1299,7 @@
     "env": [
       "OPENCODE_API_KEY"
     ],
-    "model_count": 33
+    "model_count": 35
   },
   {
     "id": "openreason",
@@ -1332,7 +1343,7 @@
     "env": [
       "OVHCLOUD_API_KEY"
     ],
-    "model_count": 14
+    "model_count": 15
   },
   {
     "id": "pendra",
@@ -1443,7 +1454,7 @@
     "env": [
       "REQUESTY_API_KEY"
     ],
-    "model_count": 140
+    "model_count": 152
   },
   {
     "id": "routing-run",
@@ -1509,7 +1520,7 @@
     "env": [
       "SCNET_API_KEY"
     ],
-    "model_count": 17
+    "model_count": 20
   },
   {
     "id": "scx-ai",
@@ -1531,7 +1542,7 @@
     "env": [
       "SENSENOVA_API_KEY"
     ],
-    "model_count": 3
+    "model_count": 5
   },
   {
     "id": "siliconflow",
@@ -1829,7 +1840,7 @@
     "env": [
       "VANCINE_API_KEY"
     ],
-    "model_count": 12
+    "model_count": 10
   },
   {
     "id": "vivgrid",
@@ -1840,7 +1851,7 @@
     "env": [
       "VIVGRID_API_KEY"
     ],
-    "model_count": 22
+    "model_count": 27
   },
   {
     "id": "volcengine",
@@ -1895,7 +1906,7 @@
     "env": [
       "WANDB_API_KEY"
     ],
-    "model_count": 26
+    "model_count": 27
   },
   {
     "id": "xiaomi",

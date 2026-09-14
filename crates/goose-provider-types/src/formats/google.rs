@@ -91,18 +91,9 @@ pub fn format_messages(messages: &[Message], nested_function_response_media: boo
         })
         .collect();
 
-    let tool_names: HashMap<_, _> = filtered
-        .iter()
-        .flat_map(|message| &message.content)
-        .filter_map(|content| match content {
-            MessageContentBlock::ToolRequest(request) => request
-                .tool_call
-                .as_ref()
-                .ok()
-                .map(|tool_call| (request.id.as_str(), sanitize_function_name(&tool_call.name))),
-            _ => None,
-        })
-        .collect();
+    // Record names as we walk the conversation so a reused tool-call id
+    // resolves to the nearest preceding request, not a later overwrite.
+    let mut tool_names: HashMap<&str, String> = HashMap::new();
 
     let active_loop_start_idx = filtered
         .iter()
@@ -135,12 +126,11 @@ pub fn format_messages(messages: &[Message], nested_function_response_media: boo
                     }
                     MessageContentBlock::ToolRequest(request) => match &request.tool_call {
                         Ok(tool_call) => {
+                            let name = sanitize_function_name(&tool_call.name);
+                            tool_names.insert(request.id.as_str(), name.clone());
                             let mut function_call_part = Map::new();
                             function_call_part.insert("id".to_string(), json!(request.id));
-                            function_call_part.insert(
-                                "name".to_string(),
-                                json!(sanitize_function_name(&tool_call.name)),
-                            );
+                            function_call_part.insert("name".to_string(), json!(name));
 
                             if let Some(args) = &tool_call.arguments {
                                 if !args.is_empty() {
@@ -1053,6 +1043,38 @@ mod tests {
                 "id": "call_123",
                 "name": "read_file",
                 "response": {"content": {"text": "contents"}}
+            })
+        );
+    }
+
+    #[test]
+    fn test_reused_tool_call_id_keeps_each_response_name() {
+        let messages = vec![
+            set_up_tool_request_message(
+                "call_3407",
+                CallToolRequestParams::new("download_document"),
+            ),
+            set_up_tool_response_message("call_3407", vec![ContentBlock::text("the document")]),
+            set_up_tool_request_message("call_3407", CallToolRequestParams::new("shell")),
+            set_up_tool_response_message("call_3407", vec![ContentBlock::text("shell output")]),
+        ];
+
+        let payload = format_messages(&messages, false);
+
+        assert_eq!(
+            payload[1]["parts"][0]["functionResponse"],
+            json!({
+                "id": "call_3407",
+                "name": "download_document",
+                "response": {"content": {"text": "the document"}}
+            })
+        );
+        assert_eq!(
+            payload[3]["parts"][0]["functionResponse"],
+            json!({
+                "id": "call_3407",
+                "name": "shell",
+                "response": {"content": {"text": "shell output"}}
             })
         );
     }

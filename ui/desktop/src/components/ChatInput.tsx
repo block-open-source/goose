@@ -37,6 +37,7 @@ import { getNavigationShortcutText } from '../utils/keyboardShortcuts';
 import { UserInput, ImageData } from '../types/message';
 import { compressImageDataUrl } from '../utils/conversionUtils';
 import { fetchCanonicalModelInfo } from '../utils/canonical';
+import { getTextDirection } from '../utils/textDirection';
 import { defineMessages, useIntl } from '../i18n';
 import TurndownService from 'turndown';
 import type { NextChatExtensionDraft } from '../utils/nextChatExtensions';
@@ -258,6 +259,8 @@ export default function ChatInput({
   // Derived state - chatState != Idle means we're in some form of loading state
   const isLoading = chatState !== ChatState.Idle;
   const isLoadingRef = useRef(isLoading);
+
+  const composerDir = useMemo(() => getTextDirection(displayValue) ?? undefined, [displayValue]);
   const queueProcessingBlockedRef = useRef(queueProcessingBlocked);
   const wasLoadingRef = useRef(isLoading);
   const wasQueueProcessingBlockedRef = useRef(queueProcessingBlocked);
@@ -1542,6 +1545,7 @@ export default function ChatInput({
             data-testid="chat-input"
             autoFocus
             id="dynamic-textarea"
+            dir={composerDir}
             placeholder={isRecording ? '' : getNavigationShortcutText(intl)}
             value={displayValue}
             onChange={handleChange}

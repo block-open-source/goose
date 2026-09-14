@@ -100,15 +100,7 @@ crates-publish dry_run="true":
     fi; \
     version=$(cargo metadata --no-deps --format-version 1 | python3 -c \
         'import json, sys; print(next(package["version"] for package in json.load(sys.stdin)["packages"] if package["name"] == "goose-sdk"))'); \
-    for crate in \
-        goose-provider-types \
-        goose-sdk-types \
-        goose-download-manager \
-        goose-local-inference \
-        goose-providers \
-        goose-agent \
-        goose-context-management \
-        goose-sdk; do \
+    while IFS= read -r crate; do \
         if [ "{{dry_run}}" = "false" ]; then \
             status=$(curl --silent --output /dev/null --write-out '%{http_code}' \
                 --user-agent 'goose-gdk-release (https://github.com/aaif-goose/goose)' \
@@ -134,141 +126,43 @@ crates-publish dry_run="true":
                 sleep 10; \
             done; \
         fi; \
-    done
+    done < <(python3 crates/goose-sdk/scripts/gdk-release.py crates)
+
+sync-release-artifacts: sync-package-versions
+    python3 documentation/automation/gdk-api/generate.py
+
+sync-package-versions:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    python3 <<'PY'
+    import re
+    from pathlib import Path
+
+    cargo_toml = Path("crates/goose-sdk/Cargo.toml").read_text()
+    rust_version = re.search(r'(?m)^version\s*=\s*"([^"]+)"', cargo_toml).group(1)
+    match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)(?:-alpha\.(\d+))?", rust_version)
+    if not match:
+        raise SystemExit(f"unsupported GDK version: {rust_version}")
+
+    major, minor, patch, alpha = match.groups()
+    python_version = f"{major}.{minor}.{patch}" if alpha is None else f"{major}.{minor}.{patch}a{alpha}"
+    pyproject = Path("crates/goose-sdk/python/pyproject.toml")
+    text = pyproject.read_text()
+    updated, count = re.subn(
+        r'(?m)^(\[project\]\nname\s*=\s*"goose-sdk"\nversion\s*=\s*)"[^"]+"',
+        rf'\1"{python_version}"',
+        text,
+        count=1,
+    )
+    if count != 1:
+        raise SystemExit(f"could not update [project] version in {pyproject}")
+    pyproject.write_text(updated)
+    print(f"Python package: {python_version}")
+    print(f"Maven artifact: {rust_version} (derived from goose-sdk/Cargo.toml)")
+    PY
+
+check-release-config:
+    python3 crates/goose-sdk/scripts/gdk-release.py check-config
 
 check-version rust_version:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    python3 - "{{rust_version}}" <<'PY'
-    import re
-    import sys
-    from pathlib import Path
-
-    rust_version = sys.argv[1]
-    match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)(?:-alpha\.(\d+))?", rust_version)
-    if not match:
-        raise SystemExit("version must look like 0.1.0 or 0.1.0-alpha.0")
-
-    major, minor, patch, alpha = match.groups()
-    python_version = f"{major}.{minor}.{patch}" if alpha is None else f"{major}.{minor}.{patch}a{alpha}"
-    crate_names = [
-        "goose-provider-types",
-        "goose-sdk-types",
-        "goose-download-manager",
-        "goose-local-inference",
-        "goose-providers",
-        "goose-agent",
-        "goose-context-management",
-        "goose-sdk",
-    ]
-
-    def package_version(path: Path, section: str) -> str:
-        text = path.read_text()
-        section_match = re.search(rf"(?ms)^\[{re.escape(section)}\]\s*$(.*?)(?=^\[|\Z)", text)
-        if not section_match:
-            raise SystemExit(f"missing [{section}] in {path}")
-        version_match = re.search(r'^version\s*=\s*"([^"]+)"', section_match.group(1), re.MULTILINE)
-        if not version_match:
-            raise SystemExit(f"missing version in [{section}] in {path}")
-        return version_match.group(1)
-
-    errors = []
-    dependency_names = set(crate_names) - {"goose-sdk"}
-    for crate in crate_names:
-        path = Path("crates") / crate / "Cargo.toml"
-        text = path.read_text()
-        actual = package_version(path, "package")
-        if actual != rust_version:
-            errors.append(f"{path}: expected {rust_version}, found {actual}")
-
-        for dependency in dependency_names:
-            for dependency_match in re.finditer(
-                rf'(?m)^{re.escape(dependency)}\s*=\s*' + re.escape("{") + r'([^}]*)' + re.escape("}"), text
-            ):
-                version_match = re.search(r'version\s*=\s*"([^"]+)"', dependency_match.group(1))
-                if not version_match:
-                    errors.append(f"{path}: {dependency} is missing a version requirement")
-                elif version_match.group(1) != rust_version:
-                    errors.append(
-                        f"{path}: {dependency} expected {rust_version}, "
-                        f"found {version_match.group(1)}"
-                    )
-
-    pyproject = Path("crates/goose-sdk/python/pyproject.toml")
-    actual_python = package_version(pyproject, "project")
-    if actual_python != python_version:
-        errors.append(f"{pyproject}: expected {python_version}, found {actual_python}")
-
-    if errors:
-        raise SystemExit("\n".join(errors))
-
-    print(f"Validated Rust/Maven version {rust_version} and Python version {python_version}")
-    PY
-
-bump-version rust_version:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    python3 - "{{rust_version}}" <<'PY'
-    import re
-    import sys
-    from pathlib import Path
-
-    rust_version = sys.argv[1]
-    match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)(?:-alpha\.(\d+))?", rust_version)
-    if not match:
-        raise SystemExit("rust_version must look like 0.1.0 or 0.1.0-alpha.0")
-
-    major, minor, patch, alpha = match.groups()
-    python_version = f"{major}.{minor}.{patch}" if alpha is None else f"{major}.{minor}.{patch}a{alpha}"
-
-    crate_names = [
-        "goose-provider-types",
-        "goose-sdk-types",
-        "goose-download-manager",
-        "goose-local-inference",
-        "goose-providers",
-        "goose-agent",
-        "goose-context-management",
-        "goose-sdk",
-    ]
-    crate_paths = {name: Path("crates") / name / "Cargo.toml" for name in crate_names}
-
-    def replace_unique(path: Path, pattern: str, replacement: str) -> None:
-        text = path.read_text()
-        new_text, count = re.subn(pattern, replacement, text, count=1, flags=re.MULTILINE)
-        if count != 1:
-            raise SystemExit(f"expected one match for {pattern!r} in {path}")
-        path.write_text(new_text)
-
-    for path in crate_paths.values():
-        replace_unique(path, r'^version\s*=\s*"[^"]+"', f'version = "{rust_version}"')
-
-    dependency_names = [
-        "goose-provider-types",
-        "goose-sdk-types",
-        "goose-download-manager",
-        "goose-local-inference",
-        "goose-providers",
-        "goose-agent",
-        "goose-context-management",
-    ]
-    for path in crate_paths.values():
-        text = path.read_text()
-        for dependency in dependency_names:
-            text = re.sub(
-                rf'({re.escape(dependency)}\s*=\s*[^\n]*version\s*=\s*)"[^"]+"',
-                rf'\1"{rust_version}"',
-                text,
-            )
-        path.write_text(text)
-
-    pyproject = Path("crates/goose-sdk/python/pyproject.toml")
-    replace_unique(pyproject, r'^version\s*=\s*"[^"]+"', f'version = "{python_version}"')
-
-    print(f"Rust crates: {rust_version}")
-    print(f"Python package: {python_version}")
-    print(f"Maven artifact: {rust_version}")
-    PY
-    cargo update --workspace
-    cargo fmt --all
-    python3 documentation/automation/gdk-api/generate.py
+    python3 crates/goose-sdk/scripts/gdk-release.py check-version "{{rust_version}}"

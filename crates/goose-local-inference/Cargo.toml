@@ -1,6 +1,6 @@
 [package]
 name = "goose-local-inference"
-version = "0.1.0-alpha.8"
+version = "0.1.0-alpha.9"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
@@ -32,9 +32,9 @@ chrono = { workspace = true }
 etcetera = { workspace = true }
 encoding_rs = { version = "0.8.35", default-features = false }
 futures = { workspace = true, optional = true }
-goose-download-manager = { version = "0.1.0-alpha.8", path = "../goose-download-manager", optional = true }
-goose-provider-types = { version = "0.1.0-alpha.8", path = "../goose-provider-types", default-features = false }
-goose-sdk-types = { version = "0.1.0-alpha.8", path = "../goose-sdk-types", default-features = false, optional = true }
+goose-download-manager = { version = "0.1.0-alpha.9", path = "../goose-download-manager", optional = true }
+goose-provider-types = { version = "0.1.0-alpha.9", path = "../goose-provider-types", default-features = false }
+goose-sdk-types = { version = "0.1.0-alpha.9", path = "../goose-sdk-types", default-features = false, optional = true }
 hf-hub = { version = "1.0.0", default-features = false, optional = true }
 include_dir = { workspace = true }
 llama-cpp-2 = { workspace = true }

@@ -1,13 +1,15 @@
 use crate::agents::extension::PlatformExtensionContext;
 use crate::agents::mcp_client::{Error, McpClientTrait};
-use crate::agents::reply_parts::coerce_tool_arguments;
+use crate::agents::reply_parts::{
+    coerce_tool_arguments, prepare_tools_for_provider, toolshim_postprocess,
+};
 use crate::agents::tool_execution::ToolCallContext;
 use crate::config::paths::Paths;
 use crate::conversation::message::Message;
 use crate::goose_apps::McpAppResource;
 use crate::goose_apps::{GooseApp, McpAppCache, WindowProps};
 use crate::prompt_template::render_template;
-use crate::providers::base::Provider;
+use crate::providers::base::{Provider, ProviderUsage};
 use async_trait::async_trait;
 use rmcp::model::{
     CallToolResult, ContentBlock, Implementation, InitializeResult, JsonObject,
@@ -22,6 +24,35 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
+
+async fn complete_app_content(
+    provider: Arc<dyn Provider>,
+    model_config: &goose_providers::model::ModelConfig,
+    session_id: &str,
+    system_prompt: String,
+    messages: &[Message],
+    tools: Vec<McpTool>,
+) -> Result<(Message, ProviderUsage), String> {
+    let (tools, toolshim_tools, system_prompt) =
+        prepare_tools_for_provider(tools, system_prompt, model_config);
+
+    let (response, usage) = crate::session_context::with_session_id(
+        Some(session_id.to_string()),
+        provider.complete(model_config, &system_prompt, messages, &tools),
+    )
+    .await
+    .map_err(|e| format!("LLM call failed: {e}"))?;
+
+    let response = if model_config.toolshim {
+        toolshim_postprocess(response, &toolshim_tools)
+            .await
+            .map_err(|e| format!("Toolshim failed: {e}"))?
+    } else {
+        response
+    };
+
+    Ok((response, usage))
+}
 
 pub static EXTENSION_NAME: &str = "apps";
 const CLOCK_APP_NAME: &str = "clock";
@@ -249,6 +280,20 @@ impl AppsManagerClient {
         Ok(provider)
     }
 
+    async fn effective_model_config(
+        &self,
+        session_id: &str,
+        provider_name: &str,
+    ) -> Result<goose_providers::model::ModelConfig, String> {
+        let model_config = self.context.model_config_for_session(session_id).await?;
+        match crate::providers::get_from_registry(provider_name).await {
+            Ok(entry) => Ok(entry
+                .normalize_model_config(model_config.clone())
+                .unwrap_or(model_config)),
+            Err(_) => Ok(model_config),
+        }
+    }
+
     fn schema<T: JsonSchema>() -> JsonObject {
         serde_json::to_value(schema_for!(T))
             .map(|v| {
@@ -298,14 +343,18 @@ impl AppsManagerClient {
         let messages = vec![Message::user().with_text(&user_prompt)];
         let tools = vec![Self::create_app_content_tool()];
 
-        let model_config = self.context.model_config_for_session(session_id).await?;
-
-        let (response, usage) = crate::session_context::with_session_id(
-            Some(session_id.to_string()),
-            provider.complete(&model_config, &system_prompt, &messages, &tools),
+        let model_config = self
+            .effective_model_config(session_id, provider.get_name())
+            .await?;
+        let (response, usage) = complete_app_content(
+            provider,
+            &model_config,
+            session_id,
+            system_prompt,
+            &messages,
+            tools,
         )
-        .await
-        .map_err(|e| format!("LLM call failed: {}", e))?;
+        .await?;
 
         if let (Some(output), Some(max)) = (usage.usage.output_tokens, model_config.max_tokens) {
             if output >= max {
@@ -343,14 +392,18 @@ impl AppsManagerClient {
         let messages = vec![Message::user().with_text(&user_prompt)];
         let tools = vec![Self::update_app_content_tool()];
 
-        let model_config = self.context.model_config_for_session(session_id).await?;
-
-        let (response, usage) = crate::session_context::with_session_id(
-            Some(session_id.to_string()),
-            provider.complete(&model_config, &system_prompt, &messages, &tools),
+        let model_config = self
+            .effective_model_config(session_id, provider.get_name())
+            .await?;
+        let (response, usage) = complete_app_content(
+            provider,
+            &model_config,
+            session_id,
+            system_prompt,
+            &messages,
+            tools,
         )
-        .await
-        .map_err(|e| format!("LLM call failed: {}", e))?;
+        .await?;
 
         if let (Some(output), Some(max)) = (usage.usage.output_tokens, model_config.max_tokens) {
             if output >= max {
@@ -741,8 +794,39 @@ fn extract_tool_response<T: serde::de::DeserializeOwned>(
 mod tests {
     use super::*;
     use crate::agents::reply_parts::{is_tool_visible_to_app, is_tool_visible_to_model};
+    use crate::providers::base::{stream_from_single_message, MessageStream, Usage};
     use crate::session::SessionManager;
+    use goose_providers::errors::ProviderError;
     use std::path::Path;
+    use std::sync::Mutex;
+
+    #[derive(Default)]
+    struct AppContentProvider {
+        request: Mutex<Option<(bool, String, usize)>>,
+    }
+
+    #[async_trait]
+    impl Provider for AppContentProvider {
+        fn get_name(&self) -> &str {
+            "app-content-test"
+        }
+
+        async fn stream(
+            &self,
+            model_config: &goose_providers::model::ModelConfig,
+            system: &str,
+            _messages: &[Message],
+            tools: &[McpTool],
+        ) -> Result<MessageStream, ProviderError> {
+            *self.request.lock().unwrap() =
+                Some((model_config.toolshim, system.to_string(), tools.len()));
+            let message = Message::assistant().with_text(
+                r#"{"name":"create_app_content","arguments":{"name":"test-app","description":"Test app","html":"<html></html>"}}"#,
+            );
+            let usage = ProviderUsage::new("test-model".to_string(), Usage::default());
+            Ok(stream_from_single_message(message, usage))
+        }
+    }
 
     fn test_client(apps_dir: PathBuf) -> AppsManagerClient {
         AppsManagerClient {
@@ -774,6 +858,35 @@ mod tests {
             prd: None,
             deletable: true,
         }
+    }
+
+    #[tokio::test]
+    async fn app_content_completion_uses_toolshim() {
+        let provider = Arc::new(AppContentProvider::default());
+        let model_config =
+            goose_providers::model::ModelConfig::new("test-model").with_toolshim(true);
+        let tool = AppsManagerClient::create_app_content_tool();
+        let tool_schema = AppsManagerClient::schema::<CreateAppContentResponse>();
+
+        let (response, _) = complete_app_content(
+            provider.clone(),
+            &model_config,
+            "session",
+            "Create an app".to_string(),
+            &[Message::user().with_text("A test app")],
+            vec![tool],
+        )
+        .await
+        .unwrap();
+
+        let request = provider.request.lock().unwrap().clone().unwrap();
+        assert!(request.0);
+        assert!(request.1.contains("Tool Name: create_app_content"));
+        assert_eq!(request.2, 0);
+
+        let content: CreateAppContentResponse =
+            extract_tool_response(&response, "create_app_content", &tool_schema).unwrap();
+        assert_eq!(content.name, "test-app");
     }
 
     fn invalid_app_names(temp_dir: &Path) -> Vec<String> {

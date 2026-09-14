@@ -2,6 +2,7 @@ use super::base::{ConfigKey, MessageStream, Provider, ProviderDef, ProviderMetad
 use crate::config::declarative_providers::DeclarativeProviderConfig;
 use crate::config::Config;
 use crate::conversation::message::Message;
+use crate::session_context::session_id_request_builder_with_header_override;
 use anyhow::Result;
 use futures::future::BoxFuture;
 use goose_providers::api_client::{ApiClient, AuthMethod, TlsConfig};
@@ -152,7 +153,10 @@ fn build_ollama_api_client(
         api_client = api_client.with_headers(header_map)?;
     }
 
-    Ok(api_client.with_request_builder(crate::session_context::session_id_request_builder()))
+    let request_builder = session_id_request_builder_with_header_override(
+        config.session_id_header_override.as_deref(),
+    )?;
+    Ok(api_client.with_request_builder(request_builder))
 }
 
 #[async_trait::async_trait]
@@ -475,6 +479,7 @@ mod tests {
             base_url,
             models,
             headers: None,
+            session_id_header_override: None,
             timeout_seconds: None,
             supports_streaming: Some(true),
             requires_auth: false,
@@ -486,6 +491,7 @@ mod tests {
             skip_canonical_filtering: false,
             model_doc_link: None,
             setup_steps: vec![],
+            toolshim: false,
             preserves_thinking: true,
             emit_clear_thinking: false,
             setup: None,

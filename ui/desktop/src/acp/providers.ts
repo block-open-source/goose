@@ -7,7 +7,7 @@ import type {
   RefreshProviderInventoryResponse_unstable,
   ProviderTemplateCatalogEntryDto,
   ProviderTemplateDto,
-} from '@aaif/goose-sdk';
+} from '@aaif/goose-acp-client';
 import { methods } from '@agentclientprotocol/sdk';
 import type {
   ProviderDetails,
@@ -91,6 +91,7 @@ function updateRequestToCreate(
     requiresAuth: request.requires_auth ?? true,
     catalogProviderId: request.catalog_provider_id ?? null,
     basePath: request.base_path ?? null,
+    toolshim: request.toolshim,
     preservesThinking: request.preserves_thinking ?? null,
   };
 }

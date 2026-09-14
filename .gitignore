@@ -26,6 +26,7 @@ target/
 
 # UI
 node_modules
+/.pnpm-store/
 ./ui/desktop/out
 
 # Generated goose DLLs (built at build time, not checked in)

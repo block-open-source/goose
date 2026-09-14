@@ -1,5 +1,5 @@
 import { v7 as uuidv7 } from 'uuid';
-import type { GooseExtension } from '@aaif/goose-sdk';
+import type { GooseExtension } from '@aaif/goose-acp-client';
 import { AppEvents } from '../constants/events';
 import { ChatState } from '../types/chatState';
 import type { Session } from '../types/session';

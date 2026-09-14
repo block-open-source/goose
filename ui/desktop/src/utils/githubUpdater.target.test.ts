@@ -36,11 +36,15 @@ afterEach(async () => {
 describe('resolveInstallTarget', () => {
   it('resolves the .app bundle on macOS', async () => {
     setPlatform('darwin');
-    const exePath = '/Applications/Goose.app/Contents/MacOS/Goose';
+    // The mocked platform does not change `path`, which stays the host
+    // implementation, so build the expectation the same way the code under test
+    // does instead of hardcoding POSIX separators.
+    const bundlePath = path.resolve('/Applications/Goose.app');
+    const exePath = path.join(bundlePath, 'Contents', 'MacOS', 'Goose');
 
     await expect(resolveInstallTarget(exePath)).resolves.toEqual({
-      targetPath: '/Applications/Goose.app',
-      relaunchPath: '/Applications/Goose.app',
+      targetPath: bundlePath,
+      relaunchPath: bundlePath,
       executableRelativePath: path.join('Contents', 'MacOS', 'Goose'),
     });
   });

@@ -1,7 +1,7 @@
 {
   "versions": [
     {
-      "version": "0.1.0-alpha.8",
+      "version": "0.1.0-alpha.9",
       "docVersion": "0.1",
       "source": "crates/goose-sdk/src/bindings.rs",
       "functions": [

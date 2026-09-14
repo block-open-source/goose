@@ -856,6 +856,27 @@ mod tests {
         }
 
         #[test]
+        fn resolves_gpt_6_astra_limits_for_databricks_model_service() {
+            let _guard = env_lock::lock_env([
+                ("GOOSE_MAX_TOKENS", None::<&str>),
+                ("GOOSE_CONTEXT_LIMIT", None::<&str>),
+            ]);
+            let config = ModelConfig::new("data_workflow_tools.goose.goose-gpt-6-astra")
+                .with_canonical_limits("databricks_v2");
+
+            let canonical = crate::canonical::maybe_get_canonical_model(
+                "databricks_v2",
+                "data_workflow_tools.goose.goose-gpt-6-astra",
+            )
+            .expect("GPT-6 Astra should have canonical metadata");
+            assert_eq!(canonical.limit.context, 1_050_000);
+            assert_eq!(canonical.limit.output, Some(128_000));
+            assert_eq!(config.max_tokens, Some(128_000));
+            assert_eq!(config.reasoning, Some(true));
+            assert_eq!(config.supports_vision, Some(true));
+        }
+
+        #[test]
         fn fills_supports_vision_from_canonical_model() {
             let _guard = env_lock::lock_env([
                 ("GOOSE_MAX_TOKENS", None::<&str>),

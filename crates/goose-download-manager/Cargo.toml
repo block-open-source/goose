@@ -1,6 +1,6 @@
 [package]
 name = "goose-download-manager"
-version = "0.1.0-alpha.8"
+version = "0.1.0-alpha.9"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true

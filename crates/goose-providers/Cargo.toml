@@ -1,6 +1,6 @@
 [package]
 name = "goose-providers"
-version = "0.1.0-alpha.8"
+version = "0.1.0-alpha.9"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
@@ -35,8 +35,8 @@ anyhow = { workspace = true }
 async-stream = { workspace = true }
 chrono = { workspace = true }
 futures = { workspace = true }
-goose-provider-types = { version = "0.1.0-alpha.8", path = "../goose-provider-types", default-features = false }
-goose-local-inference = { version = "0.1.0-alpha.8", path = "../goose-local-inference", default-features = false, optional = true }
+goose-provider-types = { version = "0.1.0-alpha.9", path = "../goose-provider-types", default-features = false }
+goose-local-inference = { version = "0.1.0-alpha.9", path = "../goose-local-inference", default-features = false, optional = true }
 reqwest = { workspace = true }
 rmcp = { workspace = true, features = ["server", "macros"] }
 serde = { workspace = true }

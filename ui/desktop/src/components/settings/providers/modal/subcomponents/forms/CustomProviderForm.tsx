@@ -4,7 +4,7 @@ import { Select } from '../../../../../ui/Select';
 import { Button } from '../../../../../ui/button';
 import { SecureStorageNotice } from '../SecureStorageNotice';
 import type { UpdateCustomProviderRequest } from '../../../../../../types/providers';
-import type { ProviderTemplateDto } from '@aaif/goose-sdk';
+import type { ProviderTemplateDto } from '@aaif/goose-acp-client';
 import { Plus, X, Trash2, AlertTriangle, ExternalLink, Search, Settings } from 'lucide-react';
 import { cn } from '../../../../../../utils';
 import ProviderCatalogPicker from '../ProviderCatalogPicker';
@@ -144,6 +144,10 @@ const i18n = defineMessages({
     id: 'customProviderForm.supportsStreaming',
     defaultMessage: 'Provider supports streaming responses',
   },
+  alwaysUseToolshim: {
+    id: 'customProviderForm.alwaysUseToolshim',
+    defaultMessage: 'Always use Toolshim for this provider',
+  },
   customHeaders: {
     id: 'customProviderForm.customHeaders',
     defaultMessage: 'Custom Headers',
@@ -272,6 +276,7 @@ export default function CustomProviderForm({
   const [models, setModels] = useState('');
   const [requiresAuth, setRequiresAuth] = useState(false);
   const [supportsStreaming, setSupportsStreaming] = useState(true);
+  const [toolshim, setToolshim] = useState(false);
   const [headers, setHeaders] = useState<{ key: string; value: string }[]>([]);
   const [newHeaderKey, setNewHeaderKey] = useState('');
   const [newHeaderValue, setNewHeaderValue] = useState('');
@@ -309,6 +314,7 @@ export default function CustomProviderForm({
       setBasePath(initialData.base_path ?? '');
       setModels(initialData.models.join(', '));
       setSupportsStreaming(initialData.supports_streaming ?? true);
+      setToolshim(initialData.toolshim);
       setRequiresAuth(initialData.requires_auth ?? true);
 
       if (initialData.headers) {
@@ -492,6 +498,7 @@ export default function CustomProviderForm({
         api_key: apiKey,
         models: modelList,
         supports_streaming: supportsStreaming,
+        toolshim,
         requires_auth: requiresAuth,
         headers: headersObject,
         catalog_provider_id:
@@ -834,19 +841,32 @@ export default function CustomProviderForm({
         </div>
       )}
 
-      {/* Streaming */}
       {isEditable && (
-        <div className="flex items-center space-x-2 mb-10">
-          <input
-            type="checkbox"
-            id="supports-streaming"
-            checked={supportsStreaming}
-            onChange={(e) => setSupportsStreaming(e.target.checked)}
-            className="rounded border-border-primary"
-          />
-          <label htmlFor="supports-streaming" className="text-sm text-text-secondary">
-            {intl.formatMessage(i18n.supportsStreaming)}
-          </label>
+        <div className="space-y-3 mb-10">
+          <div className="flex items-center space-x-2">
+            <input
+              type="checkbox"
+              id="supports-streaming"
+              checked={supportsStreaming}
+              onChange={(e) => setSupportsStreaming(e.target.checked)}
+              className="rounded border-border-primary"
+            />
+            <label htmlFor="supports-streaming" className="text-sm text-text-secondary">
+              {intl.formatMessage(i18n.supportsStreaming)}
+            </label>
+          </div>
+          <div className="flex items-center space-x-2">
+            <input
+              type="checkbox"
+              id="always-use-toolshim"
+              checked={toolshim}
+              onChange={(e) => setToolshim(e.target.checked)}
+              className="rounded border-border-primary"
+            />
+            <label htmlFor="always-use-toolshim" className="text-sm text-text-secondary">
+              {intl.formatMessage(i18n.alwaysUseToolshim)}
+            </label>
+          </div>
         </div>
       )}
 

@@ -21,10 +21,8 @@ use super::tool_execution::{
     DECLINED_RESPONSE,
 };
 use crate::action_required_manager::ElicitationOutcome;
-use crate::agents::extension::{ExtensionConfig, ExtensionResult, ToolInfo};
-use crate::agents::extension_manager::{
-    get_parameter_names, ExtensionManager, ExtensionManagerCapabilities,
-};
+use crate::agents::extension::{ExtensionConfig, ExtensionResult};
+use crate::agents::extension_manager::{ExtensionManager, ExtensionManagerCapabilities};
 use crate::agents::final_output_tool::{
     structured_output_unsupported_message, FINAL_OUTPUT_CONTINUATION_MESSAGE,
     FINAL_OUTPUT_TOOL_NAME,
@@ -49,7 +47,7 @@ use crate::agents::types::{
 use crate::agents::AgentEvent;
 use crate::config::extensions::name_to_key;
 use crate::config::permission::PermissionManager;
-use crate::config::{get_enabled_extensions, Config, GooseMode};
+use crate::config::{Config, GooseMode};
 use crate::context_mgmt::{
     check_if_compaction_needed, compact_messages, DEFAULT_COMPACTION_THRESHOLD,
 };
@@ -57,14 +55,12 @@ use crate::conversation::message::{
     ActionRequiredData, InferenceMetadata, Message, MessageContent, MessageUsage, ProviderMetadata,
     SystemNotificationType,
 };
-use crate::conversation::{
-    debug_conversation_fix, fix_conversation, merge_consecutive_messages_for_request, Conversation,
-};
+use crate::conversation::{debug_conversation_fix, fix_conversation, Conversation};
 use crate::permission::permission_inspector::PermissionInspector;
 use crate::permission::permission_judge::PermissionCheckResult;
 use crate::permission::{Permission, PermissionConfirmation};
 use crate::providers::base::{PermissionRouting, Provider};
-use crate::recipe::{Author, Recipe, Response, Settings};
+use crate::recipe::Response;
 use crate::scheduler_trait::SchedulerTrait;
 use crate::security::adversary_inspector::AdversaryInspector;
 use crate::security::egress_inspector::EgressInspector;
@@ -77,7 +73,6 @@ use crate::utils::is_token_cancelled;
 use goose_providers::conversation::token_usage::{ProviderUsage, Usage};
 use goose_providers::errors::ProviderError;
 use goose_providers::thinking::{ThinkingEffort, ThinkingEffortSupport};
-use regex::Regex;
 use rmcp::model::{
     CallToolRequestParams, CallToolResult, ContentBlock, ElicitationAction, ErrorCode, ErrorData,
     GetPromptResult, Prompt, ProtocolVersion, Tool,
@@ -99,7 +94,7 @@ fn provider_creation_error(error: anyhow::Error, context: impl fmt::Display) -> 
     error.context(message)
 }
 
-pub const MCP_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::V_2025_11_25;
+pub const MCP_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::V_2026_07_28;
 
 fn normalize_legacy_provider_thinking_effort(
     mut model_config: goose_providers::model::ModelConfig,
@@ -249,7 +244,7 @@ impl AgentConfig {
             goose_platform,
             mcp_host_info: None,
             elicitation_handler: None,
-            mcp_protocol_version: Some(MCP_PROTOCOL_VERSION),
+            mcp_protocol_version: None,
             session_name_update_tx: None,
             use_login_shell_path: None,
             is_subagent: false,
@@ -1005,6 +1000,20 @@ impl Agent {
             .map_err(|_| anyhow!("Could not resolve model config: missing model"))?;
         crate::model_config::model_config_from_user_config(&provider_name, &model_name)
             .map_err(|e| anyhow!("Could not resolve model config: {e}"))
+    }
+
+    pub(super) async fn effective_model_config_for_session(
+        &self,
+        session_id: &str,
+    ) -> Result<goose_providers::model::ModelConfig> {
+        let model_config = self.model_config_for_session(session_id).await?;
+        let provider_name = self.provider().await?.get_name().to_string();
+        match crate::providers::get_from_registry(&provider_name).await {
+            Ok(entry) => Ok(entry
+                .normalize_model_config(model_config.clone())
+                .unwrap_or(model_config)),
+            Err(_) => Ok(model_config),
+        }
     }
 
     /// When set, all stdio extensions will be started via `docker exec` in the specified container.
@@ -1955,26 +1964,13 @@ impl Agent {
     ) -> Result<BoxStream<'_, Result<AgentEvent>>> {
         let session_manager = self.config.session_manager.clone();
         let session_id = session_config.id.clone();
-        let entry_session = session_manager.get_session(&session_id, false).await?;
         let provider = self
             .provider
             .lock()
             .await
             .clone()
             .ok_or_else(|| anyhow!("Provider not set"))?;
-        let model_config = match entry_session.model_config {
-            Some(model_config) => model_config,
-            None => {
-                let provider_name = Config::global()
-                    .get_goose_provider()
-                    .map_err(|_| anyhow!("Could not resolve model config: missing provider"))?;
-                let model_name = Config::global()
-                    .get_goose_model()
-                    .map_err(|_| anyhow!("Could not resolve model config: missing model"))?;
-                crate::model_config::model_config_from_user_config(&provider_name, &model_name)
-                    .map_err(|error| anyhow!("Could not resolve model config: {error}"))?
-            }
-        };
+        let model_config = self.effective_model_config_for_session(&session_id).await?;
 
         let context_limit =
             crate::context_limit::get_context_limit(provider.as_ref(), &model_config.model_name)
@@ -3192,8 +3188,6 @@ impl Agent {
                                 }
 
                                 no_tools_called = false;
-                                // Agent is actively working — re-check goal when it next finishes
-                                goal_check_pending = false;
                             }
                         }
                         #[allow(unused_variables)]
@@ -3670,15 +3664,24 @@ impl Agent {
         session_id: &str,
     ) -> Result<()> {
         let provider_name = provider.get_name().to_string();
+        let registry_entry = crate::providers::get_from_registry(&provider_name)
+            .await
+            .ok();
 
-        let model_config = match crate::providers::get_from_registry(&provider_name).await {
-            Ok(entry) => entry
-                .normalize_model_config(model_config.clone())
-                .unwrap_or(model_config),
-            Err(_) => model_config,
+        let model_config = if registry_entry.is_some() {
+            crate::model_config::materialize_model_config(&provider_name, model_config.clone())
+                .unwrap_or(model_config)
+        } else {
+            model_config
         };
         let effort_support = provider.thinking_effort_support();
         let model_config = normalize_legacy_provider_thinking_effort(model_config, &effort_support);
+        let effective_model_config = match registry_entry {
+            Some(entry) => entry
+                .normalize_model_config(model_config.clone())
+                .unwrap_or_else(|_| model_config.clone()),
+            None => model_config.clone(),
+        };
 
         {
             let mut current_provider = self.provider.lock().await;
@@ -3689,7 +3692,10 @@ impl Agent {
         // own default, so the session's selection has to be pushed to it before
         // the next config snapshot is built. Failures are not fatal here: the
         // selection is re-applied at stream time.
-        if let Err(e) = provider.apply_model_selection(&model_config).await {
+        if let Err(e) = provider
+            .apply_model_selection(&effective_model_config)
+            .await
+        {
             warn!("Failed to apply model selection to provider: {e}");
         }
 
@@ -3984,260 +3990,6 @@ impl Agent {
 
         Err(anyhow!("Prompt '{}' not found", name))
     }
-
-    pub async fn get_plan_prompt(&self, session_id: &str) -> Result<String> {
-        let tools = self
-            .extension_manager
-            .get_prefixed_tools(session_id, None)
-            .await?;
-        let tools_info: Vec<_> = tools
-            .into_iter()
-            .map(|tool| {
-                ToolInfo::new(
-                    &tool.name,
-                    tool.description
-                        .as_ref()
-                        .map(|d| d.as_ref())
-                        .unwrap_or_default(),
-                    get_parameter_names(&tool),
-                    None,
-                )
-            })
-            .collect();
-
-        let context = HashMap::from([("tools", serde_json::to_value(tools_info)?)]);
-        Ok(crate::prompt_template::render_template(
-            "plan.md", &context,
-        )?)
-    }
-
-    pub async fn create_recipe(
-        &self,
-        session_id: &str,
-        mut messages: Conversation,
-    ) -> Result<Recipe> {
-        tracing::info!("Starting recipe creation with {} messages", messages.len());
-
-        let session = self
-            .config
-            .session_manager
-            .get_session(session_id, false)
-            .await?;
-        let extensions_info = self
-            .extension_manager
-            .get_extensions_info(&session.working_dir)
-            .await;
-        tracing::debug!("Retrieved {} extensions info", extensions_info.len());
-
-        let model_config = self.model_config_for_session(session_id).await?;
-        let model_name = &model_config.model_name;
-        tracing::debug!("Using model: {}", model_name);
-
-        let goose_mode = *self.current_goose_mode.lock().await;
-        let prompt_manager = self.prompt_manager.lock().await;
-        let system_prompt = prompt_manager
-            .builder()
-            .with_extensions(extensions_info.into_iter())
-            .with_goose_mode(goose_mode)
-            .build();
-
-        let recipe_prompt = prompt_manager.get_recipe_prompt().await;
-        let tools: Vec<_> = self
-            .extension_manager
-            .get_prefixed_tools(session_id, None)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to get tools for recipe creation: {}", e);
-                e
-            })?
-            .into_iter()
-            .filter(super::reply_parts::is_tool_visible_to_model)
-            .collect();
-
-        messages = Conversation::new_unvalidated(recipe_conversation_history(&messages));
-        messages.push(Message::user().with_text(recipe_prompt));
-
-        let (messages, issues) = fix_conversation(messages);
-        if !issues.is_empty() {
-            issues
-                .iter()
-                .for_each(|issue| tracing::warn!(recipe.conversation.issue = issue));
-        }
-        let messages = Conversation::new_unvalidated(merge_consecutive_messages_for_request(
-            messages.messages().clone(),
-        ));
-
-        tracing::debug!(
-            "Added recipe prompt to messages, total messages: {}",
-            messages.len()
-        );
-
-        tracing::info!("Calling provider to generate recipe content");
-        let provider = self.provider.lock().await;
-        let provider = provider.as_ref().ok_or_else(|| {
-            let error = anyhow!("Provider not available during recipe creation");
-            tracing::error!("{}", error);
-            error
-        })?;
-        let (result, _usage) = crate::session_context::with_session_id(
-            Some(session_id.to_string()),
-            provider.complete(&model_config, &system_prompt, messages.messages(), &tools),
-        )
-        .await
-        .map_err(|e| {
-            tracing::error!("Provider completion failed during recipe creation: {}", e);
-            e
-        })?;
-
-        let content = result.as_concat_text();
-        tracing::debug!(
-            "Provider returned content with {} characters",
-            content.len()
-        );
-
-        // the response may be contained in ```json ```, strip that before parsing json
-        let re = Regex::new(r"(?s)```[^\n]*\n(.*?)\n```").unwrap();
-        let clean_content = re
-            .captures(&content)
-            .and_then(|caps| caps.get(1).map(|m| m.as_str()))
-            .unwrap_or(&content)
-            .trim()
-            .to_string();
-
-        let (instructions, activities) =
-            if let Ok(json_content) = serde_json::from_str::<Value>(&clean_content) {
-                let instructions = json_content
-                    .get("instructions")
-                    .ok_or_else(|| anyhow!("Missing 'instructions' in json response"))?
-                    .as_str()
-                    .ok_or_else(|| anyhow!("instructions' is not a string"))?
-                    .to_string();
-
-                let activities = json_content
-                    .get("activities")
-                    .ok_or_else(|| anyhow!("Missing 'activities' in json response"))?
-                    .as_array()
-                    .ok_or_else(|| anyhow!("'activities' is not an array'"))?
-                    .iter()
-                    .map(|act| {
-                        act.as_str()
-                            .map(|s| s.to_string())
-                            .ok_or(anyhow!("'activities' array element is not a string"))
-                    })
-                    .collect::<Result<_, _>>()?;
-
-                (instructions, activities)
-            } else {
-                tracing::warn!("Failed to parse JSON, falling back to string parsing");
-                // If we can't get valid JSON, try string parsing
-                // Use split_once to get the content after "Instructions:".
-                let after_instructions = content
-                    .split_once("instructions:")
-                    .map(|(_, rest)| rest)
-                    .unwrap_or(&content);
-
-                // Split once more to separate instructions from activities.
-                let (instructions_part, activities_text) = after_instructions
-                    .split_once("activities:")
-                    .unwrap_or((after_instructions, ""));
-
-                let instructions = instructions_part
-                    .trim_end_matches(|c: char| c.is_whitespace() || c == '#')
-                    .trim()
-                    .to_string();
-                let activities_text = activities_text.trim();
-
-                // Regex to remove bullet markers or numbers with an optional dot.
-                let bullet_re = Regex::new(r"^[•\-*\d]+\.?\s*").expect("Invalid regex");
-
-                // Process each line in the activities section.
-                let activities: Vec<String> = activities_text
-                    .lines()
-                    .map(|line| bullet_re.replace(line, "").to_string())
-                    .map(|s| s.trim().to_string())
-                    .filter(|line| !line.is_empty())
-                    .collect();
-
-                (instructions, activities)
-            };
-
-        let extension_configs = get_enabled_extensions();
-
-        let author = Author {
-            contact: std::env::var("USER")
-                .or_else(|_| std::env::var("USERNAME"))
-                .ok(),
-            metadata: None,
-        };
-
-        // Ideally we'd get the name of the provider we are using from the provider itself,
-        // but it doesn't know and the plumbing looks complicated.
-        let config = Config::global();
-        let provider_name: String = config
-            .get_goose_provider()
-            .expect("No provider configured. Run 'goose configure' first");
-
-        let settings = Settings {
-            goose_provider: Some(provider_name.clone()),
-            goose_model: Some(model_name.clone()),
-            temperature: Some(model_config.temperature.unwrap_or(0.0)),
-            max_turns: None,
-        };
-
-        tracing::debug!(
-            "Building recipe with {} activities and {} extensions",
-            activities.len(),
-            extension_configs.len()
-        );
-
-        let (title, description) =
-            if let Ok(json_content) = serde_json::from_str::<Value>(&clean_content) {
-                let title = json_content
-                    .get("title")
-                    .and_then(|t| t.as_str())
-                    .unwrap_or("Custom recipe from chat")
-                    .to_string();
-
-                let description = json_content
-                    .get("description")
-                    .and_then(|d| d.as_str())
-                    .unwrap_or("a custom recipe instance from this chat session")
-                    .to_string();
-
-                (title, description)
-            } else {
-                (
-                    "Custom recipe from chat".to_string(),
-                    "a custom recipe instance from this chat session".to_string(),
-                )
-            };
-
-        let recipe = Recipe::builder()
-            .title(title)
-            .description(description)
-            .instructions(instructions)
-            .activities(activities)
-            .extensions(extension_configs)
-            .settings(settings)
-            .author(author)
-            .build()
-            .map_err(|e| {
-                tracing::error!("Failed to build recipe: {}", e);
-                anyhow!("Recipe build failed: {}", e)
-            })?;
-
-        tracing::info!("Recipe creation completed successfully");
-        Ok(recipe)
-    }
-}
-
-fn recipe_conversation_history(messages: &Conversation) -> Vec<Message> {
-    // The recipe prompt has no turn-context instructions; drop the blocks.
-    messages
-        .agent_visible_messages()
-        .into_iter()
-        .filter(|message| !message.is_turn_context())
-        .collect()
 }
 
 #[cfg(test)]
@@ -4326,25 +4078,6 @@ mod tests {
             super::super::latest_provider_session_id(&messages, "codex-acp"),
             None
         );
-    }
-
-    #[test]
-    fn recipe_history_excludes_turn_context_events() {
-        use crate::conversation::message::MessageMetadata;
-
-        let history = Conversation::new_unvalidated([
-            Message::user().with_text("build me a recipe"),
-            Message::user()
-                .with_text("<turn-context>cwd /repo</turn-context>")
-                .with_metadata(MessageMetadata::agent_only().with_turn_context()),
-            Message::assistant().with_text("on it"),
-        ]);
-
-        let texts: Vec<String> = recipe_conversation_history(&history)
-            .iter()
-            .map(|message| message.as_concat_text())
-            .collect();
-        assert_eq!(texts, ["build me a recipe", "on it"]);
     }
 
     async fn tracing_test_agent_and_session() -> (Agent, Session, TempDir) {
@@ -4802,6 +4535,96 @@ mod tests {
             effort_test_agent(EffortOutcome::Applied).await;
 
         assert_eq!(provider.model_selections(), ["mock-model"]);
+    }
+
+    #[tokio::test]
+    async fn provider_toolshim_is_effective_without_being_persisted() {
+        let (agent, session, _data_dir) = tracing_test_agent_and_session().await;
+        let provider_root = TempDir::new().unwrap();
+        let provider_root_path = provider_root.path().display().to_string();
+        let _guard = env_lock::lock_env([
+            ("GOOSE_PATH_ROOT", Some(provider_root_path.as_str())),
+            ("GOOSE_TOOLSHIM", None),
+        ]);
+
+        let config = crate::config::declarative_providers::create_custom_provider(
+            crate::config::declarative_providers::CreateCustomProviderParams {
+                engine: "openai".to_string(),
+                display_name: "Sticky Toolshim".to_string(),
+                api_url: "https://example.invalid/v1".to_string(),
+                api_key: None,
+                models: vec![crate::providers::base::ModelInfo::new("test-model")],
+                supports_streaming: Some(true),
+                headers: None,
+                requires_auth: false,
+                catalog_provider_id: None,
+                base_path: None,
+                toolshim: true,
+                preserves_thinking: None,
+                auth: None,
+            },
+        )
+        .unwrap();
+        crate::providers::refresh_custom_providers().await.unwrap();
+
+        let provider = crate::providers::create(&config.name, Vec::new())
+            .await
+            .unwrap();
+        agent
+            .update_provider(
+                provider,
+                goose_providers::model::ModelConfig::new("test-model"),
+                &session.id,
+            )
+            .await
+            .unwrap();
+
+        assert!(
+            !agent
+                .model_config_for_session(&session.id)
+                .await
+                .unwrap()
+                .toolshim
+        );
+        assert!(
+            agent
+                .effective_model_config_for_session(&session.id)
+                .await
+                .unwrap()
+                .toolshim
+        );
+
+        crate::config::declarative_providers::update_custom_provider(
+            crate::config::declarative_providers::UpdateCustomProviderParams {
+                id: config.name.clone(),
+                engine: "openai".to_string(),
+                display_name: config.display_name,
+                api_url: config.base_url,
+                api_key: None,
+                models: config.models,
+                supports_streaming: config.supports_streaming,
+                headers: config.headers,
+                requires_auth: false,
+                catalog_provider_id: None,
+                base_path: None,
+                toolshim: false,
+                preserves_thinking: None,
+                auth: None,
+            },
+        )
+        .unwrap();
+        crate::providers::refresh_custom_providers().await.unwrap();
+
+        assert!(
+            !agent
+                .effective_model_config_for_session(&session.id)
+                .await
+                .unwrap()
+                .toolshim
+        );
+
+        crate::config::declarative_providers::remove_custom_provider(&config.name).unwrap();
+        crate::providers::refresh_custom_providers().await.unwrap();
     }
 
     #[tokio::test]

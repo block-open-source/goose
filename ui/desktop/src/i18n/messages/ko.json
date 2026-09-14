@@ -617,6 +617,9 @@
   "customProviderForm.add": {
     "defaultMessage": "추가"
   },
+  "customProviderForm.alwaysUseToolshim": {
+    "defaultMessage": "이 제공업체에 항상 Toolshim 사용"
+  },
   "customProviderForm.anthropicCompatible": {
     "defaultMessage": "Anthropic 호환"
   },
@@ -3156,7 +3159,7 @@
     "defaultMessage": "저장된 레시피가 없습니다."
   },
   "recipesView.noSavedRecipesDescription": {
-    "defaultMessage": "채팅에서 저장된 레시피가 여기에 표시됩니다."
+    "defaultMessage": "저장된 레시피가 여기에 표시됩니다."
   },
   "recipesView.openInNewWindow": {
     "defaultMessage": "새 창에서 열기"

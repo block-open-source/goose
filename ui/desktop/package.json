@@ -1,7 +1,7 @@
 {
   "name": "goose-app",
   "productName": "Goose",
-  "version": "1.49.0",
+  "version": "1.50.0",
   "description": "Goose App",
   "engines": {
     "node": "^24.10.0",
@@ -9,16 +9,16 @@
   },
   "main": ".vite/build/main.js",
   "scripts": {
-    "postinstall": "pnpm run build-goose-sdk",
+    "postinstall": "pnpm run build-goose-acp-client",
     "typecheck": "tsc --noEmit",
-    "build-goose-sdk": "pnpm --filter @aaif/goose-sdk run build && pnpm run clean-vite-cache",
+    "build-goose-acp-client": "pnpm --filter @aaif/goose-acp-client run build && pnpm run clean-vite-cache",
     "clean-vite-cache": "node scripts/clean-vite-cache.js",
-    "start-gui": "pnpm run build-goose-sdk && pnpm run i18n:compile && electron-forge start",
-    "start-gui-debug": "pnpm run build-goose-sdk && pnpm run i18n:compile && electron-forge start -- --inspect=9229",
+    "start-gui": "pnpm run build-goose-acp-client && pnpm run i18n:compile && electron-forge start",
+    "start-gui-debug": "pnpm run build-goose-acp-client && pnpm run i18n:compile && electron-forge start -- --inspect=9229",
     "start": "cd ../.. && just run-ui",
     "start:test-error": "GOOSE_TEST_ERROR=true electron-forge start",
-    "package": "pnpm run build-goose-sdk && pnpm run i18n:compile && electron-forge package",
-    "make": "pnpm run build-goose-sdk && pnpm run i18n:compile && electron-forge make",
+    "package": "pnpm run build-goose-acp-client && pnpm run i18n:compile && electron-forge package",
+    "make": "pnpm run build-goose-acp-client && pnpm run i18n:compile && electron-forge make",
     "bundle:default": "node scripts/prepare-platform-binaries.js && pnpm run make && BUNDLE_NAME=\"${GOOSE_BUNDLE_NAME:-Goose}\" && APP_DIR=\"out/${BUNDLE_NAME}-darwin-arm64\" && APP_BUNDLE=\"${APP_DIR}/${BUNDLE_NAME}.app\" && (cd \"$APP_DIR\" && ditto -c -k --sequesterRsrc --keepParent \"${BUNDLE_NAME}.app\" \"${BUNDLE_NAME}.zip\")",
     "bundle:intel": "node scripts/prepare-platform-binaries.js && pnpm run make --arch=x64 && BUNDLE_NAME=\"${GOOSE_BUNDLE_NAME:-Goose}\" && APP_DIR=\"out/${BUNDLE_NAME}-darwin-x64\" && APP_BUNDLE=\"${APP_DIR}/${BUNDLE_NAME}.app\" && (cd \"$APP_DIR\" && ditto -c -k --sequesterRsrc --keepParent \"${BUNDLE_NAME}.app\" \"${BUNDLE_NAME}_intel_mac.zip\")",
     "debug": "echo 'run --remote-debugging-port=8315' && BUNDLE_NAME=\"${GOOSE_BUNDLE_NAME:-Goose}\" && lldb \"out/${BUNDLE_NAME}-darwin-arm64/${BUNDLE_NAME}.app\"",
@@ -49,10 +49,10 @@
     "i18n:validate-locale": "node scripts/i18n-validate-locale.js"
   },
   "dependencies": {
-    "@aaif/goose-sdk": "workspace:*",
+    "@aaif/goose-acp-client": "workspace:*",
     "@agentclientprotocol/sdk": "1.3.0",
     "@mcp-ui/client": "6.1.0",
-    "@modelcontextprotocol/ext-apps": "^1.1.1",
+    "@modelcontextprotocol/ext-apps": "^1.7.5",
     "@radix-ui/react-accordion": "^1.2.20",
     "@radix-ui/react-avatar": "^1.2.6",
     "@radix-ui/react-dialog": "^1.1.23",
@@ -77,7 +77,7 @@
     "electron-updater": "^6.8.9",
     "electron-window-state": "^5.0.3",
     "express": "^5.2.1",
-    "framer-motion": "^12.34.3",
+    "framer-motion": "^13.2.0",
     "katex": "0.16.47",
     "lodash": "^4.18.1",
     "lucide-react": "^0.575.0",
@@ -123,7 +123,7 @@
     "@tailwindcss/line-clamp": "^0.4.4",
     "@tailwindcss/typography": "^0.5.20",
     "@tailwindcss/vite": "^4.3.3",
-    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.4",
     "@types/cors": "^2.8.19",
@@ -154,7 +154,7 @@
     "tailwindcss": "^4.3.3",
     "typescript": "~5.9.3",
     "vite": "^8.2.1",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   },
   "keywords": [],
   "license": "Apache-2.0"

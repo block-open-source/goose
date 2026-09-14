@@ -80,13 +80,14 @@ export function applyToolCallUpdate(
   message.content.push({
     type: 'toolResponse',
     id: update.toolCallId,
-    toolResult:
-      toolCallState.status === 'failed'
-        ? { status: 'error', error: toolError(toolCallState) }
-        : {
-            status: 'success',
-            value: toolResultValue(toolCallState, mcpAppMetadata(update)),
-          },
+    toolResult: {
+      status: 'success',
+      value: toolResultValue(
+        toolCallState,
+        mcpAppMetadata(update),
+        toolCallState.status === 'failed'
+      ),
+    },
     ...(metadata ? { metadata } : {}),
   });
 
@@ -210,11 +211,21 @@ function baseToolMetadata(
 
 function toolResultValue(
   update: ToolCallUpdate,
-  mcpAppMeta: DesktopMcpAppMeta | undefined
+  mcpAppMeta: DesktopMcpAppMeta | undefined,
+  isError: boolean
 ): ToolResultValue {
+  const content = toolResultContent(update);
+  if (isError && content.length === 0) {
+    const errorText =
+      typeof update.rawOutput === 'string' && update.rawOutput.trim()
+        ? update.rawOutput
+        : (update.title ?? 'Tool call failed');
+    content.push({ type: 'text', text: errorText });
+  }
+
   const toolResult: ToolResultValue = {
-    content: toolResultContent(update),
-    isError: false,
+    content,
+    isError,
     ...(mcpAppMeta ? { _meta: mcpAppMeta } : {}),
   };
 
@@ -313,22 +324,6 @@ function apiResourceContentsFromAcpResource(
     ...(resource.mimeType ? { mimeType: resource.mimeType } : {}),
     ...(resource._meta ? { _meta: resource._meta } : {}),
   };
-}
-
-function toolError(update: ToolCallUpdate): string {
-  if (typeof update.rawOutput === 'string' && update.rawOutput.trim()) {
-    return update.rawOutput;
-  }
-
-  const contentText = toolResultContent(update)
-    .flatMap((content) => (content.type === 'text' ? [content.text] : []))
-    .filter((text) => text.trim().length > 0)
-    .join('\n');
-  if (contentText) {
-    return contentText;
-  }
-
-  return update.title ?? 'Tool call failed';
 }
 
 interface DesktopMcpAppMeta extends Record<string, unknown> {

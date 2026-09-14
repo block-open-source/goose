@@ -1,6 +1,6 @@
 [package]
 name = "goose-sdk"
-version = "0.1.0-alpha.8"
+version = "0.1.0-alpha.9"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
@@ -33,14 +33,14 @@ uniffi = [
 ]
 
 [dependencies]
-goose-sdk-types = { version = "0.1.0-alpha.8", path = "../goose-sdk-types" }
+goose-sdk-types = { version = "0.1.0-alpha.9", path = "../goose-sdk-types" }
 agent-client-protocol = { workspace = true }
 agent-client-protocol-schema = { workspace = true }
 
 uniffi = { version = "0.32", features = ["cli"], optional = true }
 thiserror = { version = "2", optional = true }
-goose-providers = { version = "0.1.0-alpha.8", path = "../goose-providers", features = ["rustls-tls"], optional = true }
-goose-context-management = { version = "0.1.0-alpha.8", path = "../goose-context-management", optional = true }
+goose-providers = { version = "0.1.0-alpha.9", path = "../goose-providers", features = ["rustls-tls"], optional = true }
+goose-context-management = { version = "0.1.0-alpha.9", path = "../goose-context-management", optional = true }
 futures = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "sync"], optional = true }

@@ -23,6 +23,39 @@ fn secret_key_for(gateway_type: &str) -> String {
 struct SavedGatewayEntry {
     gateway_type: String,
     max_sessions: usize,
+    #[serde(default)]
+    allowed_user_ids: Option<Vec<String>>,
+}
+
+/// Extract the operator allowlist from a platform_config value, if present.
+fn allowed_user_ids_from_platform_config(
+    platform_config: &serde_json::Value,
+) -> Option<Vec<String>> {
+    platform_config
+        .get("allowed_user_ids")
+        .and_then(|v| v.as_array())
+        .map(|ids| {
+            ids.iter()
+                .filter_map(|id| {
+                    id.as_str()
+                        .map(ToOwned::to_owned)
+                        .or_else(|| id.as_u64().map(|n| n.to_string()))
+                })
+                .collect()
+        })
+        .filter(|ids: &Vec<String>| !ids.is_empty())
+}
+
+/// Operator allowlist saved for a gateway type, if any.
+pub fn saved_allowed_user_ids(gateway_type: &str) -> Option<Vec<String>> {
+    let entries: Vec<SavedGatewayEntry> = match Config::global().get_param(GATEWAY_CONFIGS_KEY) {
+        Ok(entries) => entries,
+        Err(_) => return None,
+    };
+    entries
+        .into_iter()
+        .find(|entry| entry.gateway_type == gateway_type)
+        .and_then(|entry| entry.allowed_user_ids)
 }
 
 #[allow(dead_code)]
@@ -344,6 +377,11 @@ impl GatewayManager {
                     }
                 };
 
+            let mut platform_config = platform_config;
+            if let Some(ids) = &entry.allowed_user_ids {
+                platform_config["allowed_user_ids"] = serde_json::json!(ids);
+            }
+
             configs.push(GatewayConfig {
                 gateway_type: entry.gateway_type,
                 platform_config,
@@ -372,6 +410,7 @@ impl GatewayManager {
         entries.push(SavedGatewayEntry {
             gateway_type: gw_config.gateway_type.clone(),
             max_sessions: gw_config.max_sessions,
+            allowed_user_ids: allowed_user_ids_from_platform_config(&gw_config.platform_config),
         });
 
         config

@@ -1551,7 +1551,6 @@ This method simplifies authentication and enhances security for enterprise envir
 
 Beyond single-model setups, goose supports [multi-model configurations](/docs/guides/multi-model/) that can use different models and providers for specialized tasks:
 
-- **Planning Mode** - Use a dedicated planner model to create detailed project breakdowns before execution
 - **Subagents** - Delegate scoped tasks to isolated sessions to keep your primary workflow focused and efficient
 
 ## Meta Muse Spark Reasoning Effort

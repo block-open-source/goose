@@ -617,6 +617,9 @@
   "customProviderForm.add": {
     "defaultMessage": "Tambah"
   },
+  "customProviderForm.alwaysUseToolshim": {
+    "defaultMessage": "Sentiasa gunakan Toolshim untuk pembekal ini"
+  },
   "customProviderForm.anthropicCompatible": {
     "defaultMessage": "Serasi Anthropic"
   },
@@ -3156,7 +3159,7 @@
     "defaultMessage": "Tiada resipi disimpan"
   },
   "recipesView.noSavedRecipesDescription": {
-    "defaultMessage": "Resipi yang disimpan daripada sembang akan dipaparkan di sini."
+    "defaultMessage": "Resipi yang disimpan akan dipaparkan di sini."
   },
   "recipesView.openInNewWindow": {
     "defaultMessage": "Buka dalam tetingkap baharu"
@@ -3693,7 +3696,7 @@
     "defaultMessage": "JSON sesi disalin"
   },
   "sessionActionsHeader.copiedModelInteractions": {
-    "defaultMessage": "Recent model interactions copied"
+    "defaultMessage": "Interaksi model terkini disalin"
   },
   "sessionActionsHeader.copiedText": {
     "defaultMessage": "Teks disalin"
@@ -3726,10 +3729,10 @@
     "defaultMessage": "Memuatkan JSON..."
   },
   "sessionActionsHeader.modelInteractionsFailed": {
-    "defaultMessage": "Failed to load model interactions: {error}"
+    "defaultMessage": "Gagal memuatkan interaksi model: {error}"
   },
   "sessionActionsHeader.modelInteractionsTitle": {
-    "defaultMessage": "Recent model interactions"
+    "defaultMessage": "Interaksi model terkini"
   },
   "sessionActionsHeader.renameFailed": {
     "defaultMessage": "Gagal menamakan semula sesi: {error}"
@@ -3756,7 +3759,7 @@
     "defaultMessage": "Lihat JSON sesi"
   },
   "sessionActionsHeader.viewModelInteractions": {
-    "defaultMessage": "View recent model interactions"
+    "defaultMessage": "Lihat interaksi model terkini"
   },
   "sessionIndicators.error": {
     "defaultMessage": "Sesi mengalami ralat"

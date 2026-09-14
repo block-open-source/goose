@@ -32,6 +32,40 @@ jobs:
             code:
               - '!documentation/**'
 
+  goose-acp-npm-packages:
+    name: goose ACP npm packages
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.code == 'true' || github.event_name != 'pull_request'
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Install dependencies
+        run: source bin/activate-hermit && pnpm --dir ui install --frozen-lockfile
+
+      - name: Check npm versions
+        run: source bin/activate-hermit && node ui/scripts/npm-versions.mjs check
+
+      - name: Test goose-acp
+        run: source bin/activate-hermit && pnpm --dir ui/goose-acp test
+
+      - name: Pack npm packages
+        run: |
+          source bin/activate-hermit
+          set -euo pipefail
+          client_pack_dir="$RUNNER_TEMP/goose-acp-client"
+          wrapper_pack_dir="$RUNNER_TEMP/goose-acp"
+          mkdir -p "$client_pack_dir" "$wrapper_pack_dir"
+
+          pnpm --dir ui/goose-acp-client pack --pack-destination "$client_pack_dir"
+          pnpm --dir ui/goose-acp pack --pack-destination "$wrapper_pack_dir"
+
+          wrapper_tarball=$(find "$wrapper_pack_dir" -name '*.tgz' -print -quit)
+          tar -xzf "$wrapper_tarball" -C "$wrapper_pack_dir"
+          node ui/scripts/npm-versions.mjs check-packed-wrapper \
+            "$wrapper_pack_dir/package/package.json"
+
   rust-format:
     name: Check Rust Code Format
     runs-on: ubuntu-latest
@@ -41,7 +75,7 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
         with:
           cache: false
 
@@ -57,7 +91,7 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
 
       - name: Repair stale v8 prebuilt marker
         run: .github/scripts/repair-v8-prebuilt.sh
@@ -86,7 +120,7 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
 
       - name: Install Dependencies
         run: |
@@ -100,6 +134,17 @@ jobs:
           cargo test -p goose-sdk --features uniffi --locked
         env:
           RUST_MIN_STACK: 8388608
+
+  kotlin-gdk-smoke-test:
+    name: Test Kotlin GDK package
+    needs: changes
+    if: needs.changes.outputs.code == 'true' || github.event_name != 'pull_request'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/maven-sdk.yml
+    with:
+      publish: false
+      smoke-test: true
 
   rust-build-and-test-tls:
     name: Build and Test TLS Backend (${{ matrix.tls-feature }})
@@ -116,7 +161,7 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
 
       - name: Install Dependencies
         run: |
@@ -149,7 +194,7 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
 
       - name: Install Dependencies
         run: |
@@ -214,7 +259,7 @@ jobs:
           echo "msrv=$msrv" >> "$GITHUB_OUTPUT"
           echo "MSRV: $msrv"
 
-      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659  # v1
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f  # v2.0.0
         with:
           toolchain: ${{ steps.msrv.outputs.msrv }}
 
@@ -230,6 +275,7 @@ jobs:
         run: cargo check --workspace --locked --all-targets
         env:
           CARGO_INCREMENTAL: "0"
+          RUSTFLAGS: "-D warnings"
 
   rust-lint:
     name: Lint Rust Code
@@ -239,7 +285,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
 
       - name: Repair stale v8 prebuilt marker
         run: .github/scripts/repair-v8-prebuilt.sh
@@ -262,7 +308,7 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+      - uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
 
       - name: Install Dependencies
         run: |
@@ -273,7 +319,6 @@ jobs:
         run: |
           source ./bin/activate-hermit
           cd ui/desktop && pnpm install --frozen-lockfile
-          cd ../sdk && pnpm install --frozen-lockfile
 
       - name: Check ACP Artifacts are Up-to-Date
         run: |
@@ -283,8 +328,18 @@ jobs:
       - name: Check ACP Client SDK
         run: |
           source ./bin/activate-hermit
-          cd ui/sdk
+          cd ui/goose-acp-client
           pnpm run lint
+
+  gdk-release-config-check:
+    name: Check GDK Release Configuration
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Check GDK crate membership and publication order
+        run: python3 crates/goose-sdk/scripts/gdk-release.py check-config
 
   gdk-api-docs-check:
     name: Check GDK API Reference is Up-to-Date

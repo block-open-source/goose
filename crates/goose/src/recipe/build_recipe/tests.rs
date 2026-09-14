@@ -333,6 +333,33 @@ fn test_build_recipe_from_template_missing_prompt_and_instructions() {
 }
 
 #[test]
+fn test_build_recipe_from_template_rejects_empty_rendered_instructions() {
+    let instructions_and_parameters = r#"
+                "instructions": "{{ instructions }}",
+                "parameters": [
+                    {
+                        "key": "instructions",
+                        "input_type": "string",
+                        "requirement": "optional",
+                        "default": "",
+                        "description": "Rendered instructions"
+                    }
+                ]"#;
+    let (_temp_dir, recipe_content, recipe_dir) = setup_recipe_file(instructions_and_parameters);
+
+    let error = build_recipe_from_template(recipe_content, &recipe_dir, Vec::new(), NO_USER_PROMPT)
+        .unwrap_err();
+
+    match error {
+        RecipeError::Invalid { source } => assert_eq!(
+            source.to_string(),
+            "Recipe must specify at least one of `instructions` or `prompt`."
+        ),
+        other => panic!("Expected Invalid error, got: {other:?}"),
+    }
+}
+
+#[test]
 fn test_template_inheritance() {
     let parent_content = r#"
                 version: 1.0.0
@@ -412,6 +439,161 @@ fn test_template_inheritance() {
         child_recipe.parameters.as_ref().unwrap()[1].key,
         "is_enabled"
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn inherited_recipe_is_built_from_the_validated_snapshot() {
+    use std::ffi::CString;
+    use std::io::Write;
+    use std::os::unix::ffi::OsStrExt;
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let parent_path = temp_dir.path().join("parent.yaml");
+    let retired_fifo_path = temp_dir.path().join("parent.fifo");
+    let secret_path = temp_dir.path().join("secret.txt");
+    let secret = "sensitive file contents";
+    std::fs::write(&secret_path, secret).unwrap();
+
+    let fifo_path = CString::new(parent_path.as_os_str().as_bytes()).unwrap();
+    // SAFETY: fifo_path is a valid, NUL-terminated path and mode contains only permission bits.
+    assert_eq!(unsafe { libc::mkfifo(fifo_path.as_ptr(), 0o600) }, 0);
+
+    let safe_parent = format!(
+        r#"version: 1.0.0
+title: Safe parent
+description: Safe parent
+instructions: "Use {{{{ TARGET }}}}"
+parameters:
+  - key: TARGET
+    input_type: string
+    requirement: optional
+    description: Target value
+    default: "{}"
+"#,
+        secret_path.display()
+    );
+    let swapped_parent = format!(
+        r#"version: 1.0.0
+title: Swapped parent
+description: Swapped parent
+instructions: "Use {{{{ TARGET }}}}"
+retry:
+  max_retries: 0
+parameters:
+  - key: TARGET
+    input_type: file
+    requirement: optional
+    description: Target file
+    default: "{}"
+"#,
+        secret_path.display()
+    );
+
+    let writer_parent_path = parent_path.clone();
+    let writer = std::thread::spawn(move || {
+        let mut fifo = std::fs::OpenOptions::new()
+            .write(true)
+            .open(&writer_parent_path)
+            .unwrap();
+        fifo.write_all(safe_parent.as_bytes()).unwrap();
+        std::fs::rename(&writer_parent_path, retired_fifo_path).unwrap();
+        std::fs::write(&writer_parent_path, swapped_parent).unwrap();
+        drop(fifo);
+    });
+
+    let recipe = build_recipe_from_template(
+        r#"{% extends "parent.yaml" %}"#.to_string(),
+        temp_dir.path(),
+        Vec::new(),
+        NO_USER_PROMPT,
+    )
+    .unwrap();
+    writer.join().unwrap();
+
+    let expected_instructions = format!("Use {}", secret_path.display());
+    assert_eq!(recipe.title, "Safe parent");
+    assert_eq!(
+        recipe.instructions.as_deref(),
+        Some(&*expected_instructions)
+    );
+    assert!(!recipe.instructions.as_deref().unwrap().contains(secret));
+    assert!(recipe.retry.is_none());
+    assert!(matches!(
+        recipe.parameters.unwrap()[0].input_type,
+        RecipeParameterInputType::String
+    ));
+}
+
+#[test]
+fn rendered_parameter_schema_is_revalidated() {
+    let parent_content = r#"
+version: 1.0.0
+title: Conditional parameter schema
+description: Conditional parameter schema
+instructions: "Use {{ TARGET }}"
+parameters:
+  - key: ENABLE_FILE
+    input_type: boolean
+    requirement: required
+    description: Whether to reinterpret the target as a file
+  - key: TARGET
+    input_type: "{% if ENABLE_FILE %}file{% else %}string{% endif %}"
+    requirement: optional
+    description: Target value
+    default: "/tmp/secret.txt"
+"#;
+    let child_content = r#"{% extends "parent.yaml" %}"#;
+    let (_temp_dir, _parent_recipe_file, child_recipe_file) =
+        setup_yaml_recipe_files(parent_content, child_content);
+
+    let error = build_recipe_from_template(
+        child_recipe_file.content,
+        &child_recipe_file.parent_dir,
+        vec![("ENABLE_FILE".to_string(), "true".to_string())],
+        NO_USER_PROMPT,
+    )
+    .unwrap_err();
+
+    match error {
+        RecipeError::Invalid { source } => assert!(source
+            .to_string()
+            .contains("File parameters cannot have default values")),
+        other => panic!("Expected Invalid error, got: {other:?}"),
+    }
+}
+
+#[test]
+fn dependency_not_loaded_during_validation_fails_closed() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    std::fs::write(temp_dir.path().join("extra.txt"), "unvalidated content").unwrap();
+    let recipe_content = r#"version: 1.0.0
+title: Conditional include
+description: Conditional include
+instructions: |
+  Safe instructions
+  {% if LOAD_EXTRA %}{% include "extra.txt" %}{% endif %}
+parameters:
+  - key: LOAD_EXTRA
+    input_type: boolean
+    requirement: required
+    description: Whether to load the extra template
+"#;
+
+    let error = build_recipe_from_template(
+        recipe_content.to_string(),
+        temp_dir.path(),
+        vec![("LOAD_EXTRA".to_string(), "true".to_string())],
+        NO_USER_PROMPT,
+    )
+    .unwrap_err();
+
+    match error {
+        RecipeError::Invalid { source } => {
+            assert!(source.to_string().contains("extra.txt"));
+        }
+        other => panic!("Expected Invalid error, got: {other:?}"),
+    }
 }
 
 mod sub_recipe_path_resolution {

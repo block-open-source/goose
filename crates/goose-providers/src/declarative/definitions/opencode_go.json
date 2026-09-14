@@ -5,6 +5,7 @@
   "description": "OpenCode Go models via OpenAI-compatible API.",
   "api_key_env": "OPENCODE_API_KEY",
   "base_url": "https://opencode.ai/zen/go/v1",
+  "session_id_header_override": "x-opencode-session",
   "catalog_provider_id": "opencode-go",
   "dynamic_models": true,
   "model_doc_link": "https://opencode.ai/docs/zen",

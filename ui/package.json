@@ -1,8 +1,8 @@
 {
   "private": true,
   "workspaces": [
-    "acp",
-    "text",
+    "goose-acp-client",
+    "goose-acp",
     "desktop",
     "goose-binary/*"
   ],

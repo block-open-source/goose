@@ -22,7 +22,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("\n✅ Authentication successful!");
             println!(
                 "API Key received: {}...",
-                &api_key.chars().take(10).collect::<String>()
+                api_key.chars().take(10).collect::<String>()
             );
             println!("\nYou can now use this API key with the Tetrate provider.");
         }

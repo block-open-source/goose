@@ -129,7 +129,7 @@ pub(crate) fn coerce_tool_arguments(
     Some(coerced)
 }
 
-async fn toolshim_postprocess(
+pub(crate) async fn toolshim_postprocess(
     response: Message,
     toolshim_tools: &[Tool],
 ) -> Result<Message, ProviderError> {
@@ -217,7 +217,7 @@ impl Agent {
             .extension_manager
             .get_extensions_info(working_dir)
             .await;
-        let model_config = self.model_config_for_session(session_id).await?;
+        let model_config = self.effective_model_config_for_session(session_id).await?;
 
         let goose_mode = *self.current_goose_mode.lock().await;
 

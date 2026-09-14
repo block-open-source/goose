@@ -145,7 +145,6 @@ export type AnalyticsEvent =
     }
   | { name: 'input_mode_changed'; properties: { from_mode: string; to_mode: string } }
   | { name: 'input_diagnostics_opened'; properties: Record<string, never> }
-  | { name: 'input_create_recipe_opened'; properties: Record<string, never> }
   | { name: 'input_edit_recipe_opened'; properties: Record<string, never> }
   // Auto-update tracking events
   | {

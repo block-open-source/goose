@@ -617,6 +617,9 @@
   "customProviderForm.add": {
     "defaultMessage": "Thêm"
   },
+  "customProviderForm.alwaysUseToolshim": {
+    "defaultMessage": "Luôn sử dụng Toolshim cho nhà cung cấp này"
+  },
   "customProviderForm.anthropicCompatible": {
     "defaultMessage": "Tương thích Anthropic"
   },
@@ -3156,7 +3159,7 @@
     "defaultMessage": "Chưa có công thức nào được lưu"
   },
   "recipesView.noSavedRecipesDescription": {
-    "defaultMessage": "Các công thức được lưu từ cuộc trò chuyện sẽ hiển thị ở đây."
+    "defaultMessage": "Các công thức đã lưu sẽ hiển thị ở đây."
   },
   "recipesView.openInNewWindow": {
     "defaultMessage": "Mở trong cửa sổ mới"
@@ -3693,7 +3696,7 @@
     "defaultMessage": "Đã sao chép JSON của phiên"
   },
   "sessionActionsHeader.copiedModelInteractions": {
-    "defaultMessage": "Recent model interactions copied"
+    "defaultMessage": "Đã sao chép tương tác mô hình gần đây"
   },
   "sessionActionsHeader.copiedText": {
     "defaultMessage": "Đã sao chép văn bản"
@@ -3726,10 +3729,10 @@
     "defaultMessage": "Đang tải JSON..."
   },
   "sessionActionsHeader.modelInteractionsFailed": {
-    "defaultMessage": "Failed to load model interactions: {error}"
+    "defaultMessage": "Không thể tải tương tác mô hình: {error}"
   },
   "sessionActionsHeader.modelInteractionsTitle": {
-    "defaultMessage": "Recent model interactions"
+    "defaultMessage": "Tương tác mô hình gần đây"
   },
   "sessionActionsHeader.renameFailed": {
     "defaultMessage": "Không thể đổi tên phiên: {error}"
@@ -3756,7 +3759,7 @@
     "defaultMessage": "Xem JSON của phiên"
   },
   "sessionActionsHeader.viewModelInteractions": {
-    "defaultMessage": "View recent model interactions"
+    "defaultMessage": "Xem tương tác mô hình gần đây"
   },
   "sessionIndicators.error": {
     "defaultMessage": "Phiên gặp lỗi"

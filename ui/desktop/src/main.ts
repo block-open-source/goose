@@ -1116,20 +1116,20 @@ const createChat = async (
         );
       }
 
-      const externalBackendReady = await checkBackendStatus({
+      const externalBackendCheck = await checkBackendStatus({
         baseUrl: externalBaseUrl,
         serverSecret,
         fetch: net.fetch as unknown as typeof globalThis.fetch,
       });
-      if (!externalBackendReady) {
+      if (!externalBackendCheck.ok) {
         externalCertificateTrust?.release();
+        log.error(`External backend check failed: ${externalBackendCheck.failure}`);
         const canDisableExternalBackend = externalBackend.source === 'settings';
         const response = dialog.showMessageBoxSync({
           type: 'error',
           title: 'External Backend Unreachable',
           message: `Could not connect to external backend at ${externalBaseUrl}`,
-          detail:
-            'The external backend must be running and the configured secret must match GOOSE_SERVER__SECRET_KEY on the server.',
+          detail: externalBackendCheck.failure ?? undefined,
           buttons: canDisableExternalBackend
             ? ['Disable External Backend & Retry', 'Quit']
             : ['Quit'],

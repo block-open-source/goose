@@ -928,6 +928,12 @@ impl SessionStorage {
     fn create_pool(path: &Path) -> Pool<Sqlite> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).expect("Failed to create session database directory");
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(parent, fs::Permissions::from_mode(0o700))
+                    .expect("Failed to secure session database directory");
+            }
         }
 
         let options = SqliteConnectOptions::new()
@@ -2787,6 +2793,58 @@ mod tests {
 
     const NUM_CONCURRENT_SESSIONS: i32 = 10;
     const GENERATED_SESSION_NAME: &str = "Generated session name";
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn session_directory_is_owner_private_for_fresh_and_existing_database() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp_dir = TempDir::new().unwrap();
+        let session_dir = temp_dir.path().join(SESSIONS_FOLDER);
+        let database_path = session_dir.join(DB_NAME);
+
+        let storage = SessionStorage::new(temp_dir.path().to_path_buf());
+        storage.pool().await.unwrap();
+        assert_eq!(
+            fs::metadata(&session_dir).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        storage.pool.close().await;
+        drop(storage);
+
+        fs::set_permissions(&database_path, fs::Permissions::from_mode(0o644)).unwrap();
+        fs::set_permissions(&session_dir, fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(
+            fs::metadata(&database_path).unwrap().permissions().mode() & 0o777,
+            0o644
+        );
+        assert_eq!(
+            fs::metadata(&session_dir).unwrap().permissions().mode() & 0o777,
+            0o755
+        );
+
+        let session_manager = SessionManager::new(temp_dir.path().to_path_buf());
+        let session = session_manager
+            .create_session(
+                PathBuf::from("/tmp/private-session-store"),
+                "Private session".to_string(),
+                SessionType::User,
+                GooseMode::default(),
+            )
+            .await
+            .unwrap();
+        let loaded = session_manager
+            .get_session(&session.id, false)
+            .await
+            .unwrap();
+
+        assert_eq!(loaded.id, session.id);
+        assert_eq!(loaded.name, "Private session");
+        assert_eq!(
+            fs::metadata(&session_dir).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+    }
 
     #[test]
     fn azure_session_model_config_preserves_suffixed_deployment_id() {

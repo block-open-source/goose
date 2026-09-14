@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -60,6 +60,8 @@ pub struct GatewayHandler {
     turn_locks: PerUserLocks,
     /// Serializes confirmation replies without waiting for the active turn to finish.
     confirmation_reply_locks: PerUserLocks,
+    /// When set, only platform user IDs in this list may enter the pairing flow.
+    allowed_user_ids: Option<HashSet<String>>,
 }
 
 impl GatewayHandler {
@@ -69,6 +71,7 @@ impl GatewayHandler {
         gateway: Arc<dyn Gateway>,
         config: GatewayConfig,
     ) -> Self {
+        let allowed_user_ids = allowed_user_ids_from_config(&config);
         Self {
             agent_manager,
             pairing_store,
@@ -77,6 +80,7 @@ impl GatewayHandler {
             pending_confirmations: Arc::new(Mutex::new(HashMap::new())),
             turn_locks: Arc::new(Mutex::new(HashMap::new())),
             confirmation_reply_locks: Arc::new(Mutex::new(HashMap::new())),
+            allowed_user_ids,
         }
     }
 
@@ -121,6 +125,15 @@ impl GatewayHandler {
     }
 
     pub async fn handle_message(&self, message: IncomingMessage) -> anyhow::Result<()> {
+        if !is_user_allowed(&self.allowed_user_ids, &message.user) {
+            tracing::info!(
+                platform = %message.user.platform,
+                user_id = %message.user.user_id,
+                "gateway allowlist denied unlisted user"
+            );
+            return Ok(());
+        }
+
         let pairing = self.pairing_store.get(&message.user).await?;
 
         match pairing {
@@ -831,6 +844,34 @@ fn gateway_working_dir(platform: &str, user_id: &str) -> PathBuf {
         .join(user_id)
 }
 
+/// Operator-configured list of platform user IDs that may pair with the gateway,
+/// read from `platform_config.allowed_user_ids`. An absent or empty list keeps
+/// the default behavior of letting anyone attempt pairing.
+fn allowed_user_ids_from_config(config: &GatewayConfig) -> Option<HashSet<String>> {
+    let ids: HashSet<String> = config.platform_config["allowed_user_ids"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|id| {
+            id.as_str()
+                .map(ToOwned::to_owned)
+                .or_else(|| id.as_u64().map(|n| n.to_string()))
+        })
+        .collect();
+    if ids.is_empty() {
+        None
+    } else {
+        Some(ids)
+    }
+}
+
+fn is_user_allowed(allowed: &Option<HashSet<String>>, user: &PlatformUser) -> bool {
+    match allowed {
+        None => true,
+        Some(ids) => ids.contains(&user.user_id),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -856,5 +897,54 @@ mod tests {
     #[test]
     fn gateway_override_used_when_global_unset() {
         assert_eq!(resolve_gateway_max_turns(Some(25), None), 25);
+    }
+
+    fn platform_user(user_id: &str) -> PlatformUser {
+        PlatformUser {
+            platform: "telegram".to_string(),
+            user_id: user_id.to_string(),
+            display_name: None,
+        }
+    }
+
+    fn config_with_platform(platform_config: serde_json::Value) -> GatewayConfig {
+        GatewayConfig {
+            gateway_type: "telegram".to_string(),
+            platform_config,
+            max_sessions: 1,
+        }
+    }
+
+    #[test]
+    fn allowlist_absent_or_empty_allows_everyone() {
+        for platform_config in [
+            serde_json::json!({}),
+            serde_json::json!({"allowed_user_ids": []}),
+        ] {
+            let allowed = allowed_user_ids_from_config(&config_with_platform(platform_config));
+            assert!(allowed.is_none());
+            assert!(is_user_allowed(&allowed, &platform_user("999999")));
+        }
+    }
+
+    #[test]
+    fn allowlist_admits_listed_and_blocks_unlisted_users() {
+        let config = config_with_platform(serde_json::json!({"allowed_user_ids": ["111", 222]}));
+        let allowed = allowed_user_ids_from_config(&config).expect("allowlist should be set");
+        assert_eq!(allowed.len(), 2);
+        assert!(is_user_allowed(
+            &Some(allowed.clone()),
+            &platform_user("111")
+        ));
+        assert!(is_user_allowed(&Some(allowed), &platform_user("222")));
+
+        let allowed = allowed_user_ids_from_config(&config).expect("allowlist should be set");
+        assert!(!is_user_allowed(&Some(allowed), &platform_user("333")));
+    }
+
+    #[test]
+    fn allowlist_ignores_non_id_values() {
+        let config = config_with_platform(serde_json::json!({"allowed_user_ids": [true, null]}));
+        assert!(allowed_user_ids_from_config(&config).is_none());
     }
 }

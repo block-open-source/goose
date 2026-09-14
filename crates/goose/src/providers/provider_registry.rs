@@ -32,6 +32,7 @@ pub struct ProviderEntry {
     provider_type: ProviderType,
     supports_inventory_refresh: bool,
     tls_config: Option<TlsConfig>,
+    toolshim: bool,
 }
 
 impl ProviderEntry {
@@ -55,7 +56,14 @@ impl ProviderEntry {
         (self.inventory_configured)()
     }
 
-    pub fn normalize_model_config(&self, model: ModelConfig) -> Result<ModelConfig> {
+    pub(crate) fn toolshim_enabled(&self, fallback: bool) -> bool {
+        self.toolshim || fallback
+    }
+
+    pub fn normalize_model_config(&self, mut model: ModelConfig) -> Result<ModelConfig> {
+        if self.toolshim_enabled(model.toolshim) {
+            model = model.with_toolshim(true);
+        }
         crate::model_config::materialize_model_config(&self.metadata.name, model)
     }
 
@@ -145,6 +153,7 @@ impl ProviderRegistry {
                 },
                 supports_inventory_refresh: inventory.supports_refresh,
                 tls_config: self.tls_config.clone(),
+                toolshim: false,
             },
         );
     }
@@ -309,6 +318,7 @@ impl ProviderRegistry {
                 provider_type,
                 supports_inventory_refresh,
                 tls_config: self.tls_config.clone(),
+                toolshim: config.toolshim,
             },
         );
     }
@@ -368,6 +378,7 @@ mod tests {
             base_url: "https://router.huggingface.co/v1".to_string(),
             models: vec![ModelInfo::new("test-model").with_context_limit(128_000)],
             headers: None,
+            session_id_header_override: None,
             timeout_seconds: None,
             supports_streaming: Some(true),
             requires_auth: true,
@@ -379,6 +390,7 @@ mod tests {
             skip_canonical_filtering: false,
             model_doc_link: None,
             setup_steps: vec![],
+            toolshim: false,
             preserves_thinking: false,
             emit_clear_thinking: false,
             setup: None,
@@ -402,5 +414,39 @@ mod tests {
         assert!(!entry.inventory_configured());
         assert!(entry.metadata().setup.is_none());
         assert!(entry.metadata().deprecated.is_none());
+    }
+
+    #[test]
+    fn custom_provider_toolshim_uses_global_setting_as_fallback() {
+        let mut registry = ProviderRegistry::new(None);
+        for (name, toolshim) in [("custom_toolshim", true), ("custom_default", false)] {
+            let mut config = test_config();
+            config.name = name.to_string();
+            config.toolshim = toolshim;
+            registry.register_with_name::<OpenAiProviderDef, _, _>(
+                &config,
+                ProviderType::Custom,
+                false,
+                |_| unreachable!("constructor is not used by this test"),
+                move || Ok(InventoryIdentityInput::new(name, name)),
+            );
+        }
+
+        let toolshim = registry.entries["custom_toolshim"]
+            .normalize_model_config(ModelConfig::new("test-model"))
+            .unwrap();
+        let fallback_enabled = registry.entries["custom_default"]
+            .normalize_model_config(ModelConfig::new("test-model").with_toolshim(true))
+            .unwrap();
+        let fallback_disabled = registry.entries["custom_default"]
+            .normalize_model_config(ModelConfig::new("test-model"))
+            .unwrap();
+
+        assert!(toolshim.toolshim);
+        assert!(fallback_enabled.toolshim);
+        assert!(!fallback_disabled.toolshim);
+        assert!(registry.entries["custom_toolshim"].toolshim_enabled(false));
+        assert!(registry.entries["custom_default"].toolshim_enabled(true));
+        assert!(!registry.entries["custom_default"].toolshim_enabled(false));
     }
 }

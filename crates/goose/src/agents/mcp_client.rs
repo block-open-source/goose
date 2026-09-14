@@ -718,7 +718,7 @@ impl McpClient {
                         transport,
                         ClientLifecycleMode::Auto {
                             preferred_versions: vec![ProtocolVersion::V_2026_07_28],
-                            legacy_version: Some(ProtocolVersion::LATEST),
+                            legacy_version: Some(ProtocolVersion::V_2025_11_25),
                         },
                     )
                     .await?

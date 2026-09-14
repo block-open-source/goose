@@ -2041,6 +2041,28 @@ mod tests {
     }
 
     #[test]
+    fn test_responses_request_gpt6_astra_off_uses_low_not_none() {
+        for model_name in ["gpt-6-astra", "data_workflow_tools.goose.goose-gpt-6-astra"] {
+            let model_config = ModelConfig::new(model_name)
+                .with_thinking_effort(crate::thinking::ThinkingEffort::Off);
+
+            let result =
+                create_responses_request(&model_config, "You are helpful.", &[], &[]).unwrap();
+
+            assert_eq!(result["model"], model_name, "{model_name}");
+            assert_eq!(
+                result["reasoning"]["effort"], "low",
+                "{model_name} Off should serialize as low, not none"
+            );
+        }
+
+        let model_config = ModelConfig::new("gpt-5.6-luna")
+            .with_thinking_effort(crate::thinking::ThinkingEffort::Off);
+        let result = create_responses_request(&model_config, "You are helpful.", &[], &[]).unwrap();
+        assert_eq!(result["reasoning"]["effort"], "none");
+    }
+
+    #[test]
     fn test_responses_request_supports_gpt_5_6_reasoning_mode() {
         for model_name in [
             "gpt-5.6-sol",

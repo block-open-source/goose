@@ -112,6 +112,7 @@ describe('ACP MCP app helpers', () => {
 
     expect(client.goose.toolsCall_unstable).toHaveBeenCalledWith({
       sessionId: 'session-1',
+      extensionName: 'weather',
       name: 'weather__refresh',
       arguments: { city: 'Amsterdam' },
     });

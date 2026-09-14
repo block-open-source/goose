@@ -21,10 +21,28 @@ pub fn current_session_id() -> Option<String> {
 }
 
 pub fn session_id_request_builder() -> goose_providers::api_client::RequestBuilderDecorator {
-    std::sync::Arc::new(|request| {
+    session_id_request_builder_with_header_name(HeaderName::from_static(SESSION_ID_HEADER))
+}
+
+pub(crate) fn session_id_request_builder_with_header_override(
+    header_name_override: Option<&str>,
+) -> Result<goose_providers::api_client::RequestBuilderDecorator, reqwest::header::InvalidHeaderName>
+{
+    let header_name = match header_name_override {
+        Some(header_name) => HeaderName::from_bytes(header_name.as_bytes())?,
+        None => HeaderName::from_static(SESSION_ID_HEADER),
+    };
+
+    Ok(session_id_request_builder_with_header_name(header_name))
+}
+
+fn session_id_request_builder_with_header_name(
+    header_name: HeaderName,
+) -> goose_providers::api_client::RequestBuilderDecorator {
+    std::sync::Arc::new(move |request| {
         let (client, request) = request.build_split();
         let mut request = request?;
-        let session_header = HeaderName::from_static(SESSION_ID_HEADER);
+        let session_header = header_name.clone();
         request.headers_mut().remove(&session_header);
 
         if let Some(session_id) = current_session_id() {
@@ -120,5 +138,49 @@ mod tests {
             assert_eq!(current_session_id(), Some("persistent-session".to_string()));
         })
         .await;
+    }
+
+    #[tokio::test]
+    async fn test_session_id_request_builder_uses_custom_header() {
+        with_session_id(Some("test-session-123".to_string()), async {
+            let decorate =
+                session_id_request_builder_with_header_override(Some("x-opencode-session"))
+                    .unwrap();
+
+            let request = decorate(reqwest::Client::new().get("http://localhost"))
+                .unwrap()
+                .build()
+                .unwrap();
+
+            assert_eq!(
+                request.headers().get("x-opencode-session").unwrap(),
+                "test-session-123"
+            );
+            assert!(request.headers().get(SESSION_ID_HEADER).is_none());
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn test_session_id_request_builder_uses_default_without_override() {
+        with_session_id(Some("test-session-123".to_string()), async {
+            let decorate = session_id_request_builder_with_header_override(None).unwrap();
+
+            let request = decorate(reqwest::Client::new().get("http://localhost"))
+                .unwrap()
+                .build()
+                .unwrap();
+
+            assert_eq!(
+                request.headers().get(SESSION_ID_HEADER).unwrap(),
+                "test-session-123"
+            );
+        })
+        .await;
+    }
+
+    #[test]
+    fn test_session_id_request_builder_rejects_invalid_header_override() {
+        assert!(session_id_request_builder_with_header_override(Some("invalid header")).is_err());
     }
 }

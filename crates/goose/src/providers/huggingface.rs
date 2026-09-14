@@ -9,6 +9,9 @@ use super::openai_compatible::OpenAiCompatibleProvider;
 use crate::config::declarative_providers::DeclarativeProviderConfig;
 use crate::config::{Config, ConfigError};
 use crate::conversation::message::Message;
+use crate::session_context::{
+    session_id_request_builder, session_id_request_builder_with_header_override,
+};
 use anyhow::{anyhow, Result};
 use futures::future::BoxFuture;
 use goose_providers::errors::ProviderError;
@@ -97,6 +100,9 @@ impl HuggingFaceProvider {
         let (host, completions_prefix, query_params) =
             openai_compatible_endpoint_parts(&config.base_url, config.base_path.as_deref())?;
 
+        let request_builder = session_id_request_builder_with_header_override(
+            config.session_id_header_override.as_deref(),
+        )?;
         let timeout_secs = config
             .timeout_seconds
             .unwrap_or(DEFAULT_PROVIDER_TIMEOUT_SECS);
@@ -106,7 +112,7 @@ impl HuggingFaceProvider {
             std::time::Duration::from_secs(timeout_secs),
             tls_config,
         )?
-        .with_request_builder(crate::session_context::session_id_request_builder())
+        .with_request_builder(request_builder)
         .with_query(query_params);
 
         if let Some(headers) = &config.headers {
@@ -241,7 +247,7 @@ impl ProviderDef for HuggingFaceProvider {
                 .get_param("HF_HOST")
                 .unwrap_or_else(|_| HUGGINGFACE_API_HOST.to_string());
             let api_client = ApiClient::new_with_tls(host, auth_method, tls_config)?
-                .with_request_builder(crate::session_context::session_id_request_builder());
+                .with_request_builder(session_id_request_builder());
 
             Ok(Self {
                 inner: OpenAiCompatibleProvider::new(
@@ -570,6 +576,7 @@ mod tests {
             base_url: HUGGINGFACE_API_HOST.to_string(),
             models: Vec::new(),
             headers: None,
+            session_id_header_override: None,
             timeout_seconds: None,
             supports_streaming: Some(true),
             requires_auth: true,
@@ -581,6 +588,7 @@ mod tests {
             skip_canonical_filtering: false,
             model_doc_link: None,
             setup_steps: vec![],
+            toolshim: false,
             preserves_thinking: true,
             emit_clear_thinking: false,
             setup: None,

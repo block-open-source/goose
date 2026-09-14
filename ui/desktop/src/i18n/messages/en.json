@@ -638,6 +638,9 @@
   "customProviderForm.add": {
     "defaultMessage": "Add"
   },
+  "customProviderForm.alwaysUseToolshim": {
+    "defaultMessage": "Always use Toolshim for this provider"
+  },
   "customProviderForm.anthropicCompatible": {
     "defaultMessage": "Anthropic Compatible"
   },
@@ -3204,7 +3207,7 @@
     "defaultMessage": "No saved recipes"
   },
   "recipesView.noSavedRecipesDescription": {
-    "defaultMessage": "Recipe saved from chats will show up here."
+    "defaultMessage": "Saved recipes will show up here."
   },
   "recipesView.openInNewWindow": {
     "defaultMessage": "Open in new window"

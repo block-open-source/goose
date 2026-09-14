@@ -39,6 +39,7 @@ use crate::agents::extension_malware_check;
 use crate::agents::mcp_client::{
     GooseMcpClientCapabilities, GooseMcpHostInfo, McpClient, McpClientTrait,
 };
+use crate::agents::reply_parts::is_tool_visible_to_app;
 use crate::builtin_extension::get_builtin_extension;
 use crate::config::extensions::name_to_key;
 use crate::config::search_path::SearchPaths;
@@ -279,6 +280,11 @@ pub fn get_tool_owner(tool: &Tool) -> Option<String> {
         .and_then(|m| m.0.get(TOOL_EXTENSION_META_KEY))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
+}
+
+pub(crate) fn is_tool_owned_by_extension(tool: &Tool, extension_name: &str) -> bool {
+    let expected_owner = name_to_key(extension_name);
+    get_tool_owner(tool).is_some_and(|owner| name_to_key(&owner) == expected_owner)
 }
 
 /// `tools` pairs each advertised public tool name with its owning extension's
@@ -2206,10 +2212,22 @@ impl ExtensionManager {
         }
     }
 
+    #[cfg(test)]
     async fn resolve_tool(
         &self,
         session_id: &str,
         tool_name: &str,
+    ) -> Result<ResolvedTool, ErrorData> {
+        self.resolve_tool_with_constraints(session_id, tool_name, None, false)
+            .await
+    }
+
+    async fn resolve_tool_with_constraints(
+        &self,
+        session_id: &str,
+        tool_name: &str,
+        expected_extension_name: Option<&str>,
+        require_app_visibility: bool,
     ) -> Result<ResolvedTool, ErrorData> {
         let tools = self.get_all_tools_cached(session_id).await.map_err(|e| {
             ErrorData::new(
@@ -2232,6 +2250,24 @@ impl ExtensionManager {
                             None,
                         )
                     })?;
+
+                if expected_extension_name
+                    .is_some_and(|expected| name_to_key(expected) != name_to_key(&owner))
+                {
+                    return Err(ErrorData::new(
+                        ErrorCode::RESOURCE_NOT_FOUND,
+                        format!("Tool '{}' not found for extension", tool_name),
+                        None,
+                    ));
+                }
+
+                if require_app_visibility && !is_tool_visible_to_app(tool) {
+                    return Err(ErrorData::new(
+                        ErrorCode::INVALID_PARAMS,
+                        "Tool is not visible to app clients",
+                        None,
+                    ));
+                }
 
                 let actual_tool_name = name
                     .strip_prefix(&format!("{owner}__"))
@@ -2294,8 +2330,44 @@ impl ExtensionManager {
         tool_call: CallToolRequestParams,
         cancellation_token: CancellationToken,
     ) -> std::result::Result<ToolCallResult, ErrorData> {
+        self.dispatch_tool_call_inner(ctx, tool_call, None, false, cancellation_token)
+            .await
+    }
+
+    pub async fn dispatch_app_tool_call(
+        &self,
+        ctx: &super::tool_execution::ToolCallContext,
+        tool_call: CallToolRequestParams,
+        extension_name: &str,
+        cancellation_token: CancellationToken,
+    ) -> std::result::Result<ToolCallResult, ErrorData> {
+        self.dispatch_tool_call_inner(
+            ctx,
+            tool_call,
+            Some(extension_name),
+            true,
+            cancellation_token,
+        )
+        .await
+    }
+
+    async fn dispatch_tool_call_inner(
+        &self,
+        ctx: &super::tool_execution::ToolCallContext,
+        tool_call: CallToolRequestParams,
+        expected_extension_name: Option<&str>,
+        require_app_visibility: bool,
+        cancellation_token: CancellationToken,
+    ) -> std::result::Result<ToolCallResult, ErrorData> {
         let tool_name_str = tool_call.name.to_string();
-        let resolved = self.resolve_tool(&ctx.session_id, &tool_name_str).await?;
+        let resolved = self
+            .resolve_tool_with_constraints(
+                &ctx.session_id,
+                &tool_name_str,
+                expected_extension_name,
+                require_app_visibility,
+            )
+            .await?;
 
         if let Some(extension) = self.extensions.lock().await.get(&resolved.extension_name) {
             if !extension
@@ -3495,6 +3567,84 @@ mod tests {
 
         assert!(tool_names.iter().any(|n| n.starts_with("ext_a__")));
         assert!(!tool_names.iter().any(|n| n.starts_with("ext_b__")));
+    }
+
+    #[test]
+    fn test_tool_owner_binding_uses_metadata_not_flattened_name() {
+        let tool = |name: &str, owner: &str| {
+            let mut tool = Tool::new(
+                name.to_string(),
+                "test tool".to_string(),
+                Arc::new(serde_json::Map::new()),
+            );
+            tool.meta = Some(MetaObject(
+                serde_json::json!({ TOOL_EXTENSION_META_KEY: owner })
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+            ));
+            tool
+        };
+
+        let own_tool = tool("ext_a__own", "ext_a");
+        let sibling_tool = tool("ext_a__ext_b__secret", "ext_a__ext_b");
+
+        assert!(is_tool_owned_by_extension(&own_tool, "ext_a"));
+        assert!(!is_tool_owned_by_extension(&sibling_tool, "ext_a"));
+    }
+
+    #[tokio::test]
+    async fn app_dispatch_revalidates_owner_after_tools_cache_changes() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let extension_manager =
+            ExtensionManager::new_without_provider(temp_dir.path().to_path_buf());
+        extension_manager
+            .add_mock_extension("ext_a__ext_b".to_string(), Arc::new(MockClient {}))
+            .await;
+
+        let app_tool = |owner: &str| {
+            let mut tool = Tool::new(
+                "ext_a__ext_b__secret".to_string(),
+                "test tool".to_string(),
+                Arc::new(serde_json::Map::new()),
+            );
+            tool.meta = Some(MetaObject(
+                serde_json::json!({
+                    TOOL_EXTENSION_META_KEY: owner,
+                    "ui": { "resourceUri": "ui://test/app" }
+                })
+                .as_object()
+                .unwrap()
+                .clone(),
+            ));
+            tool
+        };
+
+        *extension_manager.tools_cache.lock().await = Some(Arc::new(vec![app_tool("ext_a")]));
+        let initially_visible = extension_manager
+            .get_prefixed_tools("session", Some("ext_a".to_string()))
+            .await
+            .unwrap();
+        assert_eq!(initially_visible.len(), 1);
+
+        // Model tools/list_changed replacing the validated tool with a sibling
+        // owner's colliding flattened name before the actual dispatch.
+        *extension_manager.tools_cache.lock().await =
+            Some(Arc::new(vec![app_tool("ext_a__ext_b")]));
+        let ctx = ToolCallContext::new("session".to_string(), None, None);
+        let result = extension_manager
+            .dispatch_app_tool_call(
+                &ctx,
+                CallToolRequestParams::new("ext_a__ext_b__secret".to_string()),
+                "ext_a",
+                CancellationToken::default(),
+            )
+            .await;
+
+        let Err(error) = result else {
+            panic!("app dispatch accepted a sibling owner's colliding tool name");
+        };
+        assert_eq!(error.code, ErrorCode::RESOURCE_NOT_FOUND);
     }
 
     #[tokio::test]

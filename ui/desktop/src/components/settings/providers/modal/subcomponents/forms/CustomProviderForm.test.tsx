@@ -185,6 +185,7 @@ describe('CustomProviderForm transitions', () => {
           models: ['model-a'],
           supports_streaming: true,
           requires_auth: true,
+          toolshim: false,
         }}
         isEditable
         onSubmit={onSubmit}

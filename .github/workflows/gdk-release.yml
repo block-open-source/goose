@@ -4,18 +4,11 @@ on:
   push:
     tags:
       - "gdk-v*"
-  workflow_dispatch:
-    inputs:
-      version:
-        description: GDK version to publish (for example, 0.1.0-alpha.6)
-        required: true
-        type: string
-
 permissions:
   contents: read
 
 concurrency:
-  group: gdk-release-${{ github.event_name == 'workflow_dispatch' && format('gdk-v{0}', inputs.version) || github.ref_name }}
+  group: gdk-release-${{ github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -31,9 +24,7 @@ jobs:
       - name: Resolve release version
         id: version
         shell: bash
-        env:
-          INPUT_VERSION: ${{ inputs.version }}
-        run: echo "value=${INPUT_VERSION:-${GITHUB_REF_NAME#gdk-v}}" >> "$GITHUB_OUTPUT"
+        run: echo "value=${GITHUB_REF_NAME#gdk-v}" >> "$GITHUB_OUTPUT"
 
       - name: Install just
         uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
@@ -56,7 +47,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Rust
-        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+        uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
         with:
           cache: false
 
@@ -80,14 +71,34 @@ jobs:
     uses: ./.github/workflows/maven-sdk.yml
     with:
       publish: true
+      smoke-test: false
     secrets: inherit
 
-  pypi:
-    name: Publish Python wheels
+  python-wheels:
+    name: Build Python wheels
     needs: validate-version
     permissions:
       contents: read
-      id-token: write
     uses: ./.github/workflows/python-sdk-wheels.yml
-    with:
-      publish: true
+
+  pypi:
+    name: Publish Python wheels to PyPI
+    needs: python-wheels
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download wheel artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: goose-sdk-wheel-*
+          path: dist
+          merge-multiple: true
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          packages-dir: dist
+          skip-existing: true

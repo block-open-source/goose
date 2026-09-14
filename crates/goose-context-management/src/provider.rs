@@ -4,11 +4,11 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use goose_providers::base::{MessageStream, Provider};
-use goose_providers::conversation::message::Message;
-use goose_providers::conversation::token_usage::ProviderUsage;
-use goose_providers::errors::ProviderError;
-use goose_providers::model::ModelConfig;
+use goose_provider_types::base::{MessageStream, Provider};
+use goose_provider_types::conversation::message::Message;
+use goose_provider_types::conversation::token_usage::ProviderUsage;
+use goose_provider_types::errors::ProviderError;
+use goose_provider_types::model::ModelConfig;
 
 use crate::model::ProviderModel;
 use crate::templates::Templates;

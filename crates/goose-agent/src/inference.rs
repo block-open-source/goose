@@ -148,6 +148,16 @@ pub fn chat_span(
     span
 }
 
+fn is_empty_response(message: &Message) -> bool {
+    message.content.iter().all(|content| match content {
+        MessageContent::Text(text) => text.text.trim().is_empty(),
+        MessageContent::Thinking(thinking) => {
+            thinking.thinking.trim().is_empty() && thinking.signature.is_empty()
+        }
+        _ => false,
+    })
+}
+
 fn record_request_params(span: &tracing::Span, model_config: &ModelConfig) {
     if let Some(temperature) = model_config.temperature {
         span.record("gen_ai.request.temperature", temperature as f64);
@@ -499,13 +509,7 @@ impl<S: Sync, E: InferenceEffect> Inference<S, E> for InferenceRunner<'_, S, E> 
                 && !accumulator
                     .iter()
                     .any(|message| message.metadata.output_token_limit_reached)
-                && accumulator.iter().all(|message| {
-                    message.content.iter().all(|content| match content {
-                        MessageContent::Text(text) => text.text.trim().is_empty(),
-                        MessageContent::Thinking(thinking) => thinking.thinking.trim().is_empty(),
-                        _ => false,
-                    })
-                });
+                && accumulator.iter().all(is_empty_response);
             if empty_response {
                 let message = Message::assistant().with_text(EMPTY_RESPONSE_MESSAGE);
                 let message = emit.message(message).await;
@@ -596,5 +600,15 @@ mod tests {
         );
 
         assert!(cancellation_response(&[request, response], &[]).is_none());
+    }
+
+    #[test]
+    fn signed_thinking_without_text_is_not_an_empty_response() {
+        assert!(is_empty_response(
+            &Message::assistant().with_content(MessageContent::thinking("", ""))
+        ));
+        assert!(!is_empty_response(
+            &Message::assistant().with_content(MessageContent::thinking("", "sig-omitted"))
+        ));
     }
 }

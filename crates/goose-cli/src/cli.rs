@@ -2345,7 +2345,10 @@ async fn handle_gateway_command(command: GatewayCommand) -> Result<()> {
             gateway_type,
             bot_token,
         } => {
-            let platform_config = serde_json::json!({ "bot_token": bot_token });
+            let mut platform_config = serde_json::json!({ "bot_token": bot_token });
+            if let Some(ids) = goose::gateway::manager::saved_allowed_user_ids(&gateway_type) {
+                platform_config["allowed_user_ids"] = serde_json::json!(ids);
+            }
             gateway::handle_gateway_start(gateway_type, platform_config).await
         }
         GatewayCommand::Stop { gateway_type } => gateway::handle_gateway_stop(gateway_type).await,

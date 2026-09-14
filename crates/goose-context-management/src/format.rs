@@ -1,4 +1,4 @@
-use goose_providers::conversation::message::{ActionRequiredData, Message, MessageContent};
+use goose_provider_types::conversation::message::{ActionRequiredData, Message, MessageContent};
 use rmcp::model::Role;
 
 pub fn format_message_for_compacting(msg: &Message) -> String {

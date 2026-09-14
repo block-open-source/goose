@@ -1,6 +1,0 @@
-dist/
-node_modules/
-
-# Generated schema files (generated from Rust during build)
-acp-schema.json
-acp-meta.json

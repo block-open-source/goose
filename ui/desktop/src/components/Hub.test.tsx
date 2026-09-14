@@ -41,14 +41,14 @@ beforeEach(() => {
 
 describe('Hub', () => {
   it('navigates immediately and leaves the effective working directory for Pair to resolve', () => {
-    const draftRef = { current: 'hello from hub' };
+    const draftRef = { current: { msg: 'hello from hub', images: [] } };
     render(
       <IntlTestWrapper>
         <Hub setView={mockSetView} draftRef={draftRef} />
       </IntlTestWrapper>
     );
 
-    act(() => captured.handleSubmit?.({ msg: draftRef.current, images: [] }));
+    act(() => captured.handleSubmit?.({ msg: draftRef.current.msg, images: [] }));
 
     expect(mockSetView).toHaveBeenCalledWith('pair', {
       disableAnimation: true,
@@ -56,11 +56,11 @@ describe('Hub', () => {
       workingDir: undefined,
       allExtensions: [],
     });
-    expect(draftRef.current).toBe('hello from hub');
+    expect(draftRef.current).toEqual({ msg: 'hello from hub', images: [] });
   });
 
   it('passes a user-selected working directory through to pair', () => {
-    const draftRef = { current: 'hello from hub' };
+    const draftRef = { current: { msg: 'hello from hub', images: [] } };
     render(
       <IntlTestWrapper>
         <Hub setView={mockSetView} draftRef={draftRef} />
@@ -68,7 +68,7 @@ describe('Hub', () => {
     );
 
     act(() => captured.onWorkingDirChange?.('/tmp/picked'));
-    act(() => captured.handleSubmit?.({ msg: draftRef.current, images: [] }));
+    act(() => captured.handleSubmit?.({ msg: draftRef.current.msg, images: [] }));
 
     expect(mockSetView).toHaveBeenCalledWith('pair', {
       disableAnimation: true,

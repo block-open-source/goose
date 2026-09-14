@@ -37,7 +37,7 @@ export default function Hub({
 }: {
   setView: (view: View, viewOptions?: ViewOptions) => void;
   /** Unsent input of this screen, kept above the route outlet across the unmount. */
-  draftRef: RefObject<string>;
+  draftRef: RefObject<UserInput>;
 }) {
   const intl = useIntl();
   const { extensionsList } = useConfig();

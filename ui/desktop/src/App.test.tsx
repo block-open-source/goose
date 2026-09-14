@@ -13,6 +13,7 @@ import { reconnectAcpAfterSystemResume } from './acp/acpConnection';
 import { createSession } from './sessions';
 import { getEffectiveWorkingDir } from './utils/workingDir';
 import { RecipeParameterScopesUnsupportedError } from './acp/errors';
+import { AppEvents } from './constants/events';
 
 const mockToastError = vi.hoisted(() => vi.fn());
 
@@ -455,9 +456,10 @@ describe('App Component - Brand New State', () => {
 
   it('restores the Hub draft when createSession fails', async () => {
     vi.mocked(createSession).mockRejectedValueOnce(new Error('backend down'));
-    const draftRef = { current: '' };
+    const images = [{ data: 'abc123', mimeType: 'image/png' }];
+    const draftRef = { current: { msg: '', images: [] } };
     mockLocation.state = {
-      initialMessage: { msg: 'retry me', images: [] },
+      initialMessage: { msg: 'retry me', images },
       workingDir: '/tmp/hub-dir',
     };
     mockLocation.pathname = '/pair';
@@ -470,7 +472,28 @@ describe('App Component - Brand New State', () => {
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith('/');
     });
-    expect(draftRef.current).toBe('retry me');
+    expect(draftRef.current).toEqual({ msg: 'retry me', images });
+  });
+
+  it('restores attached images when an image-only Hub submission fails', async () => {
+    vi.mocked(createSession).mockRejectedValueOnce(new Error('backend down'));
+    const images = [{ data: 'imgonly', mimeType: 'image/jpeg' }];
+    const draftRef = { current: { msg: '', images: [] } };
+    mockLocation.state = {
+      initialMessage: { msg: '', images },
+      workingDir: '/tmp/hub-dir',
+    };
+    mockLocation.pathname = '/pair';
+
+    render(
+      <PairRouteWrapper activeSessions={[]} setActiveSessions={vi.fn()} draftRef={draftRef} />,
+      { wrapper: AppInnerTestWrapper }
+    );
+
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith('/');
+    });
+    expect(draftRef.current).toEqual({ msg: '', images });
   });
 
   it('clears the Hub draft after createSession succeeds', async () => {
@@ -478,7 +501,7 @@ describe('App Component - Brand New State', () => {
       id: 'session-success',
       recipe: null,
     } as Awaited<ReturnType<typeof createSession>>);
-    const draftRef = { current: 'hello from hub' };
+    const draftRef = { current: { msg: 'hello from hub', images: [] } };
     mockLocation.state = {
       initialMessage: { msg: 'hello from hub', images: [] },
       workingDir: '/tmp/hub-dir',
@@ -493,7 +516,56 @@ describe('App Component - Brand New State', () => {
     await waitFor(() => {
       expect(createSession).toHaveBeenCalled();
     });
-    expect(draftRef.current).toBe('');
+    expect(draftRef.current).toEqual({ msg: '', images: [] });
+  });
+
+  it('publishes a session that finishes after PairRouteWrapper unmounts', async () => {
+    let resolveSession: ((value: Awaited<ReturnType<typeof createSession>>) => void) | undefined;
+    vi.mocked(createSession).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveSession = resolve;
+        })
+    );
+    mockLocation.state = {
+      initialMessage: { msg: 'hello from hub', images: [] },
+      workingDir: '/tmp/hub-dir',
+    };
+    mockLocation.pathname = '/pair';
+
+    const onSessionCreated = vi.fn();
+    const onAddActiveSession = vi.fn();
+    window.addEventListener(AppEvents.SESSION_CREATED, onSessionCreated);
+    window.addEventListener(AppEvents.ADD_ACTIVE_SESSION, onAddActiveSession);
+
+    try {
+      const { unmount } = render(
+        <PairRouteWrapper activeSessions={[]} setActiveSessions={vi.fn()} />,
+        { wrapper: AppInnerTestWrapper }
+      );
+
+      expect(createSession).toHaveBeenCalled();
+      unmount();
+
+      resolveSession?.({
+        id: 'session-after-unmount',
+        name: 'untitled',
+        message_count: 0,
+        created_at: '2026-08-21T00:00:00.000Z',
+        updated_at: '2026-08-21T00:00:00.000Z',
+        working_dir: '/tmp/hub-dir',
+        extension_data: { active: [], installed: [] },
+      });
+
+      await waitFor(() => {
+        expect(onSessionCreated).toHaveBeenCalled();
+        expect(onAddActiveSession).toHaveBeenCalled();
+      });
+      expect(mockSetSearchParams).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener(AppEvents.SESSION_CREATED, onSessionCreated);
+      window.removeEventListener(AppEvents.ADD_ACTIVE_SESSION, onAddActiveSession);
+    }
   });
 
   it('should navigate home when the main process emits new-chat', async () => {

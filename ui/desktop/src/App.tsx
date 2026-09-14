@@ -68,7 +68,9 @@ function PageViewTracker() {
 }
 
 // Route Components
-const HubRouteWrapper = ({ draftRef }: { draftRef: RefObject<string> }) => {
+const emptyHubDraft = (): UserInput => ({ msg: '', images: [] });
+
+const HubRouteWrapper = ({ draftRef }: { draftRef: RefObject<UserInput> }) => {
   const setView = useNavigation();
   return <Hub setView={setView} draftRef={draftRef} />;
 };
@@ -95,7 +97,7 @@ export const PairRouteWrapper = ({
   setActiveSessions: (
     sessions: Array<{ sessionId: string; initialMessage?: UserInput; noAutoSubmit?: boolean }>
   ) => void;
-  draftRef?: RefObject<string>;
+  draftRef?: RefObject<UserInput>;
 }) => {
   const { extensionsList } = useConfig();
   const location = useLocation();
@@ -147,11 +149,8 @@ export const PairRouteWrapper = ({
           recipeId: recipeIdFromConfig ?? undefined,
           ...sessionOptions,
         });
-        if (unmountedRef.current) {
-          return;
-        }
         if (draftRef) {
-          draftRef.current = '';
+          draftRef.current = emptyHubDraft();
         }
         const sessionInitialMessage = resolveSessionInitialMessage(newSession, initialMessage);
 
@@ -168,6 +167,10 @@ export const PairRouteWrapper = ({
           })
         );
 
+        if (unmountedRef.current) {
+          return;
+        }
+
         setSearchParams(
           (prev) => {
             prev.set('resumeSessionId', newSession.id);
@@ -176,11 +179,14 @@ export const PairRouteWrapper = ({
           { replace: true, state: location.state }
         );
       } catch (error) {
+        if (draftRef && initialMessage) {
+          draftRef.current = {
+            msg: initialMessage.msg,
+            images: [...initialMessage.images],
+          };
+        }
         if (unmountedRef.current) {
           return;
-        }
-        if (draftRef && initialMessage?.msg) {
-          draftRef.current = initialMessage.msg;
         }
         if (isRecipeParamsCancelled(error)) {
           navigate('/');
@@ -379,7 +385,7 @@ export function AppInner() {
   // `ChatSessionsContainer` and keep their text in local state. Its unsent input lives
   // here so it outlives that unmount, and in a ref rather than state because nothing
   // above the outlet has to render on a keystroke.
-  const hubDraftRef = useRef('');
+  const hubDraftRef = useRef<UserInput>(emptyHubDraft());
 
   const MAX_ACTIVE_SESSIONS = 10;
 

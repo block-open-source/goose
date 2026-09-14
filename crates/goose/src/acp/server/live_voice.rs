@@ -2,11 +2,12 @@ mod call;
 mod service;
 
 use super::*;
-use call::{LiveVoiceCallId, LiveVoiceCallState};
+use call::LiveVoiceCallId;
 use futures::FutureExt;
 use service::{
-    wait_until_finished, LiveVoiceAvailability, LiveVoiceCallEndedHandler, LiveVoiceDelegation,
-    LiveVoiceDelegationHandler, LiveVoiceError, LiveVoiceTranscriptHandler, WebRtcOffer,
+    wait_for_completion, LiveVoiceAvailability, LiveVoiceCallCompletion, LiveVoiceCallEndedHandler,
+    LiveVoiceDelegationCommand, LiveVoiceDelegationHandler, LiveVoiceError,
+    LiveVoiceTranscriptHandler, WebRtcOffer,
 };
 
 pub use service::LiveVoiceService;
@@ -63,11 +64,9 @@ impl GooseAcpAgent {
             if self.supports_goose_custom_notifications() {
                 let notification_connection = cx.clone();
                 Arc::new(move |ended| {
-                    let outcome = match ended.state {
-                        LiveVoiceCallState::Stopped => LiveVoiceCallOutcome::Stopped,
-                        LiveVoiceCallState::Failed => LiveVoiceCallOutcome::Failed,
-                        // An invalid ended event must still tell Desktop to release local media.
-                        LiveVoiceCallState::Live => LiveVoiceCallOutcome::Failed,
+                    let outcome = match ended.completion {
+                        LiveVoiceCallCompletion::Stopped => LiveVoiceCallOutcome::Stopped,
+                        LiveVoiceCallCompletion::Failed => LiveVoiceCallOutcome::Failed,
                     };
                     let _ = notification_connection.send_notification(GooseSessionNotification {
                         session_id: ended.session_id,
@@ -101,27 +100,22 @@ impl GooseAcpAgent {
                 update,
             ));
         });
-        let prepared_main_agent = self.prepare_live_main_agent(&req.session_id).await;
+        let prepared_agent = self.prepare_live_agent(&req.session_id).await;
         let delegation_owner = Arc::clone(self);
         let delegation_connection = cx.clone();
         let delegation_handler: LiveVoiceDelegationHandler =
-            Arc::new(move |main_session_id, delegation| {
+            Arc::new(move |session_id, delegation| {
                 let owner = delegation_owner.clone();
                 let connection = delegation_connection.clone();
                 match delegation {
-                    LiveVoiceDelegation::Steer { input } => {
-                        async move { owner.steer_live_delegation(&main_session_id, input).await }
-                            .boxed()
+                    LiveVoiceDelegationCommand::Steer { input } => {
+                        async move { owner.steer_live_delegation(&session_id, input).await }.boxed()
                     }
-                    LiveVoiceDelegation::Start {
+                    LiveVoiceDelegationCommand::Start { input } => owner.start_live_delegation(
+                        session_id,
                         input,
-                        cancellation,
-                    } => owner.start_live_delegation(
-                        main_session_id,
-                        input,
-                        cancellation,
                         connection,
-                        prepared_main_agent.clone(),
+                        prepared_agent.clone(),
                     ),
                 }
             });
@@ -144,7 +138,7 @@ impl GooseAcpAgent {
 
         let call_id = call.call_id.clone();
         let live_voice = self.live_voice.clone();
-        let finished_state_rx = call.finished_state_rx;
+        let completion_rx = call.completion_rx;
         let watcher_connection = cx.clone();
         tokio::spawn(async move {
             tokio::select! {
@@ -152,7 +146,7 @@ impl GooseAcpAgent {
                 _ = watcher_connection.incoming_closed() => {
                     let _ = live_voice.stop_call(&session_id, &call_id).await;
                 }
-                _ = wait_until_finished(finished_state_rx) => {}
+                _ = wait_for_completion(completion_rx) => {}
             }
         });
 
@@ -177,21 +171,21 @@ impl GooseAcpAgent {
 
     fn start_live_delegation(
         self: Arc<Self>,
-        main_session_id: String,
+        session_id: String,
         input: String,
-        cancel_token: CancellationToken,
         cx: ConnectionTo<Client>,
-        prepared_main_agent: Result<Arc<Agent>, String>,
+        prepared_agent: Result<Arc<Agent>, String>,
     ) -> BoxFuture<'static, String> {
-        let agent = match prepared_main_agent {
+        let agent = match prepared_agent {
             Ok(value) => value,
             Err(message) => return async move { message }.boxed(),
         };
+        let cancel_token = CancellationToken::new();
         let run_id = format!("run_{}", Uuid::new_v4());
         if self
             .active_runs
             .start_live_delegation(
-                &main_session_id,
+                &session_id,
                 run_id.clone(),
                 cancel_token.clone(),
                 agent.clone(),
@@ -202,14 +196,14 @@ impl GooseAcpAgent {
         }
         let run_guard = ActiveRunDropGuard {
             registry: self.active_runs.clone(),
-            session_id: main_session_id.clone(),
+            session_id: session_id.clone(),
             run_id: run_id.clone(),
             cancel_token: cancel_token.clone(),
         };
 
         async move {
             let _run_guard = run_guard;
-            self.run_live_delegation(main_session_id, input, cancel_token, cx, agent, run_id)
+            self.run_live_delegation(session_id, input, cancel_token, cx, agent, run_id)
                 .await
         }
         .boxed()
@@ -217,18 +211,18 @@ impl GooseAcpAgent {
 
     async fn run_live_delegation(
         &self,
-        main_session_id: String,
+        session_id: String,
         input: String,
         cancel_token: CancellationToken,
         cx: ConnectionTo<Client>,
         agent: Arc<Agent>,
         run_id: String,
     ) -> String {
-        let acp_session_id = SessionId::new(main_session_id.clone());
+        let acp_session_id = SessionId::new(session_id.clone());
         let _ = Self::send_active_run_update(&cx, &acp_session_id, Some(&run_id));
 
         let session_config = SessionConfig {
-            id: main_session_id.clone(),
+            id: session_id.clone(),
             schedule_id: None,
             max_turns: None,
             retry_config: None,
@@ -241,7 +235,7 @@ impl GooseAcpAgent {
         {
             Ok(stream) => stream,
             Err(_) => {
-                self.clear_active_run(&main_session_id, &run_id).await;
+                self.clear_active_run(&session_id, &run_id).await;
                 let _ = Self::send_active_run_update(&cx, &acp_session_id, None);
                 return "The coding task failed before it could start.".into();
             }
@@ -252,16 +246,16 @@ impl GooseAcpAgent {
         let mut outcome = String::new();
         while let Some(event) = stream.next().await {
             if cancel_token.is_cancelled() {
-                self.clear_active_run(&main_session_id, &run_id).await;
+                self.clear_active_run(&session_id, &run_id).await;
                 let _ = Self::send_active_run_update(&cx, &acp_session_id, None);
                 return "The coding task was cancelled.".into();
             }
             match event {
                 Ok(crate::agents::AgentEvent::Message(message)) => {
-                    let is_visible_assistant =
-                        message.role == Role::Assistant && message.is_user_visible();
-                    let visible_message = message.user_visible_content();
-                    for content in &visible_message.content {
+                    let is_user_visible = message.is_user_visible();
+                    let is_visible_assistant = message.role == Role::Assistant && is_user_visible;
+                    let projected_message = message.user_visible_content();
+                    for content in &projected_message.content {
                         if let MessageContent::ToolRequest(tool_request) = content {
                             tool_requests.insert(tool_request.id.clone(), tool_request.clone());
                         }
@@ -270,7 +264,7 @@ impl GooseAcpAgent {
                             | MessageContent::ToolResponse(_)
                             | MessageContent::Thinking(_)
                             | MessageContent::ActionRequired(_) => true,
-                            _ => message.is_user_visible(),
+                            _ => is_user_visible,
                         };
                         if !should_project {
                             continue;
@@ -278,7 +272,7 @@ impl GooseAcpAgent {
                         let _ = self
                             .handle_message_content(
                                 content,
-                                &visible_message,
+                                &projected_message,
                                 &acp_session_id,
                                 &agent,
                                 &tool_requests,
@@ -287,18 +281,18 @@ impl GooseAcpAgent {
                             .await;
                     }
                     if is_visible_assistant {
-                        let text = visible_message
+                        let text = projected_message
                             .content
                             .iter()
                             .filter_map(MessageContent::as_text)
                             .collect::<String>();
                         if !text.trim().is_empty() {
                             if outcome_message_id.is_some()
-                                && outcome_message_id == visible_message.id
+                                && outcome_message_id == projected_message.id
                             {
                                 outcome.push_str(&text);
                             } else {
-                                outcome_message_id = visible_message.id;
+                                outcome_message_id = projected_message.id;
                                 outcome = text;
                             }
                         }
@@ -314,7 +308,7 @@ impl GooseAcpAgent {
                 Ok(crate::agents::AgentEvent::MessageUsage { message_id, usage }) => {
                     if self.supports_goose_custom_notifications() {
                         let _ = cx.send_notification(GooseSessionNotification {
-                            session_id: main_session_id.clone(),
+                            session_id: session_id.clone(),
                             update: GooseSessionUpdate::MessageUsage(message_usage_update(
                                 message_id, &usage,
                             )),
@@ -323,14 +317,14 @@ impl GooseAcpAgent {
                 }
                 Ok(_) => {}
                 Err(_) => {
-                    self.clear_active_run(&main_session_id, &run_id).await;
+                    self.clear_active_run(&session_id, &run_id).await;
                     let _ = Self::send_active_run_update(&cx, &acp_session_id, None);
                     return "The coding task failed before it could complete.".into();
                 }
             }
         }
 
-        self.clear_active_run(&main_session_id, &run_id).await;
+        self.clear_active_run(&session_id, &run_id).await;
         let _ = Self::send_active_run_update(&cx, &acp_session_id, None);
         if cancel_token.is_cancelled() {
             return "The coding task was cancelled.".into();
@@ -341,33 +335,22 @@ impl GooseAcpAgent {
         outcome
     }
 
-    async fn steer_live_delegation(&self, main_session_id: &str, input: String) -> String {
-        let Some((_, agent)) = self.active_runs.agent_run(main_session_id) else {
+    async fn steer_live_delegation(&self, session_id: &str, input: String) -> String {
+        let Some((_, agent)) = self.active_runs.agent_run(session_id) else {
             return "The task could not receive the latest instruction.".into();
         };
         agent
-            .steer(
-                main_session_id,
-                Message::user().with_text(input).agent_only(),
-            )
+            .steer(session_id, Message::user().with_text(input).agent_only())
             .await;
         "The latest instruction was added to the work in progress. Wait for its updated result."
             .into()
     }
 
-    async fn prepare_live_main_agent(&self, main_session_id: &str) -> Result<Arc<Agent>, String> {
+    async fn prepare_live_agent(&self, session_id: &str) -> Result<Arc<Agent>, String> {
         if !crate::agents::state_machine::enabled() {
             return Err("Live coding requires the state machine.".into());
         }
-        let main_session = self
-            .session_manager
-            .get_session(main_session_id, false)
-            .await
-            .map_err(|_| "The coding task could not load this chat.".to_string())?;
-        if main_session.provider_name.is_none() || main_session.model_config.is_none() {
-            return Err("The coding task has no selected provider or model.".into());
-        }
-        self.get_session_agent(main_session_id)
+        self.get_session_agent(session_id)
             .await
             .map_err(|_| "Goose could not activate the coding agent.".to_string())
     }

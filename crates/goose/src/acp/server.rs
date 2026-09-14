@@ -312,8 +312,8 @@ pub struct GooseAcpAgentOptions {
     /// When set, new sessions use this host-controlled working directory instead
     /// of the `cwd` the connecting client sends (see `AcpServerFactoryConfig`).
     pub session_cwd: Option<std::path::PathBuf>,
-    /// Shared across roaming connections so a session has only one active
-    /// Normal or Live run.
+    /// Shared across roaming connections to coordinate prompt, Live, and
+    /// delegated agent runs for each session.
     pub active_runs: Arc<ActiveRunRegistry>,
     pub live_voice: Arc<LiveVoiceService>,
 }

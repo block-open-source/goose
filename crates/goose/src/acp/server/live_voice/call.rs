@@ -17,41 +17,24 @@ impl LiveVoiceCallId {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum LiveVoiceCallState {
-    Live,
-    Stopped,
-    Failed,
-}
-
-impl LiveVoiceCallState {
-    pub(super) fn is_terminal(self) -> bool {
-        matches!(self, Self::Stopped | Self::Failed)
-    }
-}
-
 pub(super) struct LiveVoiceCall {
     session_id: String,
     id: LiveVoiceCallId,
-    state: LiveVoiceCallState,
     provider_connection: Box<dyn ProviderConnection>,
     transcript: Option<Message>,
     provider_events: HashSet<String>,
-    transcript_fragments: Vec<TimedTranscriptFragment>,
+    transcript_fragments: Vec<TranscriptFragment>,
     delegation_ids: HashSet<String>,
     last_delegation_offset_ms: Option<u64>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
-struct TimedTranscriptFragment {
+struct TranscriptFragment {
     role: Role,
     text: String,
-    start_ms: u64,
     end_ms: u64,
-    accepted: bool,
 }
 
-pub(super) enum DelegationInput {
+pub(super) enum DelegationDecision {
     Ignore,
     Reject(String),
     Accept(String),
@@ -66,7 +49,6 @@ impl LiveVoiceCall {
         Self {
             session_id,
             id,
-            state: LiveVoiceCallState::Live,
             provider_connection,
             transcript: None,
             provider_events: HashSet::new(),
@@ -93,7 +75,6 @@ impl LiveVoiceCall {
         event_id: String,
         role: Role,
         delta_text: &str,
-        start_ms: u64,
         end_ms: u64,
     ) -> Option<(Option<Message>, Message)> {
         if !self.provider_events.insert(event_id) {
@@ -103,12 +84,10 @@ impl LiveVoiceCall {
             return None;
         }
 
-        self.transcript_fragments.push(TimedTranscriptFragment {
+        self.transcript_fragments.push(TranscriptFragment {
             role: role.clone(),
             text: delta_text.to_string(),
-            start_ms,
             end_ms,
-            accepted: false,
         });
 
         if self
@@ -140,31 +119,31 @@ impl LiveVoiceCall {
         event_id: String,
         delegation_id: String,
         offset_ms: u64,
-    ) -> DelegationInput {
+    ) -> DelegationDecision {
         if !self.provider_events.insert(event_id) || !self.delegation_ids.insert(delegation_id) {
-            return DelegationInput::Ignore;
+            return DelegationDecision::Ignore;
         }
         if self
             .last_delegation_offset_ms
             .is_some_and(|last_offset| offset_ms < last_offset)
         {
-            return DelegationInput::Reject("The delegated conversation position is stale.".into());
+            return DelegationDecision::Reject(
+                "The delegated conversation position is stale.".into(),
+            );
         }
 
         let fragment_indexes = self
             .transcript_fragments
             .iter()
             .enumerate()
-            .filter(|(_, fragment)| {
-                !fragment.accepted && fragment.start_ms <= offset_ms && fragment.end_ms <= offset_ms
-            })
+            .filter(|(_, fragment)| fragment.end_ms <= offset_ms)
             .map(|(index, _)| index)
             .collect::<Vec<_>>();
         if !fragment_indexes.iter().any(|index| {
             let fragment = &self.transcript_fragments[*index];
             fragment.role == Role::User && !fragment.text.trim().is_empty()
         }) {
-            return DelegationInput::Reject("I couldn't identify a request to complete.".into());
+            return DelegationDecision::Reject("I couldn't identify a request to complete.".into());
         }
 
         let mut input = String::from("Live conversation context:\n");
@@ -187,11 +166,10 @@ impl LiveVoiceCall {
             input.push('\n');
         }
         input.push_str(DELEGATION_INSTRUCTION);
-        for index in fragment_indexes {
-            self.transcript_fragments[index].accepted = true;
-        }
+        self.transcript_fragments
+            .retain(|fragment| fragment.end_ms > offset_ms);
         self.last_delegation_offset_ms = Some(offset_ms);
-        DelegationInput::Accept(input)
+        DelegationDecision::Accept(input)
     }
 
     pub(super) async fn send_delegation_update(
@@ -209,20 +187,6 @@ impl LiveVoiceCall {
 
     pub(super) async fn cleanup_provider(&mut self) -> anyhow::Result<()> {
         self.provider_connection.stop().await
-    }
-
-    pub(super) fn fail(&mut self) -> LiveVoiceCallState {
-        if !self.state.is_terminal() {
-            self.state = LiveVoiceCallState::Failed;
-        }
-        self.state
-    }
-
-    pub(super) fn finish_stop(&mut self) -> LiveVoiceCallState {
-        if !self.state.is_terminal() {
-            self.state = LiveVoiceCallState::Stopped;
-        }
-        self.state
     }
 }
 
@@ -296,7 +260,6 @@ mod tests {
         );
 
         call.cleanup_provider().await.unwrap();
-        assert_eq!(call.finish_stop(), LiveVoiceCallState::Stopped);
         did_stop.await.unwrap();
     }
 
@@ -307,14 +270,14 @@ mod tests {
             LiveVoiceCallId("live-test".into()),
             Box::new(TestConnection { stopped: None }),
         );
-        call.observe_transcript("1".into(), Role::Assistant, "ready", 0, 5);
-        call.observe_transcript("2".into(), Role::User, "do ", 5, 10);
-        call.observe_transcript("3".into(), Role::User, "this", 10, 20);
-        call.observe_transcript("4".into(), Role::Assistant, "crossing", 15, 25);
-        call.observe_transcript("5".into(), Role::Assistant, "later", 30, 40);
+        call.observe_transcript("1".into(), Role::Assistant, "ready", 5);
+        call.observe_transcript("2".into(), Role::User, "do ", 10);
+        call.observe_transcript("3".into(), Role::User, "this", 20);
+        call.observe_transcript("4".into(), Role::Assistant, "crossing", 25);
+        call.observe_transcript("5".into(), Role::Assistant, "later", 40);
         let open_transcript = call.transcript.as_ref().unwrap().as_concat_text();
 
-        let DelegationInput::Accept(input) =
+        let DelegationDecision::Accept(input) =
             call.delegation_input("event-1".into(), "delegation-1".into(), 20)
         else {
             panic!("delegation should be accepted");
@@ -328,11 +291,11 @@ mod tests {
         );
         assert!(matches!(
             call.delegation_input("event-1".into(), "delegation-1".into(), 20),
-            DelegationInput::Ignore
+            DelegationDecision::Ignore
         ));
 
-        call.observe_transcript("6".into(), Role::User, " late detail", 15, 20);
-        let DelegationInput::Accept(continuation) =
+        call.observe_transcript("6".into(), Role::User, " late detail", 20);
+        let DelegationDecision::Accept(continuation) =
             call.delegation_input("event-2".into(), "delegation-2".into(), 20)
         else {
             panic!("continuation should be accepted");
@@ -343,11 +306,11 @@ mod tests {
 
         assert!(matches!(
             call.delegation_input("event-3".into(), "delegation-3".into(), 19),
-            DelegationInput::Reject(_)
+            DelegationDecision::Reject(_)
         ));
 
-        call.observe_transcript("7".into(), Role::User, "again", 40, 50);
-        let DelegationInput::Accept(next) =
+        call.observe_transcript("7".into(), Role::User, "again", 50);
+        let DelegationDecision::Accept(next) =
             call.delegation_input("event-4".into(), "delegation-4".into(), 50)
         else {
             panic!("later continuation should be accepted");
@@ -361,10 +324,10 @@ mod tests {
             LiveVoiceCallId("live-test-2".into()),
             Box::new(TestConnection { stopped: None }),
         );
-        missing_user.observe_transcript("1".into(), Role::Assistant, "hello", 0, 10);
+        missing_user.observe_transcript("1".into(), Role::Assistant, "hello", 10);
         assert!(matches!(
             missing_user.delegation_input("event-1".into(), "delegation-1".into(), 10),
-            DelegationInput::Reject(_)
+            DelegationDecision::Reject(_)
         ));
     }
 
@@ -376,14 +339,14 @@ mod tests {
             Box::new(TestConnection { stopped: None }),
         );
         let first = call
-            .observe_transcript("1".into(), Role::User, "hello", 0, 10)
+            .observe_transcript("1".into(), Role::User, "hello", 10)
             .unwrap();
         assert!(first.0.is_none());
         assert!(first.1.is_user_visible());
         assert!(!first.1.is_agent_visible());
         let message_id = first.1.id.clone();
         let second = call
-            .observe_transcript("2".into(), Role::User, " world", 10, 20)
+            .observe_transcript("2".into(), Role::User, " world", 20)
             .unwrap();
         assert!(second.0.is_none());
         assert_eq!(second.1.id, message_id);
@@ -394,11 +357,11 @@ mod tests {
         );
 
         assert!(call
-            .observe_transcript("2".into(), Role::User, " world", 10, 20)
+            .observe_transcript("2".into(), Role::User, " world", 20)
             .is_none());
 
         let role_change = call
-            .observe_transcript("3".into(), Role::Assistant, "hello", 20, 30)
+            .observe_transcript("3".into(), Role::Assistant, "hello", 30)
             .unwrap();
         assert_eq!(role_change.0.unwrap().as_concat_text(), "hello world");
         assert_eq!(role_change.1.role, Role::Assistant);

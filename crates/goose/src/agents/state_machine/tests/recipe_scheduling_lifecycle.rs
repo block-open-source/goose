@@ -3,8 +3,8 @@ use serde_json::json;
 
 use super::dummy_api::{DummyApi, ProviderFeatures};
 use super::pipeline::{
-    MessageKind::Agent, MessageKind::Error, MessageKind::ToolResponse, test_pipeline,
-    test_pipeline_with, test_pipeline_with_scheduler,
+    test_pipeline, test_pipeline_with, test_pipeline_with_scheduler, MessageKind::Agent,
+    MessageKind::Error, MessageKind::ToolResponse,
 };
 use crate::agents::extension::ExtensionConfig;
 use crate::agents::final_output_tool::{FINAL_OUTPUT_CONTINUATION_MESSAGE, FINAL_OUTPUT_TOOL_NAME};
@@ -551,12 +551,18 @@ prompt: check
     };
     scheduler.add_scheduled_job(job, true).await?;
 
-    let run = tokio::spawn({
+    let mut run = tokio::spawn({
         let scheduler = scheduler.clone();
         async move { scheduler.run_now("ordering_guard").await }
     });
 
-    gate.entered().await;
+    tokio::select! {
+        () = gate.entered() => {}
+        result = &mut run => panic!("run ended before inference began: {result:?}"),
+        () = tokio::time::sleep(std::time::Duration::from_secs(60)) => {
+            panic!("inference request never arrived")
+        }
+    }
     let sampled = async {
         let sessions = session_manager
             .list_sessions_by_types(&[crate::session::SessionType::Scheduled])

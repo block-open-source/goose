@@ -12,7 +12,7 @@ use tokio_util::sync::CancellationToken;
 
 use goose::agents::extension::{Envs, ExtensionConfig};
 use goose::agents::extension_manager::{ExtensionManager, ExtensionManagerCapabilities};
-use goose::agents::GoosePlatform;
+use goose::agents::{GoosePlatform, MCP_PROTOCOL_VERSION};
 use goose_providers::model::ModelConfig;
 
 use test_case::test_case;
@@ -218,16 +218,7 @@ async fn test_replayed_session(
     let mut env = HashMap::new();
 
     if matches!(mode, TestMode::Record) {
-        args.extend(command.into_iter().map(|arg| {
-            if arg == "tests/fastmcp_test_server.py" {
-                PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                    .join(arg)
-                    .to_string_lossy()
-                    .into_owned()
-            } else {
-                arg.to_string()
-            }
-        }));
+        args.extend(command.into_iter().map(str::to_string));
 
         for key in required_envs {
             match env::var(key) {
@@ -272,7 +263,7 @@ async fn test_replayed_session(
             mcpui: true,
             host_info: None,
             elicitation_handler: None,
-            protocol_version: None,
+            protocol_version: Some(MCP_PROTOCOL_VERSION),
         },
         true,
     ));

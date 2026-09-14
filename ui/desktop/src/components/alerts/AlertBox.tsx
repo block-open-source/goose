@@ -54,7 +54,7 @@ export const AlertBox = ({ alert, className }: AlertBoxProps) => {
         const threshold = await read('GOOSE_AUTO_COMPACT_THRESHOLD', false);
         if (threshold !== undefined && threshold !== null && typeof threshold === 'number') {
           setLoadedThreshold(threshold);
-          setThresholdValue(Math.max(1, Math.round(threshold * 100)));
+          setThresholdValue(Math.max(1, Math.min(99, Math.round(threshold * 100))));
         }
       } catch (err) {
         console.error('Error fetching auto-compact threshold:', err);
@@ -69,7 +69,7 @@ export const AlertBox = ({ alert, className }: AlertBoxProps) => {
   const handleSaveThreshold = async () => {
     if (isSaving) return; // Prevent double-clicks
 
-    let validThreshold = Math.max(1, Math.min(100, thresholdValue));
+    let validThreshold = Math.max(1, Math.min(99, thresholdValue));
     if (validThreshold !== thresholdValue) {
       setThresholdValue(validThreshold);
     }
@@ -115,7 +115,7 @@ export const AlertBox = ({ alert, className }: AlertBoxProps) => {
                 <input
                   type="number"
                   min="1"
-                  max="100"
+                  max="99"
                   step="1"
                   value={thresholdValue}
                   onChange={(e) => {
@@ -123,15 +123,15 @@ export const AlertBox = ({ alert, className }: AlertBoxProps) => {
                     if (e.target.value === '') {
                       setThresholdValue(1);
                     } else if (!isNaN(val)) {
-                      setThresholdValue(Math.max(1, Math.min(100, val)));
+                      setThresholdValue(Math.max(1, Math.min(99, val)));
                     }
                   }}
                   onBlur={(e) => {
                     const val = parseInt(e.target.value, 10);
                     if (isNaN(val) || val < 1) {
                       setThresholdValue(1);
-                    } else if (val > 100) {
-                      setThresholdValue(100);
+                    } else if (val > 99) {
+                      setThresholdValue(99);
                     }
                   }}
                   onKeyDown={(e) => {
@@ -140,7 +140,7 @@ export const AlertBox = ({ alert, className }: AlertBoxProps) => {
                     } else if (e.key === 'Escape') {
                       setIsEditingThreshold(false);
                       const resetValue = Math.round(currentThreshold * 100);
-                      setThresholdValue(Math.max(1, resetValue));
+                      setThresholdValue(Math.max(1, Math.min(99, resetValue)));
                     }
                   }}
                   onFocus={(e) => {

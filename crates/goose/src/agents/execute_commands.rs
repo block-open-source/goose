@@ -186,7 +186,9 @@ impl Agent {
             .conversation
             .ok_or_else(|| anyhow!("Session has no conversation"))?;
 
-        let model_config = self.model_config_for_session(session_id).await?;
+        // Effective, not stored: a registry entry can force toolshim on, and
+        // compaction has to match the wire shape the session's own requests use.
+        let model_config = self.effective_model_config_for_session(session_id).await?;
         let compaction = match compact_messages(
             provider.as_ref(),
             &model_config,

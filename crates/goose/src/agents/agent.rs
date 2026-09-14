@@ -2338,7 +2338,12 @@ impl Agent {
                     )
                 );
 
-                let compact_model_config = self.model_config_for_session(&session_config.id).await?;
+                // Effective, not stored: a registry entry can force toolshim
+                // on, and compaction has to match the wire shape the session's
+                // own requests use.
+                let compact_model_config = self
+                    .effective_model_config_for_session(&session_config.id)
+                    .await?;
                 match compact_messages(
                     self.provider().await?.as_ref(),
                     &compact_model_config,

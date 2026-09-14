@@ -59,7 +59,7 @@ describe('LiveVoiceButton', () => {
   it('starts when idle and stops while connecting or live', () => {
     const onStart = vi.fn();
     const onStop = vi.fn();
-    const { rerender } = renderButton({ onStart, onStop });
+    const { container, rerender } = renderButton({ onStart, onStop });
 
     screen.getByTestId('live-voice-button').click();
     expect(onStart).toHaveBeenCalledOnce();
@@ -67,6 +67,7 @@ describe('LiveVoiceButton', () => {
     rerender(
       <LiveVoiceButton {...baseProps} phase="connecting" onStart={onStart} onStop={onStop} />
     );
+    expect(container.querySelector('.animate-spin')).toBeInTheDocument();
     screen.getByTestId('live-voice-button').click();
     expect(onStop).toHaveBeenCalledOnce();
 

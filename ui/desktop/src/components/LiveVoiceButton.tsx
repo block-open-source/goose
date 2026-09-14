@@ -148,7 +148,7 @@ export function LiveVoiceButton({
                 disabled && 'text-text-secondary opacity-50'
               )}
             >
-              {stopping ? (
+              {phase === 'connecting' || stopping ? (
                 <LoaderCircle className="w-4 h-4 animate-spin" />
               ) : canStop ? (
                 <Square className="w-4 h-4" />

@@ -30,6 +30,7 @@ interface CreateSessionOptions {
   recipeId?: string;
   extensionConfigs?: ExtensionConfig[];
   allExtensions?: FixedExtensionEntry[];
+  signal?: globalThis.AbortSignal;
 }
 
 function selectedExtensionConfigs(options?: CreateSessionOptions): ExtensionConfig[] {
@@ -71,7 +72,8 @@ async function createAcpSession(
   if (recipe) {
     await ensureRecipeConsent(
       recipe,
-      options?.recipeDeeplink ? configuredRecipeParameters() : undefined
+      options?.recipeDeeplink ? configuredRecipeParameters() : undefined,
+      options?.signal
     );
   }
 

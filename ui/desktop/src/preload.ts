@@ -172,8 +172,11 @@ type ElectronAPI = {
   getAutoDownloadDisabled: () => Promise<boolean>;
   // Recipe warning functions
   closeWindow: () => void;
-  hasAcceptedRecipeBefore: (recipe: Recipe) => Promise<boolean>;
-  recordRecipeHash: (recipe: Recipe) => Promise<boolean>;
+  hasAcceptedRecipeBefore: (
+    recipe: Recipe,
+    parameters?: Record<string, string>
+  ) => Promise<boolean>;
+  recordRecipeHash: (recipe: Recipe, parameters?: Record<string, string>) => Promise<boolean>;
   openDirectoryInExplorer: (directoryPath: string) => Promise<boolean>;
   launchApp: (app: GooseApp) => Promise<void>;
   refreshApp: (app: GooseApp) => Promise<void>;
@@ -332,9 +335,10 @@ const electronAPI: ElectronAPI = {
     return ipcRenderer.invoke('get-auto-download-disabled');
   },
   closeWindow: () => ipcRenderer.send('close-window'),
-  hasAcceptedRecipeBefore: (recipe: Recipe) =>
-    ipcRenderer.invoke('has-accepted-recipe-before', recipe),
-  recordRecipeHash: (recipe: Recipe) => ipcRenderer.invoke('record-recipe-hash', recipe),
+  hasAcceptedRecipeBefore: (recipe: Recipe, parameters?: Record<string, string>) =>
+    ipcRenderer.invoke('has-accepted-recipe-before', recipe, parameters),
+  recordRecipeHash: (recipe: Recipe, parameters?: Record<string, string>) =>
+    ipcRenderer.invoke('record-recipe-hash', recipe, parameters),
   openDirectoryInExplorer: (directoryPath: string) =>
     ipcRenderer.invoke('open-directory-in-explorer', directoryPath),
   launchApp: (app: GooseApp) => ipcRenderer.invoke('launch-app', app),

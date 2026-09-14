@@ -39,6 +39,17 @@ export function isRecipeDeclined(error: unknown): error is RecipeDeclinedError {
   return error instanceof RecipeDeclinedError;
 }
 
+export class RecipeConsentAbortedError extends Error {
+  constructor() {
+    super('Recipe consent was aborted before the user decided');
+    this.name = 'RecipeConsentAbortedError';
+  }
+}
+
+export function isRecipeConsentAborted(error: unknown): error is RecipeConsentAbortedError {
+  return error instanceof RecipeConsentAbortedError;
+}
+
 export function isRecipeParamsCancelled(error: unknown): boolean {
   return asAcpJsonRpcError(error)?.data?.reason === RECIPE_PARAMS_CANCELLED_REASON;
 }

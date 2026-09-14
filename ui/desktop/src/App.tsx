@@ -10,6 +10,7 @@ import {
   isRecipeDeclined,
   isRecipeParamsCancelled,
   isRecipeParameterScopesUnsupported,
+  isRecipeConsentAborted,
 } from './acp/errors';
 import { toast, ToastContainer } from 'react-toastify';
 import AnnouncementModal from './components/AnnouncementModal';
@@ -113,6 +114,7 @@ export const PairRouteWrapper = ({
       !isCreatingSessionRef.current
     ) {
       isCreatingSessionRef.current = true;
+      const abortController = new AbortController();
 
       (async () => {
         try {
@@ -120,6 +122,7 @@ export const PairRouteWrapper = ({
             recipeDeeplink: recipeDeeplinkFromConfig,
             recipeId: recipeIdFromConfig,
             allExtensions: extensionsList,
+            signal: abortController.signal,
           });
           const sessionInitialMessage = resolveSessionInitialMessage(newSession, initialMessage);
 
@@ -138,6 +141,9 @@ export const PairRouteWrapper = ({
             return prev;
           });
         } catch (error) {
+          if (isRecipeConsentAborted(error)) {
+            return;
+          }
           if (isRecipeDeclined(error) || isRecipeParamsCancelled(error)) {
             navigate('/');
             return;
@@ -157,7 +163,12 @@ export const PairRouteWrapper = ({
           isCreatingSessionRef.current = false;
         }
       })();
+
+      return () => {
+        abortController.abort();
+      };
     }
+    return undefined;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     initialMessage,

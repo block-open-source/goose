@@ -71,12 +71,16 @@ describe('createSession recipe consent gate', () => {
 
     expect(result).toBe(session);
     expect(mocks.decodeRecipe).toHaveBeenCalledWith('ENCODED');
-    expect(mocks.requestRecipeConsent).toHaveBeenCalledWith({
-      recipe,
-      hasSecurityWarnings: false,
-      providedParameters: { script: 'ls' },
-    });
-    expect(mocks.recordRecipeHash).toHaveBeenCalledWith(recipe);
+    expect(mocks.requestRecipeConsent).toHaveBeenCalledWith(
+      {
+        recipe,
+        hasSecurityWarnings: false,
+        providedParameters: { script: 'ls' },
+      },
+      undefined
+    );
+    expect(mocks.hasAcceptedRecipeBefore).toHaveBeenCalledWith(recipe, { script: 'ls' });
+    expect(mocks.recordRecipeHash).toHaveBeenCalledWith(recipe, { script: 'ls' });
     expect(mocks.controllerCreateSession).toHaveBeenCalledWith('/work', [], {
       recipeId: undefined,
       recipeDeeplink: 'ENCODED',
@@ -108,6 +112,34 @@ describe('createSession recipe consent gate', () => {
     expect(mocks.controllerCreateSession).toHaveBeenCalledTimes(1);
   });
 
+  it('re-prompts when a deeplink changes only a parameter on a trusted template', async () => {
+    // Mirror the real trust store: acceptance is keyed on the recipe together with
+    // the provided parameters, so a new parameter value is not covered by prior trust.
+    const accepted = new Set<string>();
+    const key = (r: unknown, params?: Record<string, string>) => JSON.stringify([r, params]);
+    mocks.hasAcceptedRecipeBefore.mockImplementation(async (r, params) =>
+      accepted.has(key(r, params))
+    );
+    mocks.recordRecipeHash.mockImplementation(async (r, params) => {
+      accepted.add(key(r, params));
+      return true;
+    });
+    mocks.requestRecipeConsent.mockResolvedValue(true);
+
+    mocks.configuredRecipeParameters.mockReturnValue({ script: 'echo safe' });
+    await createSession('/work', { recipeDeeplink: 'ENCODED' });
+    expect(mocks.requestRecipeConsent).toHaveBeenCalledTimes(1);
+
+    // Same template, same parameter: trusted, no prompt.
+    await createSession('/work', { recipeDeeplink: 'ENCODED' });
+    expect(mocks.requestRecipeConsent).toHaveBeenCalledTimes(1);
+
+    // Same template, malicious parameter: must prompt again.
+    mocks.configuredRecipeParameters.mockReturnValue({ script: 'rm -rf ~' });
+    await createSession('/work', { recipeDeeplink: 'ENCODED' });
+    expect(mocks.requestRecipeConsent).toHaveBeenCalledTimes(2);
+  });
+
   it('resolves library recipes by id and passes hidden character warnings through', async () => {
     mocks.scanRecipe.mockResolvedValue({ has_security_warnings: true });
     mocks.requestRecipeConsent.mockResolvedValue(true);
@@ -115,11 +147,14 @@ describe('createSession recipe consent gate', () => {
     await createSession('/work', { recipeId: 'saved-1' });
 
     expect(mocks.decodeRecipe).not.toHaveBeenCalled();
-    expect(mocks.requestRecipeConsent).toHaveBeenCalledWith({
-      recipe,
-      hasSecurityWarnings: true,
-      providedParameters: undefined,
-    });
+    expect(mocks.requestRecipeConsent).toHaveBeenCalledWith(
+      {
+        recipe,
+        hasSecurityWarnings: true,
+        providedParameters: undefined,
+      },
+      undefined
+    );
     expect(mocks.controllerCreateSession).toHaveBeenCalledWith(
       '/work',
       [],

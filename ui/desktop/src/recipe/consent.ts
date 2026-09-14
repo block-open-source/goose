@@ -1,5 +1,6 @@
 import { v7 as uuidv7 } from 'uuid';
 import type { Recipe } from '.';
+import { RecipeConsentAbortedError } from '../acp/errors';
 
 export interface RecipeConsentRequest {
   id: string;
@@ -10,7 +11,7 @@ export interface RecipeConsentRequest {
 
 interface PendingConsent {
   request: RecipeConsentRequest;
-  resolve: (accepted: boolean) => void;
+  settle: (accepted: boolean) => void;
 }
 
 const pendingRequests = new Map<string, PendingConsent>();
@@ -36,11 +37,30 @@ export function getRecipeConsentRequestsSnapshot(): RecipeConsentRequest[] {
 }
 
 export function requestRecipeConsent(
-  input: Omit<RecipeConsentRequest, 'id'>
+  input: Omit<RecipeConsentRequest, 'id'>,
+  signal?: globalThis.AbortSignal
 ): Promise<boolean> {
   const request: RecipeConsentRequest = { id: `recipe_consent_${uuidv7()}`, ...input };
-  return new Promise<boolean>((resolve) => {
-    pendingRequests.set(request.id, { request, resolve });
+  return new Promise<boolean>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new RecipeConsentAbortedError());
+      return;
+    }
+
+    const onAbort = () => {
+      if (pendingRequests.delete(request.id)) {
+        emit();
+        reject(new RecipeConsentAbortedError());
+      }
+    };
+
+    const settle = (accepted: boolean) => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve(accepted);
+    };
+
+    pendingRequests.set(request.id, { request, settle });
+    signal?.addEventListener('abort', onAbort);
     emit();
   });
 }
@@ -52,6 +72,6 @@ export function resolveRecipeConsent(id: string, accepted: boolean): boolean {
   }
   pendingRequests.delete(id);
   emit();
-  pending.resolve(accepted);
+  pending.settle(accepted);
   return true;
 }

@@ -38,4 +38,24 @@ describe('recipe consent store', () => {
   it('ignores unknown or already-resolved ids', () => {
     expect(resolveRecipeConsent('missing', true)).toBe(false);
   });
+
+  it('rejects and drops the pending request when the signal aborts', async () => {
+    const controller = new AbortController();
+    const decision = requestRecipeConsent({ recipe, hasSecurityWarnings: false }, controller.signal);
+    expect(getRecipeConsentRequestsSnapshot()).toHaveLength(1);
+
+    controller.abort();
+
+    await expect(decision).rejects.toMatchObject({ name: 'RecipeConsentAbortedError' });
+    expect(getRecipeConsentRequestsSnapshot()).toEqual([]);
+  });
+
+  it('rejects immediately when the signal is already aborted', async () => {
+    const decision = requestRecipeConsent(
+      { recipe, hasSecurityWarnings: false },
+      globalThis.AbortSignal.abort()
+    );
+    await expect(decision).rejects.toMatchObject({ name: 'RecipeConsentAbortedError' });
+    expect(getRecipeConsentRequestsSnapshot()).toEqual([]);
+  });
 });

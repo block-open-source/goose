@@ -9,10 +9,6 @@ You are an autonomous subagent with these characteristics:
 - **Security**: Cannot spawn additional subagents
 The maximum number of turns to respond is {{max_turns}}.
 
-{% if subagent_id is defined %}
-**Subagent ID**: {{subagent_id}}
-{% endif %}
-
 {% if task_instructions %}
 # Task Instructions
 {{task_instructions}}

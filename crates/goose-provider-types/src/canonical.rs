@@ -46,7 +46,11 @@ pub fn recommended_models_from_registry(provider: &str) -> Vec<String> {
     let mut models_with_dates: Vec<(String, Option<String>)> = all
         .iter()
         .filter(|m| m.modalities.input.contains(&Modality::Text) && m.tool_call)
-        .filter(|m| registry_provider != "openai" || !m.id.contains("realtime"))
+        .filter(|m| match registry_provider {
+            "openai" => !m.id.contains("realtime"),
+            "google" => !m.id.contains("deep-research") && !m.id.contains("live"),
+            _ => true,
+        })
         .filter_map(|m| {
             let (_, name) = m.id.split_once('/')?;
             Some((
@@ -247,6 +251,14 @@ mod tests {
         assert_eq!(canonical.limit.context, 1_048_576);
         assert_eq!(canonical.reasoning, Some(true));
         assert_eq!(canonical.temperature, Some(false));
+    }
+
+    #[test]
+    fn recommended_google_models_use_generate_content() {
+        let models = recommended_models_from_registry("google");
+        assert!(!models.iter().any(|model| model.contains("deep-research")));
+        assert!(!models.iter().any(|model| model.contains("live")));
+        assert!(models.iter().any(|model| model == "gemini-2.5-pro"));
     }
 
     #[test]

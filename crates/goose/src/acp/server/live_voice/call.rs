@@ -41,6 +41,7 @@ pub(super) struct LiveVoiceCall {
     provider_events: HashSet<String>,
     transcript_fragments: Vec<TimedTranscriptFragment>,
     delegation_ids: HashSet<String>,
+    last_delegation_offset_ms: Option<u64>,
     startup_context: Vec<LiveVoiceInputMessage>,
 }
 
@@ -50,6 +51,7 @@ struct TimedTranscriptFragment {
     text: String,
     start_ms: u64,
     end_ms: u64,
+    accepted: bool,
 }
 
 pub(super) enum DelegationInput {
@@ -74,6 +76,7 @@ impl LiveVoiceCall {
             provider_events: HashSet::new(),
             transcript_fragments: Vec::new(),
             delegation_ids: HashSet::new(),
+            last_delegation_offset_ms: None,
             startup_context,
         }
     }
@@ -110,6 +113,7 @@ impl LiveVoiceCall {
             text: delta_text.to_string(),
             start_ms,
             end_ms,
+            accepted: false,
         });
 
         if self
@@ -136,39 +140,51 @@ impl LiveVoiceCall {
         self.transcript.take()
     }
 
-    pub(super) fn accept_delegation(
+    pub(super) fn delegation_input(
         &mut self,
         event_id: String,
         delegation_id: String,
         offset_ms: u64,
+        busy: bool,
     ) -> DelegationInput {
         if !self.provider_events.insert(event_id) || !self.delegation_ids.insert(delegation_id) {
             return DelegationInput::Ignore;
         }
-        if self.delegation_ids.len() > 1 {
-            return DelegationInput::Reject("Continuation is not yet available.".into());
+        if busy {
+            return DelegationInput::Reject("The task is busy right now.".into());
+        }
+        if self
+            .last_delegation_offset_ms
+            .is_some_and(|last_offset| offset_ms < last_offset)
+        {
+            return DelegationInput::Reject("The delegated conversation position is stale.".into());
         }
 
-        let fragments = self
+        let fragment_indexes = self
             .transcript_fragments
             .iter()
-            .filter(|fragment| fragment.start_ms <= offset_ms && fragment.end_ms <= offset_ms)
+            .enumerate()
+            .filter(|(_, fragment)| {
+                !fragment.accepted && fragment.start_ms <= offset_ms && fragment.end_ms <= offset_ms
+            })
+            .map(|(index, _)| index)
             .collect::<Vec<_>>();
-        if !fragments
-            .iter()
-            .any(|fragment| fragment.role == Role::User && !fragment.text.trim().is_empty())
-        {
-            return DelegationInput::Reject(
-                "I couldn't identify a request to send to the Goose agent.".into(),
-            );
+        if !fragment_indexes.iter().any(|index| {
+            let fragment = &self.transcript_fragments[*index];
+            fragment.role == Role::User && !fragment.text.trim().is_empty()
+        }) {
+            return DelegationInput::Reject("I couldn't identify a request to complete.".into());
         }
 
         let mut input = String::from("Live conversation context:\n");
-        for message in &self.startup_context {
-            input.push_str(&format!("{}: {}\n", speaker(&message.role), message.text));
+        if self.last_delegation_offset_ms.is_none() {
+            for message in &self.startup_context {
+                input.push_str(&format!("{}: {}\n", speaker(&message.role), message.text));
+            }
         }
         let mut previous_role = None;
-        for fragment in fragments {
+        for index in &fragment_indexes {
+            let fragment = &self.transcript_fragments[*index];
             if previous_role == Some(&fragment.role) {
                 input.push_str(&fragment.text);
             } else {
@@ -177,7 +193,7 @@ impl LiveVoiceCall {
                 }
                 input.push_str(speaker(&fragment.role));
                 input.push_str(": ");
-                input.push_str(&fragment.text);
+                input.push_str(fragment.text.trim_start());
                 previous_role = Some(&fragment.role);
             }
         }
@@ -185,6 +201,10 @@ impl LiveVoiceCall {
             input.push('\n');
         }
         input.push_str(DELEGATION_INSTRUCTION);
+        for index in fragment_indexes {
+            self.transcript_fragments[index].accepted = true;
+        }
+        self.last_delegation_offset_ms = Some(offset_ms);
         DelegationInput::Accept(input)
     }
 
@@ -310,7 +330,7 @@ mod tests {
         let open_transcript = call.transcript.as_ref().unwrap().as_concat_text();
 
         let DelegationInput::Accept(input) =
-            call.accept_delegation("event-1".into(), "delegation-1".into(), 20)
+            call.delegation_input("event-1".into(), "delegation-1".into(), 20, false)
         else {
             panic!("delegation should be accepted");
         };
@@ -323,9 +343,42 @@ mod tests {
             open_transcript
         );
         assert!(matches!(
-            call.accept_delegation("event-1".into(), "delegation-1".into(), 20),
+            call.delegation_input("event-1".into(), "delegation-1".into(), 20, false),
             DelegationInput::Ignore
         ));
+
+        call.observe_transcript("6".into(), Role::User, " late detail", 15, 20);
+        assert!(matches!(
+            call.delegation_input("busy-event".into(), "busy-delegation".into(), 20, true),
+            DelegationInput::Reject(_)
+        ));
+        assert!(matches!(
+            call.delegation_input("busy-event".into(), "busy-delegation".into(), 20, false),
+            DelegationInput::Ignore
+        ));
+        let DelegationInput::Accept(continuation) =
+            call.delegation_input("event-2".into(), "delegation-2".into(), 20, false)
+        else {
+            panic!("continuation should be accepted");
+        };
+        assert!(continuation.contains("User: late detail\n"));
+        assert!(!continuation.contains("prior context"));
+        assert!(!continuation.contains("do this"));
+
+        assert!(matches!(
+            call.delegation_input("event-3".into(), "delegation-3".into(), 19, false),
+            DelegationInput::Reject(_)
+        ));
+
+        call.observe_transcript("7".into(), Role::User, "again", 40, 50);
+        let DelegationInput::Accept(next) =
+            call.delegation_input("event-4".into(), "delegation-4".into(), 50, false)
+        else {
+            panic!("later continuation should be accepted");
+        };
+        assert!(next.contains("GPT-Live: crossinglater\nUser: again\n"));
+        assert!(!next.contains("prior context"));
+        assert!(!next.contains("late detail"));
 
         let mut missing_user = LiveVoiceCall::new(
             "test-session".into(),
@@ -335,7 +388,7 @@ mod tests {
         );
         missing_user.observe_transcript("1".into(), Role::Assistant, "hello", 0, 10);
         assert!(matches!(
-            missing_user.accept_delegation("event-1".into(), "delegation-1".into(), 10),
+            missing_user.delegation_input("event-1".into(), "delegation-1".into(), 10, false),
             DelegationInput::Reject(_)
         ));
     }

@@ -11,7 +11,12 @@ use service::{
 
 pub use service::LiveVoiceService;
 
-const LIVE_DELEGATION_SUMMARY_INSTRUCTION: &str = "End every run with a concise, user-facing summary below 400 tokens. State the outcome, what changed, validation performed, failures, and any required user action. Do not include raw tool output.";
+const LIVE_DELEGATION_INSTRUCTION: &str = concat!(
+    "You support a live conversation. Treat the latest delegated input as an update to this session's earlier context. ",
+    "Voice transcripts may be incomplete. If required information is missing, ask a brief clarification instead of guessing. ",
+    "End every run with a concise, user-facing result below 400 tokens. State the outcome, what changed, validation performed, ",
+    "failures, and any required user action. Do not include raw tool output."
+);
 
 impl GooseAcpAgent {
     async fn load_live_voice_session(
@@ -97,13 +102,34 @@ impl GooseAcpAgent {
             ));
         });
         let delegation_agent = Arc::clone(self);
+        let delegation_connection = cx.clone();
+        let supports_goose_custom_notifications = self.supports_goose_custom_notifications();
         let delegation_handler: LiveVoiceDelegationHandler =
             Arc::new(move |main_session_id, input, cancellation| {
                 let agent = delegation_agent.clone();
+                let connection = delegation_connection.clone();
                 async move {
-                    agent
-                        .run_live_delegation(main_session_id, input, cancellation)
-                        .await
+                    let _ = send_progress_message_update(
+                        &connection,
+                        supports_goose_custom_notifications,
+                        &main_session_id,
+                        "Goose is working on it…".into(),
+                    );
+                    let result = agent
+                        .run_live_delegation(
+                            main_session_id.clone(),
+                            input,
+                            cancellation,
+                            connection.clone(),
+                        )
+                        .await;
+                    let _ = send_progress_message_update(
+                        &connection,
+                        supports_goose_custom_notifications,
+                        &main_session_id,
+                        String::new(),
+                    );
+                    result
                 }
                 .boxed()
             });
@@ -162,6 +188,7 @@ impl GooseAcpAgent {
         main_session_id: String,
         input: String,
         cancel_token: CancellationToken,
+        cx: ConnectionTo<Client>,
     ) -> String {
         let (linked_session, agent) =
             match self.prepare_live_delegated_session(&main_session_id).await {
@@ -195,9 +222,10 @@ impl GooseAcpAgent {
             max_turns: None,
             retry_config: None,
         };
+        let input_message = Message::user().with_text(input);
         let mut stream = match agent
             .reply(
-                Message::user().with_text(input),
+                input_message.clone(),
                 session_config,
                 Some(cancel_token.clone()),
             )
@@ -209,6 +237,20 @@ impl GooseAcpAgent {
                 return "The coding task failed before it could start.".into();
             }
         };
+        let acp_linked_session_id = SessionId::new(linked_session_id.clone());
+        let mut tool_requests = HashMap::new();
+        for content in &input_message.content {
+            let _ = self
+                .handle_message_content(
+                    content,
+                    &input_message,
+                    &acp_linked_session_id,
+                    &agent,
+                    &tool_requests,
+                    &cx,
+                )
+                .await;
+        }
 
         let mut outcome_message_id: Option<String> = None;
         let mut outcome = String::new();
@@ -218,11 +260,37 @@ impl GooseAcpAgent {
                 return "The coding task was cancelled.".into();
             }
             match event {
-                Ok(crate::agents::AgentEvent::Message(message))
-                    if message.role == Role::Assistant && message.is_user_visible() =>
-                {
+                Ok(crate::agents::AgentEvent::Message(message)) => {
+                    let is_visible_assistant =
+                        message.role == Role::Assistant && message.is_user_visible();
+                    let message = message.user_visible_content();
+                    for content in &message.content {
+                        if let MessageContent::ToolRequest(tool_request) = content {
+                            tool_requests.insert(tool_request.id.clone(), tool_request.clone());
+                        }
+                        if matches!(
+                            content,
+                            MessageContent::ToolRequest(_)
+                                | MessageContent::ToolResponse(_)
+                                | MessageContent::Thinking(_)
+                        ) || (is_visible_assistant && matches!(content, MessageContent::Text(_)))
+                        {
+                            let _ = self
+                                .handle_message_content(
+                                    content,
+                                    &message,
+                                    &acp_linked_session_id,
+                                    &agent,
+                                    &tool_requests,
+                                    &cx,
+                                )
+                                .await;
+                        }
+                    }
+                    if !is_visible_assistant {
+                        continue;
+                    }
                     let text = message
-                        .user_visible_content()
                         .content
                         .iter()
                         .filter_map(MessageContent::as_text)
@@ -234,6 +302,14 @@ impl GooseAcpAgent {
                             outcome_message_id = message.id;
                             outcome = text;
                         }
+                    }
+                }
+                Ok(crate::agents::AgentEvent::McpNotification((request_id, notification))) => {
+                    if let Some(update) =
+                        tool_notifications::tool_notification_update(request_id, notification)
+                    {
+                        let _ =
+                            ToolCallNotifier::new(&cx, &acp_linked_session_id).send_update(update);
                     }
                 }
                 Ok(_) => {}
@@ -287,18 +363,6 @@ impl GooseAcpAgent {
             Some(session) => {
                 if self.active_runs.is_active(&session.id) {
                     return Err("The coding task is busy right now.".into());
-                }
-                let session_with_messages = self
-                    .session_manager
-                    .get_session(&session.id, true)
-                    .await
-                    .map_err(|_| "The coding task could not load its work session.".to_string())?;
-                if session_with_messages
-                    .conversation
-                    .as_ref()
-                    .is_some_and(|conversation| !conversation.messages().is_empty())
-                {
-                    return Err("Continuation is not yet available.".into());
                 }
                 session
             }
@@ -362,10 +426,7 @@ impl GooseAcpAgent {
             .await
             .map_err(|_| "Goose could not activate the coding agent.".to_string())?;
         agent
-            .extend_system_prompt(
-                "live_delegation_summary".into(),
-                LIVE_DELEGATION_SUMMARY_INSTRUCTION.into(),
-            )
+            .extend_system_prompt("live_delegation".into(), LIVE_DELEGATION_INSTRUCTION.into())
             .await;
         Ok((linked_session, agent))
     }

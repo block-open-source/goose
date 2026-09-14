@@ -404,7 +404,12 @@ async fn run_live_call(
                 event_id,
                 delegation_id,
                 offset_ms,
-            } => match call.accept_delegation(event_id, delegation_id.clone(), offset_ms) {
+            } => match call.delegation_input(
+                event_id,
+                delegation_id.clone(),
+                offset_ms,
+                pending_delegation.is_some(),
+            ) {
                 DelegationInput::Ignore => {}
                 DelegationInput::Reject(text) => {
                     if call

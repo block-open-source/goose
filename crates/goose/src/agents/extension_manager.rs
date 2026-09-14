@@ -767,6 +767,21 @@ pub(crate) fn substitute_env_vars(value: &str, env_map: &HashMap<String, String>
 const GOOSE_USER_AGENT: reqwest::header::HeaderValue =
     reqwest::header::HeaderValue::from_static(concat!("goose/", env!("CARGO_PKG_VERSION")));
 
+fn should_retry_legacy_after_empty_discover(
+    result: &Result<McpClient, ClientInitializeError>,
+    capabilities: &GooseMcpClientCapabilities,
+) -> bool {
+    capabilities.protocol_version.is_none()
+        && result.as_ref().is_err_and(|error| {
+            error.to_string().contains("empty sse stream")
+                || matches!(
+                    error,
+                    ClientInitializeError::ConnectionClosed(context)
+                        if context == "discover response"
+                )
+        })
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn connect_with_auth(
     auth_manager: rmcp::transport::AuthorizationManager,
@@ -802,20 +817,42 @@ async fn connect_with_auth(
         .map_err(|_| ExtensionError::ConfigError("could not construct http client".to_string()))?;
     let auth_client = AuthClient::new(auth_http_client, auth_manager);
     let transport = StreamableHttpClientTransport::with_client(
-        auth_client,
+        auth_client.clone(),
         StreamableHttpClientTransportConfig::with_uri(uri),
     );
-    Ok(McpClient::connect(
+    let mut result = McpClient::connect(
         transport,
         timeout,
-        provider,
-        client_name,
-        capabilities,
+        provider.clone(),
+        client_name.clone(),
+        capabilities.clone(),
         roots_dir.to_path_buf(),
-        action_required,
-        extension_manager,
+        action_required.clone(),
+        extension_manager.clone(),
     )
-    .await?)
+    .await;
+
+    if should_retry_legacy_after_empty_discover(&result, &capabilities) {
+        let transport = StreamableHttpClientTransport::with_client(
+            auth_client,
+            StreamableHttpClientTransportConfig::with_uri(uri),
+        );
+        let mut legacy_capabilities = capabilities;
+        legacy_capabilities.protocol_version = Some(ProtocolVersion::V_2025_11_25);
+        result = McpClient::connect(
+            transport,
+            timeout,
+            provider,
+            client_name,
+            legacy_capabilities,
+            roots_dir.to_path_buf(),
+            action_required,
+            extension_manager,
+        )
+        .await;
+    }
+
+    Ok(result?)
 }
 
 /// Connection parameters needed to re-establish an authorized streamable HTTP
@@ -1262,16 +1299,9 @@ async fn create_streamable_http_client(
     )
     .await;
 
-    // TODO: Remove this compatibility retry once rmcp handles an empty SSE response to
-    // a sessionless server/discover request as legacy-era evidence upstream.
-    if client_res.as_ref().is_err_and(|error| {
-        error.to_string().contains("empty sse stream")
-            || matches!(
-                error,
-                ClientInitializeError::ConnectionClosed(context)
-                    if context == "discover response"
-            )
-    }) {
+    // TODO: Remove these compatibility retries, including the authenticated path in
+    // connect_with_auth, once rmcp handles empty discovery SSE responses upstream.
+    if should_retry_legacy_after_empty_discover(&client_res, &capabilities) {
         let transport = StreamableHttpClientTransport::with_client(
             http_client,
             StreamableHttpClientTransportConfig::with_uri(uri),

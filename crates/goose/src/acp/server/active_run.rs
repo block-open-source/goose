@@ -5,53 +5,62 @@ use std::{
 };
 use tokio_util::sync::CancellationToken;
 
-#[derive(Clone)]
-pub(super) enum ActiveRun {
-    Normal {
-        run_id: String,
-        cancel_token: CancellationToken,
-        /// Routes steering from another roaming connection to the run owner.
-        agent: Arc<Agent>,
-    },
-    Live,
+struct ActiveRun {
+    run_id: String,
+    cancel_token: CancellationToken,
+    /// Routes steering from another roaming connection to the run owner.
+    agent: Arc<Agent>,
 }
 
-#[derive(Clone, Default)]
-struct SessionRuns {
-    normal: Option<ActiveRun>,
-    live: bool,
+struct SessionRunState {
+    agent_run: Option<ActiveRun>,
+    live_active: bool,
+}
+
+pub(super) enum StartRunError {
+    AgentAlreadyRunning { run_id: String },
+    LiveAlreadyRunning,
+    LiveNotRunning,
 }
 
 #[derive(Default)]
 pub struct ActiveRunRegistry {
-    runs_by_session: Mutex<HashMap<String, SessionRuns>>,
+    runs_by_session: Mutex<HashMap<String, SessionRunState>>,
 }
 
 impl ActiveRunRegistry {
-    pub(super) fn start_normal(
+    pub(super) fn start_prompt_run(
         &self,
         session_id: &str,
         run_id: String,
         cancel_token: CancellationToken,
         agent: Arc<Agent>,
-    ) -> Result<(), ActiveRun> {
+    ) -> Result<(), StartRunError> {
         let mut runs = self
             .runs_by_session
             .lock()
             .expect("active run lock poisoned");
-        if let Some(active) = runs.get(session_id) {
-            if let Some(normal) = &active.normal {
-                return Err(normal.clone());
+        if let Some(state) = runs.get(session_id) {
+            if let Some(agent_run) = &state.agent_run {
+                return Err(StartRunError::AgentAlreadyRunning {
+                    run_id: agent_run.run_id.clone(),
+                });
             }
-            if active.live {
-                return Err(ActiveRun::Live);
+            if state.live_active {
+                return Err(StartRunError::LiveAlreadyRunning);
             }
         }
-        runs.entry(session_id.to_string()).or_default().normal = Some(ActiveRun::Normal {
-            run_id,
-            cancel_token,
-            agent,
-        });
+        runs.insert(
+            session_id.to_string(),
+            SessionRunState {
+                agent_run: Some(ActiveRun {
+                    run_id,
+                    cancel_token,
+                    agent,
+                }),
+                live_active: false,
+            },
+        );
         Ok(())
     }
 
@@ -61,19 +70,20 @@ impl ActiveRunRegistry {
         run_id: String,
         cancel_token: CancellationToken,
         agent: Arc<Agent>,
-    ) -> Result<(), ActiveRun> {
+    ) -> Result<(), StartRunError> {
         let mut runs = self
             .runs_by_session
             .lock()
             .expect("active run lock poisoned");
-        let active = runs.entry(session_id.to_string()).or_default();
-        if let Some(normal) = &active.normal {
-            return Err(normal.clone());
+        let Some(state) = runs.get_mut(session_id) else {
+            return Err(StartRunError::LiveNotRunning);
+        };
+        if let Some(agent_run) = &state.agent_run {
+            return Err(StartRunError::AgentAlreadyRunning {
+                run_id: agent_run.run_id.clone(),
+            });
         }
-        if !active.live {
-            return Err(ActiveRun::Live);
-        }
-        active.normal = Some(ActiveRun::Normal {
+        state.agent_run = Some(ActiveRun {
             run_id,
             cancel_token,
             agent,
@@ -81,51 +91,35 @@ impl ActiveRunRegistry {
         Ok(())
     }
 
-    pub(super) fn normal_run(&self, session_id: &str) -> Option<(String, Arc<Agent>)> {
-        match self
-            .runs_by_session
+    pub(super) fn agent_run(&self, session_id: &str) -> Option<(String, Arc<Agent>)> {
+        self.runs_by_session
             .lock()
             .expect("active run lock poisoned")
             .get(session_id)
-            .and_then(|active| active.normal.as_ref())
-        {
-            Some(ActiveRun::Normal { run_id, agent, .. }) => Some((run_id.clone(), agent.clone())),
-            _ => None,
-        }
+            .and_then(|state| state.agent_run.as_ref())
+            .map(|run| (run.run_id.clone(), run.agent.clone()))
     }
 
-    pub(super) fn normal_cancel_token(&self, session_id: &str) -> Option<CancellationToken> {
-        match self
-            .runs_by_session
+    pub(super) fn agent_cancel_token(&self, session_id: &str) -> Option<CancellationToken> {
+        self.runs_by_session
             .lock()
             .expect("active run lock poisoned")
             .get(session_id)
-            .and_then(|active| active.normal.as_ref())
-        {
-            Some(ActiveRun::Normal { cancel_token, .. }) => Some(cancel_token.clone()),
-            _ => None,
-        }
+            .and_then(|state| state.agent_run.as_ref())
+            .map(|run| run.cancel_token.clone())
     }
 
-    pub(super) fn remove_normal(&self, session_id: &str, run_id: &str) -> Option<Arc<Agent>> {
+    pub(super) fn remove_agent_run(&self, session_id: &str, run_id: &str) -> Option<Arc<Agent>> {
         let mut runs = self
             .runs_by_session
             .lock()
             .expect("active run lock poisoned");
-        let agent = match runs
-            .get(session_id)
-            .and_then(|active| active.normal.as_ref())
-        {
-            Some(ActiveRun::Normal {
-                run_id: active_run_id,
-                agent,
-                ..
-            }) if active_run_id == run_id => agent.clone(),
-            _ => return None,
-        };
-        let active = runs.get_mut(session_id).expect("active run exists");
-        active.normal = None;
-        if !active.live {
+        let state = runs.get_mut(session_id)?;
+        if state.agent_run.as_ref()?.run_id != run_id {
+            return None;
+        }
+        let agent = state.agent_run.take()?.agent;
+        if !state.live_active {
             runs.remove(session_id);
         }
         Some(agent)
@@ -136,13 +130,16 @@ impl ActiveRunRegistry {
             .runs_by_session
             .lock()
             .expect("active run lock poisoned");
-        if runs
-            .get(session_id)
-            .is_some_and(|active| active.live || active.normal.is_some())
-        {
+        if runs.contains_key(session_id) {
             return false;
         }
-        runs.entry(session_id.to_string()).or_default().live = true;
+        runs.insert(
+            session_id.to_string(),
+            SessionRunState {
+                agent_run: None,
+                live_active: true,
+            },
+        );
         true
     }
 
@@ -151,9 +148,9 @@ impl ActiveRunRegistry {
             .runs_by_session
             .lock()
             .expect("active run lock poisoned");
-        if let Some(active) = runs.get_mut(session_id) {
-            active.live = false;
-            if active.normal.is_none() {
+        if let Some(state) = runs.get_mut(session_id) {
+            state.live_active = false;
+            if state.agent_run.is_none() {
                 runs.remove(session_id);
             }
         }
@@ -163,8 +160,7 @@ impl ActiveRunRegistry {
         self.runs_by_session
             .lock()
             .expect("active run lock poisoned")
-            .get(session_id)
-            .is_some_and(|active| active.live || active.normal.is_some())
+            .contains_key(session_id)
     }
 }
 
@@ -185,11 +181,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn normal_and_live_runs_conflict() {
+    async fn prompt_and_live_runs_conflict() {
         let registry = ActiveRunRegistry::default();
 
         assert!(registry
-            .start_normal(
+            .start_prompt_run(
                 "session",
                 "run".into(),
                 CancellationToken::new(),
@@ -198,21 +194,21 @@ mod tests {
             .is_ok());
         assert!(!registry.start_live("session"));
 
-        registry.remove_normal("session", "run");
+        registry.remove_agent_run("session", "run");
         assert!(registry.start_live("session"));
         assert!(matches!(
-            registry.start_normal(
+            registry.start_prompt_run(
                 "session",
                 "run".into(),
                 CancellationToken::new(),
                 Arc::new(Agent::new()),
             ),
-            Err(ActiveRun::Live)
+            Err(StartRunError::LiveAlreadyRunning)
         ));
     }
 
     #[tokio::test]
-    async fn live_delegation_shares_the_live_session_without_admitting_a_normal_prompt() {
+    async fn live_delegation_shares_the_live_session_without_admitting_another_prompt() {
         let registry = ActiveRunRegistry::default();
         assert!(registry.start_live("session"));
         assert!(registry
@@ -224,18 +220,18 @@ mod tests {
             )
             .is_ok());
         assert!(matches!(
-            registry.start_normal(
+            registry.start_prompt_run(
                 "session",
-                "normal".into(),
+                "prompt".into(),
                 CancellationToken::new(),
                 Arc::new(Agent::new()),
             ),
-            Err(ActiveRun::Normal { .. })
+            Err(StartRunError::AgentAlreadyRunning { .. })
         ));
 
         registry.finish_live("session");
         assert_eq!(
-            registry.normal_run("session").map(|(run_id, _)| run_id),
+            registry.agent_run("session").map(|(run_id, _)| run_id),
             Some("delegated".into())
         );
     }

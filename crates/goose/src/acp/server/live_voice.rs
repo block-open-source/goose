@@ -101,12 +101,12 @@ impl GooseAcpAgent {
                 update,
             ));
         });
-        let prepared_main_agent = self.prepare_live_delegated_agent(&req.session_id).await;
-        let delegation_agent = Arc::clone(self);
+        let prepared_main_agent = self.prepare_live_main_agent(&req.session_id).await;
+        let delegation_owner = Arc::clone(self);
         let delegation_connection = cx.clone();
         let delegation_handler: LiveVoiceDelegationHandler =
             Arc::new(move |main_session_id, delegation| {
-                let owner = delegation_agent.clone();
+                let owner = delegation_owner.clone();
                 let connection = delegation_connection.clone();
                 match delegation {
                     LiveVoiceDelegation::Steer { input } => {
@@ -236,7 +236,7 @@ impl GooseAcpAgent {
         let input_message =
             Message::user().with_text(format!("{LIVE_DELEGATION_INSTRUCTION}\n\n{input}"));
         let mut stream = match agent
-            .reply_live_delegation(input_message.clone(), session_config, cancel_token.clone())
+            .reply_live_delegation(input_message, session_config, cancel_token.clone())
             .await
         {
             Ok(stream) => stream,
@@ -338,21 +338,11 @@ impl GooseAcpAgent {
         if outcome.is_empty() {
             return "The coding task finished without a user-facing result.".into();
         }
-        let Some(outcome_message_id) = outcome_message_id else {
-            return "The coding task finished without a user-facing result.".into();
-        };
-        if self
-            .mark_live_delegation_outcome(&main_session_id, &outcome_message_id)
-            .await
-            .is_err()
-        {
-            return "The coding task completed, but Goose could not save its result.".into();
-        }
         outcome
     }
 
     async fn steer_live_delegation(&self, main_session_id: &str, input: String) -> String {
-        let Some((_, agent)) = self.active_runs.normal_run(main_session_id) else {
+        let Some((_, agent)) = self.active_runs.agent_run(main_session_id) else {
             return "The task could not receive the latest instruction.".into();
         };
         agent
@@ -365,10 +355,7 @@ impl GooseAcpAgent {
             .into()
     }
 
-    async fn prepare_live_delegated_agent(
-        &self,
-        main_session_id: &str,
-    ) -> Result<Arc<Agent>, String> {
+    async fn prepare_live_main_agent(&self, main_session_id: &str) -> Result<Arc<Agent>, String> {
         if !crate::agents::state_machine::enabled() {
             return Err("Live coding requires the state machine.".into());
         }
@@ -383,23 +370,6 @@ impl GooseAcpAgent {
         self.get_session_agent(main_session_id)
             .await
             .map_err(|_| "Goose could not activate the coding agent.".to_string())
-    }
-
-    async fn mark_live_delegation_outcome(
-        &self,
-        main_session_id: &str,
-        message_id: &str,
-    ) -> anyhow::Result<()> {
-        self.session_manager
-            .update_message_metadata(main_session_id, message_id, |mut metadata| {
-                metadata.set_operation_note(
-                    "live_delegation",
-                    "outcome",
-                    serde_json::Value::Bool(true),
-                );
-                metadata
-            })
-            .await
     }
 }
 

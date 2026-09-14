@@ -47,9 +47,6 @@ fn scoped_session(mut session: Session, scope: Option<&RunScope>) -> Result<Sess
         let live_transcript = is_live_transcript(message);
         let keep = !live_transcript && (index <= kickoff || message.is_agent_visible());
         index += 1;
-        if keep && index - 1 >= kickoff {
-            message.metadata.user_visible = true;
-        }
         keep
     });
     Ok(session)
@@ -434,8 +431,7 @@ mod tests {
                 &session.id,
                 &Message::assistant()
                     .with_id("agent-work")
-                    .with_text("coding result")
-                    .agent_only(),
+                    .with_text("coding result"),
             )
             .await
             .unwrap();
@@ -456,6 +452,13 @@ mod tests {
             .messages()
             .iter()
             .any(|message| message.id.as_deref() == Some("agent-work")));
+        let kickoff = messages
+            .messages()
+            .iter()
+            .find(|message| message.id.as_deref() == Some("kickoff"))
+            .unwrap();
+        assert!(!kickoff.is_user_visible());
+        assert!(kickoff.is_agent_visible());
         assert!(!messages
             .messages()
             .iter()

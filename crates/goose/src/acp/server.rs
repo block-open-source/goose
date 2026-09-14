@@ -99,8 +99,8 @@ mod agent_requests;
 pub use agent_requests::agent_request_schemas;
 mod active_run;
 mod agent_mentions;
-use active_run::ActiveRun;
 pub use active_run::ActiveRunRegistry;
+use active_run::StartRunError;
 mod apps;
 mod config;
 mod custom_dispatch;
@@ -267,7 +267,7 @@ impl Drop for ActiveRunDropGuard {
         self.cancel_token.cancel();
         let session_id = std::mem::take(&mut self.session_id);
         let run_id = std::mem::take(&mut self.run_id);
-        let agent = self.registry.remove_normal(&session_id, &run_id);
+        let agent = self.registry.remove_agent_run(&session_id, &run_id);
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
             if let Some(agent) = agent {
                 handle.spawn(async move {
@@ -1899,22 +1899,23 @@ impl GooseAcpAgent {
         }
 
         self.active_runs
-            .start_normal(session_id, run_id, cancel_token, agent)
-            .map_err(|active| match active {
-                ActiveRun::Normal { run_id, .. } => {
+            .start_prompt_run(session_id, run_id, cancel_token, agent)
+            .map_err(|error| match error {
+                StartRunError::AgentAlreadyRunning { run_id } => {
                     let message = format!(
                         "session already has active run `{run_id}`; use _goose/unstable/session/steer"
                     );
                     agent_client_protocol::Error::invalid_params().data(message)
                 }
-                ActiveRun::Live => agent_client_protocol::Error::invalid_params()
+                StartRunError::LiveAlreadyRunning => agent_client_protocol::Error::invalid_params()
                     .data("session already has an active Live run"),
+                StartRunError::LiveNotRunning => unreachable!("prompt runs do not require Live"),
             })?;
         Ok(())
     }
 
     async fn clear_active_run(&self, session_id: &str, run_id: &str) {
-        let agent = self.active_runs.remove_normal(session_id, run_id);
+        let agent = self.active_runs.remove_agent_run(session_id, run_id);
 
         // Discard steers on the agent that owned the run; under roaming it may
         // not be this connection's agent.
@@ -1948,7 +1949,7 @@ impl GooseAcpAgent {
                 .data("expectedRunId must not be empty"));
         }
 
-        let (active_run_id, agent) = self.active_runs.normal_run(session_id).ok_or_else(|| {
+        let (active_run_id, agent) = self.active_runs.agent_run(session_id).ok_or_else(|| {
             agent_client_protocol::Error::invalid_params().data("no active run to steer")
         })?;
         if active_run_id != expected_run_id {
@@ -2381,7 +2382,7 @@ impl GooseAcpAgent {
         debug!(?args, "cancel request");
 
         let session_id = args.session_id.0.to_string();
-        let token = self.active_runs.normal_cancel_token(&session_id);
+        let token = self.active_runs.agent_cancel_token(&session_id);
 
         if let Some(token) = token {
             info!(session_id = %session_id, "prompt cancelled");
@@ -2593,7 +2594,7 @@ impl GooseAcpAgent {
             .await
             .insert(session_id.to_string());
 
-        let active_run_token = self.active_runs.normal_cancel_token(session_id);
+        let active_run_token = self.active_runs.agent_cancel_token(session_id);
 
         if let Some(token) = active_run_token {
             token.cancel();

@@ -237,15 +237,11 @@ fn live_voice_input_messages(conversation: &Conversation) -> Vec<LiveVoiceInputM
     let messages = conversation
         .messages()
         .iter()
-        .filter(|message| message.is_user_visible() || is_delegated_outcome(message))
+        .filter(|message| message.is_user_visible())
         .into_iter()
         .filter_map(|message| {
-            let visible_message = if is_delegated_outcome(message) {
-                message.agent_visible_content()
-            } else {
-                message.user_visible_content()
-            };
-            let text = visible_message
+            let text = message
+                .user_visible_content()
                 .content
                 .iter()
                 .filter_map(MessageContent::as_text)
@@ -263,13 +259,6 @@ fn live_voice_input_messages(conversation: &Conversation) -> Vec<LiveVoiceInputM
         .len()
         .saturating_sub(LIVE_VOICE_INPUT_MESSAGE_COUNT);
     messages.into_iter().skip(start).collect()
-}
-
-fn is_delegated_outcome(message: &Message) -> bool {
-    message
-        .metadata
-        .operation_note("live_delegation", "outcome")
-        .is_some_and(|value| value.as_bool() == Some(true))
 }
 
 pub(super) async fn wait_until_finished(
@@ -743,17 +732,7 @@ mod tests {
                 Message::assistant().with_text(format!("message {index}"))
             }
         }));
-        let mut outcome_metadata = crate::conversation::message::MessageMetadata::agent_only();
-        outcome_metadata.set_operation_note(
-            "live_delegation",
-            "outcome",
-            serde_json::Value::Bool(true),
-        );
-        messages.push(
-            Message::assistant()
-                .with_text("delegated result")
-                .with_metadata(outcome_metadata),
-        );
+        messages.push(Message::assistant().with_text("delegated result"));
         messages.push(Message::assistant().with_text("other hidden").agent_only());
         let conversation = Conversation::new_unvalidated(messages);
 

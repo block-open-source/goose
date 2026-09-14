@@ -5,11 +5,17 @@ import type { ScheduledJobDto } from '@aaif/goose-acp-client';
 import { ScheduleModal } from '../ScheduleModal';
 import { IntlTestWrapper } from '../../../i18n/test-utils';
 import { listSavedRecipes } from '../../../recipe/recipe_management';
+import { ensureRecipeConsent } from '../../../recipe/consentGate';
+import { RecipeDeclinedError } from '../../../acp/errors';
 import type { RecipeManifest } from '../../../recipe';
 
 vi.mock('../../../recipe/recipe_management', () => ({
   listSavedRecipes: vi.fn(),
   getStorageDirectory: vi.fn(() => ''),
+}));
+
+vi.mock('../../../recipe/consentGate', () => ({
+  ensureRecipeConsent: vi.fn(),
 }));
 
 const renderWithIntl = (ui: React.ReactElement, options?: RenderOptions) =>
@@ -47,6 +53,7 @@ describe('ScheduleModal', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(listSavedRecipes).mockResolvedValue([savedRecipeManifest]);
+    vi.mocked(ensureRecipeConsent).mockResolvedValue(undefined);
   });
 
   it('preserves the form when the recipe picker is cancelled', async () => {
@@ -110,6 +117,38 @@ describe('ScheduleModal', () => {
         cron: expect.any(String),
       });
     });
+
+    expect(ensureRecipeConsent).toHaveBeenCalledWith(savedRecipeManifest.recipe);
+    expect(vi.mocked(ensureRecipeConsent).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(baseProps.onSubmit).mock.invocationCallOrder[0]
+    );
+  });
+
+  it('does not create a schedule when recipe consent is declined', async () => {
+    vi.mocked(ensureRecipeConsent).mockRejectedValue(new RecipeDeclinedError());
+    const user = userEvent.setup();
+    renderWithIntl(<ScheduleModal {...baseProps} isOpen schedule={null} />);
+
+    await user.click(screen.getByRole('button', { name: 'Saved recipes' }));
+    await waitFor(() => {
+      expect(listSavedRecipes).toHaveBeenCalledTimes(1);
+    });
+
+    const picker = within(screen.getByTestId('saved-recipe-picker'));
+    await user.click(await picker.findByRole('combobox'));
+    await user.click(await picker.findByRole('option', { name: 'My Recipe' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Title: My Recipe')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Create Schedule' }));
+
+    await waitFor(() => {
+      expect(ensureRecipeConsent).toHaveBeenCalledWith(savedRecipeManifest.recipe);
+    });
+    expect(baseProps.onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByText('Create New Schedule')).toBeInTheDocument();
   });
 
   it('shows an empty state when there are no saved recipes', async () => {

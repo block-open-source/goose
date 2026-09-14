@@ -8,6 +8,8 @@ import { CronPicker } from './CronPicker';
 import { Recipe, parseDeeplink, parseRecipeFromFile } from '../../recipe';
 import type { RecipeManifest } from '../../recipe';
 import { listSavedRecipes } from '../../recipe/recipe_management';
+import { ensureRecipeConsent } from '../../recipe/consentGate';
+import { isRecipeDeclined } from '../../acp/errors';
 import ClockIcon from '../../assets/clock-icon.svg';
 import { defineMessages, useIntl } from '../../i18n';
 
@@ -347,6 +349,14 @@ export const ScheduleModal: React.FC<ScheduleModalProps> = ({
         setInternalValidationError(intl.formatMessage(i18n.recipeAlreadyScheduled));
         return;
       }
+      try {
+        await ensureRecipeConsent(selected.recipe);
+      } catch (error) {
+        if (isRecipeDeclined(error)) {
+          return;
+        }
+        throw error;
+      }
       await onSubmit({
         sourceType: 'saved',
         recipeId: selected.id,
@@ -373,6 +383,15 @@ export const ScheduleModal: React.FC<ScheduleModalProps> = ({
     if (sourceType === 'deeplink' && !deepLinkInput.trim()) {
       setInternalValidationError(intl.formatMessage(i18n.provideValidRecipe));
       return;
+    }
+
+    try {
+      await ensureRecipeConsent(parsedRecipe);
+    } catch (error) {
+      if (isRecipeDeclined(error)) {
+        return;
+      }
+      throw error;
     }
 
     await onSubmit({

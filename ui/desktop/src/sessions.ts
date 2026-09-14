@@ -10,10 +10,10 @@ import {
   configuredRecipeParameters,
 } from './acp/recipeParamRequests';
 import { getAcpFeatureCapabilities } from './acp/capabilities';
-import { RecipeDeclinedError, RecipeParameterScopesUnsupportedError } from './acp/errors';
-import { decodeRecipe, scanRecipe, type Recipe } from './recipe';
+import { RecipeParameterScopesUnsupportedError } from './acp/errors';
+import { decodeRecipe, type Recipe } from './recipe';
 import { listSavedRecipes } from './recipe/recipe_management';
-import { requestRecipeConsent } from './recipe/consent';
+import { ensureRecipeConsent } from './recipe/consentGate';
 
 export function getSessionDisplayName(session: Session): string {
   if (session.user_set_name) {
@@ -61,31 +61,19 @@ async function resolveRecipe(options?: CreateSessionOptions): Promise<Recipe | u
   return undefined;
 }
 
-// Recipes can declare commands, endpoints, and shell checks that run as soon as the
-// session exists, so consent has to be settled before session/new is ever sent.
-async function ensureRecipeConsent(options?: CreateSessionOptions): Promise<void> {
-  const recipe = await resolveRecipe(options);
-  if (!recipe || (await window.electron.hasAcceptedRecipeBefore(recipe))) {
-    return;
-  }
-
-  const scan = await scanRecipe(recipe);
-  const accepted = await requestRecipeConsent({
-    recipe,
-    hasSecurityWarnings: scan.has_security_warnings,
-    providedParameters: options?.recipeDeeplink ? configuredRecipeParameters() : undefined,
-  });
-  if (!accepted) {
-    throw new RecipeDeclinedError();
-  }
-  await window.electron.recordRecipeHash(recipe);
-}
-
 async function createAcpSession(
   workingDir: string,
   options?: CreateSessionOptions
 ): Promise<Session> {
-  await ensureRecipeConsent(options);
+  // Recipes can declare commands, endpoints, and shell checks that run as soon as the
+  // session exists, so consent has to be settled before session/new is ever sent.
+  const recipe = await resolveRecipe(options);
+  if (recipe) {
+    await ensureRecipeConsent(
+      recipe,
+      options?.recipeDeeplink ? configuredRecipeParameters() : undefined
+    );
+  }
 
   const configuredParameterScope = options?.recipeDeeplink
     ? beginConfiguredRecipeParameterScope()

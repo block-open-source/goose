@@ -145,13 +145,9 @@ impl LiveVoiceCall {
         event_id: String,
         delegation_id: String,
         offset_ms: u64,
-        busy: bool,
     ) -> DelegationInput {
         if !self.provider_events.insert(event_id) || !self.delegation_ids.insert(delegation_id) {
             return DelegationInput::Ignore;
-        }
-        if busy {
-            return DelegationInput::Reject("The task is busy right now.".into());
         }
         if self
             .last_delegation_offset_ms
@@ -330,7 +326,7 @@ mod tests {
         let open_transcript = call.transcript.as_ref().unwrap().as_concat_text();
 
         let DelegationInput::Accept(input) =
-            call.delegation_input("event-1".into(), "delegation-1".into(), 20, false)
+            call.delegation_input("event-1".into(), "delegation-1".into(), 20)
         else {
             panic!("delegation should be accepted");
         };
@@ -343,21 +339,13 @@ mod tests {
             open_transcript
         );
         assert!(matches!(
-            call.delegation_input("event-1".into(), "delegation-1".into(), 20, false),
+            call.delegation_input("event-1".into(), "delegation-1".into(), 20),
             DelegationInput::Ignore
         ));
 
         call.observe_transcript("6".into(), Role::User, " late detail", 15, 20);
-        assert!(matches!(
-            call.delegation_input("busy-event".into(), "busy-delegation".into(), 20, true),
-            DelegationInput::Reject(_)
-        ));
-        assert!(matches!(
-            call.delegation_input("busy-event".into(), "busy-delegation".into(), 20, false),
-            DelegationInput::Ignore
-        ));
         let DelegationInput::Accept(continuation) =
-            call.delegation_input("event-2".into(), "delegation-2".into(), 20, false)
+            call.delegation_input("event-2".into(), "delegation-2".into(), 20)
         else {
             panic!("continuation should be accepted");
         };
@@ -366,13 +354,13 @@ mod tests {
         assert!(!continuation.contains("do this"));
 
         assert!(matches!(
-            call.delegation_input("event-3".into(), "delegation-3".into(), 19, false),
+            call.delegation_input("event-3".into(), "delegation-3".into(), 19),
             DelegationInput::Reject(_)
         ));
 
         call.observe_transcript("7".into(), Role::User, "again", 40, 50);
         let DelegationInput::Accept(next) =
-            call.delegation_input("event-4".into(), "delegation-4".into(), 50, false)
+            call.delegation_input("event-4".into(), "delegation-4".into(), 50)
         else {
             panic!("later continuation should be accepted");
         };
@@ -388,7 +376,7 @@ mod tests {
         );
         missing_user.observe_transcript("1".into(), Role::Assistant, "hello", 0, 10);
         assert!(matches!(
-            missing_user.delegation_input("event-1".into(), "delegation-1".into(), 10, false),
+            missing_user.delegation_input("event-1".into(), "delegation-1".into(), 10),
             DelegationInput::Reject(_)
         ));
     }

@@ -28,7 +28,17 @@ type LiveCallControls = Arc<StdMutex<HashMap<String, LiveCallControl>>>;
 pub(super) type LiveVoiceCallEndedHandler = Arc<dyn Fn(LiveVoiceCallEnded) + Send + Sync>;
 pub(super) type LiveVoiceTranscriptHandler = Arc<dyn Fn(Message) + Send + Sync>;
 pub(super) type LiveVoiceDelegationHandler =
-    Arc<dyn Fn(String, String, CancellationToken) -> BoxFuture<'static, String> + Send + Sync>;
+    Arc<dyn Fn(String, LiveVoiceDelegation) -> BoxFuture<'static, String> + Send + Sync>;
+
+pub(super) enum LiveVoiceDelegation {
+    Start {
+        input: String,
+        cancellation: CancellationToken,
+    },
+    Steer {
+        input: String,
+    },
+}
 
 struct PendingDelegation {
     provider_delegation_id: String,
@@ -404,12 +414,7 @@ async fn run_live_call(
                 event_id,
                 delegation_id,
                 offset_ms,
-            } => match call.delegation_input(
-                event_id,
-                delegation_id.clone(),
-                offset_ms,
-                pending_delegation.is_some(),
-            ) {
+            } => match call.delegation_input(event_id, delegation_id.clone(), offset_ms) {
                 DelegationInput::Ignore => {}
                 DelegationInput::Reject(text) => {
                     if call
@@ -425,9 +430,41 @@ async fn run_live_call(
                     }
                 }
                 DelegationInput::Accept(input) => {
+                    if pending_delegation.is_some() {
+                        let result = delegation_handler(
+                            session_id.to_string(),
+                            LiveVoiceDelegation::Steer { input },
+                        )
+                        .await;
+                        if call
+                            .send_delegation_update(
+                                delegation_id,
+                                bound_delegation_update(result).await,
+                            )
+                            .await
+                            .is_err()
+                        {
+                            cancel_delegation(&mut pending_delegation).await;
+                            let _ =
+                                timeout(PROVIDER_CLEANUP_TIMEOUT, call.cleanup_provider()).await;
+                            let _ = persist_transcript(
+                                session_manager,
+                                session_id,
+                                call.take_transcript(),
+                            )
+                            .await;
+                            return call.fail();
+                        }
+                        continue;
+                    }
                     let cancellation = CancellationToken::new();
-                    let future =
-                        delegation_handler(session_id.to_string(), input, cancellation.clone());
+                    let future = delegation_handler(
+                        session_id.to_string(),
+                        LiveVoiceDelegation::Start {
+                            input,
+                            cancellation: cancellation.clone(),
+                        },
+                    );
                     pending_delegation = Some(PendingDelegation {
                         provider_delegation_id: delegation_id,
                         cancellation,
@@ -556,7 +593,7 @@ mod tests {
     }
 
     fn ignore_delegation() -> LiveVoiceDelegationHandler {
-        Arc::new(|_, _, _| Box::pin(async { "unused".to_string() }))
+        Arc::new(|_, _| Box::pin(async { "unused".to_string() }))
     }
 
     fn session_manager() -> Arc<SessionManager> {

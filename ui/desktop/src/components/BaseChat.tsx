@@ -531,7 +531,7 @@ export default function BaseChat({
             ) : null}
           </ScrollArea>
 
-          {(chatState !== ChatState.Idle || Boolean(progressMessage)) && (
+          {chatState !== ChatState.Idle && (
             <div className="absolute bottom-1 left-4 z-20 pointer-events-none">
               <LoadingGoose chatState={chatState} message={progressMessage} />
             </div>

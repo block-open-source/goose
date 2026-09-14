@@ -31,8 +31,8 @@ const HTTP_SETUP_TIMEOUT: Duration = Duration::from_secs(15);
 const SIDEBAND_ATTACH_TIMEOUT: Duration = Duration::from_secs(10);
 const LIVE_SESSION_INSTRUCTIONS: &str = concat!(
     "Delegate only after the user has finished stating a complete request. If required ",
-    "information is missing, ask for it before delegating. Present delegated results directly ",
-    "to the user."
+    "information is missing, ask for it before delegating. When a request takes time to complete, ",
+    "briefly tell the user that work is underway. Present delegated results directly to the user."
 );
 
 #[derive(Clone, Debug, PartialEq, Eq)]

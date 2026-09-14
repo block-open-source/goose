@@ -5,7 +5,7 @@ use super::*;
 use call::{LiveVoiceCallId, LiveVoiceCallState};
 use futures::FutureExt;
 use service::{
-    wait_until_finished, LiveVoiceAvailability, LiveVoiceCallEndedHandler,
+    wait_until_finished, LiveVoiceAvailability, LiveVoiceCallEndedHandler, LiveVoiceDelegation,
     LiveVoiceDelegationHandler, LiveVoiceError, LiveVoiceTranscriptHandler, WebRtcOffer,
 };
 
@@ -103,33 +103,23 @@ impl GooseAcpAgent {
         });
         let delegation_agent = Arc::clone(self);
         let delegation_connection = cx.clone();
-        let supports_goose_custom_notifications = self.supports_goose_custom_notifications();
         let delegation_handler: LiveVoiceDelegationHandler =
-            Arc::new(move |main_session_id, input, cancellation| {
+            Arc::new(move |main_session_id, delegation| {
                 let agent = delegation_agent.clone();
                 let connection = delegation_connection.clone();
                 async move {
-                    let _ = send_progress_message_update(
-                        &connection,
-                        supports_goose_custom_notifications,
-                        &main_session_id,
-                        "Goose is working on it…".into(),
-                    );
-                    let result = agent
-                        .run_live_delegation(
-                            main_session_id.clone(),
+                    let (input, cancellation) = match delegation {
+                        LiveVoiceDelegation::Steer { input } => {
+                            return agent.steer_live_delegation(&main_session_id, input).await;
+                        }
+                        LiveVoiceDelegation::Start {
                             input,
                             cancellation,
-                            connection.clone(),
-                        )
-                        .await;
-                    let _ = send_progress_message_update(
-                        &connection,
-                        supports_goose_custom_notifications,
-                        &main_session_id,
-                        String::new(),
-                    );
-                    result
+                        } => (input, cancellation),
+                    };
+                    agent
+                        .run_live_delegation(main_session_id, input, cancellation, connection)
+                        .await
                 }
                 .boxed()
             });
@@ -335,6 +325,25 @@ impl GooseAcpAgent {
             return "The coding task completed, but Goose could not save its result.".into();
         }
         outcome
+    }
+
+    async fn steer_live_delegation(&self, main_session_id: &str, input: String) -> String {
+        let linked_session = match self
+            .session_manager
+            .find_child_session(main_session_id, SessionType::User)
+            .await
+        {
+            Ok(Some(session)) => session,
+            _ => return "The task could not receive the latest instruction.".into(),
+        };
+        let Some((_, agent)) = self.active_runs.normal_run(&linked_session.id) else {
+            return "The task could not receive the latest instruction.".into();
+        };
+        agent
+            .steer(&linked_session.id, Message::user().with_text(input))
+            .await;
+        "The latest instruction was added to the work in progress. Wait for its updated result."
+            .into()
     }
 
     async fn prepare_live_delegated_session(

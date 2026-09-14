@@ -35,6 +35,7 @@ import { isRecipeDeclined, isRecipeParamsCancelled } from '../../acp/errors';
 import ImportRecipeForm, { ImportRecipeButton } from './ImportRecipeForm';
 import CreateEditRecipeModal from './CreateEditRecipeModal';
 import { generateDeepLink } from '../../recipe';
+import { ensureRecipeConsent } from '../../recipe/consentGate';
 import { useNavigation } from '../../hooks/useNavigation';
 import { CronPicker } from '../schedule/CronPicker';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
@@ -559,6 +560,7 @@ export default function RecipesView() {
     const action = scheduleRecipeManifest.schedule_cron ? 'edit' : 'add';
 
     try {
+      await ensureRecipeConsent(scheduleRecipeManifest.recipe);
       await scheduleRecipe(scheduleRecipeManifest.id, scheduleCron);
 
       trackRecipeScheduled(true, action);
@@ -571,6 +573,11 @@ export default function RecipesView() {
       setScheduleRecipeManifest(null);
       await loadSavedRecipes();
     } catch (error) {
+      if (isRecipeDeclined(error)) {
+        setShowScheduleDialog(false);
+        setScheduleRecipeManifest(null);
+        return;
+      }
       console.error('Failed to save schedule:', error);
       const errorMsg = errorMessage(error, 'Failed to save schedule');
       trackRecipeScheduled(false, action, getErrorType(error));

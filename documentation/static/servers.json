@@ -827,6 +827,17 @@
       "required": false
     }
   ]
-}
-
+},
+  {
+    "id": "empiriolabs",
+    "name": "EmpirioLabs AI",
+    "description": "Run 180+ AI models, image, video and speech generation, web search and research with citations, batch jobs, GPU Cloud and hosted agents as tools",
+    "url": "https://mcp.empiriolabs.ai/mcp",
+    "link": "https://docs.empiriolabs.ai/mcp",
+    "installation_notes": "Hosted remote server. Sign in with your EmpirioLabs account via OAuth on first connect, or send an EmpirioLabs API key as an Authorization: Bearer request header. Read-only tools use no credits; tools that run models use the account's prepaid credits.",
+    "is_builtin": false,
+    "endorsed": false,
+    "environmentVariables": [],
+    "type": "streamable-http"
+  }
 ]

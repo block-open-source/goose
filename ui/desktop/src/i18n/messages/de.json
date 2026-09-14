@@ -2927,6 +2927,72 @@
   "recipeActivityEditor.messagePlaceholder": {
     "defaultMessage": "Geben Sie eine für Benutzer sichtbare Einleitungsnachricht für Ihr Rezept ein (unterstützt **fett**, *kursiv*, `Code` usw.)"
   },
+  "recipeExecutionDetails.argument": {
+    "defaultMessage": "Argument {index}"
+  },
+  "recipeExecutionDetails.command": {
+    "defaultMessage": "Befehl"
+  },
+  "recipeExecutionDetails.description": {
+    "defaultMessage": "Alles unten wird mit deinen Berechtigungen ausgeführt, sobald du fortfährst. Prüfe jeden Befehl, Endpunkt und jede Datei."
+  },
+  "recipeExecutionDetails.endpoint": {
+    "defaultMessage": "Endpunkt"
+  },
+  "recipeExecutionDetails.environment": {
+    "defaultMessage": "Umgebung"
+  },
+  "recipeExecutionDetails.extensionsHeading": {
+    "defaultMessage": "Erweiterungen"
+  },
+  "recipeExecutionDetails.headers": {
+    "defaultMessage": "Header"
+  },
+  "recipeExecutionDetails.heading": {
+    "defaultMessage": "Was dieses Rezept ausführt"
+  },
+  "recipeExecutionDetails.invisibleCharactersNote": {
+    "defaultMessage": "Hervorgehobene Markierungen sind unsichtbare oder richtungsändernde Zeichen in diesem Rezept, angezeigt als Unicode-Codepunkt."
+  },
+  "recipeExecutionDetails.noExtensions": {
+    "defaultMessage": "Dieses Rezept deklariert keine Erweiterungen, daher werden deine konfigurierten Standarderweiterungen verwendet."
+  },
+  "recipeExecutionDetails.onFailure": {
+    "defaultMessage": "Bei Fehler"
+  },
+  "recipeExecutionDetails.parameterAsked": {
+    "defaultMessage": "wird beim Start des Rezepts abgefragt"
+  },
+  "recipeExecutionDetails.parameterDefault": {
+    "defaultMessage": "Standard"
+  },
+  "recipeExecutionDetails.parameterFromLink": {
+    "defaultMessage": "durch diesen Link gesetzt"
+  },
+  "recipeExecutionDetails.parametersHeading": {
+    "defaultMessage": "Parameter"
+  },
+  "recipeExecutionDetails.parametersNote": {
+    "defaultMessage": "Parameterwerte werden vor der Ausführung in die Platzhalter oben eingesetzt. Fehlende Werte werden abgefragt."
+  },
+  "recipeExecutionDetails.retryHeading": {
+    "defaultMessage": "Shell-Befehle zwischen den Versuchen"
+  },
+  "recipeExecutionDetails.secretsFromKeychain": {
+    "defaultMessage": "Geheimnisse aus deinem Schlüsselbund"
+  },
+  "recipeExecutionDetails.socket": {
+    "defaultMessage": "Socket"
+  },
+  "recipeExecutionDetails.subRecipesHeading": {
+    "defaultMessage": "Von der Festplatte geladene Unterrezepte"
+  },
+  "recipeExecutionDetails.successCheck": {
+    "defaultMessage": "Erfolgsprüfung"
+  },
+  "recipeExecutionDetails.workingDir": {
+    "defaultMessage": "Arbeitsverzeichnis"
+  },
   "recipeExtensionSelector.description": {
     "defaultMessage": "Wählen Sie aus, welche Erweiterungen beim Ausführen dieses Rezepts verfügbar sein sollen. Leer lassen, um die Standarderweiterungen zu verwenden."
   },

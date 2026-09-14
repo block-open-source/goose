@@ -2927,6 +2927,72 @@
   "recipeActivityEditor.messagePlaceholder": {
     "defaultMessage": "Введите вступительное сообщение для пользователя вашего рецепта (поддерживает **жирный**, *курсив*, `код` и т. д.)"
   },
+  "recipeExecutionDetails.argument": {
+    "defaultMessage": "Аргумент {index}"
+  },
+  "recipeExecutionDetails.command": {
+    "defaultMessage": "Команда"
+  },
+  "recipeExecutionDetails.description": {
+    "defaultMessage": "Всё перечисленное ниже выполняется с вашими правами сразу после продолжения. Проверьте каждую команду, конечную точку и файл."
+  },
+  "recipeExecutionDetails.endpoint": {
+    "defaultMessage": "Конечная точка"
+  },
+  "recipeExecutionDetails.environment": {
+    "defaultMessage": "Окружение"
+  },
+  "recipeExecutionDetails.extensionsHeading": {
+    "defaultMessage": "Расширения"
+  },
+  "recipeExecutionDetails.headers": {
+    "defaultMessage": "Заголовки"
+  },
+  "recipeExecutionDetails.heading": {
+    "defaultMessage": "Что выполнит этот рецепт"
+  },
+  "recipeExecutionDetails.invisibleCharactersNote": {
+    "defaultMessage": "Выделенные маркеры — это невидимые или меняющие направление текста символы в этом рецепте, показанные в виде кодовой точки Unicode."
+  },
+  "recipeExecutionDetails.noExtensions": {
+    "defaultMessage": "Этот рецепт не объявляет расширений, поэтому будут использованы настроенные расширения по умолчанию."
+  },
+  "recipeExecutionDetails.onFailure": {
+    "defaultMessage": "При сбое"
+  },
+  "recipeExecutionDetails.parameterAsked": {
+    "defaultMessage": "запрашивается при запуске рецепта"
+  },
+  "recipeExecutionDetails.parameterDefault": {
+    "defaultMessage": "по умолчанию"
+  },
+  "recipeExecutionDetails.parameterFromLink": {
+    "defaultMessage": "задано этой ссылкой"
+  },
+  "recipeExecutionDetails.parametersHeading": {
+    "defaultMessage": "Параметры"
+  },
+  "recipeExecutionDetails.parametersNote": {
+    "defaultMessage": "Значения параметров подставляются в заполнители выше до начала выполнения. Недостающие значения будут запрошены."
+  },
+  "recipeExecutionDetails.retryHeading": {
+    "defaultMessage": "Shell-команды, выполняемые между попытками"
+  },
+  "recipeExecutionDetails.secretsFromKeychain": {
+    "defaultMessage": "Секреты, читаемые из вашей связки ключей"
+  },
+  "recipeExecutionDetails.socket": {
+    "defaultMessage": "Сокет"
+  },
+  "recipeExecutionDetails.subRecipesHeading": {
+    "defaultMessage": "Подрецепты, загружаемые с диска"
+  },
+  "recipeExecutionDetails.successCheck": {
+    "defaultMessage": "Проверка успеха"
+  },
+  "recipeExecutionDetails.workingDir": {
+    "defaultMessage": "Рабочий каталог"
+  },
   "recipeExtensionSelector.description": {
     "defaultMessage": "Выберите расширения, доступные при запуске этого рецепта. Оставьте пустым, чтобы использовать расширения по умолчанию."
   },

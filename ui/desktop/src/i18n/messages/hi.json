@@ -2927,6 +2927,72 @@
   "recipeActivityEditor.messagePlaceholder": {
     "defaultMessage": "अपनी रेसिपी के लिए उपयोगकर्ता को दिखने वाला परिचय संदेश दर्ज करें (**bold**, *italic*, `code`, आदि समर्थित हैं)"
   },
+  "recipeExecutionDetails.argument": {
+    "defaultMessage": "आर्ग्युमेंट {index}"
+  },
+  "recipeExecutionDetails.command": {
+    "defaultMessage": "कमांड"
+  },
+  "recipeExecutionDetails.description": {
+    "defaultMessage": "आगे बढ़ते ही नीचे दी गई सभी चीज़ें आपकी अनुमतियों के साथ चलेंगी। हर कमांड, एंडपॉइंट और फ़ाइल की समीक्षा करें।"
+  },
+  "recipeExecutionDetails.endpoint": {
+    "defaultMessage": "एंडपॉइंट"
+  },
+  "recipeExecutionDetails.environment": {
+    "defaultMessage": "एनवायरनमेंट"
+  },
+  "recipeExecutionDetails.extensionsHeading": {
+    "defaultMessage": "एक्सटेंशन"
+  },
+  "recipeExecutionDetails.headers": {
+    "defaultMessage": "हेडर"
+  },
+  "recipeExecutionDetails.heading": {
+    "defaultMessage": "यह रेसिपी क्या चलाएगी"
+  },
+  "recipeExecutionDetails.invisibleCharactersNote": {
+    "defaultMessage": "हाइलाइट किए गए मार्कर इस रेसिपी में मौजूद अदृश्य या दिशा बदलने वाले वर्ण हैं, जो यूनिकोड कोड पॉइंट के रूप में दिखाए गए हैं।"
+  },
+  "recipeExecutionDetails.noExtensions": {
+    "defaultMessage": "यह रेसिपी कोई एक्सटेंशन घोषित नहीं करती, इसलिए आपके कॉन्फ़िगर किए गए डिफ़ॉल्ट एक्सटेंशन उपयोग होंगे।"
+  },
+  "recipeExecutionDetails.onFailure": {
+    "defaultMessage": "विफलता पर"
+  },
+  "recipeExecutionDetails.parameterAsked": {
+    "defaultMessage": "रेसिपी शुरू होने पर पूछा जाएगा"
+  },
+  "recipeExecutionDetails.parameterDefault": {
+    "defaultMessage": "डिफ़ॉल्ट"
+  },
+  "recipeExecutionDetails.parameterFromLink": {
+    "defaultMessage": "इस लिंक द्वारा सेट"
+  },
+  "recipeExecutionDetails.parametersHeading": {
+    "defaultMessage": "पैरामीटर"
+  },
+  "recipeExecutionDetails.parametersNote": {
+    "defaultMessage": "कुछ भी चलने से पहले पैरामीटर मान ऊपर दिए गए प्लेसहोल्डर में डाले जाते हैं। जो मान नहीं हैं, वे आपसे पूछे जाएंगे।"
+  },
+  "recipeExecutionDetails.retryHeading": {
+    "defaultMessage": "प्रयासों के बीच चलने वाले शेल कमांड"
+  },
+  "recipeExecutionDetails.secretsFromKeychain": {
+    "defaultMessage": "आपके कीचेन से पढ़े गए सीक्रेट"
+  },
+  "recipeExecutionDetails.socket": {
+    "defaultMessage": "सॉकेट"
+  },
+  "recipeExecutionDetails.subRecipesHeading": {
+    "defaultMessage": "डिस्क से लोड की गई सब-रेसिपी"
+  },
+  "recipeExecutionDetails.successCheck": {
+    "defaultMessage": "सफलता जांच"
+  },
+  "recipeExecutionDetails.workingDir": {
+    "defaultMessage": "वर्किंग डायरेक्टरी"
+  },
   "recipeExtensionSelector.description": {
     "defaultMessage": "चुनें कि इस रेसिपी को चलाते समय कौन से एक्सटेंशन उपलब्ध होने चाहिए। डिफ़ॉल्ट एक्सटेंशन का उपयोग करने के लिए इसे खाली छोड़ दें."
   },

@@ -2927,6 +2927,72 @@
   "recipeActivityEditor.messagePlaceholder": {
     "defaultMessage": "Saisissez un message d'introduction destiné à l'utilisateur pour votre recette (prend en charge **gras**, *italique*, `code`, etc.)"
   },
+  "recipeExecutionDetails.argument": {
+    "defaultMessage": "Argument {index}"
+  },
+  "recipeExecutionDetails.command": {
+    "defaultMessage": "Commande"
+  },
+  "recipeExecutionDetails.description": {
+    "defaultMessage": "Tout ce qui suit s'exécute avec vos permissions dès que vous continuez. Vérifiez chaque commande, point de terminaison et fichier."
+  },
+  "recipeExecutionDetails.endpoint": {
+    "defaultMessage": "Point de terminaison"
+  },
+  "recipeExecutionDetails.environment": {
+    "defaultMessage": "Environnement"
+  },
+  "recipeExecutionDetails.extensionsHeading": {
+    "defaultMessage": "Extensions"
+  },
+  "recipeExecutionDetails.headers": {
+    "defaultMessage": "En-têtes"
+  },
+  "recipeExecutionDetails.heading": {
+    "defaultMessage": "Ce que cette recette va exécuter"
+  },
+  "recipeExecutionDetails.invisibleCharactersNote": {
+    "defaultMessage": "Les marqueurs surlignés sont des caractères invisibles ou changeant le sens du texte dans cette recette, affichés par leur point de code Unicode."
+  },
+  "recipeExecutionDetails.noExtensions": {
+    "defaultMessage": "Cette recette ne déclare aucune extension, vos extensions par défaut configurées seront donc utilisées."
+  },
+  "recipeExecutionDetails.onFailure": {
+    "defaultMessage": "En cas d'échec"
+  },
+  "recipeExecutionDetails.parameterAsked": {
+    "defaultMessage": "demandé au démarrage de la recette"
+  },
+  "recipeExecutionDetails.parameterDefault": {
+    "defaultMessage": "par défaut"
+  },
+  "recipeExecutionDetails.parameterFromLink": {
+    "defaultMessage": "défini par ce lien"
+  },
+  "recipeExecutionDetails.parametersHeading": {
+    "defaultMessage": "Paramètres"
+  },
+  "recipeExecutionDetails.parametersNote": {
+    "defaultMessage": "Les valeurs des paramètres remplacent les espaces réservés ci-dessus avant toute exécution. Celles qui manquent vous seront demandées."
+  },
+  "recipeExecutionDetails.retryHeading": {
+    "defaultMessage": "Commandes shell exécutées entre les tentatives"
+  },
+  "recipeExecutionDetails.secretsFromKeychain": {
+    "defaultMessage": "Secrets lus depuis votre trousseau"
+  },
+  "recipeExecutionDetails.socket": {
+    "defaultMessage": "Socket"
+  },
+  "recipeExecutionDetails.subRecipesHeading": {
+    "defaultMessage": "Sous-recettes chargées depuis le disque"
+  },
+  "recipeExecutionDetails.successCheck": {
+    "defaultMessage": "Vérification de réussite"
+  },
+  "recipeExecutionDetails.workingDir": {
+    "defaultMessage": "Répertoire de travail"
+  },
   "recipeExtensionSelector.description": {
     "defaultMessage": "Sélectionnez les extensions qui doivent être disponibles lors de l'exécution de cette recette. Laissez vide pour utiliser les extensions par défaut."
   },

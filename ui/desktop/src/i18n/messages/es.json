@@ -2927,6 +2927,72 @@
   "recipeActivityEditor.messagePlaceholder": {
     "defaultMessage": "Introduce un mensaje de introducción de cara al usuario para tu receta (admite **negrita**, *cursiva*, `code`, etc.)"
   },
+  "recipeExecutionDetails.argument": {
+    "defaultMessage": "Argumento {index}"
+  },
+  "recipeExecutionDetails.command": {
+    "defaultMessage": "Comando"
+  },
+  "recipeExecutionDetails.description": {
+    "defaultMessage": "Todo lo siguiente se ejecuta con tus permisos en cuanto continúes. Revisa cada comando, endpoint y archivo."
+  },
+  "recipeExecutionDetails.endpoint": {
+    "defaultMessage": "Endpoint"
+  },
+  "recipeExecutionDetails.environment": {
+    "defaultMessage": "Entorno"
+  },
+  "recipeExecutionDetails.extensionsHeading": {
+    "defaultMessage": "Extensiones"
+  },
+  "recipeExecutionDetails.headers": {
+    "defaultMessage": "Cabeceras"
+  },
+  "recipeExecutionDetails.heading": {
+    "defaultMessage": "Qué ejecutará esta receta"
+  },
+  "recipeExecutionDetails.invisibleCharactersNote": {
+    "defaultMessage": "Los marcadores resaltados son caracteres invisibles o que cambian la dirección del texto en esta receta, mostrados por su punto de código Unicode."
+  },
+  "recipeExecutionDetails.noExtensions": {
+    "defaultMessage": "Esta receta no declara extensiones, por lo que se usan tus extensiones predeterminadas configuradas."
+  },
+  "recipeExecutionDetails.onFailure": {
+    "defaultMessage": "En caso de fallo"
+  },
+  "recipeExecutionDetails.parameterAsked": {
+    "defaultMessage": "se pedirá al iniciar la receta"
+  },
+  "recipeExecutionDetails.parameterDefault": {
+    "defaultMessage": "predeterminado"
+  },
+  "recipeExecutionDetails.parameterFromLink": {
+    "defaultMessage": "definido por este enlace"
+  },
+  "recipeExecutionDetails.parametersHeading": {
+    "defaultMessage": "Parámetros"
+  },
+  "recipeExecutionDetails.parametersNote": {
+    "defaultMessage": "Los valores de los parámetros se sustituyen en los marcadores de posición anteriores antes de ejecutar nada. Se te pedirán los que falten."
+  },
+  "recipeExecutionDetails.retryHeading": {
+    "defaultMessage": "Comandos de shell ejecutados entre intentos"
+  },
+  "recipeExecutionDetails.secretsFromKeychain": {
+    "defaultMessage": "Secretos leídos de tu llavero"
+  },
+  "recipeExecutionDetails.socket": {
+    "defaultMessage": "Socket"
+  },
+  "recipeExecutionDetails.subRecipesHeading": {
+    "defaultMessage": "Subrecetas cargadas desde el disco"
+  },
+  "recipeExecutionDetails.successCheck": {
+    "defaultMessage": "Comprobación de éxito"
+  },
+  "recipeExecutionDetails.workingDir": {
+    "defaultMessage": "Directorio de trabajo"
+  },
   "recipeExtensionSelector.description": {
     "defaultMessage": "Selecciona qué extensiones deben estar disponibles al ejecutar esta receta. Déjalo vacío para usar las extensiones por defecto."
   },

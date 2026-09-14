@@ -2927,6 +2927,72 @@
   "recipeActivityEditor.messagePlaceholder": {
     "defaultMessage": "为你的配方输入面向用户的介绍消息（支持 **加粗**、*斜体*、`代码` 等）"
   },
+  "recipeExecutionDetails.argument": {
+    "defaultMessage": "参数 {index}"
+  },
+  "recipeExecutionDetails.command": {
+    "defaultMessage": "命令"
+  },
+  "recipeExecutionDetails.description": {
+    "defaultMessage": "继续后，以下所有内容都会以你的权限运行。请检查每条命令、端点和文件。"
+  },
+  "recipeExecutionDetails.endpoint": {
+    "defaultMessage": "端点"
+  },
+  "recipeExecutionDetails.environment": {
+    "defaultMessage": "环境变量"
+  },
+  "recipeExecutionDetails.extensionsHeading": {
+    "defaultMessage": "扩展"
+  },
+  "recipeExecutionDetails.headers": {
+    "defaultMessage": "请求头"
+  },
+  "recipeExecutionDetails.heading": {
+    "defaultMessage": "此配方将运行的内容"
+  },
+  "recipeExecutionDetails.invisibleCharactersNote": {
+    "defaultMessage": "高亮标记是此配方中不可见或改变文字方向的字符，以 Unicode 码位显示。"
+  },
+  "recipeExecutionDetails.noExtensions": {
+    "defaultMessage": "此配方未声明任何扩展，因此将使用你配置的默认扩展。"
+  },
+  "recipeExecutionDetails.onFailure": {
+    "defaultMessage": "失败时"
+  },
+  "recipeExecutionDetails.parameterAsked": {
+    "defaultMessage": "配方启动时询问"
+  },
+  "recipeExecutionDetails.parameterDefault": {
+    "defaultMessage": "默认值"
+  },
+  "recipeExecutionDetails.parameterFromLink": {
+    "defaultMessage": "由此链接设置"
+  },
+  "recipeExecutionDetails.parametersHeading": {
+    "defaultMessage": "参数"
+  },
+  "recipeExecutionDetails.parametersNote": {
+    "defaultMessage": "参数值会在运行前替换到上方的占位符中。缺少的值会向你询问。"
+  },
+  "recipeExecutionDetails.retryHeading": {
+    "defaultMessage": "重试之间运行的 Shell 命令"
+  },
+  "recipeExecutionDetails.secretsFromKeychain": {
+    "defaultMessage": "从你的钥匙串读取的密钥"
+  },
+  "recipeExecutionDetails.socket": {
+    "defaultMessage": "套接字"
+  },
+  "recipeExecutionDetails.subRecipesHeading": {
+    "defaultMessage": "从磁盘加载的子配方"
+  },
+  "recipeExecutionDetails.successCheck": {
+    "defaultMessage": "成功检查"
+  },
+  "recipeExecutionDetails.workingDir": {
+    "defaultMessage": "工作目录"
+  },
   "recipeExtensionSelector.description": {
     "defaultMessage": "选择运行此配方时可用的扩展。留空将使用默认扩展。"
   },

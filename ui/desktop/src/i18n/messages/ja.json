@@ -2927,6 +2927,72 @@
   "recipeActivityEditor.messagePlaceholder": {
     "defaultMessage": "レシピ用にユーザー向けの紹介メッセージを入力してください（**太字**、*斜体*、`コード`などに対応）"
   },
+  "recipeExecutionDetails.argument": {
+    "defaultMessage": "引数 {index}"
+  },
+  "recipeExecutionDetails.command": {
+    "defaultMessage": "コマンド"
+  },
+  "recipeExecutionDetails.description": {
+    "defaultMessage": "続行すると、以下のすべてがあなたの権限で実行されます。各コマンド、エンドポイント、ファイルを確認してください。"
+  },
+  "recipeExecutionDetails.endpoint": {
+    "defaultMessage": "エンドポイント"
+  },
+  "recipeExecutionDetails.environment": {
+    "defaultMessage": "環境変数"
+  },
+  "recipeExecutionDetails.extensionsHeading": {
+    "defaultMessage": "拡張機能"
+  },
+  "recipeExecutionDetails.headers": {
+    "defaultMessage": "ヘッダー"
+  },
+  "recipeExecutionDetails.heading": {
+    "defaultMessage": "このレシピが実行する内容"
+  },
+  "recipeExecutionDetails.invisibleCharactersNote": {
+    "defaultMessage": "ハイライトされたマーカーは、このレシピに含まれる不可視文字または文字方向を変える文字で、Unicode コードポイントで表示されています。"
+  },
+  "recipeExecutionDetails.noExtensions": {
+    "defaultMessage": "このレシピは拡張機能を宣言していないため、設定済みのデフォルト拡張機能が使用されます。"
+  },
+  "recipeExecutionDetails.onFailure": {
+    "defaultMessage": "失敗時"
+  },
+  "recipeExecutionDetails.parameterAsked": {
+    "defaultMessage": "レシピ開始時に入力を求められます"
+  },
+  "recipeExecutionDetails.parameterDefault": {
+    "defaultMessage": "デフォルト"
+  },
+  "recipeExecutionDetails.parameterFromLink": {
+    "defaultMessage": "このリンクで設定"
+  },
+  "recipeExecutionDetails.parametersHeading": {
+    "defaultMessage": "パラメーター"
+  },
+  "recipeExecutionDetails.parametersNote": {
+    "defaultMessage": "パラメーター値は実行前に上記のプレースホルダーに代入されます。不足している値は入力を求められます。"
+  },
+  "recipeExecutionDetails.retryHeading": {
+    "defaultMessage": "再試行の間に実行されるシェルコマンド"
+  },
+  "recipeExecutionDetails.secretsFromKeychain": {
+    "defaultMessage": "キーチェーンから読み取るシークレット"
+  },
+  "recipeExecutionDetails.socket": {
+    "defaultMessage": "ソケット"
+  },
+  "recipeExecutionDetails.subRecipesHeading": {
+    "defaultMessage": "ディスクから読み込まれるサブレシピ"
+  },
+  "recipeExecutionDetails.successCheck": {
+    "defaultMessage": "成功チェック"
+  },
+  "recipeExecutionDetails.workingDir": {
+    "defaultMessage": "作業ディレクトリ"
+  },
   "recipeExtensionSelector.description": {
     "defaultMessage": "このレシピの実行時に利用できる拡張機能を選択します。空のままにするとデフォルトの拡張機能を使用します。"
   },

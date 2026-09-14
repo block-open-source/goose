@@ -2927,6 +2927,72 @@
   "recipeActivityEditor.messagePlaceholder": {
     "defaultMessage": "Masukkan mesej pengenalan yang menghadap pengguna untuk resipi anda (menyokong **tebal**, *condong*, `kod`, dll.)"
   },
+  "recipeExecutionDetails.argument": {
+    "defaultMessage": "Argumen {index}"
+  },
+  "recipeExecutionDetails.command": {
+    "defaultMessage": "Perintah"
+  },
+  "recipeExecutionDetails.description": {
+    "defaultMessage": "Semua di bawah akan dijalankan dengan kebenaran anda sebaik sahaja anda meneruskan. Semak setiap perintah, titik akhir dan fail."
+  },
+  "recipeExecutionDetails.endpoint": {
+    "defaultMessage": "Titik akhir"
+  },
+  "recipeExecutionDetails.environment": {
+    "defaultMessage": "Persekitaran"
+  },
+  "recipeExecutionDetails.extensionsHeading": {
+    "defaultMessage": "Sambungan"
+  },
+  "recipeExecutionDetails.headers": {
+    "defaultMessage": "Pengepala"
+  },
+  "recipeExecutionDetails.heading": {
+    "defaultMessage": "Apa yang akan dijalankan oleh resipi ini"
+  },
+  "recipeExecutionDetails.invisibleCharactersNote": {
+    "defaultMessage": "Penanda yang diserlahkan ialah aksara tidak kelihatan atau pengubah arah teks dalam resipi ini, dipaparkan sebagai titik kod Unicode."
+  },
+  "recipeExecutionDetails.noExtensions": {
+    "defaultMessage": "Resipi ini tidak mengisytiharkan sambungan, jadi sambungan lalai yang anda konfigurasikan akan digunakan."
+  },
+  "recipeExecutionDetails.onFailure": {
+    "defaultMessage": "Apabila gagal"
+  },
+  "recipeExecutionDetails.parameterAsked": {
+    "defaultMessage": "ditanya apabila resipi dimulakan"
+  },
+  "recipeExecutionDetails.parameterDefault": {
+    "defaultMessage": "lalai"
+  },
+  "recipeExecutionDetails.parameterFromLink": {
+    "defaultMessage": "ditetapkan oleh pautan ini"
+  },
+  "recipeExecutionDetails.parametersHeading": {
+    "defaultMessage": "Parameter"
+  },
+  "recipeExecutionDetails.parametersNote": {
+    "defaultMessage": "Nilai parameter dimasukkan ke dalam pemegang tempat di atas sebelum apa-apa dijalankan. Anda akan ditanya untuk nilai yang tiada."
+  },
+  "recipeExecutionDetails.retryHeading": {
+    "defaultMessage": "Perintah shell yang dijalankan antara percubaan"
+  },
+  "recipeExecutionDetails.secretsFromKeychain": {
+    "defaultMessage": "Rahsia yang dibaca daripada keychain anda"
+  },
+  "recipeExecutionDetails.socket": {
+    "defaultMessage": "Soket"
+  },
+  "recipeExecutionDetails.subRecipesHeading": {
+    "defaultMessage": "Sub-resipi yang dimuatkan daripada cakera"
+  },
+  "recipeExecutionDetails.successCheck": {
+    "defaultMessage": "Semakan kejayaan"
+  },
+  "recipeExecutionDetails.workingDir": {
+    "defaultMessage": "Direktori kerja"
+  },
   "recipeExtensionSelector.description": {
     "defaultMessage": "Pilih sambungan yang harus tersedia semasa menjalankan resipi ini. Biarkan kosong untuk menggunakan sambungan lalai."
   },

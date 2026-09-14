@@ -2927,6 +2927,72 @@
   "recipeActivityEditor.messagePlaceholder": {
     "defaultMessage": "Nhập tin nhắn giới thiệu hướng tới người dùng cho công thức của bạn (hỗ trợ **đậm**, *nghiêng*, `mã`, v.v.)"
   },
+  "recipeExecutionDetails.argument": {
+    "defaultMessage": "Đối số {index}"
+  },
+  "recipeExecutionDetails.command": {
+    "defaultMessage": "Lệnh"
+  },
+  "recipeExecutionDetails.description": {
+    "defaultMessage": "Mọi thứ bên dưới sẽ chạy với quyền của bạn ngay khi bạn tiếp tục. Hãy xem lại từng lệnh, điểm cuối và tệp."
+  },
+  "recipeExecutionDetails.endpoint": {
+    "defaultMessage": "Điểm cuối"
+  },
+  "recipeExecutionDetails.environment": {
+    "defaultMessage": "Môi trường"
+  },
+  "recipeExecutionDetails.extensionsHeading": {
+    "defaultMessage": "Tiện ích mở rộng"
+  },
+  "recipeExecutionDetails.headers": {
+    "defaultMessage": "Header"
+  },
+  "recipeExecutionDetails.heading": {
+    "defaultMessage": "Công thức này sẽ chạy những gì"
+  },
+  "recipeExecutionDetails.invisibleCharactersNote": {
+    "defaultMessage": "Các dấu được tô sáng là ký tự vô hình hoặc ký tự đổi hướng văn bản trong công thức này, được hiển thị theo điểm mã Unicode."
+  },
+  "recipeExecutionDetails.noExtensions": {
+    "defaultMessage": "Công thức này không khai báo tiện ích mở rộng nào, nên các tiện ích mở rộng mặc định bạn đã cấu hình sẽ được dùng."
+  },
+  "recipeExecutionDetails.onFailure": {
+    "defaultMessage": "Khi thất bại"
+  },
+  "recipeExecutionDetails.parameterAsked": {
+    "defaultMessage": "được hỏi khi công thức bắt đầu"
+  },
+  "recipeExecutionDetails.parameterDefault": {
+    "defaultMessage": "mặc định"
+  },
+  "recipeExecutionDetails.parameterFromLink": {
+    "defaultMessage": "được đặt bởi liên kết này"
+  },
+  "recipeExecutionDetails.parametersHeading": {
+    "defaultMessage": "Tham số"
+  },
+  "recipeExecutionDetails.parametersNote": {
+    "defaultMessage": "Giá trị tham số được thay vào các chỗ giữ chỗ ở trên trước khi bất cứ thứ gì chạy. Bạn sẽ được hỏi về những giá trị còn thiếu."
+  },
+  "recipeExecutionDetails.retryHeading": {
+    "defaultMessage": "Các lệnh shell chạy giữa các lần thử"
+  },
+  "recipeExecutionDetails.secretsFromKeychain": {
+    "defaultMessage": "Bí mật đọc từ keychain của bạn"
+  },
+  "recipeExecutionDetails.socket": {
+    "defaultMessage": "Socket"
+  },
+  "recipeExecutionDetails.subRecipesHeading": {
+    "defaultMessage": "Công thức con được tải từ đĩa"
+  },
+  "recipeExecutionDetails.successCheck": {
+    "defaultMessage": "Kiểm tra thành công"
+  },
+  "recipeExecutionDetails.workingDir": {
+    "defaultMessage": "Thư mục làm việc"
+  },
   "recipeExtensionSelector.description": {
     "defaultMessage": "Chọn các phần mở rộng sẽ khả dụng khi chạy công thức này. Để trống để sử dụng các phần mở rộng mặc định."
   },

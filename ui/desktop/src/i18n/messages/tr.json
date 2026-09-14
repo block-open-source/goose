@@ -2927,6 +2927,72 @@
   "recipeActivityEditor.messagePlaceholder": {
     "defaultMessage": "Tarifiniz için kullanıcıya yönelik bir tanıtım mesajı girin (**kalın**, *italik*, `kod' vb. destekler)"
   },
+  "recipeExecutionDetails.argument": {
+    "defaultMessage": "Argüman {index}"
+  },
+  "recipeExecutionDetails.command": {
+    "defaultMessage": "Komut"
+  },
+  "recipeExecutionDetails.description": {
+    "defaultMessage": "Devam ettiğinizde aşağıdakilerin tümü sizin izinlerinizle çalışır. Her komutu, uç noktayı ve dosyayı inceleyin."
+  },
+  "recipeExecutionDetails.endpoint": {
+    "defaultMessage": "Uç nokta"
+  },
+  "recipeExecutionDetails.environment": {
+    "defaultMessage": "Ortam"
+  },
+  "recipeExecutionDetails.extensionsHeading": {
+    "defaultMessage": "Uzantılar"
+  },
+  "recipeExecutionDetails.headers": {
+    "defaultMessage": "Üst bilgiler"
+  },
+  "recipeExecutionDetails.heading": {
+    "defaultMessage": "Bu tarifin çalıştıracakları"
+  },
+  "recipeExecutionDetails.invisibleCharactersNote": {
+    "defaultMessage": "Vurgulanan işaretler, bu tarifteki görünmez veya metin yönünü değiştiren karakterlerdir ve Unicode kod noktasıyla gösterilir."
+  },
+  "recipeExecutionDetails.noExtensions": {
+    "defaultMessage": "Bu tarif uzantı bildirmiyor, bu nedenle yapılandırdığınız varsayılan uzantılar kullanılır."
+  },
+  "recipeExecutionDetails.onFailure": {
+    "defaultMessage": "Hata durumunda"
+  },
+  "recipeExecutionDetails.parameterAsked": {
+    "defaultMessage": "tarif başlarken sorulur"
+  },
+  "recipeExecutionDetails.parameterDefault": {
+    "defaultMessage": "varsayılan"
+  },
+  "recipeExecutionDetails.parameterFromLink": {
+    "defaultMessage": "bu bağlantı tarafından ayarlandı"
+  },
+  "recipeExecutionDetails.parametersHeading": {
+    "defaultMessage": "Parametreler"
+  },
+  "recipeExecutionDetails.parametersNote": {
+    "defaultMessage": "Parametre değerleri, herhangi bir şey çalışmadan önce yukarıdaki yer tutuculara yerleştirilir. Eksik olanlar size sorulur."
+  },
+  "recipeExecutionDetails.retryHeading": {
+    "defaultMessage": "Denemeler arasında çalıştırılan kabuk komutları"
+  },
+  "recipeExecutionDetails.secretsFromKeychain": {
+    "defaultMessage": "Anahtar zincirinizden okunan gizli değerler"
+  },
+  "recipeExecutionDetails.socket": {
+    "defaultMessage": "Soket"
+  },
+  "recipeExecutionDetails.subRecipesHeading": {
+    "defaultMessage": "Diskten yüklenen alt tarifler"
+  },
+  "recipeExecutionDetails.successCheck": {
+    "defaultMessage": "Başarı denetimi"
+  },
+  "recipeExecutionDetails.workingDir": {
+    "defaultMessage": "Çalışma dizini"
+  },
   "recipeExtensionSelector.description": {
     "defaultMessage": "Bu tarifi çalıştırırken hangi uzantıların mevcut olacağını seçin. Varsayılan uzantıları kullanmak için boş bırakın."
   },

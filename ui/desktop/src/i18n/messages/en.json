@@ -2975,6 +2975,72 @@
   "recipeActivityEditor.messagePlaceholder": {
     "defaultMessage": "Enter a user facing introduction message for your recipe (supports **bold**, *italic*, `code`, etc.)"
   },
+  "recipeExecutionDetails.argument": {
+    "defaultMessage": "Argument {index}"
+  },
+  "recipeExecutionDetails.command": {
+    "defaultMessage": "Command"
+  },
+  "recipeExecutionDetails.description": {
+    "defaultMessage": "Everything below runs with your permissions as soon as you continue. Review each command, endpoint, and file."
+  },
+  "recipeExecutionDetails.endpoint": {
+    "defaultMessage": "Endpoint"
+  },
+  "recipeExecutionDetails.environment": {
+    "defaultMessage": "Environment"
+  },
+  "recipeExecutionDetails.extensionsHeading": {
+    "defaultMessage": "Extensions"
+  },
+  "recipeExecutionDetails.headers": {
+    "defaultMessage": "Headers"
+  },
+  "recipeExecutionDetails.heading": {
+    "defaultMessage": "What this recipe will run"
+  },
+  "recipeExecutionDetails.invisibleCharactersNote": {
+    "defaultMessage": "Highlighted markers are invisible or direction-changing characters in this recipe, shown by Unicode code point."
+  },
+  "recipeExecutionDetails.noExtensions": {
+    "defaultMessage": "This recipe declares no extensions, so your configured default extensions are used."
+  },
+  "recipeExecutionDetails.onFailure": {
+    "defaultMessage": "On failure"
+  },
+  "recipeExecutionDetails.parameterAsked": {
+    "defaultMessage": "asked when the recipe starts"
+  },
+  "recipeExecutionDetails.parameterDefault": {
+    "defaultMessage": "default"
+  },
+  "recipeExecutionDetails.parameterFromLink": {
+    "defaultMessage": "set by this link"
+  },
+  "recipeExecutionDetails.parametersHeading": {
+    "defaultMessage": "Parameters"
+  },
+  "recipeExecutionDetails.parametersNote": {
+    "defaultMessage": "Parameter values are substituted into the placeholders above before anything runs. You will be asked for any that are missing."
+  },
+  "recipeExecutionDetails.retryHeading": {
+    "defaultMessage": "Shell commands run between attempts"
+  },
+  "recipeExecutionDetails.secretsFromKeychain": {
+    "defaultMessage": "Secrets read from your keychain"
+  },
+  "recipeExecutionDetails.socket": {
+    "defaultMessage": "Socket"
+  },
+  "recipeExecutionDetails.subRecipesHeading": {
+    "defaultMessage": "Sub-recipes loaded from disk"
+  },
+  "recipeExecutionDetails.successCheck": {
+    "defaultMessage": "Success check"
+  },
+  "recipeExecutionDetails.workingDir": {
+    "defaultMessage": "Working directory"
+  },
   "recipeExtensionSelector.description": {
     "defaultMessage": "Select which extensions should be available when running this recipe. Leave empty to use default extensions."
   },

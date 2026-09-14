@@ -12,6 +12,8 @@ import { Button } from './button';
 import MarkdownContent from '../MarkdownContent';
 import { cn } from '../../utils';
 import { defineMessages, useIntl } from '../../i18n';
+import type { Recipe } from '../../recipe';
+import { RecipeExecutionDetails } from './RecipeExecutionDetails';
 
 const i18n = defineMessages({
   securityWarningTitle: {
@@ -65,20 +67,18 @@ interface RecipeWarningModalProps {
   isOpen: boolean;
   onConfirm: () => void;
   onCancel: () => void;
-  recipeDetails: {
-    title?: string;
-    description?: string;
-    instructions?: string;
-  };
+  recipe: Recipe;
   hasSecurityWarnings?: boolean;
+  providedParameters?: Record<string, string>;
 }
 
 export function RecipeWarningModal({
   isOpen,
   onConfirm,
   onCancel,
-  recipeDetails,
+  recipe,
   hasSecurityWarnings = false,
+  providedParameters,
 }: RecipeWarningModalProps) {
   const intl = useIntl();
 
@@ -108,40 +108,35 @@ export function RecipeWarningModal({
           {hasSecurityWarnings && (
             <div className="px-6">
               <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
-                <div className="flex items-start">
-                  <div className="ml-3">
-                    <div className="mt-2 text-sm text-yellow-700 dark:text-yellow-300">
-                      <p>{intl.formatMessage(i18n.hiddenCharsWarning)}</p>
-                    </div>
-                  </div>
-                </div>
+                <p className="text-sm text-yellow-700 dark:text-yellow-300">
+                  {intl.formatMessage(i18n.hiddenCharsWarning)}
+                </p>
               </div>
             </div>
           )}
 
-          <div className="flex-1 overflow-y-auto p-6 pt-4">
+          <div className="flex-1 overflow-y-auto p-6 pt-4 space-y-4">
+            <div className="bg-background-secondary p-4 rounded-lg">
+              <RecipeExecutionDetails recipe={recipe} providedParameters={providedParameters} />
+            </div>
+
             <div className="bg-background-secondary p-4 rounded-lg">
               <h3 className="font-medium mb-3 text-text-primary">
                 {intl.formatMessage(i18n.recipePreview)}
               </h3>
               <div className="space-y-4">
-                {recipeDetails.title && (
-                  <p className="text-text-primary">
-                    <strong>{intl.formatMessage(i18n.titleLabel)}</strong> {recipeDetails.title}
-                  </p>
-                )}
-                {recipeDetails.description && (
-                  <p className="text-text-primary">
-                    <strong>{intl.formatMessage(i18n.descriptionLabel)}</strong>{' '}
-                    {recipeDetails.description}
-                  </p>
-                )}
-                {recipeDetails.instructions && (
+                <p className="text-text-primary">
+                  <strong>{intl.formatMessage(i18n.titleLabel)}</strong> {recipe.title}
+                </p>
+                <p className="text-text-primary">
+                  <strong>{intl.formatMessage(i18n.descriptionLabel)}</strong> {recipe.description}
+                </p>
+                {recipe.instructions && (
                   <div>
                     <h4 className="font-medium text-text-primary mb-1">
                       {intl.formatMessage(i18n.instructionsLabel)}
                     </h4>
-                    <MarkdownContent content={recipeDetails.instructions} className="text-sm" />
+                    <MarkdownContent content={recipe.instructions} className="text-sm" />
                   </div>
                 )}
               </div>

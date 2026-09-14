@@ -2927,6 +2927,72 @@
   "recipeActivityEditor.messagePlaceholder": {
     "defaultMessage": "為您的配方輸入一段面向使用者的介紹訊息（支援 **粗體**、*斜體*、`程式碼` 等）"
   },
+  "recipeExecutionDetails.argument": {
+    "defaultMessage": "參數 {index}"
+  },
+  "recipeExecutionDetails.command": {
+    "defaultMessage": "命令"
+  },
+  "recipeExecutionDetails.description": {
+    "defaultMessage": "繼續後，以下所有內容都會以你的權限執行。請檢查每個命令、端點和檔案。"
+  },
+  "recipeExecutionDetails.endpoint": {
+    "defaultMessage": "端點"
+  },
+  "recipeExecutionDetails.environment": {
+    "defaultMessage": "環境變數"
+  },
+  "recipeExecutionDetails.extensionsHeading": {
+    "defaultMessage": "擴充功能"
+  },
+  "recipeExecutionDetails.headers": {
+    "defaultMessage": "標頭"
+  },
+  "recipeExecutionDetails.heading": {
+    "defaultMessage": "此配方將執行的內容"
+  },
+  "recipeExecutionDetails.invisibleCharactersNote": {
+    "defaultMessage": "高亮標記是此配方中不可見或改變文字方向的字元，以 Unicode 碼位顯示。"
+  },
+  "recipeExecutionDetails.noExtensions": {
+    "defaultMessage": "此配方未宣告任何擴充功能，因此將使用你設定的預設擴充功能。"
+  },
+  "recipeExecutionDetails.onFailure": {
+    "defaultMessage": "失敗時"
+  },
+  "recipeExecutionDetails.parameterAsked": {
+    "defaultMessage": "配方啟動時詢問"
+  },
+  "recipeExecutionDetails.parameterDefault": {
+    "defaultMessage": "預設值"
+  },
+  "recipeExecutionDetails.parameterFromLink": {
+    "defaultMessage": "由此連結設定"
+  },
+  "recipeExecutionDetails.parametersHeading": {
+    "defaultMessage": "參數"
+  },
+  "recipeExecutionDetails.parametersNote": {
+    "defaultMessage": "參數值會在執行前替換到上方的預留位置中。缺少的值會向你詢問。"
+  },
+  "recipeExecutionDetails.retryHeading": {
+    "defaultMessage": "重試之間執行的 Shell 命令"
+  },
+  "recipeExecutionDetails.secretsFromKeychain": {
+    "defaultMessage": "從你的鑰匙圈讀取的密鑰"
+  },
+  "recipeExecutionDetails.socket": {
+    "defaultMessage": "Socket"
+  },
+  "recipeExecutionDetails.subRecipesHeading": {
+    "defaultMessage": "從磁碟載入的子配方"
+  },
+  "recipeExecutionDetails.successCheck": {
+    "defaultMessage": "成功檢查"
+  },
+  "recipeExecutionDetails.workingDir": {
+    "defaultMessage": "工作目錄"
+  },
   "recipeExtensionSelector.description": {
     "defaultMessage": "選取執行此配方時應可使用的擴充功能。留空則使用預設擴充功能。"
   },

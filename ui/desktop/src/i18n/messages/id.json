@@ -2927,6 +2927,72 @@
   "recipeActivityEditor.messagePlaceholder": {
     "defaultMessage": "Masukkan pesan pengantar yang menghadap pengguna untuk resep Anda (mendukung **tebal**, *miring*, `kode`, dll.)"
   },
+  "recipeExecutionDetails.argument": {
+    "defaultMessage": "Argumen {index}"
+  },
+  "recipeExecutionDetails.command": {
+    "defaultMessage": "Perintah"
+  },
+  "recipeExecutionDetails.description": {
+    "defaultMessage": "Semua yang ada di bawah akan dijalankan dengan izin Anda segera setelah Anda melanjutkan. Tinjau setiap perintah, endpoint, dan file."
+  },
+  "recipeExecutionDetails.endpoint": {
+    "defaultMessage": "Endpoint"
+  },
+  "recipeExecutionDetails.environment": {
+    "defaultMessage": "Lingkungan"
+  },
+  "recipeExecutionDetails.extensionsHeading": {
+    "defaultMessage": "Ekstensi"
+  },
+  "recipeExecutionDetails.headers": {
+    "defaultMessage": "Header"
+  },
+  "recipeExecutionDetails.heading": {
+    "defaultMessage": "Apa yang akan dijalankan resep ini"
+  },
+  "recipeExecutionDetails.invisibleCharactersNote": {
+    "defaultMessage": "Penanda yang disorot adalah karakter tak terlihat atau pengubah arah teks dalam resep ini, ditampilkan sebagai titik kode Unicode."
+  },
+  "recipeExecutionDetails.noExtensions": {
+    "defaultMessage": "Resep ini tidak mendeklarasikan ekstensi, sehingga ekstensi default yang Anda konfigurasikan akan digunakan."
+  },
+  "recipeExecutionDetails.onFailure": {
+    "defaultMessage": "Saat gagal"
+  },
+  "recipeExecutionDetails.parameterAsked": {
+    "defaultMessage": "ditanyakan saat resep dimulai"
+  },
+  "recipeExecutionDetails.parameterDefault": {
+    "defaultMessage": "default"
+  },
+  "recipeExecutionDetails.parameterFromLink": {
+    "defaultMessage": "ditetapkan oleh tautan ini"
+  },
+  "recipeExecutionDetails.parametersHeading": {
+    "defaultMessage": "Parameter"
+  },
+  "recipeExecutionDetails.parametersNote": {
+    "defaultMessage": "Nilai parameter dimasukkan ke placeholder di atas sebelum apa pun dijalankan. Anda akan ditanya untuk nilai yang belum ada."
+  },
+  "recipeExecutionDetails.retryHeading": {
+    "defaultMessage": "Perintah shell yang dijalankan di antara percobaan"
+  },
+  "recipeExecutionDetails.secretsFromKeychain": {
+    "defaultMessage": "Rahasia yang dibaca dari keychain Anda"
+  },
+  "recipeExecutionDetails.socket": {
+    "defaultMessage": "Socket"
+  },
+  "recipeExecutionDetails.subRecipesHeading": {
+    "defaultMessage": "Sub-resep yang dimuat dari disk"
+  },
+  "recipeExecutionDetails.successCheck": {
+    "defaultMessage": "Pemeriksaan keberhasilan"
+  },
+  "recipeExecutionDetails.workingDir": {
+    "defaultMessage": "Direktori kerja"
+  },
   "recipeExtensionSelector.description": {
     "defaultMessage": "Pilih ekstensi mana yang harus tersedia saat menjalankan resep ini. Biarkan kosong untuk menggunakan ekstensi default."
   },

@@ -323,8 +323,12 @@ async fn fit_plans(
     tools: &[Tool],
     messages: &[Message],
 ) -> Vec<FitPlan> {
+    // Dropping a header that is already empty produces the same request with a
+    // different flag, which `dedup` cannot collapse: the identical request then
+    // goes out twice. Only claim to drop one when there is one.
+    let has_header = !system.is_empty() || !tools.is_empty();
     let headerless = FitPlan {
-        drop_header: true,
+        drop_header: has_header,
         elide: middle_out_tool_response_indices(messages, 100),
     };
 
@@ -362,7 +366,7 @@ async fn fit_plans(
     // Before sacrificing every tool response to keep the header, try keeping
     // every response without it. Pointless when there is no header to give
     // back, which is the same request the ladder already sent.
-    if !system.is_empty() || !tools.is_empty() {
+    if has_header {
         plans.push(FitPlan {
             drop_header: true,
             elide: Vec::new(),
@@ -650,5 +654,19 @@ mod tests {
             error.to_string(),
             "Failed to compact: context limit exceeded even after removing all tool responses"
         );
+    }
+
+    /// Without a recorded header, dropping the header is a no-op, so the
+    /// headerless fallback is the request the ladder already sent.
+    #[tokio::test]
+    async fn headerless_fallback_does_not_repeat_the_first_request() {
+        let model = OverflowingModel::new();
+        let messages = vec![Message::user().with_text("oversized conversation")];
+
+        summarize_as_prefix(&model, None, "summarize this", "", &[], &messages)
+            .await
+            .unwrap_err();
+
+        assert_eq!(model.request_count(), 1);
     }
 }

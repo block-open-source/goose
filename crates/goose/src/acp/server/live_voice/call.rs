@@ -1,4 +1,4 @@
-use crate::conversation::message::{Message, MessageContent, MessageMetadata};
+use crate::conversation::message::{Message, MessageContent};
 use chrono::Utc;
 use goose_providers::live_voice_provider::{ProviderConnection, ProviderConnectionEvent};
 use rmcp::model::Role;
@@ -198,12 +198,9 @@ fn speaker(role: &Role) -> &'static str {
 }
 
 fn live_transcript_message(role: Role, text: String) -> Message {
-    let mut metadata = MessageMetadata::default();
-    metadata.set_operation_note("live_voice", "transcript", serde_json::Value::Bool(true));
     Message::new(role, Utc::now().timestamp(), vec![])
         .with_id(format!("msg_live_{}", Uuid::now_v7()))
         .with_text(text)
-        .with_metadata(metadata)
         .user_only()
 }
 

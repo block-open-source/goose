@@ -1,4 +1,3 @@
-
 use super::*;
 use goose_providers::live_voice_provider::fake::{
     provider_channel, provider_channel_with_availability, FakeConnectionDriver,

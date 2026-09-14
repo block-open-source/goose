@@ -460,14 +460,13 @@ impl SessionManager {
         self.storage.replace_conversation(id, conversation).await
     }
 
-    pub(crate) async fn replace_scoped_conversation(
+    pub(crate) async fn save_compacted_conversation(
         &self,
         id: &str,
         conversation: &Conversation,
-        source_message_ids: &HashSet<String>,
     ) -> Result<()> {
         self.storage
-            .replace_scoped_conversation(id, conversation, source_message_ids)
+            .save_compacted_conversation(id, conversation)
             .await
     }
 
@@ -2011,45 +2010,27 @@ impl SessionStorage {
         Self::replace_conversation_inner(pool, session_id, conversation).await
     }
 
-    async fn replace_scoped_conversation(
+    async fn save_compacted_conversation(
         &self,
         session_id: &str,
         conversation: &Conversation,
-        source_message_ids: &HashSet<String>,
     ) -> Result<()> {
         let pool = self.pool().await?;
         let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
-        let replacement_ids = conversation
-            .messages()
-            .iter()
-            .filter_map(|message| message.id.as_ref())
-            .collect::<HashSet<_>>();
-
-        for message_id in source_message_ids {
-            if !replacement_ids.contains(message_id) {
-                sqlx::query("DELETE FROM messages WHERE session_id = ? AND message_id = ?")
-                    .bind(session_id)
-                    .bind(message_id)
-                    .execute(&mut *tx)
-                    .await?;
-            }
-        }
 
         for message in conversation.messages() {
-            let message_id = message.id.as_ref().ok_or_else(|| {
-                anyhow::anyhow!("scoped conversation replacement message has no id")
-            })?;
-            if source_message_ids.contains(message_id) {
-                let Some((stored_metadata_json,)) = sqlx::query_as::<_, (Option<String>,)>(
-                    "SELECT metadata_json FROM messages WHERE session_id = ? AND message_id = ?",
-                )
-                .bind(session_id)
-                .bind(message_id)
-                .fetch_optional(&mut *tx)
-                .await?
-                else {
-                    anyhow::bail!("scoped conversation source message is missing: {message_id}");
-                };
+            let message_id = message
+                .id
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("compacted conversation message has no id"))?;
+            let stored_metadata_json = sqlx::query_scalar::<_, Option<String>>(
+                "SELECT metadata_json FROM messages WHERE session_id = ? AND message_id = ?",
+            )
+            .bind(session_id)
+            .bind(message_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+            if let Some(stored_metadata_json) = stored_metadata_json {
                 let mut metadata = stored_metadata_json
                     .and_then(|json| serde_json::from_str::<MessageMetadata>(&json).ok())
                     .unwrap_or_default();

@@ -35,7 +35,7 @@ use crate::agents::state_machine::{
     persist_tool_confirmation_decision, run_goose, BangShellOperation, CompactionOperation,
     DoctorOperation, Emitter, EntryHookOperation, ExitOnErrorOperation, GooseEffect,
     GooseInferenceProvider, GooseInferenceRequestPreparer, InferenceRunner, MaxTurnsOperation,
-    Operation, ProjectOperation, RecipeOperation, RetryOperation, RunScope, SkillOperation,
+    Operation, ProjectOperation, RecipeOperation, RetryOperation, SkillOperation,
     SlashCommandOperation, StateMachine, StatusOperation, SteerOperation, SteerQueue, Step,
     StopHookOperation, ToolApprovalOperation, ToolExecutionOperation, ToolPairCompactionOperation,
     UnknownToolOperation, MAX_TURNS_MESSAGE,
@@ -1772,7 +1772,6 @@ impl Agent {
         user_message: Message,
         session_config: SessionConfig,
         cancel_token: Option<CancellationToken>,
-        live_delegation: bool,
     ) -> Result<BoxStream<'_, Result<AgentEvent>>> {
         let session_manager = self.config.session_manager.clone();
         let session_id = session_config.id.clone();
@@ -1788,10 +1787,6 @@ impl Agent {
                 .apply()
                 .await?;
         }
-        let user_message = user_message.with_generated_id_if_missing();
-        let run_scope = live_delegation.then(|| RunScope {
-            kickoff_message_id: user_message.id.clone().expect("message id was generated"),
-        });
         session_manager
             .add_message(&session_config.id, &user_message)
             .await?;
@@ -1824,18 +1819,13 @@ impl Agent {
 
         let cancel = cancel_token.unwrap_or_default();
         let initial_stream = self
-            .stream_state_machine_session(
-                session_config.clone(),
-                cancel.clone(),
-                run_scope.clone(),
-            )
+            .stream_state_machine_session(session_config.clone(), cancel.clone())
             .await?;
         Ok(
             self.stream_state_machine_turn(
                 session_config,
                 cancel,
                 turn_guard,
-                run_scope,
                 Some(initial_stream),
             ),
         )
@@ -1882,7 +1872,6 @@ impl Agent {
                         .stream_state_machine_session(
                             session_config.clone(),
                             cancel.clone(),
-                            None,
                         )
                         .await?,
                 )
@@ -1893,7 +1882,6 @@ impl Agent {
                 session_config,
                 cancel,
                 turn_guard,
-                None,
                 initial_stream,
             );
             while let Some(event) = stream.next().await {
@@ -1927,7 +1915,6 @@ impl Agent {
         session_config: SessionConfig,
         cancel: CancellationToken,
         turn_guard: ActiveTurnGuard,
-        run_scope: Option<RunScope>,
         initial_stream: Option<BoxStream<'a, Result<AgentEvent>>>,
     ) -> BoxStream<'a, Result<AgentEvent>> {
         Box::pin(async_stream::try_stream! {
@@ -1961,7 +1948,6 @@ impl Agent {
                     self.stream_state_machine_session(
                         session_config.clone(),
                         cancel.clone(),
-                        run_scope.clone(),
                     )
                     .await?,
                 );
@@ -1973,7 +1959,6 @@ impl Agent {
         &self,
         session_config: SessionConfig,
         cancel: CancellationToken,
-        run_scope: Option<RunScope>,
     ) -> Result<BoxStream<'_, Result<AgentEvent>>> {
         let session_manager = self.config.session_manager.clone();
         let session_id = session_config.id.clone();
@@ -2006,13 +1991,7 @@ impl Agent {
                 let result = {
                     let run = crate::session_context::with_session_id(
                         Some(session_id.clone()),
-                        run_goose(
-                            &machine,
-                            session_manager.as_ref(),
-                            &session_id,
-                            &emit,
-                            run_scope.as_ref(),
-                        ),
+                        run_goose(&machine, session_manager.as_ref(), &session_id, &emit),
                     );
                     tokio::pin!(run);
                     loop {
@@ -2043,13 +2022,9 @@ impl Agent {
         if !super::state_machine::enabled() {
             return Err(anyhow!("Live delegation requires the state machine"));
         }
+        let user_message = user_message.agent_only();
         let events = self
-            .reply_with_state_machine(
-                user_message.agent_only(),
-                session_config,
-                Some(cancel_token),
-                true,
-            )
+            .reply_with_state_machine(user_message, session_config, Some(cancel_token))
             .await?;
         Ok(Box::pin(events.map_ok(ensure_message_event_id)))
     }
@@ -2155,7 +2130,7 @@ impl Agent {
         if use_state_machine {
             tracing::info!("dispatching reply via experimental state machine");
             return self
-                .reply_with_state_machine(user_message, session_config, cancel_token, false)
+                .reply_with_state_machine(user_message, session_config, cancel_token)
                 .await;
         }
 

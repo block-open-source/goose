@@ -5187,6 +5187,7 @@ dependencies = [
  "candle-transformers",
  "chrono",
  "clap",
+ "croner",
  "ctor",
  "dirs 7.0.0",
  "dotenvy",

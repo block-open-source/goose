@@ -234,6 +234,7 @@ icu_locale = { version = "=2.1.1", default-features = false }
 image = { version = "0.24.9", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 subtle = { version = "2.5", default-features = false, features = ["std"] }
 gethostname = "1.1.0"
+croner = { version = "3", default-features = false }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winapi = { workspace = true, features = ["accctrl", "aclapi", "fileapi", "handleapi", "minwinbase", "sddl", "securitybaseapi", "winbase", "winerror"] }

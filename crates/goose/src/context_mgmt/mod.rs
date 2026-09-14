@@ -1450,32 +1450,49 @@ mod tests {
         assert_eq!(elided_response_count(&request), 10);
     }
 
-    /// The header is measured too. When no request that keeps it can fit, the
-    /// headerless one must be the first attempt rather than the second: the
-    /// alternative is uploading a request the estimator already rejected.
+    /// The header is measured too, tool schemas included. When no request that
+    /// keeps it can fit, the headerless one must be the first attempt rather
+    /// than the second: the alternative is uploading a request the estimator
+    /// already rejected.
     #[tokio::test]
     async fn header_is_dropped_without_a_doomed_first_attempt() {
         let conversation = Conversation::new_unvalidated(vec![
             Message::user().with_text("the quick brown fox jumps over the lazy dog ".repeat(400)),
             Message::assistant().with_text("acknowledged"),
         ]);
-        let counter = create_token_counter().await.unwrap();
-        let transcript_tokens = counter.count_chat_tokens("", conversation.messages(), &[]);
+        let system_prompt = "you are a helpful assistant ".repeat(400);
+        let tools = vec![rmcp::model::Tool::new(
+            "read_file",
+            "Read a file from disk",
+            rmcp::object!({
+                "type": "object",
+                "properties": { "path": { "type": "string" } }
+            }),
+        )];
 
-        // A budget the transcript alone clears but the header pushes past, and
-        // no tool responses to elide, so nothing but dropping the header fits.
+        // The budget has to land between the headerless request and the one
+        // that keeps the header. Below both is the "nothing fits at all" case,
+        // which is a different branch, so a budget there would let this pass
+        // without the header ever being the reason.
+        let counter = create_token_counter().await.unwrap();
+        let instruction = counter.count_tokens(
+            &crate::prompt_template::template_source("compaction_prefix.md").unwrap(),
+        );
+        let headerless = counter.count_chat_tokens("", conversation.messages(), &[]) + instruction;
+        let with_header = headerless + counter.count_chat_tokens(&system_prompt, &[], &tools);
+
         let session_id = "header-is-dropped-session";
         request_header::record(
             session_id,
             request_header::RequestHeader {
-                system_prompt: "you are a helpful assistant ".repeat(400),
-                tools: vec![],
+                system_prompt,
+                tools,
                 toolshim_tools: vec![],
             },
         );
         let provider = MockProvider::new(
             Message::assistant().with_text("<mock summary>"),
-            transcript_tokens * 7 / 6,
+            (headerless + with_header) / 2 * 10 / 9,
         );
 
         compact_messages(

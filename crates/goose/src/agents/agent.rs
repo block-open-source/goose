@@ -75,7 +75,7 @@ use goose_providers::errors::ProviderError;
 use goose_providers::thinking::{ThinkingEffort, ThinkingEffortSupport};
 use rmcp::model::{
     CallToolRequestParams, CallToolResult, ContentBlock, ElicitationAction, ErrorCode, ErrorData,
-    GetPromptResult, Prompt, ProtocolVersion, Tool,
+    GetPromptResult, Prompt, Tool,
 };
 use serde_json::Value;
 use tokio::sync::{mpsc, Mutex};
@@ -93,8 +93,6 @@ fn provider_creation_error(error: anyhow::Error, context: impl fmt::Display) -> 
     let message = format!("{context}: {error}");
     error.context(message)
 }
-
-pub const MCP_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::V_2026_07_28;
 
 fn normalize_legacy_provider_thinking_effort(
     mut model_config: goose_providers::model::ModelConfig,

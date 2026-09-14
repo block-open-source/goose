@@ -5,6 +5,7 @@ use futures::stream::{self, FuturesUnordered, StreamExt};
 use futures::Stream;
 use futures::{future, FutureExt};
 use once_cell::sync::Lazy;
+use rmcp::model::ProtocolVersion;
 use rmcp::service::{ClientInitializeError, ServiceError};
 use rmcp::transport::streamable_http_client::{
     StreamableHttpClientTransportConfig, StreamableHttpError,
@@ -1174,7 +1175,7 @@ async fn create_streamable_http_client(
         .map_err(|_| ExtensionError::ConfigError("could not construct http client".to_string()))?;
 
     let transport = StreamableHttpClientTransport::with_client(
-        http_client,
+        http_client.clone(),
         StreamableHttpClientTransportConfig::with_uri(uri),
     );
 
@@ -1249,7 +1250,7 @@ async fn create_streamable_http_client(
         }
     }
 
-    let client_res = McpClient::connect(
+    let mut client_res = McpClient::connect(
         transport,
         timeout_duration,
         provider.clone(),
@@ -1260,6 +1261,35 @@ async fn create_streamable_http_client(
         extension_manager.clone(),
     )
     .await;
+
+    // TODO: Remove this compatibility retry once rmcp handles an empty SSE response to
+    // a sessionless server/discover request as legacy-era evidence upstream.
+    if client_res.as_ref().is_err_and(|error| {
+        error.to_string().contains("empty sse stream")
+            || matches!(
+                error,
+                ClientInitializeError::ConnectionClosed(context)
+                    if context == "discover response"
+            )
+    }) {
+        let transport = StreamableHttpClientTransport::with_client(
+            http_client,
+            StreamableHttpClientTransportConfig::with_uri(uri),
+        );
+        let mut legacy_capabilities = capabilities.clone();
+        legacy_capabilities.protocol_version = Some(ProtocolVersion::V_2025_11_25);
+        client_res = McpClient::connect(
+            transport,
+            timeout_duration,
+            provider.clone(),
+            client_name.clone(),
+            legacy_capabilities,
+            roots_dir.to_path_buf(),
+            action_required.clone(),
+            extension_manager.clone(),
+        )
+        .await;
+    }
 
     if should_attempt_oauth_fallback(&client_res) {
         let challenge = auth_challenge_from_result(&client_res);

@@ -11,6 +11,10 @@ pub enum GooseEffect {
         conversation: Conversation,
         usage: Option<ProviderUsage>,
     },
+    ReplaceScopedConversation {
+        conversation: Conversation,
+        usage: Option<ProviderUsage>,
+    },
     SetRecipe(Box<Option<Recipe>>),
     SetExtensionData(ExtensionData),
     RecordUsage(ProviderUsage),
@@ -20,7 +24,8 @@ impl MachineEffect for GooseEffect {
     fn ensure_message_ids(&mut self) {
         match self {
             GooseEffect::Conversation(effect) => effect.ensure_message_ids(),
-            GooseEffect::ReplaceConversation { conversation, .. } => {
+            GooseEffect::ReplaceConversation { conversation, .. }
+            | GooseEffect::ReplaceScopedConversation { conversation, .. } => {
                 for message in conversation.messages_mut() {
                     if message.id.is_none() {
                         message.id = Some(format!("msg_{}", uuid::Uuid::new_v4()));

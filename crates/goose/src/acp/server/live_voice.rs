@@ -101,27 +101,29 @@ impl GooseAcpAgent {
                 update,
             ));
         });
+        let prepared_main_agent = self.prepare_live_delegated_agent(&req.session_id).await;
         let delegation_agent = Arc::clone(self);
         let delegation_connection = cx.clone();
         let delegation_handler: LiveVoiceDelegationHandler =
             Arc::new(move |main_session_id, delegation| {
-                let agent = delegation_agent.clone();
+                let owner = delegation_agent.clone();
                 let connection = delegation_connection.clone();
-                async move {
-                    let (input, cancellation) = match delegation {
-                        LiveVoiceDelegation::Steer { input } => {
-                            return agent.steer_live_delegation(&main_session_id, input).await;
-                        }
-                        LiveVoiceDelegation::Start {
-                            input,
-                            cancellation,
-                        } => (input, cancellation),
-                    };
-                    agent
-                        .run_live_delegation(main_session_id, input, cancellation, connection)
-                        .await
+                match delegation {
+                    LiveVoiceDelegation::Steer { input } => {
+                        async move { owner.steer_live_delegation(&main_session_id, input).await }
+                            .boxed()
+                    }
+                    LiveVoiceDelegation::Start {
+                        input,
+                        cancellation,
+                    } => owner.start_live_delegation(
+                        main_session_id,
+                        input,
+                        cancellation,
+                        connection,
+                        prepared_main_agent.clone(),
+                    ),
                 }
-                .boxed()
             });
         let start = self.live_voice.start_call(
             &req.session_id,
@@ -173,124 +175,132 @@ impl GooseAcpAgent {
         Ok(EmptyResponse {})
     }
 
+    fn start_live_delegation(
+        self: Arc<Self>,
+        main_session_id: String,
+        input: String,
+        cancel_token: CancellationToken,
+        cx: ConnectionTo<Client>,
+        prepared_main_agent: Result<Arc<Agent>, String>,
+    ) -> BoxFuture<'static, String> {
+        let agent = match prepared_main_agent {
+            Ok(value) => value,
+            Err(message) => return async move { message }.boxed(),
+        };
+        let run_id = format!("run_{}", Uuid::new_v4());
+        if self
+            .active_runs
+            .start_live_delegation(
+                &main_session_id,
+                run_id.clone(),
+                cancel_token.clone(),
+                agent.clone(),
+            )
+            .is_err()
+        {
+            return async { "The coding task is busy right now.".into() }.boxed();
+        }
+        let run_guard = ActiveRunDropGuard {
+            registry: self.active_runs.clone(),
+            session_id: main_session_id.clone(),
+            run_id: run_id.clone(),
+            cancel_token: cancel_token.clone(),
+        };
+
+        async move {
+            let _run_guard = run_guard;
+            self.run_live_delegation(main_session_id, input, cancel_token, cx, agent, run_id)
+                .await
+        }
+        .boxed()
+    }
+
     async fn run_live_delegation(
         &self,
         main_session_id: String,
         input: String,
         cancel_token: CancellationToken,
         cx: ConnectionTo<Client>,
+        agent: Arc<Agent>,
+        run_id: String,
     ) -> String {
-        let (linked_session, agent) =
-            match self.prepare_live_delegated_session(&main_session_id).await {
-                Ok(value) => value,
-                Err(message) => return message,
-            };
-        let linked_session_id = linked_session.id.clone();
-        let run_id = format!("run_{}", Uuid::new_v4());
-        if self
-            .start_active_run(
-                &linked_session_id,
-                run_id.clone(),
-                cancel_token.clone(),
-                agent.clone(),
-            )
-            .await
-            .is_err()
-        {
-            return "The coding task is busy right now.".into();
-        }
-        let _run_guard = ActiveRunDropGuard {
-            registry: self.active_runs.clone(),
-            session_id: linked_session_id.clone(),
-            run_id: run_id.clone(),
-            cancel_token: cancel_token.clone(),
-        };
+        let acp_session_id = SessionId::new(main_session_id.clone());
+        let _ = Self::send_active_run_update(&cx, &acp_session_id, Some(&run_id));
 
         let session_config = SessionConfig {
-            id: linked_session_id.clone(),
+            id: main_session_id.clone(),
             schedule_id: None,
             max_turns: None,
             retry_config: None,
         };
-        let input_message = Message::user().with_text(input);
+        let input_message =
+            Message::user().with_text(format!("{LIVE_DELEGATION_INSTRUCTION}\n\n{input}"));
         let mut stream = match agent
-            .reply(
-                input_message.clone(),
-                session_config,
-                Some(cancel_token.clone()),
-            )
+            .reply_live_delegation(input_message.clone(), session_config, cancel_token.clone())
             .await
         {
             Ok(stream) => stream,
             Err(_) => {
-                self.clear_active_run(&linked_session_id, &run_id).await;
+                self.clear_active_run(&main_session_id, &run_id).await;
+                let _ = Self::send_active_run_update(&cx, &acp_session_id, None);
                 return "The coding task failed before it could start.".into();
             }
         };
-        let acp_linked_session_id = SessionId::new(linked_session_id.clone());
-        let mut tool_requests = HashMap::new();
-        for content in &input_message.content {
-            let _ = self
-                .handle_message_content(
-                    content,
-                    &input_message,
-                    &acp_linked_session_id,
-                    &agent,
-                    &tool_requests,
-                    &cx,
-                )
-                .await;
-        }
 
+        let mut tool_requests = HashMap::new();
         let mut outcome_message_id: Option<String> = None;
         let mut outcome = String::new();
         while let Some(event) = stream.next().await {
             if cancel_token.is_cancelled() {
-                self.clear_active_run(&linked_session_id, &run_id).await;
+                self.clear_active_run(&main_session_id, &run_id).await;
+                let _ = Self::send_active_run_update(&cx, &acp_session_id, None);
                 return "The coding task was cancelled.".into();
             }
             match event {
                 Ok(crate::agents::AgentEvent::Message(message)) => {
                     let is_visible_assistant =
                         message.role == Role::Assistant && message.is_user_visible();
-                    let message = message.user_visible_content();
-                    for content in &message.content {
+                    let visible_message = message.user_visible_content();
+                    for content in &visible_message.content {
                         if let MessageContent::ToolRequest(tool_request) = content {
                             tool_requests.insert(tool_request.id.clone(), tool_request.clone());
                         }
-                        if matches!(
-                            content,
+                        let should_project = match content {
                             MessageContent::ToolRequest(_)
-                                | MessageContent::ToolResponse(_)
-                                | MessageContent::Thinking(_)
-                        ) || (is_visible_assistant && matches!(content, MessageContent::Text(_)))
-                        {
-                            let _ = self
-                                .handle_message_content(
-                                    content,
-                                    &message,
-                                    &acp_linked_session_id,
-                                    &agent,
-                                    &tool_requests,
-                                    &cx,
-                                )
-                                .await;
+                            | MessageContent::ToolResponse(_)
+                            | MessageContent::Thinking(_)
+                            | MessageContent::ActionRequired(_) => true,
+                            _ => message.is_user_visible(),
+                        };
+                        if !should_project {
+                            continue;
                         }
+                        let _ = self
+                            .handle_message_content(
+                                content,
+                                &visible_message,
+                                &acp_session_id,
+                                &agent,
+                                &tool_requests,
+                                &cx,
+                            )
+                            .await;
                     }
-                    if !is_visible_assistant {
-                        continue;
-                    }
-                    let text = message
-                        .content
-                        .iter()
-                        .filter_map(MessageContent::as_text)
-                        .collect::<String>();
-                    if !text.trim().is_empty() {
-                        if outcome_message_id.is_some() && outcome_message_id == message.id {
-                            outcome.push_str(&text);
-                        } else {
-                            outcome_message_id = message.id;
-                            outcome = text;
+                    if is_visible_assistant {
+                        let text = visible_message
+                            .content
+                            .iter()
+                            .filter_map(MessageContent::as_text)
+                            .collect::<String>();
+                        if !text.trim().is_empty() {
+                            if outcome_message_id.is_some()
+                                && outcome_message_id == visible_message.id
+                            {
+                                outcome.push_str(&text);
+                            } else {
+                                outcome_message_id = visible_message.id;
+                                outcome = text;
+                            }
                         }
                     }
                 }
@@ -298,27 +308,41 @@ impl GooseAcpAgent {
                     if let Some(update) =
                         tool_notifications::tool_notification_update(request_id, notification)
                     {
-                        let _ =
-                            ToolCallNotifier::new(&cx, &acp_linked_session_id).send_update(update);
+                        let _ = ToolCallNotifier::new(&cx, &acp_session_id).send_update(update);
+                    }
+                }
+                Ok(crate::agents::AgentEvent::MessageUsage { message_id, usage }) => {
+                    if self.supports_goose_custom_notifications() {
+                        let _ = cx.send_notification(GooseSessionNotification {
+                            session_id: main_session_id.clone(),
+                            update: GooseSessionUpdate::MessageUsage(message_usage_update(
+                                message_id, &usage,
+                            )),
+                        });
                     }
                 }
                 Ok(_) => {}
                 Err(_) => {
-                    self.clear_active_run(&linked_session_id, &run_id).await;
+                    self.clear_active_run(&main_session_id, &run_id).await;
+                    let _ = Self::send_active_run_update(&cx, &acp_session_id, None);
                     return "The coding task failed before it could complete.".into();
                 }
             }
         }
 
-        self.clear_active_run(&linked_session_id, &run_id).await;
+        self.clear_active_run(&main_session_id, &run_id).await;
+        let _ = Self::send_active_run_update(&cx, &acp_session_id, None);
         if cancel_token.is_cancelled() {
             return "The coding task was cancelled.".into();
         }
         if outcome.is_empty() {
             return "The coding task finished without a user-facing result.".into();
         }
+        let Some(outcome_message_id) = outcome_message_id else {
+            return "The coding task finished without a user-facing result.".into();
+        };
         if self
-            .persist_live_delegation_outcome(&main_session_id, &outcome)
+            .mark_live_delegation_outcome(&main_session_id, &outcome_message_id)
             .await
             .is_err()
         {
@@ -328,132 +352,53 @@ impl GooseAcpAgent {
     }
 
     async fn steer_live_delegation(&self, main_session_id: &str, input: String) -> String {
-        let linked_session = match self
-            .session_manager
-            .find_child_session(main_session_id, SessionType::User)
-            .await
-        {
-            Ok(Some(session)) => session,
-            _ => return "The task could not receive the latest instruction.".into(),
-        };
-        let Some((_, agent)) = self.active_runs.normal_run(&linked_session.id) else {
+        let Some((_, agent)) = self.active_runs.normal_run(main_session_id) else {
             return "The task could not receive the latest instruction.".into();
         };
         agent
-            .steer(&linked_session.id, Message::user().with_text(input))
+            .steer(
+                main_session_id,
+                Message::user().with_text(input).agent_only(),
+            )
             .await;
         "The latest instruction was added to the work in progress. Wait for its updated result."
             .into()
     }
 
-    async fn prepare_live_delegated_session(
+    async fn prepare_live_delegated_agent(
         &self,
         main_session_id: &str,
-    ) -> Result<(Session, Arc<Agent>), String> {
+    ) -> Result<Arc<Agent>, String> {
+        if !crate::agents::state_machine::enabled() {
+            return Err("Live coding requires the state machine.".into());
+        }
         let main_session = self
             .session_manager
             .get_session(main_session_id, false)
             .await
             .map_err(|_| "The coding task could not load this chat.".to_string())?;
-        let provider_name = main_session
-            .provider_name
-            .clone()
-            .ok_or_else(|| "The coding task has no selected provider.".to_string())?;
-        let model_config = main_session
-            .model_config
-            .clone()
-            .ok_or_else(|| "The coding task has no selected model.".to_string())?;
-        let existing = self
-            .session_manager
-            .find_child_session(main_session_id, SessionType::User)
-            .await
-            .map_err(|_| "Goose found an invalid delegated-session setup.".to_string())?;
-        let mut linked_session = match existing {
-            Some(session) => {
-                if self.active_runs.is_active(&session.id) {
-                    return Err("The coding task is busy right now.".into());
-                }
-                session
-            }
-            None => {
-                let session = self
-                    .session_manager
-                    .create_session(
-                        main_session.working_dir.clone(),
-                        format!("Live work for {}", main_session.name),
-                        SessionType::User,
-                        GooseMode::Auto,
-                    )
-                    .await
-                    .map_err(|_| "Goose could not create the coding work session.".to_string())?;
-                self.session_manager
-                    .update(&session.id)
-                    .parent_session_id(Some(main_session_id.to_string()))
-                    .apply()
-                    .await
-                    .map_err(|_| "Goose could not link the coding work session.".to_string())?;
-                session
-            }
-        };
-        let configuration_changed = linked_session.working_dir != main_session.working_dir
-            || linked_session.provider_name.as_deref() != Some(provider_name.as_str())
-            || linked_session
-                .model_config
-                .as_ref()
-                .and_then(|config| serde_json::to_value(config).ok())
-                != serde_json::to_value(&model_config).ok()
-            || linked_session.goose_mode != GooseMode::Auto
-            || linked_session.project_id != main_session.project_id
-            || linked_session.extension_data.extension_states
-                != main_session.extension_data.extension_states;
-        if configuration_changed {
-            self.session_manager
-                .update(&linked_session.id)
-                .working_dir(main_session.working_dir)
-                .provider_name(provider_name)
-                .model_config(model_config)
-                .goose_mode(GooseMode::Auto)
-                .project_id(main_session.project_id)
-                .extension_data(main_session.extension_data)
-                .apply()
-                .await
-                .map_err(|_| "Goose could not configure the coding work session.".to_string())?;
-            self.sessions.lock().await.remove(&linked_session.id);
-            self.agent_manager
-                .remove_session_if_loaded(&linked_session.id)
-                .await
-                .map_err(|_| "Goose could not refresh the coding agent.".to_string())?;
-            linked_session = self
-                .session_manager
-                .get_session(&linked_session.id, false)
-                .await
-                .map_err(|_| "Goose could not reload the coding work session.".to_string())?;
+        if main_session.provider_name.is_none() || main_session.model_config.is_none() {
+            return Err("The coding task has no selected provider or model.".into());
         }
-
-        let agent = self
-            .get_session_agent(&linked_session.id)
+        self.get_session_agent(main_session_id)
             .await
-            .map_err(|_| "Goose could not activate the coding agent.".to_string())?;
-        agent
-            .extend_system_prompt("live_delegation".into(), LIVE_DELEGATION_INSTRUCTION.into())
-            .await;
-        Ok((linked_session, agent))
+            .map_err(|_| "Goose could not activate the coding agent.".to_string())
     }
 
-    async fn persist_live_delegation_outcome(
+    async fn mark_live_delegation_outcome(
         &self,
         main_session_id: &str,
-        outcome: &str,
+        message_id: &str,
     ) -> anyhow::Result<()> {
-        let mut metadata = crate::conversation::message::MessageMetadata::agent_only();
-        metadata.set_operation_note("live_delegation", "outcome", serde_json::Value::Bool(true));
         self.session_manager
-            .add_message(
-                main_session_id,
-                &Message::assistant()
-                    .with_text(outcome)
-                    .with_metadata(metadata),
-            )
+            .update_message_metadata(main_session_id, message_id, |mut metadata| {
+                metadata.set_operation_note(
+                    "live_delegation",
+                    "outcome",
+                    serde_json::Value::Bool(true),
+                );
+                metadata
+            })
             .await
     }
 }

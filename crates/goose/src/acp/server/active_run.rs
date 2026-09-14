@@ -16,9 +16,15 @@ pub(super) enum ActiveRun {
     Live,
 }
 
+#[derive(Clone, Default)]
+struct SessionRuns {
+    normal: Option<ActiveRun>,
+    live: bool,
+}
+
 #[derive(Default)]
 pub struct ActiveRunRegistry {
-    runs_by_session: Mutex<HashMap<String, ActiveRun>>,
+    runs_by_session: Mutex<HashMap<String, SessionRuns>>,
 }
 
 impl ActiveRunRegistry {
@@ -34,16 +40,44 @@ impl ActiveRunRegistry {
             .lock()
             .expect("active run lock poisoned");
         if let Some(active) = runs.get(session_id) {
-            return Err(active.clone());
+            if let Some(normal) = &active.normal {
+                return Err(normal.clone());
+            }
+            if active.live {
+                return Err(ActiveRun::Live);
+            }
         }
-        runs.insert(
-            session_id.to_string(),
-            ActiveRun::Normal {
-                run_id,
-                cancel_token,
-                agent,
-            },
-        );
+        runs.entry(session_id.to_string()).or_default().normal = Some(ActiveRun::Normal {
+            run_id,
+            cancel_token,
+            agent,
+        });
+        Ok(())
+    }
+
+    pub(super) fn start_live_delegation(
+        &self,
+        session_id: &str,
+        run_id: String,
+        cancel_token: CancellationToken,
+        agent: Arc<Agent>,
+    ) -> Result<(), ActiveRun> {
+        let mut runs = self
+            .runs_by_session
+            .lock()
+            .expect("active run lock poisoned");
+        let active = runs.entry(session_id.to_string()).or_default();
+        if let Some(normal) = &active.normal {
+            return Err(normal.clone());
+        }
+        if !active.live {
+            return Err(ActiveRun::Live);
+        }
+        active.normal = Some(ActiveRun::Normal {
+            run_id,
+            cancel_token,
+            agent,
+        });
         Ok(())
     }
 
@@ -53,6 +87,7 @@ impl ActiveRunRegistry {
             .lock()
             .expect("active run lock poisoned")
             .get(session_id)
+            .and_then(|active| active.normal.as_ref())
         {
             Some(ActiveRun::Normal { run_id, agent, .. }) => Some((run_id.clone(), agent.clone())),
             _ => None,
@@ -65,6 +100,7 @@ impl ActiveRunRegistry {
             .lock()
             .expect("active run lock poisoned")
             .get(session_id)
+            .and_then(|active| active.normal.as_ref())
         {
             Some(ActiveRun::Normal { cancel_token, .. }) => Some(cancel_token.clone()),
             _ => None,
@@ -76,7 +112,10 @@ impl ActiveRunRegistry {
             .runs_by_session
             .lock()
             .expect("active run lock poisoned");
-        let agent = match runs.get(session_id) {
+        let agent = match runs
+            .get(session_id)
+            .and_then(|active| active.normal.as_ref())
+        {
             Some(ActiveRun::Normal {
                 run_id: active_run_id,
                 agent,
@@ -84,7 +123,11 @@ impl ActiveRunRegistry {
             }) if active_run_id == run_id => agent.clone(),
             _ => return None,
         };
-        runs.remove(session_id);
+        let active = runs.get_mut(session_id).expect("active run exists");
+        active.normal = None;
+        if !active.live {
+            runs.remove(session_id);
+        }
         Some(agent)
     }
 
@@ -93,10 +136,13 @@ impl ActiveRunRegistry {
             .runs_by_session
             .lock()
             .expect("active run lock poisoned");
-        if runs.contains_key(session_id) {
+        if runs
+            .get(session_id)
+            .is_some_and(|active| active.live || active.normal.is_some())
+        {
             return false;
         }
-        runs.insert(session_id.to_string(), ActiveRun::Live);
+        runs.entry(session_id.to_string()).or_default().live = true;
         true
     }
 
@@ -105,8 +151,11 @@ impl ActiveRunRegistry {
             .runs_by_session
             .lock()
             .expect("active run lock poisoned");
-        if matches!(runs.get(session_id), Some(ActiveRun::Live)) {
-            runs.remove(session_id);
+        if let Some(active) = runs.get_mut(session_id) {
+            active.live = false;
+            if active.normal.is_none() {
+                runs.remove(session_id);
+            }
         }
     }
 
@@ -114,7 +163,8 @@ impl ActiveRunRegistry {
         self.runs_by_session
             .lock()
             .expect("active run lock poisoned")
-            .contains_key(session_id)
+            .get(session_id)
+            .is_some_and(|active| active.live || active.normal.is_some())
     }
 }
 
@@ -134,8 +184,8 @@ mod tests {
         assert!(registry.start_live("one"));
     }
 
-    #[test]
-    fn normal_and_live_runs_conflict() {
+    #[tokio::test]
+    async fn normal_and_live_runs_conflict() {
         let registry = ActiveRunRegistry::default();
 
         assert!(registry
@@ -159,5 +209,34 @@ mod tests {
             ),
             Err(ActiveRun::Live)
         ));
+    }
+
+    #[tokio::test]
+    async fn live_delegation_shares_the_live_session_without_admitting_a_normal_prompt() {
+        let registry = ActiveRunRegistry::default();
+        assert!(registry.start_live("session"));
+        assert!(registry
+            .start_live_delegation(
+                "session",
+                "delegated".into(),
+                CancellationToken::new(),
+                Arc::new(Agent::new()),
+            )
+            .is_ok());
+        assert!(matches!(
+            registry.start_normal(
+                "session",
+                "normal".into(),
+                CancellationToken::new(),
+                Arc::new(Agent::new()),
+            ),
+            Err(ActiveRun::Normal { .. })
+        ));
+
+        registry.finish_live("session");
+        assert_eq!(
+            registry.normal_run("session").map(|(run_id, _)| run_id),
+            Some("delegated".into())
+        );
     }
 }

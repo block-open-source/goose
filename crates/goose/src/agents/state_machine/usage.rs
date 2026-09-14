@@ -26,6 +26,9 @@ pub(super) fn enrich(session: &Session, effects: &mut [GooseEffect]) {
             GooseEffect::RecordUsage(usage) => (usage.clone(), false),
             GooseEffect::ReplaceConversation {
                 usage: Some(usage), ..
+            }
+            | GooseEffect::ReplaceScopedConversation {
+                usage: Some(usage), ..
             } => (usage.clone(), true),
             _ => continue,
         };
@@ -53,7 +56,8 @@ pub(super) fn enrich(session: &Session, effects: &mut [GooseEffect]) {
         }
         match &mut effects[index] {
             GooseEffect::RecordUsage(usage) => *usage = enriched,
-            GooseEffect::ReplaceConversation { usage, .. } => *usage = Some(enriched),
+            GooseEffect::ReplaceConversation { usage, .. }
+            | GooseEffect::ReplaceScopedConversation { usage, .. } => *usage = Some(enriched),
             _ => {}
         }
     }

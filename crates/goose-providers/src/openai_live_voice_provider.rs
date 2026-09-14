@@ -12,12 +12,12 @@ use crate::{
         OpenAiLiveMessageRole, OpenAiLiveSessionConfig, OpenAiLiveSessionId,
     },
 };
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 use async_trait::async_trait;
 use std::time::Duration;
 use tokio::{
     sync::broadcast::error::RecvError,
-    time::{Instant, sleep_until, timeout, timeout_at},
+    time::{sleep_until, timeout, timeout_at, Instant},
 };
 
 pub const OPENAI_LIVE_VOICE_GATE_ENV: &str = "GOOSE_LIVE_VOICE_ENABLED";
@@ -30,9 +30,21 @@ pub const DEFAULT_OPENAI_LIVE_VOICE: &str = "marin";
 const HTTP_SETUP_TIMEOUT: Duration = Duration::from_secs(15);
 const SIDEBAND_ATTACH_TIMEOUT: Duration = Duration::from_secs(10);
 const LIVE_SESSION_INSTRUCTIONS: &str = concat!(
-    "Delegate only after the user has finished stating a complete request. If required ",
-    "information is missing, ask for it before delegating. When a request takes time to complete, ",
-    "briefly tell the user that work is underway. Present delegated results directly to the user."
+    "You are Goose's live voice interface. Keep the conversation natural and concise.\n",
+    "Interruption policy: Stop speaking when the user interrupts and listen to what they say.\n",
+    "Delegation policy:\n",
+    "Backend tools:\n",
+    "- Goose can use backend reasoning and tools for longer tasks.\n",
+    "Delegate to Goose when:\n",
+    "- The user has finished stating a complete request that needs backend tools or reasoning.\n",
+    "- The user corrects or changes backend work already in progress.\n",
+    "Do not delegate to Goose when:\n",
+    "- The request is unfinished or is missing a required detail such as a location, object, ",
+    "command, or desired outcome. Ask one brief clarification and wait for the answer.\n",
+    "- The user is greeting you or making conversation that you can answer directly.\n",
+    "After delegating, briefly say the work is underway. Keep listening and accept corrections ",
+    "while Goose works. Do not guess the result. Present delegated results directly. Only say ",
+    "the task stopped or finished after Goose confirms it."
 );
 
 #[derive(Clone, Debug, PartialEq, Eq)]

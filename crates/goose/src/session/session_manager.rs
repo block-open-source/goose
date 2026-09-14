@@ -1,6 +1,6 @@
 use crate::config::paths::Paths;
 use crate::config::GooseMode;
-use crate::conversation::message::{Message, MessageUsage, TokenState};
+use crate::conversation::message::{Message, MessageMetadata, MessageUsage, TokenState};
 use crate::conversation::Conversation;
 use crate::providers::base::CostSource;
 use crate::providers::base::Provider;
@@ -18,7 +18,7 @@ use rmcp::model::Role;
 use serde::{Deserialize, Serialize};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{AssertSqlSafe, Pool, Sqlite};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
@@ -433,16 +433,6 @@ impl SessionManager {
         self.storage.get_session(id, include_messages).await
     }
 
-    pub async fn find_child_session(
-        &self,
-        parent_session_id: &str,
-        session_type: SessionType,
-    ) -> Result<Option<Session>> {
-        self.storage
-            .find_child_session(parent_session_id, session_type)
-            .await
-    }
-
     pub fn update(&self, id: &str) -> SessionUpdateBuilder<'_> {
         SessionUpdateBuilder::new(self, id.to_string())
     }
@@ -468,6 +458,17 @@ impl SessionManager {
 
     pub async fn replace_conversation(&self, id: &str, conversation: &Conversation) -> Result<()> {
         self.storage.replace_conversation(id, conversation).await
+    }
+
+    pub(crate) async fn replace_scoped_conversation(
+        &self,
+        id: &str,
+        conversation: &Conversation,
+        source_message_ids: &HashSet<String>,
+    ) -> Result<()> {
+        self.storage
+            .replace_scoped_conversation(id, conversation, source_message_ids)
+            .await
     }
 
     pub async fn list_sessions(&self) -> Result<Vec<Session>> {
@@ -1713,29 +1714,6 @@ impl SessionStorage {
         Ok(session)
     }
 
-    async fn find_child_session(
-        &self,
-        parent_session_id: &str,
-        session_type: SessionType,
-    ) -> Result<Option<Session>> {
-        let pool = self.pool().await?;
-        let ids = sqlx::query_scalar::<_, String>(
-            "SELECT id FROM sessions WHERE parent_session_id = ? AND session_type = ? LIMIT 2",
-        )
-        .bind(parent_session_id)
-        .bind(session_type.to_string())
-        .fetch_all(pool)
-        .await?;
-        match ids.as_slice() {
-            [] => Ok(None),
-            [id] => self.get_session(id, false).await.map(Some),
-            _ => anyhow::bail!(
-                "multiple {:?} child sessions found for parent {parent_session_id}",
-                session_type
-            ),
-        }
-    }
-
     #[allow(clippy::too_many_lines)]
     async fn apply_update(&self, builder: SessionUpdateBuilder<'_>) -> Result<()> {
         let mut updates = Vec::new();
@@ -2031,6 +2009,80 @@ impl SessionStorage {
     ) -> Result<()> {
         let pool = self.pool().await?;
         Self::replace_conversation_inner(pool, session_id, conversation).await
+    }
+
+    async fn replace_scoped_conversation(
+        &self,
+        session_id: &str,
+        conversation: &Conversation,
+        source_message_ids: &HashSet<String>,
+    ) -> Result<()> {
+        let pool = self.pool().await?;
+        let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
+        let replacement_ids = conversation
+            .messages()
+            .iter()
+            .filter_map(|message| message.id.as_ref())
+            .collect::<HashSet<_>>();
+
+        for message_id in source_message_ids {
+            if !replacement_ids.contains(message_id) {
+                sqlx::query("DELETE FROM messages WHERE session_id = ? AND message_id = ?")
+                    .bind(session_id)
+                    .bind(message_id)
+                    .execute(&mut *tx)
+                    .await?;
+            }
+        }
+
+        for message in conversation.messages() {
+            let message_id = message.id.as_ref().ok_or_else(|| {
+                anyhow::anyhow!("scoped conversation replacement message has no id")
+            })?;
+            if source_message_ids.contains(message_id) {
+                let Some((stored_metadata_json,)) = sqlx::query_as::<_, (Option<String>,)>(
+                    "SELECT metadata_json FROM messages WHERE session_id = ? AND message_id = ?",
+                )
+                .bind(session_id)
+                .bind(message_id)
+                .fetch_optional(&mut *tx)
+                .await?
+                else {
+                    anyhow::bail!("scoped conversation source message is missing: {message_id}");
+                };
+                let mut metadata = stored_metadata_json
+                    .and_then(|json| serde_json::from_str::<MessageMetadata>(&json).ok())
+                    .unwrap_or_default();
+                metadata.agent_visible = message.metadata.agent_visible;
+                sqlx::query(
+                    "UPDATE messages SET metadata_json = ? WHERE session_id = ? AND message_id = ?",
+                )
+                .bind(serde_json::to_string(&metadata)?)
+                .bind(session_id)
+                .bind(message_id)
+                .execute(&mut *tx)
+                .await?;
+            } else {
+                sqlx::query(
+                    "INSERT INTO messages (message_id, session_id, role, content_json, created_timestamp, metadata_json) VALUES (?, ?, ?, ?, ?, ?)",
+                )
+                .bind(message_id)
+                .bind(session_id)
+                .bind(role_to_string(&message.role))
+                .bind(serde_json::to_string(&message.content)?)
+                .bind(message.created)
+                .bind(serde_json::to_string(&message.metadata)?)
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
+
+        sqlx::query("UPDATE sessions SET updated_at = datetime('now') WHERE id = ?")
+            .bind(session_id)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(())
     }
 
     async fn list_sessions_matching(&self, query: SessionListQuery<'_>) -> Result<Vec<Session>> {

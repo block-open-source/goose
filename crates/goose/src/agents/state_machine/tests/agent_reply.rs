@@ -301,6 +301,7 @@ async fn reply_streams_the_turn_and_ends() -> Result<()> {
             Message::user().with_text("are you there?"),
             session_config,
             Some(CancellationToken::new()),
+            false,
         )
         .await?;
 

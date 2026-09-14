@@ -20,6 +20,73 @@ fn contains_tool_confirmation_request(message: &Message) -> bool {
     })
 }
 
+#[derive(Clone)]
+pub(crate) struct RunScope {
+    pub kickoff_message_id: String,
+}
+
+fn scoped_session(mut session: Session, scope: Option<&RunScope>) -> Result<Session> {
+    let Some(conversation) = session.conversation.as_mut() else {
+        return Ok(session);
+    };
+    for message in conversation.messages_mut() {
+        if is_live_transcript(message) {
+            message.metadata.agent_visible = false;
+        }
+    }
+    let Some(scope) = scope else {
+        return Ok(session);
+    };
+    let kickoff = conversation
+        .messages()
+        .iter()
+        .position(|message| message.id.as_deref() == Some(&scope.kickoff_message_id))
+        .ok_or_else(|| anyhow::anyhow!("state machine kickoff message is missing"))?;
+    let mut index = 0;
+    conversation.messages_mut().retain_mut(|message| {
+        let live_transcript = is_live_transcript(message);
+        let keep = !live_transcript && (index <= kickoff || message.is_agent_visible());
+        index += 1;
+        if keep && index - 1 >= kickoff {
+            message.metadata.user_visible = true;
+        }
+        keep
+    });
+    Ok(session)
+}
+
+fn is_live_transcript(message: &crate::conversation::message::Message) -> bool {
+    message
+        .metadata
+        .operation_note("live_voice", "transcript")
+        .is_some_and(|value| value.as_bool() == Some(true))
+}
+
+fn scope_replacements(effects: &mut [GooseEffect], scope: Option<&RunScope>) {
+    if scope.is_none() {
+        return;
+    }
+    for effect in effects {
+        let replacement = match effect {
+            GooseEffect::Conversation(ConversationEffect::ReplaceConversation(conversation)) => {
+                Some((std::mem::take(conversation), None))
+            }
+            GooseEffect::ReplaceConversation {
+                conversation,
+                usage,
+            } => Some((std::mem::take(conversation), usage.take())),
+            _ => None,
+        };
+        let Some((conversation, usage)) = replacement else {
+            continue;
+        };
+        *effect = GooseEffect::ReplaceScopedConversation {
+            conversation,
+            usage,
+        };
+    }
+}
+
 impl MachineSession for Session {
     fn id(&self) -> &str {
         &self.id
@@ -71,6 +138,30 @@ impl EffectHandler<Session, GooseEffect> for SessionManager {
                         usage::record(self, session, provider_usage, true).await?;
                     }
                     self.replace_conversation(&session.id, conversation).await?;
+                    self.update(&session.id)
+                        .usage(usage::estimate_context(conversation).await?)
+                        .apply()
+                        .await?;
+                }
+                GooseEffect::ReplaceScopedConversation {
+                    conversation,
+                    usage: replacement_usage,
+                } => {
+                    if let Some(provider_usage) = replacement_usage {
+                        usage::record(self, session, provider_usage, true).await?;
+                    }
+                    let source_message_ids = session
+                        .conversation()
+                        .into_iter()
+                        .flat_map(Conversation::messages)
+                        .filter_map(|message| message.id.clone())
+                        .collect();
+                    self.replace_scoped_conversation(
+                        &session.id,
+                        conversation,
+                        &source_message_ids,
+                    )
+                    .await?;
                     self.update(&session.id)
                         .usage(usage::estimate_context(conversation).await?)
                         .apply()
@@ -137,7 +228,8 @@ impl EffectHandler<Session, GooseEffect> for SessionManager {
                 GooseEffect::Conversation(ConversationEffect::ReplaceConversation(
                     conversation,
                 ))
-                | GooseEffect::ReplaceConversation { conversation, .. } => {
+                | GooseEffect::ReplaceConversation { conversation, .. }
+                | GooseEffect::ReplaceScopedConversation { conversation, .. } => {
                     emit.emit(AgentEvent::HistoryReplaced(conversation.clone()))
                         .await;
                 }
@@ -160,6 +252,9 @@ impl EffectUsage<GooseEffect> for SessionManager {
             GooseEffect::RecordUsage(usage)
             | GooseEffect::ReplaceConversation {
                 usage: Some(usage), ..
+            }
+            | GooseEffect::ReplaceScopedConversation {
+                usage: Some(usage), ..
             } => Some(usage.usage),
             _ => None,
         }
@@ -171,8 +266,9 @@ pub(crate) async fn run(
     runtime: &SessionManager,
     session_id: &str,
     emit: &Emitter,
+    scope: Option<&RunScope>,
 ) -> Result<Session> {
-    let entry_session = runtime.load(session_id).await?;
+    let entry_session = scoped_session(runtime.load(session_id).await?, scope)?;
     tracing::Span::current().record(
         "gen_ai.agent.name",
         crate::agents::gen_ai_telemetry::agent_name(&entry_session),
@@ -196,11 +292,12 @@ pub(crate) async fn run(
 
     let mut turn_usage = goose_providers::conversation::token_usage::Usage::default();
     loop {
-        let session = runtime.load(session_id).await?;
+        let session = scoped_session(runtime.load(session_id).await?, scope)?;
         let Some(mut result) = machine.step(&session, emit).await? else {
             break;
         };
         tracing::debug!(target: "goose::state_machine", step = result.applied_step, "applied step");
+        scope_replacements(&mut result.effects, scope);
         for effect in &result.effects {
             if let Some(usage) = runtime.usage(effect) {
                 turn_usage += usage;
@@ -212,7 +309,7 @@ pub(crate) async fn run(
         }
     }
 
-    let session = runtime.load(session_id).await?;
+    let session = scoped_session(runtime.load(session_id).await?, scope)?;
     let last_assistant_text = session
         .conversation()
         .and_then(|conversation| {
@@ -236,4 +333,226 @@ pub(crate) async fn run(
     }
     crate::agents::gen_ai_telemetry::record_usage(&tracing::Span::current(), &turn_usage);
     Ok(session)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::GooseMode;
+    use crate::conversation::message::{Message, MessageMetadata};
+    use crate::session::session_manager::SessionType;
+
+    #[tokio::test]
+    async fn normal_session_keeps_live_transcript_out_of_provider_history() {
+        let manager = SessionManager::new(tempfile::tempdir().unwrap().keep());
+        let session = manager
+            .create_session(
+                "/tmp".into(),
+                "live transcript visibility".into(),
+                SessionType::User,
+                GooseMode::Auto,
+            )
+            .await
+            .unwrap();
+        let mut transcript_metadata = MessageMetadata::default();
+        transcript_metadata.set_operation_note(
+            "live_voice",
+            "transcript",
+            serde_json::Value::Bool(true),
+        );
+        manager
+            .add_message(
+                &session.id,
+                &Message::assistant()
+                    .with_id("live-transcript")
+                    .with_text("interleaved with a tool call")
+                    .with_metadata(transcript_metadata),
+            )
+            .await
+            .unwrap();
+
+        let loaded =
+            scoped_session(manager.get_session(&session.id, true).await.unwrap(), None).unwrap();
+        let transcript = loaded
+            .conversation
+            .unwrap()
+            .messages()
+            .iter()
+            .find(|message| message.id.as_deref() == Some("live-transcript"))
+            .cloned()
+            .unwrap();
+
+        assert!(transcript.is_user_visible());
+        assert!(!transcript.is_agent_visible());
+    }
+
+    #[tokio::test]
+    async fn live_scope_keeps_agent_work_and_excludes_live_transcript() {
+        let manager = SessionManager::new(tempfile::tempdir().unwrap().keep());
+        let session = manager
+            .create_session(
+                "/tmp".into(),
+                "one session".into(),
+                SessionType::User,
+                GooseMode::Auto,
+            )
+            .await
+            .unwrap();
+        let mut transcript_metadata = MessageMetadata::default();
+        transcript_metadata.set_operation_note(
+            "live_voice",
+            "transcript",
+            serde_json::Value::Bool(true),
+        );
+        manager
+            .add_message(
+                &session.id,
+                &Message::user()
+                    .with_id("earlier-live")
+                    .with_text("delegated speech already copied into the kickoff")
+                    .with_metadata(transcript_metadata.clone()),
+            )
+            .await
+            .unwrap();
+        let kickoff = Message::user()
+            .with_id("kickoff")
+            .with_text("delegated request")
+            .agent_only();
+        manager.add_message(&session.id, &kickoff).await.unwrap();
+        manager
+            .add_message(
+                &session.id,
+                &Message::user()
+                    .with_id("later-live")
+                    .with_text("unrelated speech")
+                    .with_metadata(transcript_metadata),
+            )
+            .await
+            .unwrap();
+        manager
+            .add_message(
+                &session.id,
+                &Message::assistant()
+                    .with_id("agent-work")
+                    .with_text("coding result")
+                    .agent_only(),
+            )
+            .await
+            .unwrap();
+
+        let scoped = scoped_session(
+            manager.get_session(&session.id, true).await.unwrap(),
+            Some(&RunScope {
+                kickoff_message_id: "kickoff".into(),
+            }),
+        )
+        .unwrap();
+        let messages = scoped.conversation.unwrap();
+        assert!(messages
+            .messages()
+            .iter()
+            .any(|message| message.id.as_deref() == Some("kickoff")));
+        assert!(messages
+            .messages()
+            .iter()
+            .any(|message| message.id.as_deref() == Some("agent-work")));
+        assert!(!messages
+            .messages()
+            .iter()
+            .any(|message| message.id.as_deref() == Some("earlier-live")));
+        assert!(!messages
+            .messages()
+            .iter()
+            .any(|message| message.id.as_deref() == Some("later-live")));
+    }
+
+    #[tokio::test]
+    async fn scoped_replacement_preserves_transcript_and_hidden_handoff() {
+        let manager = SessionManager::new(tempfile::tempdir().unwrap().keep());
+        let session = manager
+            .create_session(
+                "/tmp".into(),
+                "scoped compaction".into(),
+                SessionType::User,
+                GooseMode::Auto,
+            )
+            .await
+            .unwrap();
+        let kickoff = Message::user()
+            .with_id("kickoff")
+            .with_text("delegated request")
+            .agent_only();
+        manager.add_message(&session.id, &kickoff).await.unwrap();
+
+        let full = manager.get_session(&session.id, true).await.unwrap();
+        let scope = RunScope {
+            kickoff_message_id: "kickoff".into(),
+        };
+        let scoped = scoped_session(full, Some(&scope)).unwrap();
+
+        let mut transcript_metadata = MessageMetadata::default();
+        transcript_metadata.set_operation_note(
+            "live_voice",
+            "transcript",
+            serde_json::Value::Bool(true),
+        );
+        manager
+            .add_message(
+                &session.id,
+                &Message::user()
+                    .with_id("concurrent-live")
+                    .with_text("still speaking")
+                    .with_metadata(transcript_metadata),
+            )
+            .await
+            .unwrap();
+
+        let mut compacted = scoped.conversation.clone().unwrap();
+        for message in compacted.messages_mut() {
+            message.metadata.agent_visible = false;
+        }
+        compacted.messages_mut().push(
+            Message::assistant()
+                .with_id("summary")
+                .with_text("summary")
+                .agent_only(),
+        );
+        let mut effects = [GooseEffect::ReplaceConversation {
+            conversation: compacted,
+            usage: None,
+        }];
+        scope_replacements(&mut effects, Some(&scope));
+        let GooseEffect::ReplaceScopedConversation { conversation, .. } = &effects[0] else {
+            panic!("replacement should be scoped");
+        };
+        let source_message_ids = scoped
+            .conversation()
+            .unwrap()
+            .messages()
+            .iter()
+            .filter_map(|message| message.id.clone())
+            .collect();
+        manager
+            .replace_scoped_conversation(&session.id, conversation, &source_message_ids)
+            .await
+            .unwrap();
+
+        let reloaded = manager.get_session(&session.id, true).await.unwrap();
+        let messages = reloaded.conversation.unwrap();
+        let kickoff = messages
+            .messages()
+            .iter()
+            .find(|message| message.id.as_deref() == Some("kickoff"))
+            .unwrap();
+        assert!(!kickoff.is_user_visible());
+        assert!(!kickoff.is_agent_visible());
+        assert!(messages
+            .messages()
+            .iter()
+            .any(|message| message.id.as_deref() == Some("concurrent-live")));
+        assert!(messages
+            .messages()
+            .iter()
+            .any(|message| message.id.as_deref() == Some("summary")));
+    }
 }

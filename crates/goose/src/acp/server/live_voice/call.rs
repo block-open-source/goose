@@ -1,8 +1,6 @@
-use crate::conversation::message::{Message, MessageContent};
+use crate::conversation::message::{Message, MessageContent, MessageMetadata};
 use chrono::Utc;
-use goose_providers::live_voice_provider::{
-    LiveVoiceInputMessage, ProviderConnection, ProviderConnectionEvent,
-};
+use goose_providers::live_voice_provider::{ProviderConnection, ProviderConnectionEvent};
 use rmcp::model::Role;
 use std::collections::HashSet;
 use uuid::Uuid;
@@ -42,7 +40,6 @@ pub(super) struct LiveVoiceCall {
     transcript_fragments: Vec<TimedTranscriptFragment>,
     delegation_ids: HashSet<String>,
     last_delegation_offset_ms: Option<u64>,
-    startup_context: Vec<LiveVoiceInputMessage>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -65,7 +62,6 @@ impl LiveVoiceCall {
         session_id: String,
         id: LiveVoiceCallId,
         provider_connection: Box<dyn ProviderConnection>,
-        startup_context: Vec<LiveVoiceInputMessage>,
     ) -> Self {
         Self {
             session_id,
@@ -77,7 +73,6 @@ impl LiveVoiceCall {
             transcript_fragments: Vec::new(),
             delegation_ids: HashSet::new(),
             last_delegation_offset_ms: None,
-            startup_context,
         }
     }
 
@@ -173,11 +168,6 @@ impl LiveVoiceCall {
         }
 
         let mut input = String::from("Live conversation context:\n");
-        if self.last_delegation_offset_ms.is_none() {
-            for message in &self.startup_context {
-                input.push_str(&format!("{}: {}\n", speaker(&message.role), message.text));
-            }
-        }
         let mut previous_role = None;
         for index in &fragment_indexes {
             let fragment = &self.transcript_fragments[*index];
@@ -244,9 +234,13 @@ fn speaker(role: &Role) -> &'static str {
 }
 
 fn live_transcript_message(role: Role, text: String) -> Message {
+    let mut metadata = MessageMetadata::default();
+    metadata.set_operation_note("live_voice", "transcript", serde_json::Value::Bool(true));
     Message::new(role, Utc::now().timestamp(), vec![])
         .with_id(format!("msg_live_{}", Uuid::now_v7()))
         .with_text(text)
+        .with_metadata(metadata)
+        .user_only()
 }
 
 fn transcript_delta_message(message: &Message, text: &str) -> Message {
@@ -299,7 +293,6 @@ mod tests {
             Box::new(TestConnection {
                 stopped: Some(stopped),
             }),
-            Vec::new(),
         );
 
         call.cleanup_provider().await.unwrap();
@@ -313,10 +306,6 @@ mod tests {
             "test-session".into(),
             LiveVoiceCallId("live-test".into()),
             Box::new(TestConnection { stopped: None }),
-            vec![LiveVoiceInputMessage {
-                role: Role::User,
-                text: "prior context".into(),
-            }],
         );
         call.observe_transcript("1".into(), Role::Assistant, "ready", 0, 5);
         call.observe_transcript("2".into(), Role::User, "do ", 5, 10);
@@ -330,7 +319,6 @@ mod tests {
         else {
             panic!("delegation should be accepted");
         };
-        assert!(input.contains("prior context"));
         assert!(input.contains("User: do this\n"));
         assert!(!input.contains("crossing"));
         assert!(!input.contains("later"));
@@ -372,7 +360,6 @@ mod tests {
             "test-session".into(),
             LiveVoiceCallId("live-test-2".into()),
             Box::new(TestConnection { stopped: None }),
-            Vec::new(),
         );
         missing_user.observe_transcript("1".into(), Role::Assistant, "hello", 0, 10);
         assert!(matches!(
@@ -387,12 +374,13 @@ mod tests {
             "test-session".into(),
             LiveVoiceCallId("live-test".into()),
             Box::new(TestConnection { stopped: None }),
-            Vec::new(),
         );
         let first = call
             .observe_transcript("1".into(), Role::User, "hello", 0, 10)
             .unwrap();
         assert!(first.0.is_none());
+        assert!(first.1.is_user_visible());
+        assert!(!first.1.is_agent_visible());
         let message_id = first.1.id.clone();
         let second = call
             .observe_transcript("2".into(), Role::User, " world", 10, 20)

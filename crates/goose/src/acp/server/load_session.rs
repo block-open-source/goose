@@ -318,6 +318,7 @@ impl GooseAcpAgent {
                     &task_agent,
                     &task_cancel_token,
                     stream,
+                    None,
                 )
                 .await;
             if result.is_ok() {

@@ -770,6 +770,17 @@ struct PendingToolPermission {
     prompt: Option<String>,
 }
 
+/// The slash-command branches of `Agent::reply` yield the user's own prompt back
+/// into the reply stream, which the plain prompt path never does. The client
+/// rendered that prompt when it sent it, so forwarding the echo as a
+/// `user_message_chunk` shows the message twice.
+fn is_echoed_prompt(message: &Message, echoed_prompt_id: Option<&str>) -> bool {
+    let Some(prompt_id) = echoed_prompt_id else {
+        return false;
+    };
+    message.role == Role::User && message.id.as_deref() == Some(prompt_id)
+}
+
 fn update_output_token_limit_reached(output_token_limit_reached: &mut bool, message: &Message) {
     if message.role == Role::Assistant {
         *output_token_limit_reached = message.metadata.output_token_limit_reached;
@@ -1371,6 +1382,7 @@ impl GooseAcpAgent {
         message
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn handle_message_content(
         &self,
         content_item: &MessageContent,
@@ -1378,8 +1390,13 @@ impl GooseAcpAgent {
         session_id: &SessionId,
         target: &SessionAgentTarget,
         tool_requests: &HashMap<String, ToolRequest>,
+        echoed_prompt_id: Option<&str>,
         cx: &ConnectionTo<Client>,
     ) -> Result<(), agent_client_protocol::Error> {
+        if is_echoed_prompt(message, echoed_prompt_id) {
+            return Ok(());
+        }
+
         let role = &message.role;
 
         match content_item {
@@ -2131,6 +2148,7 @@ impl GooseAcpAgent {
         Ok(session)
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn forward_agent_stream(
         &self,
         cx: &ConnectionTo<Client>,
@@ -2139,6 +2157,7 @@ impl GooseAcpAgent {
         agent: &Arc<Agent>,
         cancel_token: &CancellationToken,
         mut stream: BoxStream<'_, Result<crate::agents::AgentEvent>>,
+        echoed_prompt_id: Option<&str>,
     ) -> Result<AgentStreamOutcome, agent_client_protocol::Error> {
         let mut was_cancelled = false;
         let mut output_token_limit_reached = false;
@@ -2183,6 +2202,7 @@ impl GooseAcpAgent {
                             acp_session_id,
                             &target,
                             &tool_requests,
+                            echoed_prompt_id,
                             cx,
                         )
                         .await?;
@@ -2309,7 +2329,13 @@ impl GooseAcpAgent {
             return Err(error);
         }
 
-        let user_message = Self::convert_acp_prompt_to_message(&args.prompt);
+        // Slash commands make the agent yield the user's own prompt back into the
+        // reply stream. Tag the prompt here, the way the steer path tags its own
+        // message, so the echo can be recognised and dropped before it leaves the
+        // server as a `user_message_chunk` the client already rendered locally.
+        let prompt_message_id = format!("prompt_{}", Uuid::new_v4());
+        let user_message =
+            Self::convert_acp_prompt_to_message(&args.prompt).with_id(prompt_message_id.clone());
         let session_config = SessionConfig {
             id: session_id.clone(),
             schedule_id: None,
@@ -2337,6 +2363,7 @@ impl GooseAcpAgent {
                 &agent,
                 &cancel_token,
                 stream,
+                Some(prompt_message_id.as_str()),
             )
             .await;
         self.clear_active_run(&session_id, &run_id).await;
@@ -3733,5 +3760,56 @@ print(\"hello, world\")
             .await
             .unwrap();
         client.await.unwrap().unwrap();
+    }
+
+    #[test]
+    fn echoed_prompt_message_is_suppressed() {
+        let message = Message::user()
+            .with_text("/plan add tests")
+            .with_id("prompt_1");
+
+        assert!(is_echoed_prompt(&message, Some("prompt_1")));
+    }
+
+    #[test]
+    fn echoed_prompt_matches_by_id_after_the_prompt_text_is_rewritten() {
+        // convert_acp_prompt_to_message runs sanitize_unicode_tags, so the echo
+        // can carry different text than the client sent.
+        let message = Message::user().with_text("sanitized").with_id("prompt_1");
+
+        assert!(is_echoed_prompt(&message, Some("prompt_1")));
+    }
+
+    #[test]
+    fn steer_message_is_not_suppressed() {
+        let message = Message::user().with_text("steered").with_id("steer_1");
+
+        assert!(!is_echoed_prompt(&message, Some("prompt_1")));
+    }
+
+    #[test]
+    fn assistant_message_is_not_suppressed() {
+        let message = Message::assistant().with_text("reply").with_id("prompt_1");
+
+        assert!(!is_echoed_prompt(&message, Some("prompt_1")));
+    }
+
+    #[test]
+    fn user_message_without_id_is_not_suppressed_when_no_prompt_is_tracked() {
+        let message = Message::user().with_text("hello");
+
+        assert!(!is_echoed_prompt(&message, None));
+    }
+
+    #[test]
+    fn prompt_message_id_survives_the_agent_id_backfill() {
+        // The agent stamps ids on id-less messages on their way out; the id the
+        // server assigns to the prompt has to reach the echo unchanged.
+        let message = Message::user()
+            .with_text("/plan add tests")
+            .with_id("prompt_1")
+            .with_generated_id_if_missing();
+
+        assert_eq!(message.id.as_deref(), Some("prompt_1"));
     }
 }

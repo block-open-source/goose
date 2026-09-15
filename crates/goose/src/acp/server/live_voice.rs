@@ -5,8 +5,8 @@ use super::*;
 use call::{LiveMainAgent, LiveVoiceCallId};
 use futures::FutureExt;
 use service::{
-    wait_for_completion, LiveVoiceAvailability, LiveVoiceCallCompletion, LiveVoiceError,
-    LiveVoiceTranscriptPublisher, StartLiveVoiceCallResult, WebRtcOffer,
+    wait_for_completion, LiveVoiceCallCompletion, LiveVoiceError, LiveVoiceTranscriptPublisher,
+    StartLiveVoiceCallResult, WebRtcOffer,
 };
 
 pub use service::LiveVoiceService;
@@ -37,19 +37,21 @@ impl GooseAcpAgent {
         req: LiveVoiceAvailabilityRequest,
     ) -> Result<LiveVoiceAvailabilityResponse, agent_client_protocol::Error> {
         let session = self.load_live_voice_session(&req.session_id).await?;
-        let status = match self
-            .live_voice
-            .availability(&req.session_id, session.goose_mode)
-        {
-            LiveVoiceAvailability::Ready => LiveVoiceStatus::Ready,
-            LiveVoiceAvailability::FeatureDisabled => LiveVoiceStatus::FeatureDisabled,
-            LiveVoiceAvailability::ProviderUnavailable => LiveVoiceStatus::ProviderUnavailable,
-            LiveVoiceAvailability::ChatBusy => LiveVoiceStatus::SessionBusy,
-            LiveVoiceAvailability::RequiresAutonomousMode => {
-                LiveVoiceStatus::RequiresAutonomousMode
-            }
-        };
-        Ok(LiveVoiceAvailabilityResponse { status })
+        Ok(
+            match self
+                .live_voice
+                .availability(&req.session_id, session.goose_mode)
+            {
+                Ok(()) => LiveVoiceAvailabilityResponse {
+                    status: LiveVoiceStatus::Ready,
+                    message: "Start Live voice".into(),
+                },
+                Err(message) => LiveVoiceAvailabilityResponse {
+                    status: LiveVoiceStatus::Unavailable,
+                    message: message.into(),
+                },
+            },
+        )
     }
 
     pub(super) async fn on_live_voice_start(
@@ -60,9 +62,20 @@ impl GooseAcpAgent {
         let offer = WebRtcOffer::new(req.offer_sdp)
             .ok_or_else(agent_client_protocol::Error::invalid_params)?;
         let session_id = req.session_id.clone();
+        let session = self.load_live_voice_session(&session_id).await?;
+        if self
+            .live_voice
+            .availability(&session_id, session.goose_mode)
+            .is_err()
+        {
+            return Err(map_live_voice_error(LiveVoiceError::Unavailable));
+        }
         let transcript_publisher = Self::live_transcript_publisher(cx, &req.session_id);
-        let prepared_agent = self.prepare_live_agent(&req.session_id).await;
-        let main_agent = self.live_main_agent(cx, prepared_agent);
+        let agent = self
+            .prepare_live_agent(&req.session_id)
+            .await
+            .map_err(|error| agent_client_protocol::Error::internal_error().data(error))?;
+        let main_agent = self.live_main_agent(cx, agent);
         let start = self.live_voice.start_call(
             &req.session_id,
             offer,
@@ -115,7 +128,7 @@ impl GooseAcpAgent {
     fn live_main_agent(
         self: &Arc<Self>,
         cx: &ConnectionTo<Client>,
-        prepared_agent: Result<Arc<Agent>, String>,
+        agent: Arc<Agent>,
     ) -> LiveMainAgent {
         let start_owner = Arc::clone(self);
         let start_connection = cx.clone();
@@ -126,7 +139,7 @@ impl GooseAcpAgent {
                     session_id,
                     input,
                     start_connection.clone(),
-                    prepared_agent.clone(),
+                    agent.clone(),
                 )
             },
             move |session_id, input| {
@@ -192,9 +205,8 @@ impl GooseAcpAgent {
         session_id: String,
         input: String,
         cx: ConnectionTo<Client>,
-        prepared_agent: Result<Arc<Agent>, String>,
+        agent: Arc<Agent>,
     ) -> Result<BoxFuture<'static, String>, String> {
-        let agent = prepared_agent?;
         let cancel_token = CancellationToken::new();
         let run_id = format!("run_{}", Uuid::new_v4());
         if self
@@ -207,7 +219,7 @@ impl GooseAcpAgent {
             )
             .is_err()
         {
-            return Err("The coding task is busy right now.".into());
+            return Err("Goose is already working on a task.".into());
         }
         let run_guard = ActiveRunDropGuard {
             registry: self.active_runs.clone(),
@@ -252,7 +264,7 @@ impl GooseAcpAgent {
             Err(_) => {
                 self.clear_active_run(&session_id, &run_id).await;
                 let _ = Self::send_active_run_update(&cx, &acp_session_id, None);
-                return "The coding task failed before it could start.".into();
+                return "Goose couldn't start the task.".into();
             }
         };
 
@@ -263,7 +275,7 @@ impl GooseAcpAgent {
             if cancel_token.is_cancelled() {
                 self.clear_active_run(&session_id, &run_id).await;
                 let _ = Self::send_active_run_update(&cx, &acp_session_id, None);
-                return "The coding task was cancelled.".into();
+                return "The task was cancelled.".into();
             }
             match event {
                 Ok(crate::agents::AgentEvent::Message(message)) => {
@@ -334,7 +346,7 @@ impl GooseAcpAgent {
                 Err(_) => {
                     self.clear_active_run(&session_id, &run_id).await;
                     let _ = Self::send_active_run_update(&cx, &acp_session_id, None);
-                    return "The coding task failed before it could complete.".into();
+                    return "The task failed before it could complete.".into();
                 }
             }
         }
@@ -342,10 +354,10 @@ impl GooseAcpAgent {
         self.clear_active_run(&session_id, &run_id).await;
         let _ = Self::send_active_run_update(&cx, &acp_session_id, None);
         if cancel_token.is_cancelled() {
-            return "The coding task was cancelled.".into();
+            return "The task was cancelled.".into();
         }
         if outcome.is_empty() {
-            return "The coding task finished without a user-facing result.".into();
+            return "The task finished without a result to share.".into();
         }
         outcome
     }
@@ -368,9 +380,6 @@ impl GooseAcpAgent {
     }
 
     async fn prepare_live_agent(&self, session_id: &str) -> Result<Arc<Agent>, String> {
-        if !crate::agents::state_machine::enabled() {
-            return Err("Live coding requires the state machine.".into());
-        }
         self.get_session_agent(session_id)
             .await
             .map_err(|_| "Goose could not activate the coding agent.".to_string())

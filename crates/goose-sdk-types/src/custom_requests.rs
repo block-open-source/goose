@@ -254,16 +254,14 @@ pub struct LiveVoiceAvailabilityRequest {
 #[serde(rename_all = "snake_case")]
 pub enum LiveVoiceStatus {
     Ready,
-    FeatureDisabled,
-    ProviderUnavailable,
-    SessionBusy,
-    RequiresAutonomousMode,
+    Unavailable,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, JsonRpcResponse)]
 #[serde(rename_all = "camelCase")]
 pub struct LiveVoiceAvailabilityResponse {
     pub status: LiveVoiceStatus,
+    pub message: String,
 }
 
 /// Get a diagnostic report for a session.

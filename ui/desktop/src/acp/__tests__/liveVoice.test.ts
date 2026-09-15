@@ -1,10 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getAcpClient } from '../acpConnection';
-import {
-  acpGetLiveVoiceAvailability,
-  acpStartLiveVoice,
-  acpStopLiveVoice,
-} from '../liveVoice';
+import { acpGetLiveVoiceAvailability, acpStartLiveVoice, acpStopLiveVoice } from '../liveVoice';
 
 vi.mock('../acpConnection', () => ({ getAcpClient: vi.fn() }));
 
@@ -14,6 +10,7 @@ describe('ACP Live voice', () => {
   it('uses the generated availability client for the displayed session', async () => {
     const sessionLiveVoiceAvailability = vi.fn().mockResolvedValue({
       status: 'ready',
+      message: 'Start Live voice',
     });
     vi.mocked(getAcpClient).mockResolvedValue({
       goose: {
@@ -23,6 +20,7 @@ describe('ACP Live voice', () => {
 
     await expect(acpGetLiveVoiceAvailability('main-session')).resolves.toEqual({
       status: 'ready',
+      message: 'Start Live voice',
     });
     expect(sessionLiveVoiceAvailability).toHaveBeenCalledWith({ sessionId: 'main-session' });
   });

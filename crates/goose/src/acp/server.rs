@@ -2704,7 +2704,6 @@ mod tests {
         SelectedPermissionOutcome, TextResourceContents,
     };
     use goose_providers::conversation::token_usage::Usage as TokenUsage;
-    use goose_providers::openai_live_voice_provider::OpenAiLiveVoiceProvider;
     use goose_providers::thinking::{
         ThinkingEffortCapability, ThinkingEffortOption, ThinkingEffortSupport,
     };
@@ -3584,12 +3583,8 @@ print(\"hello, world\")
     #[tokio::test]
     async fn asynchronous_provider_effort_update_is_forwarded_to_client() {
         let root = tempfile::tempdir().unwrap();
-        let live_voice_provider = Arc::new(OpenAiLiveVoiceProvider::from_env());
         let active_runs = Arc::new(ActiveRunRegistry::default());
-        let live_voice = Arc::new(LiveVoiceService::new(
-            live_voice_provider,
-            active_runs.clone(),
-        ));
+        let live_voice = Arc::new(LiveVoiceService::from_config(active_runs.clone()));
         let provider_factory: AcpProviderFactory = Arc::new(
             |_provider_name, _extensions, _working_dir, _use_default_model| {
                 Box::pin(async { Err(anyhow::anyhow!("unused provider factory")) })

@@ -5,10 +5,9 @@ use crate::conversation::message::{Message, MessageContent};
 use crate::conversation::Conversation;
 use crate::session::SessionManager;
 use crate::token_counter::TokenCounter;
-use goose_providers::live_voice_provider::{
-    LiveVoiceInputMessage, LiveVoiceProvider, LiveVoiceProviderAvailability,
-};
+use goose_providers::live_voice_provider::{LiveVoiceInputMessage, LiveVoiceProvider};
 pub(super) use goose_providers::live_voice_provider::{WebRtcAnswer, WebRtcOffer};
+use goose_providers::openai_live_voice_provider::{OpenAiLiveVoiceConfig, OpenAiLiveVoiceProvider};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
@@ -18,9 +17,13 @@ use tokio_util::sync::CancellationToken;
 
 const LIVE_VOICE_INPUT_MESSAGE_LIMIT: usize = 128;
 const LIVE_VOICE_INPUT_TOKEN_LIMIT: usize = 8_192;
+const LIVE_VOICE_ENABLED_CONFIG_KEY: &str = "GOOSE_LIVE_VOICE_ENABLED";
+const LIVE_VOICE_CONFIG_KEY: &str = "GOOSE_LIVE_VOICE";
 
 pub(super) type LiveCallControls = Arc<Mutex<HashMap<String, LiveCallControl>>>;
 pub(super) type LiveVoiceTranscriptPublisher = Arc<dyn Fn(Message) + Send + Sync>;
+type LiveVoiceResolver =
+    Arc<dyn Fn() -> Result<Arc<dyn LiveVoiceProvider>, &'static str> + Send + Sync>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum LiveVoiceCallCompletion {
@@ -32,15 +35,6 @@ pub(super) struct StartLiveVoiceCallResult {
     pub(super) call_id: LiveVoiceCallId,
     pub(super) answer: WebRtcAnswer,
     pub(super) completion_rx: watch::Receiver<Option<LiveVoiceCallCompletion>>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum LiveVoiceAvailability {
-    Ready,
-    FeatureDisabled,
-    ProviderUnavailable,
-    ChatBusy,
-    RequiresAutonomousMode,
 }
 
 #[derive(Debug)]
@@ -85,35 +79,45 @@ impl Drop for LiveCallGuard {
 }
 
 pub struct LiveVoiceService {
-    provider: Arc<dyn LiveVoiceProvider>,
+    live_voice_resolver: LiveVoiceResolver,
     calls_by_session: LiveCallControls,
     active_runs: Arc<ActiveRunRegistry>,
 }
 
 impl LiveVoiceService {
-    pub fn new(provider: Arc<dyn LiveVoiceProvider>, active_runs: Arc<ActiveRunRegistry>) -> Self {
+    pub fn from_config(active_runs: Arc<ActiveRunRegistry>) -> Self {
+        Self::new(Arc::new(configured_live_voice), active_runs)
+    }
+
+    fn new(live_voice_resolver: LiveVoiceResolver, active_runs: Arc<ActiveRunRegistry>) -> Self {
         Self {
-            provider,
+            live_voice_resolver,
             calls_by_session: Arc::new(Mutex::new(HashMap::new())),
             active_runs,
         }
     }
 
-    pub(super) fn availability(&self, session_id: &str, mode: GooseMode) -> LiveVoiceAvailability {
-        use LiveVoiceAvailability::*;
+    pub(super) fn availability(
+        &self,
+        session_id: &str,
+        mode: GooseMode,
+    ) -> Result<(), &'static str> {
+        self.eligible_provider(session_id, mode).map(|_| ())
+    }
 
-        match self.provider.availability() {
-            LiveVoiceProviderAvailability::Disabled => return FeatureDisabled,
-            LiveVoiceProviderAvailability::Unavailable => return ProviderUnavailable,
-            LiveVoiceProviderAvailability::Ready => {}
-        }
+    fn eligible_provider(
+        &self,
+        session_id: &str,
+        mode: GooseMode,
+    ) -> Result<Arc<dyn LiveVoiceProvider>, &'static str> {
+        let provider = (self.live_voice_resolver)()?;
 
-        if self.active_runs.is_active(session_id) {
-            ChatBusy
-        } else if mode != GooseMode::Auto {
-            RequiresAutonomousMode
+        if mode != GooseMode::Auto {
+            Err("Live voice requires Autonomous mode")
+        } else if self.active_runs.is_active(session_id) {
+            Err("Live voice is unavailable while this session is busy")
         } else {
-            Ready
+            Ok(provider)
         }
     }
 
@@ -125,25 +129,18 @@ impl LiveVoiceService {
         transcript_publisher: LiveVoiceTranscriptPublisher,
         main_agent: LiveMainAgent,
     ) -> Result<StartLiveVoiceCallResult, LiveVoiceError> {
-        if self.provider.availability() != LiveVoiceProviderAvailability::Ready {
-            return Err(LiveVoiceError::Unavailable);
-        }
         let session = session_manager
             .get_session(session_id, true)
             .await
             .map_err(|_| LiveVoiceError::Unavailable)?;
-        if session.goose_mode != GooseMode::Auto
-            || session.provider_name.is_none()
-            || session.model_config.is_none()
-        {
-            return Err(LiveVoiceError::Unavailable);
-        }
+        let provider = self
+            .eligible_provider(session_id, session.goose_mode)
+            .map_err(|_| LiveVoiceError::Unavailable)?;
         let call_guard = LiveCallGuard::start(self.active_runs.clone(), session_id)
             .ok_or(LiveVoiceError::Unavailable)?;
         let input_messages =
             live_voice_input_messages(&session.conversation.unwrap_or_default()).await?;
-        let (answer, provider_connection) = self
-            .provider
+        let (answer, provider_connection) = provider
             .start(offer, input_messages)
             .await
             .map_err(|_| LiveVoiceError::StartFailed)?;
@@ -204,6 +201,37 @@ impl LiveVoiceService {
             LiveVoiceCallCompletion::Failed => Err(LiveVoiceError::StopFailed),
         }
     }
+}
+
+fn configured_live_voice_enabled() -> bool {
+    crate::config::Config::global()
+        .get_param::<serde_json::Value>(LIVE_VOICE_ENABLED_CONFIG_KEY)
+        .is_ok_and(|value| match value {
+            serde_json::Value::Bool(enabled) => enabled,
+            serde_json::Value::Number(enabled) => enabled.as_u64() == Some(1),
+            serde_json::Value::String(enabled) => {
+                enabled == "1" || enabled.eq_ignore_ascii_case("true")
+            }
+            _ => false,
+        })
+}
+
+fn configured_live_voice() -> Result<Arc<dyn LiveVoiceProvider>, &'static str> {
+    if !configured_live_voice_enabled() || !crate::agents::state_machine::enabled() {
+        return Err("Live voice is disabled");
+    }
+
+    let config = crate::config::Config::global();
+    let api_key = config
+        .get_secret::<String>("OPENAI_API_KEY")
+        .map_err(|_| "Live voice provider is not configured")?;
+    let provider_config = config
+        .get_param::<String>(LIVE_VOICE_CONFIG_KEY)
+        .map(|voice| OpenAiLiveVoiceConfig { voice })
+        .unwrap_or_default();
+    OpenAiLiveVoiceProvider::new(api_key, provider_config)
+        .map(|provider| Arc::new(provider) as Arc<dyn LiveVoiceProvider>)
+        .map_err(|_| "Live voice provider is not configured")
 }
 
 async fn live_voice_input_messages(

@@ -1,4 +1,4 @@
-import type { LiveVoiceStatus as LiveVoiceAvailability } from '@aaif/goose-sdk';
+import type { LiveVoiceAvailabilityResponse_unstable } from '@aaif/goose-sdk';
 import { AudioLines, LoaderCircle, Mic, MicOff, Square } from 'lucide-react';
 import { defineMessages, useIntl } from '../i18n';
 import { cn } from '../utils';
@@ -7,26 +7,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from './ui/Tooltip';
 import type { LiveVoicePhase } from '../liveVoice/useLiveVoice';
 
 const i18n = defineMessages({
-  ready: {
-    id: 'liveVoice.ready',
-    defaultMessage: 'Start Live voice',
-  },
-  featureDisabled: {
-    id: 'liveVoice.featureDisabled',
-    defaultMessage: 'Live voice is disabled',
-  },
-  providerUnavailable: {
-    id: 'liveVoice.providerUnavailable',
-    defaultMessage: 'Live voice provider is not configured',
-  },
-  sessionBusy: {
-    id: 'liveVoice.sessionBusy',
-    defaultMessage: 'Live voice is unavailable while this chat is busy',
-  },
-  requiresAutonomousMode: {
-    id: 'liveVoice.requiresAutonomousMode',
-    defaultMessage: 'Live voice requires Autonomous mode',
-  },
   emptyComposerRequired: {
     id: 'liveVoice.emptyComposerRequired',
     defaultMessage: 'Clear the message and attachments to use Live voice',
@@ -57,16 +37,8 @@ const i18n = defineMessages({
   },
 });
 
-const availabilityMessages = {
-  ready: i18n.ready,
-  feature_disabled: i18n.featureDisabled,
-  provider_unavailable: i18n.providerUnavailable,
-  session_busy: i18n.sessionBusy,
-  requires_autonomous_mode: i18n.requiresAutonomousMode,
-} satisfies Record<LiveVoiceAvailability, (typeof i18n)[keyof typeof i18n]>;
-
 interface LiveVoiceButtonProps {
-  availability: LiveVoiceAvailability | null;
+  availability: LiveVoiceAvailabilityResponse_unstable | null;
   composerEmpty: boolean;
   phase: LiveVoicePhase;
   muted: boolean;
@@ -87,21 +59,20 @@ export function LiveVoiceButton({
   const intl = useIntl();
   if (availability === null) return null;
 
-  const eligible = availability === 'ready' && composerEmpty;
+  const eligible = availability.status === 'ready' && composerEmpty;
   const stopping = phase === 'stopping';
-  const message =
+  const label =
     phase === 'connecting'
-      ? i18n.connecting
+      ? intl.formatMessage(i18n.connecting)
       : phase === 'live'
-        ? i18n.live
+        ? intl.formatMessage(i18n.live)
         : phase === 'stopping'
-          ? i18n.stopping
+          ? intl.formatMessage(i18n.stopping)
           : phase === 'error'
-            ? i18n.error
+            ? intl.formatMessage(i18n.error)
             : composerEmpty
-              ? availabilityMessages[availability]
-              : i18n.emptyComposerRequired;
-  const label = intl.formatMessage(message);
+              ? availability.message
+              : intl.formatMessage(i18n.emptyComposerRequired);
   const disabled = phase === 'idle' ? !eligible : stopping;
   const canStop = phase === 'connecting' || phase === 'live';
 

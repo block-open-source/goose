@@ -42,7 +42,7 @@ import { defineMessages, useIntl } from '../i18n';
 import TurndownService from 'turndown';
 import type { NextChatExtensionDraft } from '../utils/nextChatExtensions';
 import { LiveVoiceButton } from './LiveVoiceButton';
-import type { LiveVoiceStatus as LiveVoiceAvailability } from '@aaif/goose-sdk';
+import type { LiveVoiceAvailabilityResponse_unstable } from '@aaif/goose-sdk';
 import { isLiveVoiceActive, type LiveVoiceController } from '../liveVoice/useLiveVoice';
 
 const turndown = new TurndownService({
@@ -73,7 +73,7 @@ interface PastedImage {
 }
 
 type ChatInputLiveVoice = LiveVoiceController & {
-  availability: LiveVoiceAvailability | null;
+  availability: LiveVoiceAvailabilityResponse_unstable | null;
 };
 
 const moveQueuedMessageToFront = (

@@ -7,9 +7,6 @@ use crate::scheduler_trait::SchedulerTrait;
 use crate::session::SessionManager;
 use crate::source_roots::SourceRoot;
 use anyhow::Result;
-use goose_providers::{
-    live_voice_provider::LiveVoiceProvider, openai_live_voice_provider::OpenAiLiveVoiceProvider,
-};
 use std::sync::Arc;
 use tokio::sync::OnceCell;
 use tracing::info;
@@ -36,9 +33,8 @@ pub struct AcpServer {
 
 impl AcpServer {
     pub fn new(config: AcpServerFactoryConfig) -> Self {
-        let provider: Arc<dyn LiveVoiceProvider> = Arc::new(OpenAiLiveVoiceProvider::from_env());
         let active_runs = Arc::new(ActiveRunRegistry::default());
-        let live_voice = Arc::new(LiveVoiceService::new(provider, active_runs.clone()));
+        let live_voice = Arc::new(LiveVoiceService::from_config(active_runs.clone()));
         Self {
             config,
             scheduler: OnceCell::new(),

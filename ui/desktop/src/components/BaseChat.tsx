@@ -36,7 +36,7 @@ import { Goose } from './icons';
 import EnvironmentBadge from './GooseSidebar/EnvironmentBadge';
 import SessionActionsHeader from './SessionActionsHeader';
 import { isAcpRecovering, subscribeToAcpRecovery } from '../acp/acpConnection';
-import type { LiveVoiceStatus as LiveVoiceAvailability } from '@aaif/goose-sdk';
+import type { LiveVoiceAvailabilityResponse_unstable } from '@aaif/goose-sdk';
 import { acpGetLiveVoiceAvailability } from '../acp/liveVoice';
 import { useLiveVoice } from '../liveVoice/useLiveVoice';
 
@@ -99,9 +99,8 @@ export default function BaseChat({
   const [hasNotAcceptedRecipe, setHasNotAcceptedRecipe] = useState<boolean>();
   const [hasRecipeSecurityWarnings, setHasRecipeSecurityWarnings] = useState(false);
   const [acpRecovering, setAcpRecovering] = useState(isAcpRecovering);
-  const [liveVoiceAvailability, setLiveVoiceAvailability] = useState<LiveVoiceAvailability | null>(
-    null
-  );
+  const [liveVoiceAvailability, setLiveVoiceAvailability] =
+    useState<LiveVoiceAvailabilityResponse_unstable | null>(null);
   const liveVoice = useLiveVoice(sessionId);
   const isMobile = useIsMobile();
   const navContext = useNavigationContextSafe();
@@ -148,7 +147,7 @@ export default function BaseChat({
       return;
     }
 
-    if (liveVoiceAvailability === 'ready') {
+    if (liveVoiceAvailability.status === 'ready') {
       void liveVoice.start(NEW_LIVE_VOICE_GREETING);
     }
 
@@ -176,7 +175,7 @@ export default function BaseChat({
     void acpGetLiveVoiceAvailability(sessionId).then(
       (response) => {
         if (current) {
-          setLiveVoiceAvailability(response.status);
+          setLiveVoiceAvailability(response);
         }
       },
       () => {

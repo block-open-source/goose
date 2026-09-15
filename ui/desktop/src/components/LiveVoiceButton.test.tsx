@@ -5,7 +5,7 @@ import { IntlTestWrapper } from '../i18n/test-utils';
 import { LiveVoiceButton } from './LiveVoiceButton';
 
 const baseProps: ComponentProps<typeof LiveVoiceButton> = {
-  availability: 'ready',
+  availability: { status: 'ready', message: 'Start Live voice' },
   composerEmpty: true,
   phase: 'idle',
   muted: false,
@@ -28,18 +28,18 @@ describe('LiveVoiceButton', () => {
     expect(button).toHaveAccessibleName('Start Live voice');
   });
 
-  it.each([
-    ['feature_disabled', 'Live voice is disabled'],
-    ['provider_unavailable', 'Live voice provider is not configured'],
-    ['session_busy', 'Live voice is unavailable while this chat is busy'],
-    ['requires_autonomous_mode', 'Live voice requires Autonomous mode'],
-  ] as const)('shows the %s reason', (availability, label) => {
-    renderButton({ availability });
+  it('shows the unavailable reason', () => {
+    renderButton({
+      availability: {
+        status: 'unavailable',
+        message: 'Live voice requires Autonomous mode',
+      },
+    });
 
     const button = screen.getByTestId('live-voice-button');
     expect(button).toBeDisabled();
     expect(button).toHaveAttribute('data-eligible', 'false');
-    expect(button).toHaveAccessibleName(label);
+    expect(button).toHaveAccessibleName('Live voice requires Autonomous mode');
   });
 
   it('applies the Desktop empty-composer gate', () => {

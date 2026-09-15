@@ -3,8 +3,8 @@
 use crate::{
     live::{LiveSessionEndReason, LiveSessionEvent},
     live_voice_provider::{
-        DelegationUpdate, LiveVoiceInputMessage, LiveVoiceProvider, LiveVoiceProviderAvailability,
-        ProviderConnection, ProviderConnectionEvent, WebRtcAnswer, WebRtcOffer,
+        DelegationUpdate, LiveVoiceInputMessage, LiveVoiceProvider, ProviderConnection,
+        ProviderConnectionEvent, WebRtcAnswer, WebRtcOffer,
     },
     openai_live::{
         ConnectedOpenAiLiveSession, OpenAiLiveClient, OpenAiLiveContext, OpenAiLiveContextChannel,
@@ -20,12 +20,8 @@ use tokio::{
     time::{sleep_until, timeout, timeout_at, Instant},
 };
 
-pub const OPENAI_LIVE_VOICE_GATE_ENV: &str = "GOOSE_LIVE_VOICE_ENABLED";
-pub const OPENAI_LIVE_MODEL_ENV: &str = "GOOSE_LIVE_VOICE_MODEL";
-pub const OPENAI_LIVE_VOICE_ENV: &str = "GOOSE_LIVE_VOICE";
-pub const OPENAI_LIVE_API_KEY_ENV: &str = "OPENAI_API_KEY";
-pub const DEFAULT_OPENAI_LIVE_MODEL: &str = "gpt-live-1";
-pub const DEFAULT_OPENAI_LIVE_VOICE: &str = "marin";
+const OPENAI_LIVE_MODEL: &str = "gpt-live-1";
+const DEFAULT_OPENAI_LIVE_VOICE: &str = "marin";
 
 const HTTP_SETUP_TIMEOUT: Duration = Duration::from_secs(15);
 const SIDEBAND_ATTACH_TIMEOUT: Duration = Duration::from_secs(10);
@@ -49,46 +45,33 @@ const LIVE_SESSION_INSTRUCTIONS: &str = concat!(
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OpenAiLiveVoiceConfig {
-    pub enabled: bool,
-    pub model: String,
     pub voice: String,
 }
 
-impl OpenAiLiveVoiceConfig {
-    pub fn from_env() -> Self {
+impl Default for OpenAiLiveVoiceConfig {
+    fn default() -> Self {
         Self {
-            enabled: std::env::var(OPENAI_LIVE_VOICE_GATE_ENV)
-                .is_ok_and(|value| value.eq_ignore_ascii_case("true") || value == "1"),
-            model: std::env::var(OPENAI_LIVE_MODEL_ENV)
-                .unwrap_or_else(|_| DEFAULT_OPENAI_LIVE_MODEL.into()),
-            voice: std::env::var(OPENAI_LIVE_VOICE_ENV)
-                .unwrap_or_else(|_| DEFAULT_OPENAI_LIVE_VOICE.into()),
+            voice: DEFAULT_OPENAI_LIVE_VOICE.into(),
         }
     }
 }
 
 pub struct OpenAiLiveVoiceProvider {
-    client: Option<OpenAiLiveClient>,
+    client: OpenAiLiveClient,
     config: OpenAiLiveVoiceConfig,
 }
 
 impl OpenAiLiveVoiceProvider {
-    pub fn from_env() -> Self {
-        let config = OpenAiLiveVoiceConfig::from_env();
-        let client = std::env::var(OPENAI_LIVE_API_KEY_ENV)
-            .ok()
-            .filter(|key| !key.trim().is_empty())
-            .map(OpenAiLiveClient::new);
-        Self { client, config }
-    }
-
     pub fn new(api_key: impl Into<String>, config: OpenAiLiveVoiceConfig) -> Result<Self> {
         let api_key = api_key.into();
         if api_key.trim().is_empty() {
             bail!("OpenAI API key is empty");
         }
+        if config.voice.trim().is_empty() {
+            bail!("OpenAI Live voice is empty");
+        }
         Ok(Self {
-            client: Some(OpenAiLiveClient::new(api_key)),
+            client: OpenAiLiveClient::new(api_key),
             config,
         })
     }
@@ -96,31 +79,13 @@ impl OpenAiLiveVoiceProvider {
 
 #[async_trait]
 impl LiveVoiceProvider for OpenAiLiveVoiceProvider {
-    fn availability(&self) -> LiveVoiceProviderAvailability {
-        if !self.config.enabled {
-            LiveVoiceProviderAvailability::Disabled
-        } else if self.client.is_none() {
-            LiveVoiceProviderAvailability::Unavailable
-        } else {
-            LiveVoiceProviderAvailability::Ready
-        }
-    }
-
     async fn start(
         &self,
         offer: WebRtcOffer,
         input_messages: Vec<LiveVoiceInputMessage>,
     ) -> Result<(WebRtcAnswer, Box<dyn ProviderConnection>)> {
-        if !self.config.enabled {
-            bail!("OpenAI Live voice is disabled");
-        }
-        let client = self
-            .client
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("OpenAI Live credentials are unavailable"))?
-            .clone();
         let config = OpenAiLiveSessionConfig {
-            model: self.config.model.clone(),
+            model: OPENAI_LIVE_MODEL.into(),
             instructions: LIVE_SESSION_INSTRUCTIONS.into(),
             voice: Some(self.config.voice.clone()),
             input_messages: input_messages
@@ -137,14 +102,14 @@ impl LiveVoiceProvider for OpenAiLiveVoiceProvider {
         };
         let negotiation = timeout(
             HTTP_SETUP_TIMEOUT,
-            client.webrtc(config).negotiate(offer.into_sdp()),
+            self.client.webrtc(config).negotiate(offer.into_sdp()),
         )
         .await
         .map_err(|_| anyhow::anyhow!("OpenAI Live HTTP setup timed out"))??;
         let session_id = negotiation.session_id;
         let answer = WebRtcAnswer::new(negotiation.answer_sdp)
             .ok_or_else(|| anyhow::anyhow!("OpenAI Live returned an invalid WebRTC answer"))?;
-        let sideband = connect_sideband(&client, session_id).await?;
+        let sideband = connect_sideband(&self.client, session_id).await?;
         Ok((answer, Box::new(OpenAiProviderConnection { sideband })))
     }
 }
@@ -259,20 +224,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn configuration_is_gated() {
-        let provider = OpenAiLiveVoiceProvider::new(
+    fn configuration_must_be_valid() {
+        assert!(OpenAiLiveVoiceProvider::new("", OpenAiLiveVoiceConfig::default()).is_err());
+        assert!(OpenAiLiveVoiceProvider::new(
             "key",
             OpenAiLiveVoiceConfig {
-                enabled: false,
-                model: DEFAULT_OPENAI_LIVE_MODEL.into(),
-                voice: DEFAULT_OPENAI_LIVE_VOICE.into(),
+                voice: String::new(),
             },
         )
-        .unwrap();
-        assert_eq!(
-            provider.availability(),
-            LiveVoiceProviderAvailability::Disabled
-        );
+        .is_err());
     }
 
     #[test]

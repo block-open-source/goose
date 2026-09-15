@@ -24,7 +24,6 @@ use goose::scheduler::{ScheduledJob, SchedulerError, ValidatedScheduleRecipe};
 use goose::scheduler_trait::SchedulerTrait;
 use goose::session::Session as GooseSession;
 use goose::session_context::SESSION_ID_HEADER;
-use goose_providers::openai_live_voice_provider::OpenAiLiveVoiceProvider;
 use goose_test_support::{ExpectedSessionId, TEST_MODEL};
 use std::collections::VecDeque;
 use std::future::Future;
@@ -390,10 +389,8 @@ pub async fn spawn_acp_server_in_process(
         )
     });
 
-    let live_voice_provider = Arc::new(OpenAiLiveVoiceProvider::from_env());
     let active_runs = Arc::new(goose::acp::server::ActiveRunRegistry::default());
-    let live_voice = Arc::new(goose::acp::server::LiveVoiceService::new(
-        live_voice_provider,
+    let live_voice = Arc::new(goose::acp::server::LiveVoiceService::from_config(
         active_runs.clone(),
     ));
     let agent = GooseAcpAgent::new(GooseAcpAgentOptions {

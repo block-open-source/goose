@@ -1,16 +1,21 @@
 use super::super::call::{LiveMainAgent, DELEGATION_INSTRUCTION, PROVIDER_CLEANUP_TIMEOUT};
 use super::*;
 use goose_providers::live_voice_provider::{
-    fake::{provider_channel, provider_channel_with_availability, FakeConnectionDriver},
+    fake::{provider_channel, FakeConnectionDriver},
     ProviderConnectionEvent,
 };
-use goose_providers::model::ModelConfig;
 use rmcp::model::Role;
 use std::time::Duration;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
 type StartResult = Result<StartLiveVoiceCallResult, LiveVoiceError>;
+
+impl LiveVoiceService {
+    fn for_test(provider: Arc<dyn LiveVoiceProvider>, active_runs: Arc<ActiveRunRegistry>) -> Self {
+        Self::new(Arc::new(move || Ok(provider.clone())), active_runs)
+    }
+}
 
 fn ignore_transcript_publisher() -> LiveVoiceTranscriptPublisher {
     Arc::new(|_| {})
@@ -55,9 +60,9 @@ fn session_manager() -> Arc<SessionManager> {
     Arc::new(SessionManager::new(tempfile::tempdir().unwrap().keep()))
 }
 
-fn service(availability: LiveVoiceProviderAvailability) -> LiveVoiceService {
-    let (provider, _starts) = provider_channel_with_availability(availability);
-    LiveVoiceService::new(provider, Arc::new(ActiveRunRegistry::default()))
+fn service() -> LiveVoiceService {
+    let (provider, _starts) = provider_channel();
+    LiveVoiceService::for_test(provider, Arc::new(ActiveRunRegistry::default()))
 }
 
 async fn live_session(
@@ -71,13 +76,6 @@ async fn live_session(
             crate::session::session_manager::SessionType::User,
             GooseMode::Auto,
         )
-        .await
-        .unwrap();
-    manager
-        .update(&session.id)
-        .provider_name("test")
-        .model_config(ModelConfig::new("test-model"))
-        .apply()
         .await
         .unwrap();
     for message in conversation {
@@ -105,7 +103,7 @@ fn spawn_start(
     })
 }
 
-fn assert_availability(service: &LiveVoiceService, expected: LiveVoiceAvailability) {
+fn assert_availability(service: &LiveVoiceService, expected: Result<(), &'static str>) {
     assert_eq!(
         service.availability("main-session", GooseMode::Auto),
         expected
@@ -134,7 +132,7 @@ async fn establish_call_with(
     Arc<SessionManager>,
 ) {
     let (provider, mut starts) = provider_channel();
-    let service = Arc::new(LiveVoiceService::new(
+    let service = Arc::new(LiveVoiceService::for_test(
         provider,
         Arc::new(ActiveRunRegistry::default()),
     ));
@@ -179,27 +177,58 @@ fn completion_receiver(
 
 #[test]
 fn reports_each_eligibility_gate() {
-    assert_availability(
-        &service(LiveVoiceProviderAvailability::Disabled),
-        LiveVoiceAvailability::FeatureDisabled,
-    );
-    assert_availability(
-        &service(LiveVoiceProviderAvailability::Unavailable),
-        LiveVoiceAvailability::ProviderUnavailable,
-    );
-
-    let ready = service(LiveVoiceProviderAvailability::Ready);
+    let mut disabled = service();
+    disabled.live_voice_resolver = Arc::new(|| Err("Live voice is disabled"));
+    assert_availability(&disabled, Err("Live voice is disabled"));
+    let mut unavailable = service();
+    unavailable.live_voice_resolver = Arc::new(|| Err("Live voice provider is not configured"));
+    assert_availability(&unavailable, Err("Live voice provider is not configured"));
+    let ready = service();
     let call_guard = LiveCallGuard::start(ready.active_runs.clone(), "main-session").unwrap();
     assert_eq!(
         ready.availability("main-session", GooseMode::Auto),
-        LiveVoiceAvailability::ChatBusy
+        Err("Live voice is unavailable while this session is busy")
     );
     drop(call_guard);
     assert_eq!(
         ready.availability("main-session", GooseMode::Approve),
-        LiveVoiceAvailability::RequiresAutonomousMode
+        Err("Live voice requires Autonomous mode")
     );
-    assert_availability(&ready, LiveVoiceAvailability::Ready);
+    assert_availability(&ready, Ok(()));
+}
+
+#[test]
+fn configured_live_voice_requires_the_state_machine() {
+    let _guard = env_lock::lock_env([
+        ("GOOSE_LIVE_VOICE_ENABLED", Some("1")),
+        ("GOOSE_STATE_MACHINE", None::<&str>),
+    ]);
+
+    assert!(matches!(
+        configured_live_voice(),
+        Err("Live voice is disabled")
+    ));
+}
+
+#[tokio::test]
+async fn start_rechecks_requirements_before_contacting_the_provider() {
+    let (provider, mut starts) = provider_channel();
+    let mut service = LiveVoiceService::for_test(provider, Arc::new(ActiveRunRegistry::default()));
+    service.live_voice_resolver = Arc::new(|| Err("Live voice is disabled"));
+    let (manager, session_id) = live_session([]).await;
+
+    let result = service
+        .start_call(
+            &session_id,
+            WebRtcOffer::new("offer".into()).unwrap(),
+            manager,
+            ignore_transcript_publisher(),
+            ignore_main_agent(),
+        )
+        .await;
+
+    assert!(matches!(result, Err(LiveVoiceError::Unavailable)));
+    assert!(starts.try_recv().is_err());
 }
 
 #[tokio::test]
@@ -262,7 +291,7 @@ async fn input_messages_keep_the_newest_complete_messages_within_provider_limits
 #[tokio::test]
 async fn a_start_reserves_the_session_until_it_finishes() {
     let (provider, mut starts) = provider_channel();
-    let service = Arc::new(LiveVoiceService::new(
+    let service = Arc::new(LiveVoiceService::for_test(
         provider,
         Arc::new(ActiveRunRegistry::default()),
     ));
@@ -285,7 +314,7 @@ async fn a_start_reserves_the_session_until_it_finishes() {
 
     assert_eq!(
         service.availability(&session_id, GooseMode::Auto),
-        LiveVoiceAvailability::ChatBusy
+        Err("Live voice is unavailable while this session is busy")
     );
 
     let second = service
@@ -304,16 +333,13 @@ async fn a_start_reserves_the_session_until_it_finishes() {
         first.await.unwrap(),
         Err(LiveVoiceError::StartFailed)
     ));
-    assert_eq!(
-        service.availability(&session_id, GooseMode::Auto),
-        LiveVoiceAvailability::Ready
-    );
+    assert_eq!(service.availability(&session_id, GooseMode::Auto), Ok(()));
 }
 
 #[tokio::test]
 async fn a_cancelled_start_releases_the_session() {
     let (provider, mut starts) = provider_channel();
-    let service = Arc::new(LiveVoiceService::new(
+    let service = Arc::new(LiveVoiceService::for_test(
         provider,
         Arc::new(ActiveRunRegistry::default()),
     ));
@@ -323,10 +349,7 @@ async fn a_cancelled_start_releases_the_session() {
 
     start_task.abort();
     assert!(matches!(start_task.await, Err(error) if error.is_cancelled()));
-    assert_eq!(
-        service.availability(&session_id, GooseMode::Auto),
-        LiveVoiceAvailability::Ready
-    );
+    assert_eq!(service.availability(&session_id, GooseMode::Auto), Ok(()));
     drop(pending);
 }
 
@@ -348,10 +371,7 @@ async fn stop_failure_releases_the_session() {
         stop.await.unwrap(),
         Err(LiveVoiceError::StopFailed)
     ));
-    assert_eq!(
-        service.availability(&session_id, GooseMode::Auto),
-        LiveVoiceAvailability::Ready
-    );
+    assert_eq!(service.availability(&session_id, GooseMode::Auto), Ok(()));
 }
 
 #[tokio::test]
@@ -376,10 +396,7 @@ async fn repeated_stop_uses_one_provider_shutdown() {
 
     assert!(first.is_ok());
     assert!(second.is_ok());
-    assert_eq!(
-        service.availability(&session_id, GooseMode::Auto),
-        LiveVoiceAvailability::Ready
-    );
+    assert_eq!(service.availability(&session_id, GooseMode::Auto), Ok(()));
 }
 
 #[tokio::test]
@@ -504,7 +521,7 @@ async fn transcript_is_projected_and_flushed_before_delegation() {
         .await
         .unwrap();
     let (provider, mut starts) = provider_channel();
-    let service = Arc::new(LiveVoiceService::new(
+    let service = Arc::new(LiveVoiceService::for_test(
         provider,
         Arc::new(ActiveRunRegistry::default()),
     ));
@@ -713,7 +730,7 @@ async fn running_transcript_is_saved_user_only_and_steered_to_the_main_agent() {
     assert!(stop.is_ok());
     assert_eq!(
         service.availability(&session_id, GooseMode::Auto),
-        LiveVoiceAvailability::ChatBusy
+        Err("Live voice is unavailable while this session is busy")
     );
     assert_eq!(
         manager
@@ -729,7 +746,7 @@ async fn running_transcript_is_saved_user_only_and_steered_to_the_main_agent() {
 
     finish_run.send("done".into()).unwrap();
     tokio::time::timeout(Duration::from_secs(1), async {
-        while service.availability(&session_id, GooseMode::Auto) != LiveVoiceAvailability::Ready {
+        while service.availability(&session_id, GooseMode::Auto).is_err() {
             tokio::task::yield_now().await;
         }
     })
@@ -793,17 +810,14 @@ async fn provider_terminal_events_fail_and_release_the_session() {
             service.stop_call(&session_id, &call_id).await,
             Err(LiveVoiceError::Unavailable)
         ));
-        assert_eq!(
-            service.availability(&session_id, GooseMode::Auto),
-            LiveVoiceAvailability::Ready
-        );
+        assert_eq!(service.availability(&session_id, GooseMode::Auto), Ok(()));
     }
 }
 
 #[tokio::test]
 async fn provider_terminal_publishes_completion_after_release() {
     let (provider, mut starts) = provider_channel();
-    let service = Arc::new(LiveVoiceService::new(
+    let service = Arc::new(LiveVoiceService::for_test(
         provider,
         Arc::new(ActiveRunRegistry::default()),
     ));
@@ -835,10 +849,7 @@ async fn provider_terminal_publishes_completion_after_release() {
     let completion = wait_for_completion(started.completion_rx).await.unwrap();
 
     assert_eq!(completion, LiveVoiceCallCompletion::Failed);
-    assert_eq!(
-        service.availability(&session_id, GooseMode::Auto),
-        LiveVoiceAvailability::Ready
-    );
+    assert_eq!(service.availability(&session_id, GooseMode::Auto), Ok(()));
 }
 
 #[tokio::test]
@@ -856,10 +867,7 @@ async fn cleanup_timeout_fails_and_releases_the_session() {
         stop.await.unwrap(),
         Err(LiveVoiceError::StopFailed)
     ));
-    assert_eq!(
-        service.availability(&session_id, GooseMode::Auto),
-        LiveVoiceAvailability::Ready
-    );
+    assert_eq!(service.availability(&session_id, GooseMode::Auto), Ok(()));
     drop(pending_response);
 }
 
@@ -882,10 +890,7 @@ async fn queued_stop_wins_a_provider_close_race() {
     let (stop, ()) = tokio::join!(stop, provider);
 
     assert!(stop.is_ok());
-    assert_eq!(
-        service.availability(&session_id, GooseMode::Auto),
-        LiveVoiceAvailability::Ready
-    );
+    assert_eq!(service.availability(&session_id, GooseMode::Auto), Ok(()));
 }
 
 #[test]

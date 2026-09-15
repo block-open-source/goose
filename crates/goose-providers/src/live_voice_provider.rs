@@ -73,17 +73,8 @@ pub struct LiveVoiceInputMessage {
     pub text: String,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum LiveVoiceProviderAvailability {
-    Ready,
-    Disabled,
-    Unavailable,
-}
-
 #[async_trait]
 pub trait LiveVoiceProvider: Send + Sync {
-    fn availability(&self) -> LiveVoiceProviderAvailability;
-
     async fn start(
         &self,
         offer: WebRtcOffer,
@@ -113,36 +104,19 @@ pub mod fake {
         std::sync::Arc<FakeLiveVoiceProvider>,
         mpsc::UnboundedReceiver<FakeStartRequest>,
     ) {
-        provider_channel_with_availability(LiveVoiceProviderAvailability::Ready)
-    }
-
-    pub fn provider_channel_with_availability(
-        availability: LiveVoiceProviderAvailability,
-    ) -> (
-        std::sync::Arc<FakeLiveVoiceProvider>,
-        mpsc::UnboundedReceiver<FakeStartRequest>,
-    ) {
         let (start_tx, start_rx) = mpsc::unbounded_channel();
         (
-            std::sync::Arc::new(FakeLiveVoiceProvider {
-                availability,
-                start_tx,
-            }),
+            std::sync::Arc::new(FakeLiveVoiceProvider { start_tx }),
             start_rx,
         )
     }
 
     pub struct FakeLiveVoiceProvider {
-        availability: LiveVoiceProviderAvailability,
         start_tx: mpsc::UnboundedSender<FakeStartRequest>,
     }
 
     #[async_trait]
     impl LiveVoiceProvider for FakeLiveVoiceProvider {
-        fn availability(&self) -> LiveVoiceProviderAvailability {
-            self.availability
-        }
-
         async fn start(
             &self,
             offer: WebRtcOffer,

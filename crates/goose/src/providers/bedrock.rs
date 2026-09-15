@@ -706,6 +706,8 @@ struct StreamBlockState {
     reasoning_blocks: HashMap<i32, (String, String)>,
     /// content_block_index -> accumulated redacted (encrypted) reasoning bytes
     redacted_blocks: HashMap<i32, Vec<u8>>,
+    /// StopReason carried by the stream's MessageStop event, if seen
+    stop_reason: Option<bedrock::StopReason>,
 }
 
 /// Convert a single `ConverseStream` event into zero or more [`Message`]s
@@ -814,7 +816,10 @@ fn process_stream_event(
                             }),
                         Err(_) => Err(ErrorData::new(
                             ErrorCode::INVALID_PARAMS,
-                            format!("Could not parse tool arguments: {}", input_json),
+                            goose_providers::json::truncation_error_message(&input_json)
+                                .unwrap_or_else(|| {
+                                    format!("Could not parse tool arguments: {}", input_json)
+                                }),
                             None,
                         )),
                     }
@@ -826,17 +831,79 @@ fn process_stream_event(
                 );
             }
         }
+        bedrock::ConverseStreamOutput::MessageStop(ev) => {
+            state.stop_reason = Some(ev.stop_reason);
+        }
         bedrock::ConverseStreamOutput::Metadata(ev) => {
             if let Some(u) = ev.usage {
                 usage = Some(from_bedrock_usage(&u));
             }
         }
-        // MessageStart / MessageStop / unknown variants carry no content
-        // that needs forwarding.
+        // MessageStart / unknown variants carry no content that needs
+        // forwarding.
         _ => {}
     }
 
     (messages, usage)
+}
+
+/// Flush tool blocks left open when the stream ended without their
+/// ContentBlockStop. Their arguments are incomplete, so each becomes a failed
+/// tool request carrying guidance for the model, matching how the Anthropic
+/// provider reports truncated tool calls.
+fn flush_incomplete_tool_blocks(
+    state: &mut StreamBlockState,
+    truncated_by_limit: bool,
+    message_id: &str,
+) -> Vec<Message> {
+    let mut messages = Vec::new();
+    let mut indices: Vec<i32> = state.tool_blocks.keys().copied().collect();
+    indices.sort_unstable();
+    for index in indices {
+        if let Some((id, _name, input_json)) = state.tool_blocks.remove(&index) {
+            let guidance = if truncated_by_limit {
+                "The model's response was truncated because it reached the output token limit while generating this tool call. \
+                 Try increasing max_tokens for this provider or breaking the task into smaller steps."
+            } else {
+                "A tool call was not completed before the stream ended. \
+                 Try resending your message or breaking the task into smaller steps."
+            };
+            let snippet_len = input_json.chars().count();
+            let tail: String = input_json
+                .chars()
+                .rev()
+                .take(80)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect();
+            let message_text = format!(
+                "{guidance}\nReceived {snippet_len} characters of arguments; cut off at: …{tail}"
+            );
+            let error = ErrorData::new(ErrorCode::INVALID_PARAMS, message_text, None);
+            messages.push(
+                Message::assistant()
+                    .with_tool_request(id, Err(error))
+                    .with_id(message_id),
+            );
+        }
+    }
+    messages
+}
+
+/// Flag a turn the model cut off at the output token limit so consumers can
+/// warn and compact, matching formats::anthropic::response_to_streaming_message.
+fn output_token_limit_marker(
+    stop_reason: Option<&bedrock::StopReason>,
+    message_id: &str,
+) -> Option<Message> {
+    if stop_reason == Some(&bedrock::StopReason::MaxTokens) {
+        let mut message = Message::assistant().with_id(message_id);
+        message.metadata.output_token_limit_reached = true;
+        Some(message)
+    } else {
+        None
+    }
 }
 
 impl goose_providers::base::ProviderDescriptor for BedrockProvider {
@@ -1069,9 +1136,27 @@ impl Provider for BedrockProvider {
                 }
             }
 
-            let usage = final_usage.unwrap_or_else(|| {
+            // The stream ended with tool blocks that never saw their
+            // ContentBlockStop, so Bedrock cut the response off mid arguments.
+            // Surface them as failed tool requests so the agent can react, and
+            // flag the token limit so the CLI/ACP warning and compaction kick
+            // in, mirroring the Anthropic provider.
+            let stop_reason = state.stop_reason.take();
+            let truncated_by_limit = stop_reason.as_ref() == Some(&bedrock::StopReason::MaxTokens);
+            for message in flush_incomplete_tool_blocks(&mut state, truncated_by_limit, &message_id)
+            {
+                yield (Some(message), None);
+            }
+            if let Some(message) = output_token_limit_marker(stop_reason.as_ref(), &message_id) {
+                yield (Some(message), None);
+            }
+
+            let mut usage = final_usage.unwrap_or_else(|| {
                 ProviderUsage::new(model_name.clone(), Usage::default())
             });
+            if let Some(reason) = stop_reason.as_ref().map(|reason| reason.as_str().to_string()) {
+                usage.finish_reasons = Some(vec![reason]);
+            }
             let _ = log.write(
                 &serde_json::json!({ "streamed_text": full_text }),
                 Some(&usage.usage),
@@ -1594,6 +1679,41 @@ mod tests {
     }
 
     #[test]
+    fn test_stream_tool_use_truncated_json_reports_output_token_limit() {
+        // Live max_tokens cut-off on Bedrock: ContentBlockStop still arrives for
+        // the open block, so the truncation guidance has to come from this arm.
+        let mut state = StreamBlockState::default();
+
+        process_stream_event(
+            tool_start_event(0, "tool-4", "write_file"),
+            &mut state,
+            TEST_MESSAGE_ID,
+        );
+        process_stream_event(
+            tool_delta_event(0, "{\"path\": \"/report.md\""),
+            &mut state,
+            TEST_MESSAGE_ID,
+        );
+
+        let (messages, _) = process_stream_event(stop_event(0), &mut state, TEST_MESSAGE_ID);
+        assert_eq!(messages.len(), 1);
+        match &messages[0].content[0] {
+            MessageContent::ToolRequest(req) => {
+                let err = req
+                    .tool_call
+                    .as_ref()
+                    .expect_err("truncated input should yield an error tool request");
+                assert!(
+                    err.message.contains("output token limit"),
+                    "truncated tool arguments should carry the token-limit guidance, got: {}",
+                    err.message
+                );
+            }
+            other => panic!("expected ToolRequest, got {:?}", other),
+        }
+    }
+
+    #[test]
     fn test_stream_tool_use_empty_input_yields_empty_args() {
         let mut state = StreamBlockState::default();
 
@@ -1970,5 +2090,120 @@ mod tests {
     fn test_converse_model_not_mantle() {
         let entry = find_model_entry("us.anthropic.claude-sonnet-4-5-20250929-v1:0").unwrap();
         assert_eq!(entry.endpoint, BedrockEndpoint::Converse);
+    }
+
+    fn stream_tool_call(state: &mut StreamBlockState, input: &str) {
+        process_stream_event(
+            bedrock::ConverseStreamOutput::ContentBlockStart(
+                bedrock::ContentBlockStartEvent::builder()
+                    .content_block_index(0)
+                    .start(bedrock::ContentBlockStart::ToolUse(
+                        bedrock::ToolUseBlockStart::builder()
+                            .tool_use_id("call_1")
+                            .name("search")
+                            .build()
+                            .unwrap(),
+                    ))
+                    .build()
+                    .unwrap(),
+            ),
+            state,
+            "msg_1",
+        );
+        process_stream_event(
+            bedrock::ConverseStreamOutput::ContentBlockDelta(
+                bedrock::ContentBlockDeltaEvent::builder()
+                    .content_block_index(0)
+                    .delta(bedrock::ContentBlockDelta::ToolUse(
+                        bedrock::ToolUseBlockDelta::builder()
+                            .input(input)
+                            .build()
+                            .unwrap(),
+                    ))
+                    .build()
+                    .unwrap(),
+            ),
+            state,
+            "msg_1",
+        );
+    }
+
+    fn message_stop(reason: bedrock::StopReason) -> bedrock::ConverseStreamOutput {
+        bedrock::ConverseStreamOutput::MessageStop(
+            bedrock::MessageStopEvent::builder()
+                .stop_reason(reason)
+                .build()
+                .unwrap(),
+        )
+    }
+
+    fn content_block_stop(index: i32) -> bedrock::ConverseStreamOutput {
+        bedrock::ConverseStreamOutput::ContentBlockStop(
+            bedrock::ContentBlockStopEvent::builder()
+                .content_block_index(index)
+                .build()
+                .unwrap(),
+        )
+    }
+
+    #[test]
+    fn truncated_tool_call_is_flushed_as_failed_request_and_flagged() {
+        let mut state = StreamBlockState::default();
+        stream_tool_call(&mut state, "{\"query\": \"tes");
+
+        process_stream_event(
+            message_stop(bedrock::StopReason::MaxTokens),
+            &mut state,
+            "msg_1",
+        );
+
+        let stop_reason = state.stop_reason.take();
+        let flushed = flush_incomplete_tool_blocks(&mut state, true, "msg_1");
+        assert_eq!(flushed.len(), 1);
+        use crate::conversation::message::MessageContent;
+        match &flushed[0].content[0] {
+            MessageContent::ToolRequest(req) => {
+                let err = req
+                    .tool_call
+                    .as_ref()
+                    .expect_err("truncated tool call must surface as a failed tool request");
+                assert!(err.message.contains("output token limit"));
+            }
+            other => panic!("expected tool request, got {:?}", other),
+        }
+        assert_eq!(flushed[0].id.as_deref(), Some("msg_1"));
+
+        let marker = output_token_limit_marker(stop_reason.as_ref(), "msg_1")
+            .expect("marker message expected for max_tokens stop");
+        assert!(marker.metadata.output_token_limit_reached);
+    }
+
+    #[test]
+    fn end_turn_with_completed_tool_call_emits_no_truncation_marker() {
+        let mut state = StreamBlockState::default();
+        stream_tool_call(&mut state, "{\"query\": \"test\"}");
+
+        process_stream_event(content_block_stop(0), &mut state, "msg_1");
+        process_stream_event(
+            message_stop(bedrock::StopReason::EndTurn),
+            &mut state,
+            "msg_1",
+        );
+
+        use crate::conversation::message::MessageContent;
+        let stop_reason = state.stop_reason.take();
+        assert!(matches!(stop_reason, Some(bedrock::StopReason::EndTurn)));
+        let flushed = flush_incomplete_tool_blocks(&mut state, false, "msg_1");
+        assert!(flushed.is_empty());
+        assert!(output_token_limit_marker(stop_reason.as_ref(), "msg_1").is_none());
+
+        let mut fresh = StreamBlockState::default();
+        stream_tool_call(&mut fresh, "{\"query\": \"test\"}");
+        let (stopped, _) = process_stream_event(content_block_stop(0), &mut fresh, "msg_1");
+        assert_eq!(stopped.len(), 1);
+        assert!(matches!(
+            &stopped[0].content[0],
+            MessageContent::ToolRequest(req) if req.tool_call.is_ok()
+        ));
     }
 }

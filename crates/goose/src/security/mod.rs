@@ -9,9 +9,9 @@ use crate::config::Config;
 use crate::conversation::message::{Message, ToolRequest};
 use crate::permission::permission_judge::PermissionCheckResult;
 use anyhow::Result;
-use scanner::PromptInjectionScanner;
+use scanner::{PromptInjectionScanner, ScannerSettings};
 use std::env;
-use std::sync::OnceLock;
+use std::sync::{Arc, RwLock};
 use uuid::Uuid;
 
 pub(crate) fn get_override(env_key: &str) -> Option<bool> {
@@ -22,8 +22,13 @@ pub(crate) fn get_override(env_key: &str) -> Option<bool> {
     })
 }
 
+struct CachedScanner {
+    settings: ScannerSettings,
+    scanner: Arc<PromptInjectionScanner>,
+}
+
 pub struct SecurityManager {
-    scanner: OnceLock<PromptInjectionScanner>,
+    scanner: RwLock<Option<CachedScanner>>,
     #[cfg(test)]
     enabled: Option<bool>,
 }
@@ -41,7 +46,7 @@ pub struct SecurityResult {
 impl SecurityManager {
     pub fn new() -> Self {
         Self {
-            scanner: OnceLock::new(),
+            scanner: RwLock::new(None),
             #[cfg(test)]
             enabled: None,
         }
@@ -50,7 +55,7 @@ impl SecurityManager {
     #[cfg(test)]
     pub(crate) fn enabled() -> Self {
         Self {
-            scanner: OnceLock::new(),
+            scanner: RwLock::new(None),
             enabled: Some(true),
         }
     }
@@ -72,24 +77,63 @@ impl SecurityManager {
             .unwrap_or(false)
     }
 
-    fn is_ml_scanning_enabled(&self) -> bool {
-        let config = Config::global();
-
-        let prompt_enabled = config
-            .get_param::<bool>("SECURITY_PROMPT_CLASSIFIER_ENABLED")
-            .unwrap_or(false);
-
-        let command_enabled = if let Some(overridden) =
-            get_override("SECURITY_COMMAND_CLASSIFIER_ENABLED_OVERRIDE")
+    fn scanner_for_settings(&self, settings: ScannerSettings) -> Arc<PromptInjectionScanner> {
+        if let Some(cached) = self
+            .scanner
+            .read()
+            .unwrap()
+            .as_ref()
+            .filter(|cached| cached.settings == settings)
         {
-            overridden
-        } else {
-            config
-                .get_param::<bool>("SECURITY_COMMAND_CLASSIFIER_ENABLED")
-                .unwrap_or(false)
-        };
+            return cached.scanner.clone();
+        }
 
-        prompt_enabled || command_enabled
+        let mut cached = self.scanner.write().unwrap();
+        if let Some(current) = cached
+            .as_ref()
+            .filter(|current| current.settings == settings)
+        {
+            return current.scanner.clone();
+        }
+
+        tracing::info!(
+            monotonic_counter.goose.security_command_classifier_enabled =
+                if settings.command_enabled() { 1 } else { 0 },
+            monotonic_counter.goose.security_prompt_classifier_enabled =
+                if settings.prompt_enabled() { 1 } else { 0 },
+            "Security classifier configuration"
+        );
+
+        let scanner = Arc::new(if settings.ml_enabled() {
+            match PromptInjectionScanner::with_ml_detection_for_settings(&settings) {
+                Ok(scanner) => {
+                    tracing::info!(
+                        monotonic_counter.goose.prompt_injection_scanner_enabled = 1,
+                        "Security scanner initialized with ML-based detection"
+                    );
+                    scanner
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        "ML scanning requested but failed to initialize. Falling back to pattern-only scanning.\n\nError details:\n{:#}",
+                        error
+                    );
+                    PromptInjectionScanner::new()
+                }
+            }
+        } else {
+            tracing::info!(
+                monotonic_counter.goose.prompt_injection_scanner_enabled = 1,
+                "Security scanner initialized with pattern-based detection only"
+            );
+            PromptInjectionScanner::new()
+        });
+
+        *cached = Some(CachedScanner {
+            settings,
+            scanner: scanner.clone(),
+        });
+        scanner
     }
 
     pub async fn analyze_tool_requests(
@@ -105,56 +149,7 @@ impl SecurityManager {
             return Ok(vec![]);
         }
 
-        let scanner = self.scanner.get_or_init(|| {
-            let config = Config::global();
-            let command_classifier_enabled =
-                if let Some(overridden) = get_override("SECURITY_COMMAND_CLASSIFIER_ENABLED_OVERRIDE") {
-                    overridden
-                } else {
-                    config
-                        .get_param::<bool>("SECURITY_COMMAND_CLASSIFIER_ENABLED")
-                        .unwrap_or(false)
-                };
-            let prompt_classifier_enabled = config
-                .get_param::<bool>("SECURITY_PROMPT_CLASSIFIER_ENABLED")
-                .unwrap_or(false);
-
-            tracing::info!(
-                monotonic_counter.goose.security_command_classifier_enabled = if command_classifier_enabled { 1 } else { 0 },
-                monotonic_counter.goose.security_prompt_classifier_enabled = if prompt_classifier_enabled { 1 } else { 0 },
-                "Security classifier configuration"
-            );
-
-            let ml_enabled = self.is_ml_scanning_enabled();
-
-            let scanner = if ml_enabled {
-                match PromptInjectionScanner::with_ml_detection() {
-                    Ok(s) => {
-                        tracing::info!(
-                            monotonic_counter.goose.prompt_injection_scanner_enabled = 1,
-                            "Security scanner initialized with ML-based detection"
-                        );
-                        s
-                    }
-                    Err(e) => {
-                        let error_chain = format!("{:#}", e);
-                        tracing::warn!(
-                            "ML scanning requested but failed to initialize. Falling back to pattern-only scanning.\n\nError details:\n{}",
-                            error_chain
-                        );
-                        PromptInjectionScanner::new()
-                    }
-                }
-            } else {
-                tracing::info!(
-                    monotonic_counter.goose.prompt_injection_scanner_enabled = 1,
-                    "Security scanner initialized with pattern-based detection only"
-                );
-                PromptInjectionScanner::new()
-            };
-
-            scanner
-        });
+        let scanner = self.scanner_for_settings(ScannerSettings::current());
 
         let mut results = Vec::new();
 
@@ -261,5 +256,134 @@ impl SecurityManager {
 impl Default for SecurityManager {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rmcp::model::CallToolRequestParams;
+    use rmcp::object;
+    use serde_json::json;
+    use wiremock::matchers::{header, method};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn shell_request() -> ToolRequest {
+        ToolRequest {
+            id: "security-test".to_string(),
+            tool_call: Ok(CallToolRequestParams::new("shell")
+                .with_arguments(object!({"command": "echo safe"}))),
+            metadata: None,
+            tool_meta: None,
+        }
+    }
+
+    async fn mount_classifier(server: &MockServer, token: &str) {
+        Mock::given(method("POST"))
+            .and(header("authorization", format!("Bearer {token}")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([[{
+                "label": "SAFE",
+                "score": 1.0
+            }]])))
+            .mount(server)
+            .await;
+    }
+
+    async fn assert_authorization(server: &MockServer, expected: &str) {
+        let requests = server.received_requests().await.unwrap();
+        assert_eq!(requests.len(), 1);
+        assert!(
+            requests[0]
+                .headers
+                .get("authorization")
+                .and_then(|value| value.to_str().ok())
+                == Some(expected),
+            "classifier request used unexpected authorization"
+        );
+    }
+
+    #[tokio::test]
+    async fn prompt_classifier_refreshes_after_disable_and_rotation() {
+        let first = MockServer::start().await;
+        let second = MockServer::start().await;
+        mount_classifier(&first, "first-token").await;
+        mount_classifier(&second, "second-token").await;
+        let _guard = env_lock::lock_env([
+            ("SECURITY_PROMPT_CLASSIFIER_ENABLED", Some("true")),
+            ("SECURITY_PROMPT_CLASSIFIER_MODEL", None),
+            (
+                "SECURITY_PROMPT_CLASSIFIER_ENDPOINT",
+                Some(first.uri().as_str()),
+            ),
+            ("SECURITY_PROMPT_CLASSIFIER_TOKEN", Some("first-token")),
+            ("SECURITY_COMMAND_CLASSIFIER_ENABLED", Some("false")),
+            ("SECURITY_COMMAND_CLASSIFIER_ENABLED_OVERRIDE", None),
+            ("SECURITY_COMMAND_CLASSIFIER_MODEL", None),
+            ("SECURITY_COMMAND_CLASSIFIER_ENDPOINT", None),
+            ("SECURITY_COMMAND_CLASSIFIER_TOKEN", None),
+        ]);
+        let manager = SecurityManager::enabled();
+        let request = shell_request();
+        let messages = [Message::user().with_text("ordinary prompt")];
+
+        manager
+            .analyze_tool_requests(std::slice::from_ref(&request), &messages)
+            .await
+            .unwrap();
+        assert_authorization(&first, "Bearer first-token").await;
+
+        std::env::set_var("SECURITY_PROMPT_CLASSIFIER_ENABLED", "false");
+        manager
+            .analyze_tool_requests(std::slice::from_ref(&request), &messages)
+            .await
+            .unwrap();
+        assert_eq!(first.received_requests().await.unwrap().len(), 1);
+
+        std::env::set_var("SECURITY_PROMPT_CLASSIFIER_ENABLED", "true");
+        std::env::set_var("SECURITY_PROMPT_CLASSIFIER_ENDPOINT", second.uri());
+        std::env::set_var("SECURITY_PROMPT_CLASSIFIER_TOKEN", "second-token");
+        manager
+            .analyze_tool_requests(std::slice::from_ref(&request), &messages)
+            .await
+            .unwrap();
+
+        assert_eq!(first.received_requests().await.unwrap().len(), 1);
+        assert_authorization(&second, "Bearer second-token").await;
+    }
+
+    #[tokio::test]
+    async fn command_classifier_stops_immediately_when_disabled() {
+        let server = MockServer::start().await;
+        mount_classifier(&server, "command-token").await;
+        let _guard = env_lock::lock_env([
+            ("SECURITY_PROMPT_CLASSIFIER_ENABLED", Some("false")),
+            ("SECURITY_PROMPT_CLASSIFIER_MODEL", None),
+            ("SECURITY_PROMPT_CLASSIFIER_ENDPOINT", None),
+            ("SECURITY_PROMPT_CLASSIFIER_TOKEN", None),
+            ("SECURITY_COMMAND_CLASSIFIER_ENABLED", Some("true")),
+            ("SECURITY_COMMAND_CLASSIFIER_ENABLED_OVERRIDE", None),
+            ("SECURITY_COMMAND_CLASSIFIER_MODEL", None),
+            (
+                "SECURITY_COMMAND_CLASSIFIER_ENDPOINT",
+                Some(server.uri().as_str()),
+            ),
+            ("SECURITY_COMMAND_CLASSIFIER_TOKEN", Some("command-token")),
+        ]);
+        let manager = SecurityManager::enabled();
+        let request = shell_request();
+
+        manager
+            .analyze_tool_requests(std::slice::from_ref(&request), &[])
+            .await
+            .unwrap();
+        assert_authorization(&server, "Bearer command-token").await;
+
+        std::env::set_var("SECURITY_COMMAND_CLASSIFIER_ENABLED", "false");
+        manager
+            .analyze_tool_requests(std::slice::from_ref(&request), &[])
+            .await
+            .unwrap();
+
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
     }
 }

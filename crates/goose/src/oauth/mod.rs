@@ -6,6 +6,7 @@ use axum::extract::{Query, State};
 use axum::response::Html;
 use axum::routing::get;
 use axum::Router;
+use fs2::FileExt;
 use minijinja::{context, Environment};
 use oauth2::{Scope, TokenResponse};
 use rmcp::transport::auth::{
@@ -14,12 +15,17 @@ use rmcp::transport::auth::{
 };
 use rmcp::transport::AuthorizationManager;
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
+use std::fs::{File, OpenOptions};
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::{oneshot, Mutex};
 use tracing::warn;
+
+use crate::config::paths::Paths;
 
 const CALLBACK_TEMPLATE: &str = include_str!("oauth_callback.html");
 const CLIENT_METADATA_URL: &str = "https://goose-docs.ai/oauth/client-metadata.json";
@@ -203,6 +209,115 @@ fn resolve_refreshed_granted_scopes(
 }
 
 const REFRESH_BUFFER_SECS: u64 = 30;
+const MAX_OAUTH_LOCK_STEM_LEN: usize = 200;
+
+fn sanitize_oauth_lock_name(name: &str) -> String {
+    let digest = Sha256::digest(name.as_bytes());
+    let hash: String = digest[..8]
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    let mut stem: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    if stem.is_empty() || stem.chars().all(|c| c == '_') {
+        stem = "unnamed".to_string();
+    }
+    let max_stem = MAX_OAUTH_LOCK_STEM_LEN.saturating_sub(hash.len() + 1);
+    if stem.len() > max_stem {
+        stem.truncate(max_stem);
+    }
+    format!("{stem}_{hash}")
+}
+
+fn challenged_scopes(challenge: &str, mcp_server_url: &str) -> Vec<String> {
+    let Ok(base_url) = url::Url::parse(mcp_server_url) else {
+        return Vec::new();
+    };
+    WWWAuthenticateParams::parse(challenge, &base_url)
+        .scope
+        .map(|scope| {
+            scope
+                .split_whitespace()
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
+}
+
+fn stored_access_token(stored: &StoredCredentials) -> Option<&str> {
+    stored
+        .token_response
+        .as_ref()
+        .map(|token| token.access_token().secret().as_str())
+}
+
+fn stored_grant_satisfies_challenge(
+    stored: &StoredCredentials,
+    challenge: &str,
+    mcp_server_url: &str,
+) -> bool {
+    if stored.token_response.is_none() {
+        return false;
+    }
+    let needed = challenged_scopes(challenge, mcp_server_url);
+    if needed.is_empty() {
+        return true;
+    }
+    let granted = scope_set(&stored.granted_scopes);
+    needed.iter().all(|scope| granted.contains(scope.as_str()))
+}
+
+fn challenge_can_reuse_stored_grant(
+    rejected_access_token: Option<&str>,
+    stored: Option<&StoredCredentials>,
+    challenge: Option<&str>,
+    mcp_server_url: &str,
+) -> bool {
+    let Some(challenge) = challenge else {
+        return true;
+    };
+    stored.is_some_and(|stored| {
+        stored_access_token(stored) != rejected_access_token
+            && stored_grant_satisfies_challenge(stored, challenge, mcp_server_url)
+    })
+}
+
+fn oauth_flow_lock_path(name: &str) -> PathBuf {
+    Paths::config_dir()
+        .join("oauth")
+        .join(format!("{}.lock", sanitize_oauth_lock_name(name)))
+}
+
+fn lock_oauth_flow(name: &str) -> Result<File, anyhow::Error> {
+    let path = oauth_flow_lock_path(name);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&path)?;
+    file.lock_exclusive()
+        .map_err(|e| anyhow::anyhow!("Failed to lock OAuth flow for {name}: {e}"))?;
+    Ok(file)
+}
+
+async fn acquire_oauth_flow_lock(name: &str) -> Result<File, anyhow::Error> {
+    let lock_name = name.to_string();
+    tokio::task::spawn_blocking(move || lock_oauth_flow(&lock_name))
+        .await
+        .map_err(|e| anyhow::anyhow!("OAuth flow lock task failed: {e}"))?
+}
 
 fn access_token_needs_refresh(stored_credentials: &StoredCredentials) -> bool {
     let Some(token_response) = stored_credentials.token_response.as_ref() else {
@@ -286,11 +401,7 @@ fn build_authorization_request(
                 .into_iter()
                 .flat_map(|client| client.scopes.iter().cloned()),
         );
-        if let Ok(base_url) = url::Url::parse(mcp_server_url) {
-            if let Some(challenged) = WWWAuthenticateParams::parse(&challenge, &base_url).scope {
-                scopes.extend(challenged.split_whitespace().map(str::to_string));
-            }
-        }
+        scopes.extend(challenged_scopes(&challenge, mcp_server_url));
         let mut seen = BTreeSet::new();
         scopes.retain(|scope| seen.insert(scope.clone()));
         if !scopes.is_empty() {
@@ -307,7 +418,7 @@ pub async fn oauth_flow(
     name: &String,
     static_client: Option<&StaticOAuthClientConfig>,
 ) -> Result<AuthorizationManager, anyhow::Error> {
-    oauth_flow_with_challenge(mcp_server_url, name, static_client, None).await
+    oauth_flow_with_challenge(mcp_server_url, name, static_client, None, None).await
 }
 
 pub async fn oauth_flow_with_challenge(
@@ -315,11 +426,16 @@ pub async fn oauth_flow_with_challenge(
     name: &String,
     static_client: Option<&StaticOAuthClientConfig>,
     challenge: Option<String>,
+    rejected_access_token: Option<&str>,
 ) -> Result<AuthorizationManager, anyhow::Error> {
     let env_client = env_static_oauth_client();
     let static_client = static_client.or(env_client.as_ref());
     let credential_store = GooseCredentialStore::new(name.clone());
     let mut auth_manager = AuthorizationManager::new(mcp_server_url).await?;
+    // Serialize refresh and browser auth per extension across processes so a
+    // rotating refresh token cannot be spent twice and then wipe the winner.
+    let _oauth_lock = acquire_oauth_flow_lock(name).await?;
+    credential_store.invalidate_cache();
     auth_manager.set_credential_store(credential_store.clone());
 
     let stored_credentials = credential_store.load().await?;
@@ -329,11 +445,18 @@ pub async fn oauth_flow_with_challenge(
         .map(|stored| stored.granted_scopes.clone())
         .unwrap_or_default();
 
-    // With a challenge in hand (e.g. a 403 insufficient_scope after a
-    // previously successful authorization), a refresh cannot satisfy the new
-    // scope requirement: skip straight to a full re-authorization that
-    // requests the union of scopes.
-    if auth_manager.initialize_from_store().await? && challenge.is_none() {
+    // After the lock, reuse a stored grant only when another process wrote a
+    // new token that already covers this challenge. Compare against the token
+    // the caller actually presented, not whatever the shared store currently
+    // holds (another in-process client may have already saved a successor).
+    let challenge_already_satisfied = challenge_can_reuse_stored_grant(
+        rejected_access_token,
+        stored_credentials.as_ref(),
+        challenge.as_deref(),
+        mcp_server_url,
+    );
+
+    if auth_manager.initialize_from_store().await? && challenge_already_satisfied {
         let stored_credentials = stored_credentials
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("OAuth credentials disappeared during startup"))?;
@@ -856,6 +979,203 @@ mod tests {
             access_token_needs_refresh(&expired),
             "an expired token must still take the refresh path"
         );
+    }
+
+    #[test]
+    fn missing_expiry_metadata_does_not_force_refresh() {
+        let token_response: OAuthTokenResponse = serde_json::from_value(serde_json::json!({
+            "access_token": "mcp_no_expiry",
+            "token_type": "bearer",
+        }))
+        .unwrap();
+        let stored =
+            StoredCredentials::new("client-id".to_string(), Some(token_response), vec![], None);
+
+        assert!(
+            !access_token_needs_refresh(&stored),
+            "legacy credentials without expiry metadata must be used as-is"
+        );
+    }
+
+    #[test]
+    fn oauth_lock_name_replaces_unsafe_characters() {
+        let pi = sanitize_oauth_lock_name("Pi Swisssync");
+        assert!(pi.starts_with("Pi_Swisssync_"));
+        assert_eq!(pi.len(), "Pi_Swisssync".len() + 1 + 16);
+
+        let passwd = sanitize_oauth_lock_name("../etc/passwd");
+        assert!(passwd.starts_with("___etc_passwd_"));
+
+        assert!(sanitize_oauth_lock_name("").starts_with("unnamed_"));
+        assert!(sanitize_oauth_lock_name("///").starts_with("unnamed_"));
+        assert_ne!(
+            sanitize_oauth_lock_name(""),
+            sanitize_oauth_lock_name("///"),
+            "empty and punctuation-only names must not share a lock"
+        );
+
+        let composio = sanitize_oauth_lock_name("Composio Connect");
+        assert!(composio.starts_with("Composio_Connect_"));
+
+        assert_ne!(
+            sanitize_oauth_lock_name("Pi Swisssync"),
+            sanitize_oauth_lock_name("Pi_Swisssync"),
+            "names that only differ by separators must not share a lock"
+        );
+
+        let long_name = "a".repeat(MAX_OAUTH_LOCK_STEM_LEN + 50);
+        let long = sanitize_oauth_lock_name(&long_name);
+        assert_eq!(long.len(), MAX_OAUTH_LOCK_STEM_LEN);
+        assert_ne!(
+            sanitize_oauth_lock_name(&format!("{long_name}x")),
+            long,
+            "distinct long names must not collide"
+        );
+    }
+
+    #[test]
+    fn stored_grant_satisfies_empty_or_covered_challenge() {
+        let token_response: OAuthTokenResponse = serde_json::from_value(serde_json::json!({
+            "access_token": "mcp_token",
+            "token_type": "bearer",
+            "expires_in": 3600,
+        }))
+        .unwrap();
+        let stored = StoredCredentials::new(
+            "client-id".to_string(),
+            Some(token_response),
+            vec!["scope.read".to_string(), "scope.write".to_string()],
+            Some(1),
+        );
+
+        assert!(stored_grant_satisfies_challenge(
+            &stored,
+            r#"Bearer error="invalid_token""#,
+            "https://mcp.example",
+        ));
+        assert!(stored_grant_satisfies_challenge(
+            &stored,
+            r#"Bearer error="insufficient_scope", scope="scope.read""#,
+            "https://mcp.example",
+        ));
+        assert!(!stored_grant_satisfies_challenge(
+            &stored,
+            r#"Bearer error="insufficient_scope", scope="scope.admin""#,
+            "https://mcp.example",
+        ));
+    }
+
+    #[test]
+    fn missing_token_does_not_satisfy_a_challenge() {
+        let stored = StoredCredentials::new("client-id".to_string(), None, vec![], None);
+        assert!(!stored_grant_satisfies_challenge(
+            &stored,
+            r#"Bearer error="invalid_token""#,
+            "https://mcp.example",
+        ));
+    }
+
+    fn stored_with_token(access_token: &str, scopes: &[&str]) -> StoredCredentials {
+        let token_response: OAuthTokenResponse = serde_json::from_value(serde_json::json!({
+            "access_token": access_token,
+            "token_type": "bearer",
+            "expires_in": 3600,
+        }))
+        .unwrap();
+        StoredCredentials::new(
+            "client-id".to_string(),
+            Some(token_response),
+            scopes.iter().map(|scope| (*scope).to_string()).collect(),
+            Some(1),
+        )
+    }
+
+    #[test]
+    fn challenge_reuse_requires_a_new_token() {
+        let rejected = stored_with_token("old-token", &["scope.read"]);
+        let refreshed = stored_with_token("new-token", &["scope.read"]);
+        let invalid_token = r#"Bearer error="invalid_token""#;
+        let extra_scope = r#"Bearer error="insufficient_scope", scope="scope.admin""#;
+
+        assert!(
+            !challenge_can_reuse_stored_grant(
+                Some("old-token"),
+                Some(&rejected),
+                Some(invalid_token),
+                "https://mcp.example",
+            ),
+            "the token that triggered the 401 must not be reused"
+        );
+        assert!(
+            challenge_can_reuse_stored_grant(
+                Some("old-token"),
+                Some(&refreshed),
+                Some(invalid_token),
+                "https://mcp.example",
+            ),
+            "a waiter that still holds the rejected token must reuse the successor grant"
+        );
+        assert!(
+            !challenge_can_reuse_stored_grant(
+                Some("old-token"),
+                Some(&refreshed),
+                Some(extra_scope),
+                "https://mcp.example",
+            ),
+            "a new token still missing the challenged scope must not skip browser auth"
+        );
+        assert!(challenge_can_reuse_stored_grant(
+            None,
+            Some(&refreshed),
+            None,
+            "https://mcp.example",
+        ));
+    }
+
+    #[test]
+    fn oauth_flow_lock_path_is_stable_per_original_name() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().to_str().unwrap();
+        let _guard = env_lock::lock_env([("GOOSE_PATH_ROOT", Some(root))]);
+
+        let path = oauth_flow_lock_path("Pi Swisssync");
+        assert_eq!(
+            path.parent(),
+            Some(temp.path().join("config").join("oauth").as_path())
+        );
+        assert!(path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with("Pi_Swisssync_") && name.ends_with(".lock")));
+        assert_eq!(
+            oauth_flow_lock_path("Pi Swisssync"),
+            oauth_flow_lock_path("Pi Swisssync")
+        );
+        assert_ne!(
+            oauth_flow_lock_path("Pi Swisssync"),
+            oauth_flow_lock_path("Pi_Swisssync")
+        );
+    }
+
+    #[test]
+    fn oauth_flow_lock_is_exclusive() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().to_str().unwrap();
+        let _guard = env_lock::lock_env([("GOOSE_PATH_ROOT", Some(root))]);
+
+        let held = lock_oauth_flow("Pi Swisssync").unwrap();
+        let path = oauth_flow_lock_path("Pi Swisssync");
+        let contender = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&path)
+            .unwrap();
+        assert!(
+            contender.try_lock_exclusive().is_err(),
+            "a second process must wait for the OAuth flow lock"
+        );
+        drop(held);
+        assert!(contender.try_lock_exclusive().is_ok());
     }
 
     #[tokio::test]

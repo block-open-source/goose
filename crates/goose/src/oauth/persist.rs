@@ -40,6 +40,10 @@ impl GooseCredentialStore {
         }
     }
 
+    pub fn invalidate_cache(&self) {
+        Config::global().invalidate_secrets_cache();
+    }
+
     fn save_persisted(&self, credentials: PersistedCredentials) -> Result<(), AuthError> {
         let config = Config::global();
         let key = self.secret_key();

@@ -4,6 +4,7 @@ use chrono::{DateTime, Utc};
 use futures::stream::{self, FuturesUnordered, StreamExt};
 use futures::Stream;
 use futures::{future, FutureExt};
+use oauth2::TokenResponse;
 use once_cell::sync::Lazy;
 use rmcp::model::ProtocolVersion;
 use rmcp::service::{ClientInitializeError, ServiceError};
@@ -767,6 +768,16 @@ pub(crate) fn substitute_env_vars(value: &str, env_map: &HashMap<String, String>
 const GOOSE_USER_AGENT: reqwest::header::HeaderValue =
     reqwest::header::HeaderValue::from_static(concat!("goose/", env!("CARGO_PKG_VERSION")));
 
+async fn presented_access_token(name: &str) -> Option<String> {
+    GooseCredentialStore::new(name.to_string())
+        .load()
+        .await
+        .ok()
+        .flatten()
+        .and_then(|stored| stored.token_response)
+        .map(|token| token.access_token().secret().to_string())
+}
+
 fn should_retry_legacy_after_empty_discover(
     result: &Result<McpClient, ClientInitializeError>,
     capabilities: &GooseMcpClientCapabilities,
@@ -882,10 +893,15 @@ struct OAuthStepUpClient {
     params: tokio::sync::RwLock<StreamableHttpConnectParams>,
     step_up_lock: tokio::sync::Mutex<()>,
     notification_subscribers: Arc<Mutex<Vec<mpsc::Sender<ServerNotification>>>>,
+    presented_access_token: tokio::sync::RwLock<Option<String>>,
 }
 
 impl OAuthStepUpClient {
-    async fn new(inner: McpClient, params: StreamableHttpConnectParams) -> Self {
+    async fn new(
+        inner: McpClient,
+        params: StreamableHttpConnectParams,
+        presented_access_token: Option<String>,
+    ) -> Self {
         let server_info = inner.get_info().cloned();
         let notification_subscribers = Arc::new(Mutex::new(Vec::new()));
         Self::forward_notifications(&inner, notification_subscribers.clone()).await;
@@ -895,6 +911,7 @@ impl OAuthStepUpClient {
             params: tokio::sync::RwLock::new(params),
             step_up_lock: tokio::sync::Mutex::new(()),
             notification_subscribers,
+            presented_access_token: tokio::sync::RwLock::new(presented_access_token),
         }
     }
 
@@ -916,11 +933,13 @@ impl OAuthStepUpClient {
         challenge: String,
     ) -> Result<(), crate::agents::mcp_client::Error> {
         let params = self.params.read().await;
+        let rejected_access_token = self.presented_access_token.read().await.clone();
         let auth_manager = oauth_flow_with_challenge(
             &params.uri,
             &params.name,
             params.static_oauth_client.as_ref(),
             Some(challenge),
+            rejected_access_token.as_deref(),
         )
         .await
         .map_err(|e| {
@@ -952,6 +971,7 @@ impl OAuthStepUpClient {
         })?;
         Self::forward_notifications(&client, self.notification_subscribers.clone()).await;
         *self.inner.write().await = client;
+        *self.presented_access_token.write().await = presented_access_token(&params.name).await;
         Ok(())
     }
 
@@ -1241,6 +1261,7 @@ async fn create_streamable_http_client(
         .await
         {
             Ok(auth_manager) => {
+                let presented = presented_access_token(name).await;
                 let auth_result = connect_with_auth(
                     auth_manager,
                     action_required.clone(),
@@ -1269,12 +1290,12 @@ async fn create_streamable_http_client(
                         );
                     } else {
                         return Ok(Box::new(
-                            OAuthStepUpClient::new(auth_result?, connect_params).await,
+                            OAuthStepUpClient::new(auth_result?, connect_params, presented).await,
                         ));
                     }
                 } else {
                     return Ok(Box::new(
-                        OAuthStepUpClient::new(auth_result?, connect_params).await,
+                        OAuthStepUpClient::new(auth_result?, connect_params, presented).await,
                     ));
                 }
             }
@@ -1328,10 +1349,12 @@ async fn create_streamable_http_client(
             &name.to_string(),
             static_oauth_client.as_ref(),
             challenge,
+            None,
         )
         .await
         {
             Ok(auth_manager) => {
+                let presented = presented_access_token(name).await;
                 let client = connect_with_auth(
                     auth_manager,
                     action_required,
@@ -1346,7 +1369,7 @@ async fn create_streamable_http_client(
                 )
                 .await?;
                 Ok(Box::new(
-                    OAuthStepUpClient::new(client, connect_params).await,
+                    OAuthStepUpClient::new(client, connect_params, presented).await,
                 ))
             }
             Err(e) => {
@@ -1359,7 +1382,7 @@ async fn create_streamable_http_client(
         }
     } else {
         Ok(Box::new(
-            OAuthStepUpClient::new(client_res?, connect_params).await,
+            OAuthStepUpClient::new(client_res?, connect_params, None).await,
         ))
     }
 }

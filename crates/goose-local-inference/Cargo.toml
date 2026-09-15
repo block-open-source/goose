@@ -51,7 +51,7 @@ uuid = { workspace = true, features = ["v4", "std"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 llama-cpp-2 = { workspace = true, features = ["sampler", "metal", "mtmd"] }
-safemlx = { default-features = false, features = ["accelerate", "metal", "safetensors"], optional = true, version = "0.1.2" }
+safemlx = { default-features = false, features = ["accelerate", "metal", "safetensors"], optional = true, version = "0.3.1" }
 safemlx-lm = { optional = true, version = "0.4.1" }
 safemlx-lm-utils = { optional = true, version = "0.1.2" }
 

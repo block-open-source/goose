@@ -5443,7 +5443,7 @@ dependencies = [
  "pulldown-cmark",
  "regex",
  "rmcp 3.3.0",
- "safemlx",
+ "safemlx 0.3.1",
  "safemlx-lm",
  "safemlx-lm-utils",
  "serde",
@@ -10705,13 +10705,36 @@ dependencies = [
  "num_enum",
  "parking_lot",
  "paste",
- "safemlx-internal-macros",
+ "safemlx-internal-macros 0.1.1",
  "safemlx-macros",
- "safemlx-sys",
+ "safemlx-sys 0.1.3",
  "safetensors 0.8.0",
  "smallvec",
  "strum 0.28.0",
  "thiserror 2.0.20",
+]
+
+[[package]]
+name = "safemlx"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1461dd83cb022c8e7b1652393e63b6d498f046e8349267ca91c6d819ea799889"
+dependencies = [
+ "bytemuck",
+ "half",
+ "libc",
+ "num-complex",
+ "num-traits",
+ "num_enum",
+ "parking_lot",
+ "paste",
+ "safemlx-internal-macros 0.2.0",
+ "safemlx-sys 0.2.3",
+ "safetensors 0.8.0",
+ "smallvec",
+ "strum 0.28.0",
+ "thiserror 2.0.20",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -10728,6 +10751,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "safemlx-internal-macros"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bb7bbf604fa6bcd0768ef7e3d5982b8821bf993263fbe351b935fa6b4673d80b"
+dependencies = [
+ "itertools 0.15.0",
+ "proc-macro2",
+ "quote",
+ "syn 3.0.5",
+]
+
+[[package]]
 name = "safemlx-lm"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10737,7 +10772,7 @@ dependencies = [
  "clap",
  "idna_adapter",
  "minijinja",
- "safemlx",
+ "safemlx 0.1.3",
  "safemlx-lm-utils",
  "serde",
  "serde_json",
@@ -10778,6 +10813,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5240fd4c15ee5c0ff377757f8643e2a555378b4fbd5d0ab1a810efc06f8fcd6c"
 dependencies = [
  "cc",
+ "cmake",
+]
+
+[[package]]
+name = "safemlx-sys"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0462b11b888a73d4e2adba3814952fcae5a8e8fb80795d2bd7c22df0ee5e576b"
+dependencies = [
  "cmake",
 ]
 

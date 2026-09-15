@@ -392,6 +392,50 @@ if [[ ":$PATH:" != *":$GOOSE_BIN_DIR:"* ]]; then
   else
     SHELL_NAME=$(basename "$SHELL")
 
+    # Appends an export line to a file only if that file does not already
+    # put $GOOSE_BIN_DIR on the PATH, so re-running the installer is idempotent.
+    add_path_line() {
+      file="$1"
+      line="$2"
+      mkdir -p "$(dirname "$file")"
+      if [ -f "$file" ] && grep -Fq "$GOOSE_BIN_DIR" "$file"; then
+        echo "$file already references $GOOSE_BIN_DIR, skipping."
+      else
+        echo "$line" >> "$file"
+        echo "Added \$GOOSE_BIN_DIR to $file"
+      fi
+    }
+
+    # Pick the file(s) to update for the user's login shell.
+    # POSIX_LOGIN_FILE is read by login shells, desktop launchers, ssh, cron;
+    # RC_FILE (when set) is read by interactive shells.
+    EXPORT_LINE="export PATH=\"$GOOSE_BIN_DIR:\$PATH\""
+    case "$SHELL_NAME" in
+    bash)
+      # An existing ~/.bash_profile suppresses ~/.profile for bash login shells.
+      if [ -f "$HOME/.bash_profile" ]; then
+        POSIX_LOGIN_FILE="$HOME/.bash_profile"
+      else
+        POSIX_LOGIN_FILE="$HOME/.profile"
+      fi
+      RC_FILE="$HOME/.bashrc"
+      ;;
+    zsh)
+      POSIX_LOGIN_FILE=""
+      RC_FILE="$HOME/.zshrc"
+      ;;
+    fish)
+      POSIX_LOGIN_FILE=""
+      RC_FILE="$HOME/.config/fish/config.fish"
+      EXPORT_LINE="fish_add_path \"$GOOSE_BIN_DIR\""
+      ;;
+    *)
+      # sh, dash, and anything else POSIX-ish: ~/.profile is the standard file.
+      POSIX_LOGIN_FILE="$HOME/.profile"
+      RC_FILE=""
+      ;;
+    esac
+
     echo ""
     echo "The \$GOOSE_BIN_DIR is not in your PATH."
 
@@ -414,16 +458,19 @@ if [[ ":$PATH:" != *":$GOOSE_BIN_DIR:"* ]]; then
 
       case "$choice" in
       1)
-        RC_FILE="$HOME/.${SHELL_NAME}rc"
-        echo "Adding \$GOOSE_BIN_DIR to $RC_FILE..."
-        echo "export PATH=\"$GOOSE_BIN_DIR:\$PATH\"" >> "$RC_FILE"
-        echo "Done! Reload your shell or run 'source $RC_FILE' to apply changes."
+        if [ -n "$POSIX_LOGIN_FILE" ]; then
+          add_path_line "$POSIX_LOGIN_FILE" "$EXPORT_LINE"
+        fi
+        if [ -n "$RC_FILE" ]; then
+          add_path_line "$RC_FILE" "$EXPORT_LINE"
+        fi
+        echo "Done! Start a new shell or log in again to apply changes."
         ;;
       2)
         echo ""
-        echo "Add it to your PATH by editing ~/.${SHELL_NAME}rc or similar:"
-        echo "    export PATH=\"$GOOSE_BIN_DIR:\$PATH\""
-        echo "Then reload your shell (e.g. 'source ~/.${SHELL_NAME}rc') to apply changes."
+        echo "Add it to your PATH by adding this line to ${POSIX_LOGIN_FILE:-$RC_FILE}:"
+        echo "    $EXPORT_LINE"
+        echo "Then start a new shell or log in again to apply changes."
         ;;
       *)
         echo "Invalid choice. Please add \$GOOSE_BIN_DIR to your PATH manually."

@@ -17,6 +17,10 @@ env:
   # Set this repository Actions variable to "true" in GitHub Settings > Secrets and variables
   # > Actions > Variables after a release containing desktop app-update.yml has shipped.
   ENABLE_MAC_NATIVE_AUTO_UPDATE: ${{ vars.ENABLE_MAC_NATIVE_AUTO_UPDATE || 'false' }}
+  # Publishes the Linux deb/rpm update manifests (latest-linux*.yml, vulkan-linux*.yml).
+  # Until enabled, deb/rpm installs fall back to a GitHub API check that can report
+  # a newer version but not install it.
+  ENABLE_LINUX_NATIVE_AUTO_UPDATE: ${{ vars.ENABLE_LINUX_NATIVE_AUTO_UPDATE || 'false' }}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -140,6 +144,42 @@ jobs:
         with:
           subject-path: latest-mac.yml
 
+      - name: Generate Linux (deb + rpm) update manifests
+        if: ${{ env.ENABLE_LINUX_NATIVE_AUTO_UPDATE == 'true' }}
+        # One manifest per arch and per variant; each lists both the .deb and the
+        # .rpm, and each updater picks its own extension. The vulkan variant shares
+        # the package name with the standard build, so it gets its own channel.
+        run: |
+          generate() {
+            local channel="$1" arch="$2" deb_glob="$3" rpm_glob="$4" out="$5"
+            local deb rpm
+            deb=$(ls -1 $deb_glob 2>/dev/null | head -n1 || true)
+            rpm=$(ls -1 $rpm_glob 2>/dev/null | head -n1 || true)
+            if [ -z "$deb" ] && [ -z "$rpm" ]; then
+              echo "No ${channel} .deb/.rpm asset for ${arch} found; skipping ${out}."
+              return 0
+            fi
+            local args=(--version "${GITHUB_REF_NAME}" --channel "$channel" --arch "$arch" --out "$out")
+            if [ -n "$deb" ]; then args+=(--deb "$deb"); fi
+            if [ -n "$rpm" ]; then args+=(--rpm "$rpm"); fi
+            node ui/desktop/scripts/generate-linux-update-manifest.js "${args[@]}"
+          }
+
+          generate latest x64   'goose_*_amd64.deb'        'Goose-*.x86_64.rpm'        latest-linux.yml
+          generate latest arm64 'goose_*_arm64.deb'        'Goose-*.arm64.rpm'         latest-linux-arm64.yml
+          generate vulkan x64   'goose_*_amd64-vulkan.deb' 'Goose-*.x86_64-vulkan.rpm' vulkan-linux.yml
+          generate vulkan arm64 'goose_*_arm64-vulkan.deb' 'Goose-*.arm64-vulkan.rpm'  vulkan-linux-arm64.yml
+
+      - name: Attest Linux (deb + rpm) update manifests
+        if: ${{ env.ENABLE_LINUX_NATIVE_AUTO_UPDATE == 'true' }}
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8  # v4.2.2
+        with:
+          subject-path: |
+            latest-linux.yml
+            latest-linux-arm64.yml
+            vulkan-linux.yml
+            vulkan-linux-arm64.yml
+
       - name: Attest build provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8  # v4.2.2
         with:
@@ -198,3 +238,18 @@ jobs:
         run: |
           gh release upload "${GITHUB_REF_NAME}" latest-mac.yml --clobber
           gh release upload stable latest-mac.yml --clobber
+
+      - name: Upload Linux (deb + rpm) update manifests
+        if: ${{ env.ENABLE_LINUX_NATIVE_AUTO_UPDATE == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # A manifest is only uploaded if its packages were built this run.
+          for f in latest-linux.yml latest-linux-arm64.yml vulkan-linux.yml vulkan-linux-arm64.yml; do
+            if [ -f "$f" ]; then
+              gh release upload "${GITHUB_REF_NAME}" "$f" --clobber
+              gh release upload stable "$f" --clobber
+            else
+              echo "::warning file=release.yml::$f was not generated; skipping upload"
+            fi
+          done

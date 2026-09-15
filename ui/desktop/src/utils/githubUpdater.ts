@@ -556,6 +556,16 @@ export class GitHubUpdater {
       }
 
       if (!downloadUrl) {
+        if (platform === 'linux' && process.env.FLATPAK_ID) {
+          throw new Error(
+            `Version ${latestVersion} is available. Flatpak installs update with "flatpak install --bundle"; download the new bundle from ${release.html_url}`
+          );
+        }
+        if (platform === 'linux') {
+          throw new Error(
+            `Version ${latestVersion} is available, but this Linux package cannot update itself. Download it from ${release.html_url}`
+          );
+        }
         throw new Error(
           `Update Available but no download URL found for platform: ${platform}, arch: ${arch}`
         );

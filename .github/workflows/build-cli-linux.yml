@@ -372,7 +372,28 @@ jobs:
         run: |
           source ./bin/activate-hermit
           cd ui/desktop
-          pnpm run make --platform=linux --arch="${ELECTRON_ARCH}"
+          pnpm run package --platform=linux --arch="${ELECTRON_ARCH}"
+
+          # electron-updater picks DebUpdater/RpmUpdater from resources/package-type;
+          # resources/update-channel is read by our autoUpdater.ts to select the
+          # manifest channel. Each package type is made from the same packaged app
+          # with its own markers. Flatpak has no updater and gets none.
+          resources="out/Goose-linux-${ELECTRON_ARCH}/resources"
+          make_target() {
+            local maker="$1" package_type="$2"
+            rm -f "${resources}/package-type" "${resources}/update-channel"
+            if [ -n "${package_type}" ]; then
+              printf '%s\n' "${package_type}" > "${resources}/package-type"
+              if [ "${GOOSE_DESKTOP_LINUX_VARIANT}" = "vulkan" ]; then
+                printf 'vulkan\n' > "${resources}/update-channel"
+              fi
+            fi
+            pnpm exec electron-forge make --skip-package --platform=linux \
+              --arch="${ELECTRON_ARCH}" --targets "@electron-forge/maker-${maker}"
+          }
+          make_target deb deb
+          make_target rpm rpm
+          make_target flatpak ""
 
           if [ "${GOOSE_DESKTOP_LINUX_VARIANT}" = "vulkan" ]; then
             for package in \
@@ -395,6 +416,29 @@ jobs:
           done
 
           find out/ -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.flatpak" \) -exec ls -lh {} \;
+
+      - name: Verify updater markers
+        env:
+          ELECTRON_ARCH: ${{ matrix.electron_arch }}
+          GOOSE_DESKTOP_LINUX_VARIANT: ${{ matrix.variant }}
+        run: |
+          cd ui/desktop
+          markers=(package-type)
+          if [ "${GOOSE_DESKTOP_LINUX_VARIANT}" = "vulkan" ]; then
+            markers+=(update-channel)
+          fi
+          for package in "out/make/deb/${ELECTRON_ARCH}/"*.deb; do
+            for marker in "${markers[@]}"; do
+              dpkg-deb -c "${package}" | grep -qE "/resources/${marker}( |\$)" \
+                || { echo "::error file=${package}::missing /resources/${marker}"; exit 1; }
+            done
+          done
+          for package in "out/make/rpm/${ELECTRON_ARCH}/"*.rpm; do
+            for marker in "${markers[@]}"; do
+              rpm -qlp "${package}" | grep -qE "/resources/${marker}\$" \
+                || { echo "::error file=${package}::missing /resources/${marker}"; exit 1; }
+            done
+          done
 
       - name: Upload .deb package
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1

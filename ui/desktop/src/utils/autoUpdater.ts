@@ -11,6 +11,7 @@ import {
 } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs/promises';
+import { existsSync, readFileSync } from 'fs';
 import log from './logger';
 import { githubUpdater } from './githubUpdater';
 import { loadRecentDirs } from './recentDirs';
@@ -65,6 +66,89 @@ export function registerUpdateIpcHandlers() {
   log.info('Registering update IPC handlers...');
   ipcUpdateHandlersRegistered = true;
 
+  // Returns the handler result so the renderer always leaves the 'checking' state.
+  const runGitHubFallback = async (
+    currentVersion: string,
+    reason: 'inactive' | 'error',
+    error?: unknown
+  ) => {
+    if (reason === 'error') {
+      log.info('Manual fallback triggered by error:', errorMessage(error, 'unknown'));
+    } else {
+      log.info('Manual fallback triggered: electron-updater returned null (no active updater)');
+    }
+    log.info('Using GitHub API fallback in check-for-updates...');
+    isUsingGitHubFallback = true;
+
+    try {
+      const result = await githubUpdater.checkForUpdates();
+
+      if (result.error) {
+        trackUpdateCheckCompleted('error', currentVersion, {
+          usingFallback: true,
+          errorType: result.error,
+        });
+        return {
+          updateInfo: null,
+          error: result.error,
+        };
+      }
+
+      // Store GitHub update info
+      if (result.updateAvailable) {
+        githubUpdateInfo = {
+          latestVersion: result.latestVersion,
+          downloadUrl: result.downloadUrl,
+          releaseUrl: result.releaseUrl,
+        };
+
+        trackUpdateCheckCompleted('available', currentVersion, {
+          latestVersion: result.latestVersion,
+          usingFallback: true,
+        });
+
+        updateAvailable = true;
+        lastUpdateState = { updateAvailable: true, latestVersion: result.latestVersion };
+        updateTrayIcon(true);
+        sendStatusToWindow('update-available', { version: result.latestVersion });
+
+        if (!autoDownloadDisabled) {
+          log.info('Auto-downloading update via GitHub fallback...');
+          await githubAutoDownload(result.downloadUrl!, result.latestVersion!, 'manual check');
+        } else {
+          log.info('Auto-download disabled — skipping GitHub fallback download');
+        }
+      } else {
+        trackUpdateCheckCompleted('not_available', currentVersion, {
+          latestVersion: result.latestVersion,
+          usingFallback: true,
+        });
+
+        updateAvailable = false;
+        lastUpdateState = { updateAvailable: false };
+        updateTrayIcon(false);
+        sendStatusToWindow('update-not-available', {
+          version: autoUpdater.currentVersion?.version ?? currentVersion,
+        });
+      }
+
+      return {
+        updateInfo: null,
+        error: null,
+      };
+    } catch (fallbackError) {
+      log.error('GitHub fallback also failed:', fallbackError);
+      trackUpdateCheckCompleted('error', currentVersion, {
+        usingFallback: true,
+        errorType: 'github_fallback_failed',
+      });
+      return {
+        updateInfo: null,
+        error: 'Unable to check for updates. Please check your internet connection.',
+      };
+    }
+  };
+
   // IPC handlers for renderer process
   ipcMain.handle('check-for-updates', async () => {
     const currentVersion = autoUpdater.currentVersion?.version || app.getVersion();
@@ -101,6 +185,20 @@ export function registerUpdateIpcHandlers() {
       log.info(`=== MANUAL UPDATE CHECK COMPLETED in ${duration}ms ===`);
       log.info('Auto-updater checkForUpdates result:', result);
 
+      // null means no updater is active for this install type (no package-type
+      // marker, no APPIMAGE env), not "up to date".
+      if (result === null) {
+        if (!app.isPackaged && !autoUpdater.forceDevUpdateConfig) {
+          log.info('Skipping GitHub fallback: updates are disabled in development builds');
+          return {
+            updateInfo: null,
+            error: 'Updates are disabled in development builds',
+          };
+        }
+        log.warn('electron-updater returned null; falling back to GitHub API updater');
+        return runGitHubFallback(currentVersion, 'inactive');
+      }
+
       return {
         updateInfo: result?.updateInfo,
         error: null,
@@ -128,77 +226,7 @@ export function registerUpdateIpcHandlers() {
           error.message.includes('ENOTFOUND') ||
           error.message.includes('No published versions'))
       ) {
-        log.info('Using GitHub API fallback in check-for-updates...');
-        log.info('Manual fallback triggered by error:', error.message);
-        isUsingGitHubFallback = true;
-
-        try {
-          const result = await githubUpdater.checkForUpdates();
-
-          if (result.error) {
-            trackUpdateCheckCompleted('error', currentVersion, {
-              usingFallback: true,
-              errorType: result.error,
-            });
-            return {
-              updateInfo: null,
-              error: result.error,
-            };
-          }
-
-          // Store GitHub update info
-          if (result.updateAvailable) {
-            githubUpdateInfo = {
-              latestVersion: result.latestVersion,
-              downloadUrl: result.downloadUrl,
-              releaseUrl: result.releaseUrl,
-            };
-
-            trackUpdateCheckCompleted('available', currentVersion, {
-              latestVersion: result.latestVersion,
-              usingFallback: true,
-            });
-
-            updateAvailable = true;
-            lastUpdateState = { updateAvailable: true, latestVersion: result.latestVersion };
-            updateTrayIcon(true);
-            sendStatusToWindow('update-available', { version: result.latestVersion });
-
-            if (!autoDownloadDisabled) {
-              log.info('Auto-downloading update via GitHub fallback...');
-              await githubAutoDownload(result.downloadUrl!, result.latestVersion!, 'manual check');
-            } else {
-              log.info('Auto-download disabled — skipping GitHub fallback download');
-            }
-          } else {
-            trackUpdateCheckCompleted('not_available', currentVersion, {
-              latestVersion: result.latestVersion,
-              usingFallback: true,
-            });
-
-            updateAvailable = false;
-            lastUpdateState = { updateAvailable: false };
-            updateTrayIcon(false);
-            sendStatusToWindow('update-not-available', {
-              version: autoUpdater.currentVersion.version,
-            });
-          }
-
-          return {
-            updateInfo: null,
-            error: null,
-          };
-        } catch (fallbackError) {
-          log.error('GitHub fallback also failed:', fallbackError);
-          trackUpdateCheckCompleted('error', currentVersion, {
-            usingFallback: true,
-            errorType: 'github_fallback_failed',
-          });
-          return {
-            updateInfo: null,
-            error: 'Unable to check for updates. Please check your internet connection.',
-          };
-        }
+        return runGitHubFallback(currentVersion, 'error', error);
       }
 
       trackUpdateCheckCompleted('error', currentVersion, {
@@ -340,15 +368,34 @@ export function setupAutoUpdater(tray?: Tray) {
   log.info(`Resources path: ${process.resourcesPath}`);
 
   // Set the feed URL for GitHub releases
+  // Inlined at build time by vite.main.config.mts, like githubUpdater's, so a build
+  // made with GITHUB_OWNER=<fork> points both updater paths at that fork's releases.
   const feedConfig = {
     provider: 'github' as const,
-    owner: 'aaif-goose',
-    repo: 'goose',
+    owner: process.env.GITHUB_OWNER || 'aaif-goose',
+    repo: process.env.GITHUB_REPO || 'goose',
     releaseType: 'release' as const,
   };
 
   log.info('Setting feed URL with config:', feedConfig);
   autoUpdater.setFeedURL(feedConfig);
+
+  // Package variants (e.g. vulkan) share a package name, so each follows its own manifest.
+  if (process.platform === 'linux') {
+    const channelFile = path.join(process.resourcesPath, 'update-channel');
+    if (existsSync(channelFile)) {
+      const channel = readFileSync(channelFile, 'utf8').trim();
+      // The channel becomes a manifest URL path segment; match the generator's rule.
+      if (channel && /^[a-z0-9]+$/.test(channel)) {
+        autoUpdater.channel = channel;
+        // The channel setter turns allowDowngrade on as a side effect.
+        autoUpdater.allowDowngrade = false;
+        log.info(`Update channel set from package marker: ${channel}`);
+      } else if (channel) {
+        log.warn(`Ignoring invalid update channel marker: ${JSON.stringify(channel)}`);
+      }
+    }
+  }
 
   // Log the feed URL after setting it
   try {
@@ -432,6 +479,9 @@ export function setupAutoUpdater(tray?: Tray) {
         const duration = Date.now() - checkStartTime;
         log.info(`=== STARTUP UPDATE CHECK COMPLETED in ${duration}ms ===`);
         log.info('Update check result:', result);
+        // A null result means no updater is active for this install type (no
+        // package-type marker). We intentionally do nothing on startup; the manual
+        // check surfaces the GitHub fallback when the user asks.
       })
       .catch((err) => {
         clearTimeout(timeoutWarning);
@@ -486,7 +536,11 @@ export function setupAutoUpdater(tray?: Tray) {
 
                 if (!autoDownloadDisabled) {
                   log.info('Auto-downloading update via GitHub fallback on startup...');
-                  await githubAutoDownload(result.downloadUrl!, result.latestVersion!, 'on startup');
+                  await githubAutoDownload(
+                    result.downloadUrl!,
+                    result.latestVersion!,
+                    'on startup'
+                  );
                 } else {
                   log.info('Auto-download disabled — skipping GitHub fallback download on startup');
                 }

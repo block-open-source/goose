@@ -140,7 +140,7 @@
     "@typescript-eslint/parser": "^8.67.0",
     "@vitejs/plugin-react": "^5.1.4",
     "@vitest/coverage-v8": "^4.1.10",
-    "@vitest/ui": "^4.1.10",
+    "@vitest/ui": "^5.0.0",
     "autoprefixer": "^10.5.4",
     "electron": "43.4.0",
     "electron-devtools-installer": "^4.0.0",

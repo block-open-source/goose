@@ -386,13 +386,6 @@ html[data-theme="light"] .hide-in-light {
   }
 }
 
-/* Shrink inkeep search box some on smaller screens */
-@media (max-width: 1450px) {
-  #inkeep {
-    max-width: 180px;
-  }
-}
-
 /* Ensure navbar items are visible above the breakpoint */
 @media (min-width: 997px) {
   .navbar__item {

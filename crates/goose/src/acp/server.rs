@@ -2091,12 +2091,31 @@ impl GooseAcpAgent {
         )
     }
 
+    async fn resolve_context_limit(
+        session: &Session,
+        agent: &Arc<Agent>,
+    ) -> Result<usize, agent_client_protocol::Error> {
+        let provider = agent
+            .provider()
+            .await
+            .internal_err_ctx("Failed to resolve session provider")?;
+        let model = session.model_config.as_ref().ok_or_else(|| {
+            agent_client_protocol::Error::internal_error().data("Session has no model")
+        })?;
+        crate::context_limit::get_context_limit(provider.as_ref(), &model.model_name)
+            .await
+            .internal_err_ctx("Failed to resolve context limit")
+    }
+
+    /// Updates sent during one turn share `cached_context_limit`, so the provider
+    /// limit is resolved once per turn rather than on every usage event.
     async fn send_session_usage_updates(
         &self,
         cx: &ConnectionTo<Client>,
         acp_session_id: &SessionId,
         session_id: &str,
         agent: &Arc<Agent>,
+        cached_context_limit: &mut Option<usize>,
     ) -> Result<Session, agent_client_protocol::Error> {
         let session = self
             .session_manager
@@ -2108,17 +2127,14 @@ impl GooseAcpAgent {
             .get_session_usage_totals(session_id)
             .await
             .unwrap_or_default();
-        let provider = agent
-            .provider()
-            .await
-            .internal_err_ctx("Failed to resolve session provider")?;
-        let model = session.model_config.as_ref().ok_or_else(|| {
-            agent_client_protocol::Error::internal_error().data("Session has no model")
-        })?;
-        let context_limit =
-            crate::context_limit::get_context_limit(provider.as_ref(), &model.model_name)
-                .await
-                .internal_err_ctx("Failed to resolve context limit")?;
+        let context_limit = match *cached_context_limit {
+            Some(limit) => limit,
+            None => {
+                let limit = Self::resolve_context_limit(&session, agent).await?;
+                *cached_context_limit = Some(limit);
+                limit
+            }
+        };
         let updates = build_usage_updates(&session, &totals, context_limit);
         if self.supports_goose_custom_notifications() {
             cx.send_notification(updates.custom)?;
@@ -2144,6 +2160,7 @@ impl GooseAcpAgent {
         let mut output_token_limit_reached = false;
         let mut tool_requests = HashMap::new();
         let mut chain_tracker = ToolChainTracker::default();
+        let mut context_limit = None;
         let target = SessionAgentTarget {
             agent: agent.clone(),
             session_id: session_id.to_string(),
@@ -2222,6 +2239,23 @@ impl GooseAcpAgent {
                                 message_id, &usage,
                             )),
                         })?;
+                    }
+                }
+                Ok(crate::agents::AgentEvent::Usage(_)) => {
+                    // Both agent loops persist usage before emitting this event. A failed
+                    // mid-turn update must not abort the turn; the end-of-turn update
+                    // still reports errors.
+                    if let Err(error) = self
+                        .send_session_usage_updates(
+                            cx,
+                            acp_session_id,
+                            session_id,
+                            agent,
+                            &mut context_limit,
+                        )
+                        .await
+                    {
+                        warn!(session_id, ?error, "Failed to send mid-turn usage update");
                     }
                 }
                 Ok(_) => {}
@@ -2356,7 +2390,7 @@ impl GooseAcpAgent {
         let outcome = stream_result?;
 
         let session = self
-            .send_session_usage_updates(cx, &args.session_id, &session_id, &agent)
+            .send_session_usage_updates(cx, &args.session_id, &session_id, &agent, &mut None)
             .await?;
 
         let stop_reason =

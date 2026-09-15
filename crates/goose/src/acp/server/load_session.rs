@@ -327,6 +327,7 @@ impl GooseAcpAgent {
                         &task_acp_session_id,
                         &task_session_id,
                         &task_agent,
+                        &mut None,
                     )
                     .await
                 {

@@ -3,16 +3,18 @@
 #[path = "acp_common_tests/mod.rs"]
 mod common_tests;
 use agent_client_protocol::schema::v1::{
-    ContentBlock, ListSessionsRequest, ListSessionsResponse, NewSessionRequest, PromptRequest,
-    SessionConfigKind, SessionConfigOptionCategory, SessionConfigOptionValue, SessionInfo,
-    SetSessionConfigOptionRequest, StopReason, TextContent,
+    ContentBlock, ListSessionsRequest, ListSessionsResponse, McpServer, McpServerHttp,
+    NewSessionRequest, PromptRequest, SessionConfigKind, SessionConfigOptionCategory,
+    SessionConfigOptionValue, SessionInfo, SessionUpdate, SetSessionConfigOptionRequest,
+    StopReason, TextContent,
 };
 use agent_client_protocol::ErrorCode;
 use common_tests::fixtures::server::{
     assert_session_response_precedes_available_commands, AcpServerConnection,
 };
 use common_tests::fixtures::{
-    run_test, spawn_acp_server_in_process, Connection, OpenAiFixture, Session, TestConnectionConfig,
+    run_test, spawn_acp_server_in_process, Connection, OpenAiFixture, PermissionDecision, Session,
+    SessionData, TestConnectionConfig,
 };
 #[cfg(feature = "code-mode")]
 use common_tests::run_prompt_codemode;
@@ -37,6 +39,7 @@ use goose::custom_requests::{
 use goose::recipe::{Recipe, Settings};
 use goose::recipe_deeplink;
 use goose::session::{SessionManager, SessionType};
+use goose_test_support::{McpFixture, FAKE_CODE};
 use std::path::Path;
 
 tests_config_option_set_error!(AcpServerConnection);
@@ -1207,6 +1210,92 @@ fn test_prompt_image_attachment() {
 #[test]
 fn test_prompt_mcp() {
     run_test(async { run_prompt_mcp::<AcpServerConnection>().await });
+}
+
+/// Selects the agent loop until dropped. Only use inside `run_test`: it holds the
+/// ACP test lock, so no other test in this binary observes the override.
+struct AgentLoopOverride(Option<std::ffi::OsString>);
+
+impl AgentLoopOverride {
+    fn new(state_machine: bool) -> Self {
+        let previous = std::env::var_os("GOOSE_STATE_MACHINE");
+        std::env::set_var("GOOSE_STATE_MACHINE", if state_machine { "1" } else { "0" });
+        Self(previous)
+    }
+}
+
+impl Drop for AgentLoopOverride {
+    fn drop(&mut self) {
+        match self.0.take() {
+            Some(previous) => std::env::set_var("GOOSE_STATE_MACHINE", previous),
+            None => std::env::remove_var("GOOSE_STATE_MACHINE"),
+        }
+    }
+}
+
+/// Two provider calls separated by a tool call. The canned responses report 2469
+/// and then 2631 total tokens, so 2469 can only arrive in an update sent while
+/// the prompt is still running.
+async fn assert_usage_updates_during_prompt(state_machine: bool) {
+    let _agent_loop = AgentLoopOverride::new(state_machine);
+    let prompt = "Use the get_code tool and output only its result.";
+    let mcp = McpFixture::new().await;
+    let openai = OpenAiFixture::new(
+        vec![
+            (
+                prompt.to_string(),
+                include_str!("acp_test_data/openai_tool_call.txt"),
+            ),
+            (
+                FAKE_CODE.to_string(),
+                include_str!("acp_test_data/openai_tool_result.txt"),
+            ),
+        ],
+        <AcpServerConnection as Connection>::expected_session_id(),
+    )
+    .await;
+    let config = TestConnectionConfig {
+        mcp_servers: vec![McpServer::Http(McpServerHttp::new("mcp-fixture", &mcp.url))],
+        ..Default::default()
+    };
+    let mut conn = <AcpServerConnection as Connection>::new(config, openai).await;
+    let SessionData { mut session, .. } = conn.new_session().await.unwrap();
+
+    let output = session
+        .prompt(prompt, PermissionDecision::Cancel)
+        .await
+        .unwrap();
+
+    let mut used = Vec::new();
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
+    while used.len() < 3 && tokio::time::Instant::now() < deadline {
+        used.extend(
+            session
+                .session_updates()
+                .into_iter()
+                .filter_map(|update| match update {
+                    SessionUpdate::UsageUpdate(usage) => Some(usage.used),
+                    _ => None,
+                }),
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert_eq!(
+        used,
+        [2469, 2631, 2631],
+        "state_machine={state_machine}, agent text: {}",
+        output.text
+    );
+}
+
+#[test]
+fn test_prompt_usage_updates_during_turn_legacy_loop() {
+    run_test(async { assert_usage_updates_during_prompt(false).await });
+}
+
+#[test]
+fn test_prompt_usage_updates_during_turn_state_machine() {
+    run_test(async { assert_usage_updates_during_prompt(true).await });
 }
 
 #[test]

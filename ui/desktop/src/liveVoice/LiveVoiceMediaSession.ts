@@ -94,6 +94,24 @@ export class LiveVoiceMediaSession {
     }
   }
 
+  sendCommentary(text: string): void {
+    const content = text.trim();
+    if (this.tornDown || !content || this.dataChannel?.readyState !== 'open') return;
+
+    try {
+      this.dataChannel.send(
+        JSON.stringify({
+          type: 'session.commentary.append',
+          event_id: `event_${crypto.randomUUID()}`,
+          delegation_id: null,
+          content,
+        })
+      );
+    } catch {
+      // Greeting failure must not end an otherwise healthy Live call.
+    }
+  }
+
   hasRemoteTrack(): boolean {
     return this.remoteStream !== null;
   }

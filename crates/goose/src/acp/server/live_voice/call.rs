@@ -5,7 +5,7 @@ use rmcp::model::Role;
 use std::collections::HashSet;
 use uuid::Uuid;
 
-const DELEGATION_INSTRUCTION: &str =
+pub(super) const DELEGATION_INSTRUCTION: &str =
     "Based on this conversation, identify and complete the user's request.";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -132,44 +132,35 @@ impl LiveVoiceCall {
             );
         }
 
-        let fragment_indexes = self
+        let fragments = self
             .transcript_fragments
             .iter()
-            .enumerate()
-            .filter(|(_, fragment)| fragment.end_ms <= offset_ms)
-            .map(|(index, _)| index)
+            .filter(|fragment| fragment.end_ms <= offset_ms)
             .collect::<Vec<_>>();
-        if !fragment_indexes.iter().any(|index| {
-            let fragment = &self.transcript_fragments[*index];
-            fragment.role == Role::User && !fragment.text.trim().is_empty()
-        }) {
+        if !fragments
+            .iter()
+            .any(|fragment| fragment.role == Role::User && !fragment.text.trim().is_empty())
+        {
             return DelegationDecision::Reject("I couldn't identify a request to complete.".into());
         }
 
-        let mut input = String::from("Live conversation context:\n");
-        let mut previous_role = None;
-        for index in &fragment_indexes {
-            let fragment = &self.transcript_fragments[*index];
-            if previous_role == Some(&fragment.role) {
-                input.push_str(&fragment.text);
-            } else {
-                if previous_role.is_some() {
-                    input.push('\n');
-                }
-                input.push_str(speaker(&fragment.role));
-                input.push_str(": ");
-                input.push_str(fragment.text.trim_start());
-                previous_role = Some(&fragment.role);
-            }
-        }
-        if previous_role.is_some() {
-            input.push('\n');
-        }
-        input.push_str(DELEGATION_INSTRUCTION);
+        let input = format_transcript(fragments, Some(DELEGATION_INSTRUCTION))
+            .expect("accepted delegation contains transcript");
+        DelegationDecision::Accept(input)
+    }
+
+    pub(super) fn accept_delegation(&mut self, offset_ms: u64) {
         self.transcript_fragments
             .retain(|fragment| fragment.end_ms > offset_ms);
         self.last_delegation_offset_ms = Some(offset_ms);
-        DelegationDecision::Accept(input)
+    }
+
+    pub(super) fn clear_pending_transcript(&mut self) {
+        self.transcript_fragments.clear();
+    }
+
+    pub(super) fn pending_transcript_context(&self) -> Option<String> {
+        format_transcript(&self.transcript_fragments, None)
     }
 
     pub(super) async fn send_delegation_update(
@@ -190,6 +181,33 @@ impl LiveVoiceCall {
     }
 }
 
+fn format_transcript<'a>(
+    fragments: impl IntoIterator<Item = &'a TranscriptFragment>,
+    instruction: Option<&str>,
+) -> Option<String> {
+    let mut input = String::from("Live conversation context:\n");
+    let mut previous_role = None;
+    for fragment in fragments {
+        if previous_role.as_ref() == Some(&fragment.role) {
+            input.push_str(&fragment.text);
+        } else {
+            if previous_role.is_some() {
+                input.push('\n');
+            }
+            input.push_str(speaker(&fragment.role));
+            input.push_str(": ");
+            input.push_str(fragment.text.trim_start());
+            previous_role = Some(fragment.role.clone());
+        }
+    }
+    previous_role?;
+    if let Some(instruction) = instruction {
+        input.push('\n');
+        input.push_str(instruction);
+    }
+    Some(input)
+}
+
 fn speaker(role: &Role) -> &'static str {
     match role {
         Role::User => "User",
@@ -201,7 +219,6 @@ fn live_transcript_message(role: Role, text: String) -> Message {
     Message::new(role, Utc::now().timestamp(), vec![])
         .with_id(format!("msg_live_{}", Uuid::now_v7()))
         .with_text(text)
-        .user_only()
 }
 
 fn transcript_delta_message(message: &Message, text: &str) -> Message {
@@ -279,9 +296,10 @@ mod tests {
         else {
             panic!("delegation should be accepted");
         };
-        assert!(input.contains("User: do this\n"));
+        assert!(input.contains("GPT-Live: ready\nUser: do this\n"));
         assert!(!input.contains("crossing"));
         assert!(!input.contains("later"));
+        call.accept_delegation(20);
         assert_eq!(
             call.transcript.as_ref().unwrap().as_concat_text(),
             open_transcript
@@ -298,8 +316,9 @@ mod tests {
             panic!("continuation should be accepted");
         };
         assert!(continuation.contains("User: late detail\n"));
-        assert!(!continuation.contains("prior context"));
+        assert!(!continuation.contains("ready"));
         assert!(!continuation.contains("do this"));
+        call.accept_delegation(20);
 
         assert!(matches!(
             call.delegation_input("event-3".into(), "delegation-3".into(), 19),
@@ -313,8 +332,9 @@ mod tests {
             panic!("later continuation should be accepted");
         };
         assert!(next.contains("GPT-Live: crossinglater\nUser: again\n"));
-        assert!(!next.contains("prior context"));
+        assert!(!next.contains("ready"));
         assert!(!next.contains("late detail"));
+        call.accept_delegation(50);
 
         let mut missing_user = LiveVoiceCall::new(
             "test-session".into(),
@@ -329,6 +349,29 @@ mod tests {
     }
 
     #[test]
+    fn pending_context_has_no_action_instruction_and_can_be_cleared() {
+        let mut call = LiveVoiceCall::new(
+            "test-session".into(),
+            LiveVoiceCallId("live-test".into()),
+            Box::new(TestConnection { stopped: None }),
+        );
+        call.observe_transcript("1".into(), Role::Assistant, "Anything else?", 10);
+        call.observe_transcript("2".into(), Role::User, "No thanks", 20);
+
+        let context = call.pending_transcript_context().unwrap();
+        assert_eq!(
+            context,
+            "Live conversation context:\nGPT-Live: Anything else?\nUser: No thanks"
+        );
+        assert!(!context.contains(DELEGATION_INSTRUCTION));
+        assert_eq!(call.pending_transcript_context().unwrap(), context);
+
+        call.observe_transcript("3".into(), Role::User, "Already shared", 30);
+        call.clear_pending_transcript();
+        assert!(call.pending_transcript_context().is_none());
+    }
+
+    #[test]
     fn transcript_grouping_projects_deltas_and_finalizes_messages() {
         let mut call = LiveVoiceCall::new(
             "test-session".into(),
@@ -340,7 +383,7 @@ mod tests {
             .unwrap();
         assert!(first.0.is_none());
         assert!(first.1.is_user_visible());
-        assert!(!first.1.is_agent_visible());
+        assert!(first.1.is_agent_visible());
         let message_id = first.1.id.clone();
         let second = call
             .observe_transcript("2".into(), Role::User, " world", 20)

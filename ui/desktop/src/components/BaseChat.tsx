@@ -40,6 +40,8 @@ import type { LiveVoiceStatus as LiveVoiceAvailability } from '@aaif/goose-sdk';
 import { acpGetLiveVoiceAvailability } from '../acp/liveVoice';
 import { useLiveVoice } from '../liveVoice/useLiveVoice';
 
+const NEW_LIVE_VOICE_GREETING = 'Hello! What can I help you with?';
+
 const i18n = defineMessages({
   failedToLoadSession: {
     id: 'baseChat.failedToLoadSession',
@@ -92,6 +94,7 @@ export default function BaseChat({
   const scrollRef = useRef<ScrollAreaHandle>(null);
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
   const disableAnimation = location.state?.disableAnimation || false;
+  const shouldStartLiveVoice = location.state?.startLiveVoice === true;
   const [hasStartedUsingRecipe, setHasStartedUsingRecipe] = React.useState(false);
   const [hasNotAcceptedRecipe, setHasNotAcceptedRecipe] = useState<boolean>();
   const [hasRecipeSecurityWarnings, setHasRecipeSecurityWarnings] = useState(false);
@@ -126,6 +129,7 @@ export default function BaseChat({
     notifications: toolCallNotifications,
     pauseQueueOnStop,
     queueProcessingBlocked,
+    hasActiveRun,
     onMessageUpdate,
   } = useChatSession({
     sessionId,
@@ -138,6 +142,28 @@ export default function BaseChat({
 
   const sessionLoaded = session !== undefined;
   const liveVoiceChatBusy = chatState !== ChatState.Idle;
+
+  useEffect(() => {
+    if (!isActiveSession || !shouldStartLiveVoice || liveVoiceAvailability === null) {
+      return;
+    }
+
+    if (liveVoiceAvailability === 'ready') {
+      void liveVoice.start(NEW_LIVE_VOICE_GREETING);
+    }
+
+    navigate(location, {
+      replace: true,
+      state: { ...location.state, startLiveVoice: undefined },
+    });
+  }, [
+    isActiveSession,
+    shouldStartLiveVoice,
+    liveVoiceAvailability,
+    liveVoice.start,
+    location,
+    navigate,
+  ]);
 
   useEffect(() => {
     if (!isActiveSession || !sessionLoaded || acpRecovering) {
@@ -164,6 +190,7 @@ export default function BaseChat({
     };
   }, [
     acpRecovering,
+    hasActiveRun,
     isActiveSession,
     liveVoiceChatBusy,
     session?.goose_mode,
@@ -555,6 +582,7 @@ export default function BaseChat({
             sessionId={sessionId}
             handleSubmit={chatInputSubmit}
             chatState={chatState}
+            hasActiveRun={hasActiveRun}
             onStop={stopStreaming}
             onSteerQueuedMessage={onSteerQueuedMessage}
             pauseQueueOnStop={pauseQueueOnStop}

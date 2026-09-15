@@ -1,4 +1,4 @@
-use super::call::{DelegationDecision, LiveVoiceCall, LiveVoiceCallId};
+use super::call::{DelegationDecision, LiveVoiceCall, LiveVoiceCallId, DELEGATION_INSTRUCTION};
 use crate::acp::server::ActiveRunRegistry;
 use crate::config::GooseMode;
 use crate::conversation::message::{Message, MessageContent};
@@ -18,6 +18,7 @@ use std::{
 };
 use tokio::{sync::watch, time::timeout};
 use tokio_util::sync::CancellationToken;
+use uuid::Uuid;
 
 const PROVIDER_CLEANUP_TIMEOUT: Duration = Duration::from_secs(20);
 const LIVE_VOICE_INPUT_MESSAGE_COUNT: usize = 10;
@@ -38,6 +39,17 @@ pub(super) enum LiveVoiceDelegationCommand {
 struct PendingDelegation {
     provider_delegation_id: String,
     future: BoxFuture<'static, String>,
+}
+
+struct BackgroundFinalization {
+    delegation: BoxFuture<'static, String>,
+    deferred_transcript: Vec<Message>,
+    pending_context: Option<String>,
+}
+
+struct LiveCallExit {
+    completion: LiveVoiceCallCompletion,
+    background_finalization: Option<BackgroundFinalization>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -76,7 +88,7 @@ pub(super) enum LiveVoiceError {
 
 /// Control side of the task that exclusively owns `LiveVoiceCall`.
 struct LiveCallControl {
-    _run_guard: LiveRunGuard,
+    run_guard: LiveRunGuard,
     call_id: LiveVoiceCallId,
     stop_requested: CancellationToken,
     completion_rx: watch::Receiver<Option<LiveVoiceCallCompletion>>,
@@ -184,7 +196,7 @@ impl LiveVoiceService {
         calls.insert(
             session_id.to_string(),
             LiveCallControl {
-                _run_guard: run_guard,
+                run_guard,
                 call_id: call_id.clone(),
                 stop_requested: stop_requested.clone(),
                 completion_rx: completion_rx.clone(),
@@ -285,7 +297,7 @@ fn spawn_live_call(
 ) {
     tokio::spawn(async move {
         let session_id = call.session_id().to_string();
-        let completion = run_live_call(
+        let exit = run_live_call(
             &mut call,
             stop_requested,
             &session_id,
@@ -295,12 +307,25 @@ fn spawn_live_call(
         )
         .await;
         let call_id = call.id().clone();
-        remove_matching_call(&calls_by_session, &session_id, &call_id);
-        completion_tx.send_replace(Some(completion));
+        let control = remove_matching_call(&calls_by_session, &session_id, &call_id);
+        let run_guard = control.map(|control| control.run_guard);
+        if let Some(finalization) = exit.background_finalization {
+            let manager = session_manager.clone();
+            let finalization_session_id = session_id.clone();
+            tokio::spawn(async move {
+                let _run_guard = run_guard;
+                finalization
+                    .finish(&manager, &finalization_session_id)
+                    .await;
+            });
+        } else {
+            drop(run_guard);
+        }
+        completion_tx.send_replace(Some(exit.completion));
         call_ended_handler(LiveVoiceCallEnded {
             session_id,
             call_id,
-            completion,
+            completion: exit.completion,
         });
     });
 }
@@ -312,9 +337,10 @@ async fn run_live_call(
     session_manager: &SessionManager,
     transcript_handler: &(dyn Fn(Message) + Send + Sync),
     delegation_handler: LiveVoiceDelegationHandler,
-) -> LiveVoiceCallCompletion {
+) -> LiveCallExit {
     let mut stopping = false;
     let mut pending_delegation: Option<PendingDelegation> = None;
+    let mut deferred_transcript = Vec::new();
     loop {
         let event = if stopping {
             call.next_provider_event().await
@@ -322,20 +348,21 @@ async fn run_live_call(
             tokio::select! {
                 biased;
                 _ = stop_requested.cancelled() => {
-                    continue_delegation_in_background(&mut pending_delegation);
                     match timeout(PROVIDER_CLEANUP_TIMEOUT, call.cleanup_provider()).await {
                         Ok(Ok(())) => {
                             stopping = true;
                             continue;
                         }
                         _ => {
-                            let _ = persist_transcript(
+                            return finish_live_call(
+                                call,
                                 session_manager,
                                 session_id,
-                                call.take_transcript(),
+                                pending_delegation.take(),
+                                &mut deferred_transcript,
+                                LiveVoiceCallCompletion::Failed,
                             )
                             .await;
-                            return LiveVoiceCallCompletion::Failed;
                         }
                     }
                 }
@@ -346,6 +373,20 @@ async fn run_live_call(
                     pending.future.as_mut().await
                 }, if pending_delegation.is_some() => {
                     let pending = pending_delegation.take().expect("delegation is pending");
+                    defer_transcript(&mut deferred_transcript, call.take_transcript());
+                    let pending_context = call.pending_transcript_context();
+                    if persist_running_transcript(
+                        session_manager,
+                        session_id,
+                        std::mem::take(&mut deferred_transcript),
+                        pending_context,
+                    )
+                    .await
+                    .is_err()
+                    {
+                        let _ = timeout(PROVIDER_CLEANUP_TIMEOUT, call.cleanup_provider()).await;
+                        return LiveCallExit::failed();
+                    }
                     if call
                         .send_delegation_update(
                             pending.provider_delegation_id,
@@ -355,13 +396,7 @@ async fn run_live_call(
                         .is_err()
                     {
                         let _ = timeout(PROVIDER_CLEANUP_TIMEOUT, call.cleanup_provider()).await;
-                        let _ = persist_transcript(
-                            session_manager,
-                            session_id,
-                            call.take_transcript(),
-                        )
-                        .await;
-                        return LiveVoiceCallCompletion::Failed;
+                        return LiveCallExit::failed();
                     }
                     continue;
                 }
@@ -381,16 +416,17 @@ async fn run_live_call(
                     call.observe_transcript(event_id, role, &text, end_ms)
                 {
                     transcript_handler(delta);
-                    if persist_transcript(session_manager, session_id, finalized)
+                    if pending_delegation.is_some() {
+                        defer_transcript(&mut deferred_transcript, finalized);
+                    } else if persist_transcript(session_manager, session_id, finalized)
                         .await
                         .is_err()
                     {
-                        continue_delegation_in_background(&mut pending_delegation);
                         if !stopping {
                             let _ =
                                 timeout(PROVIDER_CLEANUP_TIMEOUT, call.cleanup_provider()).await;
                         }
-                        return LiveVoiceCallCompletion::Failed;
+                        return LiveCallExit::failed();
                     }
                 }
             }
@@ -407,10 +443,15 @@ async fn run_live_call(
                         .is_err()
                     {
                         let _ = timeout(PROVIDER_CLEANUP_TIMEOUT, call.cleanup_provider()).await;
-                        let _ =
-                            persist_transcript(session_manager, session_id, call.take_transcript())
-                                .await;
-                        return LiveVoiceCallCompletion::Failed;
+                        return finish_live_call(
+                            call,
+                            session_manager,
+                            session_id,
+                            pending_delegation.take(),
+                            &mut deferred_transcript,
+                            LiveVoiceCallCompletion::Failed,
+                        )
+                        .await;
                     }
                 }
                 DelegationDecision::Accept(input) => {
@@ -420,6 +461,7 @@ async fn run_live_call(
                             LiveVoiceDelegationCommand::Steer { input },
                         )
                         .await;
+                        call.accept_delegation(offset_ms);
                         if call
                             .send_delegation_update(
                                 delegation_id,
@@ -428,59 +470,165 @@ async fn run_live_call(
                             .await
                             .is_err()
                         {
-                            continue_delegation_in_background(&mut pending_delegation);
                             let _ =
                                 timeout(PROVIDER_CLEANUP_TIMEOUT, call.cleanup_provider()).await;
-                            let _ = persist_transcript(
+                            return finish_live_call(
+                                call,
                                 session_manager,
                                 session_id,
-                                call.take_transcript(),
+                                pending_delegation.take(),
+                                &mut deferred_transcript,
+                                LiveVoiceCallCompletion::Failed,
                             )
                             .await;
-                            return LiveVoiceCallCompletion::Failed;
                         }
                         continue;
                     }
+                    if persist_transcript(session_manager, session_id, call.take_transcript())
+                        .await
+                        .is_err()
+                    {
+                        if !stopping {
+                            let _ =
+                                timeout(PROVIDER_CLEANUP_TIMEOUT, call.cleanup_provider()).await;
+                        }
+                        return LiveCallExit::failed();
+                    }
                     let future = delegation_handler(
                         session_id.to_string(),
-                        LiveVoiceDelegationCommand::Start { input },
+                        LiveVoiceDelegationCommand::Start {
+                            input: DELEGATION_INSTRUCTION.into(),
+                        },
                     );
                     pending_delegation = Some(PendingDelegation {
                         provider_delegation_id: delegation_id,
                         future,
                     });
+                    call.accept_delegation(offset_ms);
+                    call.clear_pending_transcript();
                 }
             },
             ProviderConnectionEvent::Closed => {
-                continue_delegation_in_background(&mut pending_delegation);
-                let persisted =
-                    persist_transcript(session_manager, session_id, call.take_transcript())
-                        .await
-                        .is_ok();
-                return if stopping && persisted {
+                let completion = if stopping {
                     LiveVoiceCallCompletion::Stopped
                 } else {
                     LiveVoiceCallCompletion::Failed
                 };
+                return finish_live_call(
+                    call,
+                    session_manager,
+                    session_id,
+                    pending_delegation.take(),
+                    &mut deferred_transcript,
+                    completion,
+                )
+                .await;
             }
             ProviderConnectionEvent::ReceiverLagged | ProviderConnectionEvent::Failed => {
-                continue_delegation_in_background(&mut pending_delegation);
-                let _ =
-                    persist_transcript(session_manager, session_id, call.take_transcript()).await;
                 if !stopping {
                     let _ = timeout(PROVIDER_CLEANUP_TIMEOUT, call.cleanup_provider()).await;
                 }
-                return LiveVoiceCallCompletion::Failed;
+                return finish_live_call(
+                    call,
+                    session_manager,
+                    session_id,
+                    pending_delegation.take(),
+                    &mut deferred_transcript,
+                    LiveVoiceCallCompletion::Failed,
+                )
+                .await;
             }
         }
     }
 }
 
-fn continue_delegation_in_background(pending: &mut Option<PendingDelegation>) {
-    let Some(PendingDelegation { future, .. }) = pending.take() else {
-        return;
-    };
-    tokio::spawn(future);
+impl LiveCallExit {
+    fn failed() -> Self {
+        Self {
+            completion: LiveVoiceCallCompletion::Failed,
+            background_finalization: None,
+        }
+    }
+}
+
+impl BackgroundFinalization {
+    async fn finish(self, session_manager: &SessionManager, session_id: &str) {
+        let Self {
+            delegation,
+            deferred_transcript,
+            pending_context,
+        } = self;
+        let _ = delegation.await;
+        let _ = persist_running_transcript(
+            session_manager,
+            session_id,
+            deferred_transcript,
+            pending_context,
+        )
+        .await;
+    }
+}
+
+async fn finish_live_call(
+    call: &mut LiveVoiceCall,
+    session_manager: &SessionManager,
+    session_id: &str,
+    pending_delegation: Option<PendingDelegation>,
+    deferred_transcript: &mut Vec<Message>,
+    completion: LiveVoiceCallCompletion,
+) -> LiveCallExit {
+    if let Some(pending_delegation) = pending_delegation {
+        defer_transcript(deferred_transcript, call.take_transcript());
+        return LiveCallExit {
+            completion,
+            background_finalization: Some(BackgroundFinalization {
+                delegation: pending_delegation.future,
+                deferred_transcript: std::mem::take(deferred_transcript),
+                pending_context: call.pending_transcript_context(),
+            }),
+        };
+    }
+
+    let persisted = persist_transcript(session_manager, session_id, call.take_transcript())
+        .await
+        .is_ok();
+    LiveCallExit {
+        completion: if persisted {
+            completion
+        } else {
+            LiveVoiceCallCompletion::Failed
+        },
+        background_finalization: None,
+    }
+}
+
+fn defer_transcript(deferred_transcript: &mut Vec<Message>, message: Option<Message>) {
+    if let Some(message) = message {
+        deferred_transcript.push(message.user_only());
+    }
+}
+
+async fn persist_running_transcript(
+    session_manager: &SessionManager,
+    session_id: &str,
+    deferred_transcript: Vec<Message>,
+    pending_context: Option<String>,
+) -> anyhow::Result<()> {
+    for message in deferred_transcript {
+        session_manager.add_message(session_id, &message).await?;
+    }
+    if let Some(context) = pending_context {
+        session_manager
+            .add_message(
+                session_id,
+                &Message::user()
+                    .with_id(format!("msg_live_context_{}", Uuid::now_v7()))
+                    .with_text(context)
+                    .agent_only(),
+            )
+            .await?;
+    }
+    Ok(())
 }
 
 async fn bound_delegation_update(text: String) -> String {
@@ -526,13 +674,15 @@ fn remove_matching_call(
     calls_by_session: &LiveCallControls,
     session_id: &str,
     call_id: &LiveVoiceCallId,
-) {
+) -> Option<LiveCallControl> {
     let mut calls = calls_by_session.lock().expect("live voice lock poisoned");
     if matches!(
         calls.get(session_id),
         Some(control) if &control.call_id == call_id
     ) {
-        calls.remove(session_id);
+        calls.remove(session_id)
+    } else {
+        None
     }
 }
 

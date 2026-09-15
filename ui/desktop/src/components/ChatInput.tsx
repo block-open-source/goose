@@ -43,7 +43,7 @@ import TurndownService from 'turndown';
 import type { NextChatExtensionDraft } from '../utils/nextChatExtensions';
 import { LiveVoiceButton } from './LiveVoiceButton';
 import type { LiveVoiceStatus as LiveVoiceAvailability } from '@aaif/goose-sdk';
-import type { LiveVoiceController } from '../liveVoice/useLiveVoice';
+import { isLiveVoiceActive, type LiveVoiceController } from '../liveVoice/useLiveVoice';
 
 const turndown = new TurndownService({
   headingStyle: 'atx',
@@ -170,6 +170,7 @@ interface ChatInputProps {
   sessionId: string | null;
   handleSubmit: (input: UserInput) => void;
   chatState: ChatState;
+  hasActiveRun: boolean;
   onStop?: () => void;
   onSteerQueuedMessage?: (input: UserInput) => Promise<boolean>;
   pauseQueueOnStop?: boolean;
@@ -213,6 +214,7 @@ export default function ChatInput({
   sessionId,
   handleSubmit,
   chatState = ChatState.Idle,
+  hasActiveRun,
   onStop,
   onSteerQueuedMessage,
   pauseQueueOnStop = false,
@@ -267,17 +269,14 @@ export default function ChatInput({
 
   // Derived state - chatState != Idle means we're in some form of loading state
   const isLoading = chatState !== ChatState.Idle;
-  const liveVoiceOwnsChat =
-    liveVoice?.phase === 'connecting' ||
-    liveVoice?.phase === 'live' ||
-    liveVoice?.phase === 'stopping';
-  const isLoadingRef = useRef(isLoading);
-
+  const isSubmissionBusy = isLoading || hasActiveRun;
+  const liveVoiceActive = liveVoice ? isLiveVoiceActive(liveVoice.phase) : false;
+  const isSubmissionBusyRef = useRef(isSubmissionBusy);
   const composerDir = useMemo(() => getTextDirection(displayValue) ?? undefined, [displayValue]);
   const queueProcessingBlockedRef = useRef(queueProcessingBlocked);
-  const wasLoadingRef = useRef(isLoading);
+  const wasSubmissionBusyRef = useRef(isSubmissionBusy);
   const wasQueueProcessingBlockedRef = useRef(queueProcessingBlocked);
-  isLoadingRef.current = isLoading;
+  isSubmissionBusyRef.current = isSubmissionBusy;
   queueProcessingBlockedRef.current = queueProcessingBlocked;
 
   // Queue functionality - ephemeral, only exists in memory for this chat instance
@@ -408,12 +407,12 @@ export default function ChatInput({
 
   // Queue processing
   useEffect(() => {
-    const becameIdle = wasLoadingRef.current && !isLoading;
+    const becameAvailable = wasSubmissionBusyRef.current && !isSubmissionBusy;
     const becameUnblocked = wasQueueProcessingBlockedRef.current && !queueProcessingBlocked;
     const hasSendNowInFlight = sendNowInFlightMessageIdsRef.current.size > 0;
 
     if (
-      (becameIdle || (becameUnblocked && !isLoading)) &&
+      (becameAvailable || (becameUnblocked && !isSubmissionBusy)) &&
       !queueProcessingBlocked &&
       !hasSendNowInFlight &&
       queuedMessages.length > 0
@@ -425,13 +424,13 @@ export default function ChatInput({
 
       if (pendingSendAfterStopId && !messageToSend) {
         clearPendingSendAfterStop(pendingSendAfterStopId);
-        wasLoadingRef.current = isLoading;
+        wasSubmissionBusyRef.current = isSubmissionBusy;
         wasQueueProcessingBlockedRef.current = queueProcessingBlocked;
         return;
       }
 
       if (!messageToSend) {
-        wasLoadingRef.current = isLoading;
+        wasSubmissionBusyRef.current = isSubmissionBusy;
         wasQueueProcessingBlockedRef.current = queueProcessingBlocked;
         return;
       }
@@ -467,10 +466,10 @@ export default function ChatInput({
         }
       }
     }
-    wasLoadingRef.current = isLoading;
+    wasSubmissionBusyRef.current = isSubmissionBusy;
     wasQueueProcessingBlockedRef.current = queueProcessingBlocked;
   }, [
-    isLoading,
+    isSubmissionBusy,
     queueProcessingBlocked,
     queuedMessages,
     handleSubmit,
@@ -1089,14 +1088,14 @@ export default function ChatInput({
   };
 
   const handleInterruptionAndQueue = () => {
-    if (!isLoading || !hasSubmittableContent) {
+    if (!isSubmissionBusy || !hasSubmittableContent) {
       return false;
     }
 
     const imageData = convertImagesToImageData();
     const contentToQueue = appendDroppedFilePaths(displayValue.trim());
 
-    const interruptionMatch = detectInterruption(displayValue.trim());
+    const interruptionMatch = isLoading ? detectInterruption(displayValue.trim()) : null;
 
     if (interruptionMatch && interruptionMatch.shouldInterrupt) {
       setLastInterruption(interruptionMatch.matchedText);
@@ -1139,7 +1138,7 @@ export default function ChatInput({
   };
 
   const canSubmit =
-    !isLoading &&
+    !isSubmissionBusy &&
     !queueProcessingBlocked &&
     (displayValue.trim() ||
       pastedImages.some((img) => img.dataUrl && !img.error && !img.isLoading) ||
@@ -1261,12 +1260,12 @@ export default function ChatInput({
     if (queueProcessingBlocked) {
       return;
     }
-    if (isLoading && hasSubmittableContent) {
+    if (isSubmissionBusy && hasSubmittableContent) {
       handleInterruptionAndQueue();
       return;
     }
     const canSubmit =
-      !isLoading &&
+      !isSubmissionBusy &&
       !queueProcessingBlocked &&
       (displayValue.trim() ||
         pastedImages.some((img) => img.dataUrl && !img.error && !img.isLoading) ||
@@ -1376,7 +1375,6 @@ export default function ChatInput({
     allDroppedFiles.some((file) => !file.error && !file.isLoading);
   const isAnyImageLoading = pastedImages.some((img) => img.isLoading);
   const isAnyDroppedFileLoading = allDroppedFiles.some((file) => file.isLoading);
-
   const isSubmitButtonDisabled =
     !hasSubmittableContent ||
     isAnyImageLoading ||
@@ -1429,7 +1427,7 @@ export default function ChatInput({
     if (!messageToSend) return;
     if (queueProcessingBlocked) return;
 
-    if (!isLoading) {
+    if (!isSubmissionBusy) {
       setQueuedMessages((prev) => removeQueuedMessage(prev, messageId));
       LocalMessageStorage.addMessage(messageToSend.content);
       handleSubmit({ msg: messageToSend.content, images: messageToSend.images });
@@ -1468,7 +1466,7 @@ export default function ChatInput({
         setSendNowInFlightMessage(messageId, false);
       }
 
-      if (!isLoadingRef.current && !queueProcessingBlockedRef.current) {
+      if (!isSubmissionBusyRef.current && !queueProcessingBlockedRef.current) {
         queuePausedRef.current = wasQueuePausedBeforeSteer;
         setQueuedMessages((prev) => {
           const newQueue = removeQueuedMessage(prev, messageId);
@@ -1499,7 +1497,7 @@ export default function ChatInput({
   const handleResumeQueue = () => {
     queuePausedRef.current = false;
     setLastInterruption(null);
-    if (!isLoading && !queueProcessingBlocked && queuedMessages.length > 0) {
+    if (!isSubmissionBusy && !queueProcessingBlocked && queuedMessages.length > 0) {
       const nextMessage = queuedMessages[0];
       LocalMessageStorage.addMessage(nextMessage.content);
       handleSubmit({ msg: nextMessage.content, images: nextMessage.images });
@@ -1570,7 +1568,7 @@ export default function ChatInput({
             onBlur={() => setIsFocused(false)}
             ref={textAreaRef}
             rows={1}
-            readOnly={isRecording || liveVoiceOwnsChat}
+            readOnly={isRecording || liveVoiceActive}
             style={{
               minHeight: `${minTextareaHeight}px`,
               maxHeight: `${maxHeight}px`,
@@ -1711,7 +1709,7 @@ export default function ChatInput({
       <div ref={bottomBarRef} className="flex flex-row items-center gap-2 px-3 py-2 relative">
         {/* Left: model selector */}
         <Tooltip>
-          <div className={cn(liveVoiceOwnsChat && 'pointer-events-none opacity-60')}>
+          <div className={cn(liveVoiceActive && 'pointer-events-none opacity-60')}>
             <ModelsBottomBar
               sessionId={sessionId}
               dropdownRef={dropdownRef}
@@ -1817,7 +1815,7 @@ export default function ChatInput({
           </>
         )}
 
-        {sessionId && liveVoice?.availability && (
+        {liveVoice?.availability && (
           <LiveVoiceButton
             availability={liveVoice.availability}
             phase={liveVoice.phase}

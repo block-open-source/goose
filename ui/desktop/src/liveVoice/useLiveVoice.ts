@@ -9,10 +9,14 @@ import { LiveVoiceMediaSession } from './LiveVoiceMediaSession';
 
 export type LiveVoicePhase = 'idle' | 'connecting' | 'live' | 'stopping' | 'error';
 
+export function isLiveVoiceActive(phase: LiveVoicePhase): boolean {
+  return phase === 'connecting' || phase === 'live' || phase === 'stopping';
+}
+
 export interface LiveVoiceController {
   phase: LiveVoicePhase;
   muted: boolean;
-  start: () => Promise<void>;
+  start: (initialCommentary?: string) => Promise<void>;
   stop: () => Promise<void>;
   toggleMute: () => void;
 }
@@ -99,61 +103,67 @@ export function useLiveVoice(sessionId: string): LiveVoiceController {
     });
   }, [finishCurrentCall, sessionId]);
 
-  const start = useCallback(async () => {
-    if (callRef.current || isAcpRecovering()) return;
+  const start = useCallback(
+    async (initialCommentary?: string) => {
+      if (callRef.current || isAcpRecovering()) return;
 
-    mutedRef.current = false;
-    setMuted(false);
-    setPhase('connecting');
-    let call: LiveVoiceCall;
-    const media = new LiveVoiceMediaSession(() => {
-      if (!finishCurrentCall(call, 'failed')) return;
-      requestRemoteStop(call);
-    });
-    call = {
-      sessionId,
-      media,
-      mediaReady: false,
-      invalidated: false,
-      acpConnectionLost: false,
-      pendingOutcomesByCallId: new Map(),
-    };
-    callRef.current = call;
-    const isCurrent = () => callRef.current === call && !call.invalidated;
-
-    try {
-      const offerSdp = await call.media.createOffer();
-      if (!isCurrent()) return;
-
-      const response = await acpStartLiveVoice(sessionId, offerSdp);
-      call.callId = response.callId;
-      const pendingOutcome = call.pendingOutcomesByCallId.get(call.callId);
-      call.pendingOutcomesByCallId.clear();
-      if (pendingOutcome) {
-        finishCurrentCall(call, pendingOutcome);
-        return;
-      }
-      if (!isCurrent()) {
+      mutedRef.current = false;
+      setMuted(false);
+      setPhase('connecting');
+      let call: LiveVoiceCall;
+      const media = new LiveVoiceMediaSession(() => {
+        if (!finishCurrentCall(call, 'failed')) return;
         requestRemoteStop(call);
-        return;
+      });
+      call = {
+        sessionId,
+        media,
+        mediaReady: false,
+        invalidated: false,
+        acpConnectionLost: false,
+        pendingOutcomesByCallId: new Map(),
+      };
+      callRef.current = call;
+      const isCurrent = () => callRef.current === call && !call.invalidated;
+
+      try {
+        const offerSdp = await call.media.createOffer();
+        if (!isCurrent()) return;
+
+        const response = await acpStartLiveVoice(sessionId, offerSdp);
+        call.callId = response.callId;
+        const pendingOutcome = call.pendingOutcomesByCallId.get(call.callId);
+        call.pendingOutcomesByCallId.clear();
+        if (pendingOutcome) {
+          finishCurrentCall(call, pendingOutcome);
+          return;
+        }
+        if (!isCurrent()) {
+          requestRemoteStop(call);
+          return;
+        }
+
+        await call.media.applyAnswer(response.answerSdp);
+        if (!isCurrent()) return;
+
+        call.mediaReady = true;
+        call.media.setMuted(mutedRef.current);
+        setPhase('live');
+        if (initialCommentary) {
+          call.media.sendCommentary(initialCommentary);
+        }
+      } catch {
+        if (!isCurrent()) {
+          invalidateCallAndReleaseMedia(call);
+          return;
+        }
+
+        finishCurrentCall(call, 'failed');
+        requestRemoteStop(call);
       }
-
-      await call.media.applyAnswer(response.answerSdp);
-      if (!isCurrent()) return;
-
-      call.mediaReady = true;
-      call.media.setMuted(mutedRef.current);
-      setPhase('live');
-    } catch {
-      if (!isCurrent()) {
-        invalidateCallAndReleaseMedia(call);
-        return;
-      }
-
-      finishCurrentCall(call, 'failed');
-      requestRemoteStop(call);
-    }
-  }, [finishCurrentCall, invalidateCallAndReleaseMedia, sessionId]);
+    },
+    [finishCurrentCall, invalidateCallAndReleaseMedia, sessionId]
+  );
 
   const toggleMute = useCallback(() => {
     const call = callRef.current;

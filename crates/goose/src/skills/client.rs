@@ -11,6 +11,7 @@ use rmcp::model::{
     ServerCapabilities, ServerNotification, Tool,
 };
 use std::path::{Path, PathBuf};
+use std::sync::RwLock;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
@@ -18,7 +19,7 @@ pub static EXTENSION_NAME: &str = "skills";
 
 pub struct SkillsClient {
     info: InitializeResult,
-    working_dir: PathBuf,
+    working_dir: RwLock<PathBuf>,
     exclude_builtin_skills: bool,
     config: &'static Config,
 }
@@ -36,7 +37,7 @@ impl SkillsClient {
 
         Ok(Self {
             info,
-            working_dir,
+            working_dir: RwLock::new(working_dir),
             exclude_builtin_skills: false,
             config: Config::global(),
         })
@@ -56,7 +57,8 @@ impl SkillsClient {
     }
 
     fn discover_skills(&self) -> Vec<SourceEntry> {
-        discover_skills_with_config(Some(&self.working_dir), self.config)
+        let working_dir = self.working_dir.read().unwrap().clone();
+        discover_skills_with_config(Some(&working_dir), self.config)
             .into_iter()
             .filter(|skill| {
                 !self.exclude_builtin_skills || skill.source_type != SourceType::BuiltinSkill
@@ -266,6 +268,11 @@ impl McpClientTrait for SkillsClient {
         Some(instructions)
     }
 
+    async fn update_working_dir(&self, new_dir: PathBuf) -> Result<(), Error> {
+        *self.working_dir.write().unwrap() = new_dir;
+        Ok(())
+    }
+
     async fn subscribe(&self) -> mpsc::Receiver<ServerNotification> {
         let (_tx, rx) = mpsc::channel(1);
         rx
@@ -458,6 +465,137 @@ mod tests {
 
         assert!(!result.is_error.unwrap_or(false));
         assert!(result_text(&result).contains("Symlinked supporting guidance."));
+    }
+
+    fn write_skill(workspace: &Path, name: &str, marker: &str) {
+        let skill_dir = workspace.join(".goose/skills").join(name);
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(
+            skill_dir.join("SKILL.md"),
+            format!("---\nname: {name}\ndescription: {marker} description\n---\n{marker} body"),
+        )
+        .unwrap();
+        fs::write(skill_dir.join("guide.md"), format!("{marker} guide")).unwrap();
+    }
+
+    fn client_for(workspace: &Path) -> SkillsClient {
+        let config = Box::leak(Box::new(
+            Config::new(
+                workspace.join("test-config.yaml"),
+                "goose-skills-workspace-test",
+            )
+            .unwrap(),
+        ));
+        let session = Arc::new(crate::session::Session {
+            working_dir: workspace.to_path_buf(),
+            ..crate::session::Session::default()
+        });
+        SkillsClient::new(PlatformExtensionContext {
+            extension_manager: None,
+            session_manager: Arc::new(crate::session::SessionManager::instance()),
+            scheduler: None,
+            session: Some(session),
+            use_login_shell_path: false,
+        })
+        .unwrap()
+        .with_builtin_skills(false)
+        .with_config(config)
+    }
+
+    async fn load_skill(client: &SkillsClient, name: &str) -> CallToolResult {
+        let ctx = ToolCallContext::new("test".to_string(), None, None);
+        let args = serde_json::from_value(serde_json::json!({"name": name})).unwrap();
+        client
+            .call_tool(&ctx, "load_skill", Some(args), CancellationToken::new())
+            .await
+            .unwrap()
+    }
+
+    fn assert_contains_one_of(text: &str, first: &str, second: &str) {
+        assert_ne!(text.contains(first), text.contains(second));
+    }
+
+    #[tokio::test]
+    async fn update_working_dir_retargets_skill_and_supporting_file_reads() {
+        let old_workspace = TempDir::new().unwrap();
+        let new_workspace = TempDir::new().unwrap();
+        write_skill(old_workspace.path(), "old-skill", "Old workspace");
+        write_skill(new_workspace.path(), "new-skill", "New workspace");
+
+        let client = client_for(old_workspace.path());
+        assert!(client.get_instructions().unwrap().contains("old-skill"));
+
+        client
+            .update_working_dir(new_workspace.path().to_path_buf())
+            .await
+            .unwrap();
+
+        let instructions = client.get_instructions().unwrap();
+        assert!(instructions.contains("new-skill"));
+        assert!(!instructions.contains("old-skill"));
+
+        let old_skill = load_skill(&client, "old-skill").await;
+        assert!(old_skill.is_error.unwrap_or(false));
+        let old_supporting_file = load_skill(&client, "old-skill/guide.md").await;
+        assert!(old_supporting_file.is_error.unwrap_or(false));
+
+        let new_skill = load_skill(&client, "new-skill").await;
+        assert!(!new_skill.is_error.unwrap_or(false));
+        assert!(result_text(&new_skill).contains("New workspace body"));
+        let new_supporting_file = load_skill(&client, "new-skill/guide.md").await;
+        assert!(!new_supporting_file.is_error.unwrap_or(false));
+        assert!(result_text(&new_supporting_file).contains("New workspace guide"));
+    }
+
+    #[tokio::test]
+    async fn concurrent_updates_keep_each_read_on_one_workspace_snapshot() {
+        let first_workspace = TempDir::new().unwrap();
+        let second_workspace = TempDir::new().unwrap();
+        write_skill(first_workspace.path(), "shared-skill", "First workspace");
+        write_skill(second_workspace.path(), "shared-skill", "Second workspace");
+
+        let client = client_for(first_workspace.path());
+        let first_workspace = first_workspace.path().to_path_buf();
+        let second_workspace = second_workspace.path().to_path_buf();
+        let updater = async {
+            for index in 0..8 {
+                let workspace = if index % 2 == 0 {
+                    &first_workspace
+                } else {
+                    &second_workspace
+                };
+                client.update_working_dir(workspace.clone()).await.unwrap();
+                tokio::task::yield_now().await;
+            }
+        };
+        let reader = async {
+            for _ in 0..8 {
+                assert_contains_one_of(
+                    &client.get_instructions().unwrap(),
+                    "First workspace description",
+                    "Second workspace description",
+                );
+
+                let skill = load_skill(&client, "shared-skill").await;
+                assert!(!skill.is_error.unwrap_or(false));
+                assert_contains_one_of(
+                    result_text(&skill),
+                    "First workspace body",
+                    "Second workspace body",
+                );
+
+                let supporting_file = load_skill(&client, "shared-skill/guide.md").await;
+                assert!(!supporting_file.is_error.unwrap_or(false));
+                assert_contains_one_of(
+                    result_text(&supporting_file),
+                    "First workspace guide",
+                    "Second workspace guide",
+                );
+                tokio::task::yield_now().await;
+            }
+        };
+
+        tokio::join!(updater, reader);
     }
 
     #[tokio::test]

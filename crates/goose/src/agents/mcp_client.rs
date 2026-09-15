@@ -635,6 +635,18 @@ impl std::fmt::Debug for GooseMcpClientCapabilities {
     }
 }
 
+#[derive(Clone)]
+pub(crate) struct ConnectContext {
+    pub timeout: Duration,
+    pub provider: SharedProvider,
+    pub client_name: String,
+    pub capabilities: GooseMcpClientCapabilities,
+    pub working_dir: PathBuf,
+    pub docker_container: Option<String>,
+    pub action_required: Arc<ActionRequiredManager>,
+    pub extension_manager: Weak<ExtensionManager>,
+}
+
 /// The MCP client is the interface for MCP operations.
 pub struct McpClient {
     client: Mutex<Arc<RunningService<RoleClient, GooseClient>>>,
@@ -645,51 +657,24 @@ pub struct McpClient {
 }
 
 impl McpClient {
-    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn connect<T, E, A>(
         transport: T,
-        timeout: std::time::Duration,
-        provider: SharedProvider,
-        client_name: String,
-        capabilities: GooseMcpClientCapabilities,
-        working_dir: PathBuf,
-        action_required: Arc<ActionRequiredManager>,
-        extension_manager: Weak<ExtensionManager>,
+        ctx: ConnectContext,
     ) -> Result<Self, ClientInitializeError>
     where
         T: IntoTransport<RoleClient, E, A>,
         E: std::error::Error + From<std::io::Error> + Send + Sync + 'static,
     {
-        Self::connect_with_container(
-            transport,
+        let ConnectContext {
             timeout,
             provider,
-            None,
             client_name,
             capabilities,
             working_dir,
+            docker_container,
             action_required,
             extension_manager,
-        )
-        .await
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) async fn connect_with_container<T, E, A>(
-        transport: T,
-        timeout: std::time::Duration,
-        provider: SharedProvider,
-        docker_container: Option<String>,
-        client_name: String,
-        capabilities: GooseMcpClientCapabilities,
-        working_dir: PathBuf,
-        action_required: Arc<ActionRequiredManager>,
-        extension_manager: Weak<ExtensionManager>,
-    ) -> Result<Self, ClientInitializeError>
-    where
-        T: IntoTransport<RoleClient, E, A>,
-        E: std::error::Error + From<std::io::Error> + Send + Sync + 'static,
-    {
+        } = ctx;
         let notification_subscribers =
             Arc::new(Mutex::new(Vec::<mpsc::Sender<ServerNotification>>::new()));
 

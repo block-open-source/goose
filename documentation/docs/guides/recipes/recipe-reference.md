@@ -514,6 +514,8 @@ The `max_turns` setting controls how many iterations an agent can perform before
 
 **Common use cases:** Limit execution time for automated workflows, prevent runaway subagents, control resource usage in scheduled jobs.
 
+For subagents, `goose_provider` and `goose_model` in `settings` take precedence over the `GOOSE_SUBAGENT_PROVIDER` and `GOOSE_SUBAGENT_MODEL` environment variables.
+
 #### Example Settings Configuration
 
 ```yaml

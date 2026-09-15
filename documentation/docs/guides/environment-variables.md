@@ -157,6 +157,8 @@ These variables control how goose manages conversation sessions and context.
 | `GOOSE_MOIM_MESSAGE_TEXT` | Injects persistent text into goose's [working memory](/docs/guides/context-engineering/using-persistent-instructions) every turn. Useful for behavioral guardrails or persistent reminders. | Any text string | Not set |
 | `GOOSE_MOIM_MESSAGE_FILE` | Path to a file whose contents are injected into goose's [working memory](/docs/guides/context-engineering/using-persistent-instructions) every turn. Supports `~/`. Max 64 KB per file. | File path | Not set |
 
+For subagents, recipe [`settings.goose_provider` and `settings.goose_model`](/docs/guides/recipes/recipe-reference#settings) take precedence over the `GOOSE_SUBAGENT_PROVIDER` and `GOOSE_SUBAGENT_MODEL` environment variables.
+
 **Examples**
 
 ```bash

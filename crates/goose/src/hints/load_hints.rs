@@ -5,6 +5,7 @@ use std::{
 };
 
 use crate::config::paths::Paths;
+use crate::conversation::message::{Message, MessageContent, MessageMetadata};
 use crate::hints::import_files::read_referenced_files;
 
 pub const GOOSE_HINTS_FILENAME: &str = ".goosehints";
@@ -69,7 +70,11 @@ impl SubdirectoryHintTracker {
         }
     }
 
-    pub fn load_new_hints(&mut self, working_dir: &Path) -> Vec<(String, String)> {
+    pub fn mark_loaded(&mut self, dir: PathBuf) {
+        self.loaded_dirs.insert(dir);
+    }
+
+    pub fn load_new_hints(&mut self, working_dir: &Path) -> Vec<(PathBuf, String)> {
         let pending = std::mem::take(&mut self.pending_dirs);
         if pending.is_empty() {
             return Vec::new();
@@ -93,13 +98,62 @@ impl SubdirectoryHintTracker {
             if let Some(content) =
                 load_hints_from_directory(&dir, &working_dir, &self.hints_filenames)
             {
-                let key = format!("subdir_hints:{}", dir.display());
-                results.push((key, content));
+                results.push((dir.clone(), content));
             }
             self.loaded_dirs.insert(dir);
         }
         results
     }
+}
+
+const HINT_CARRIER_OPERATION: &str = "subdir_hints";
+const HINT_CARRIER_DIR_NOTE: &str = "dir";
+
+/// Agent-only messages announcing hints from subdirectories that tool calls
+/// touched and no agent-visible carrier has announced yet.
+pub fn pending_hint_carriers(messages: &[Message], working_dir: &Path) -> Vec<Message> {
+    let mut tracker = SubdirectoryHintTracker::new();
+    for message in messages {
+        if message.is_agent_visible() {
+            if let Some(dir) = hint_carrier_dir(message) {
+                tracker.mark_loaded(dir);
+            }
+        }
+        for content in &message.content {
+            if let MessageContent::ToolRequest(request) = content {
+                if let Ok(tool_call) = &request.tool_call {
+                    tracker.record_tool_arguments(&tool_call.arguments, working_dir);
+                }
+            }
+        }
+    }
+    tracker
+        .load_new_hints(working_dir)
+        .into_iter()
+        .map(|(dir, content)| hint_carrier(&dir, &content))
+        .collect()
+}
+
+pub(crate) fn hint_carrier(dir: &Path, content: &str) -> Message {
+    let mut metadata = MessageMetadata::agent_only();
+    metadata.set_operation_note(
+        HINT_CARRIER_OPERATION,
+        HINT_CARRIER_DIR_NOTE,
+        serde_json::Value::String(dir.to_string_lossy().into_owned()),
+    );
+    Message::user()
+        .with_text(format!(
+            "<subdirectory-hints>\n{content}\n</subdirectory-hints>"
+        ))
+        .with_metadata(metadata)
+}
+
+pub fn hint_carrier_dir(message: &Message) -> Option<PathBuf> {
+    message
+        .metadata
+        .operation_note(HINT_CARRIER_OPERATION, HINT_CARRIER_DIR_NOTE)?
+        .as_str()
+        .map(PathBuf::from)
 }
 
 fn resolve_to_parent_dir(token: &str, working_dir: &Path) -> Option<PathBuf> {
@@ -833,7 +887,7 @@ End of hints"#;
         tracker.record_tool_arguments(&Some(args), &project_root);
         let hints = tracker.load_new_hints(&project_root);
         assert_eq!(hints.len(), 1);
-        assert!(hints[0].0.contains("nested"));
+        assert!(hints[0].0.ends_with("nested"));
         assert!(hints[0].1.contains("nested subdirectory hints"));
     }
 

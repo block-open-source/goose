@@ -56,6 +56,7 @@ use crate::conversation::message::{
     SystemNotificationType,
 };
 use crate::conversation::{debug_conversation_fix, fix_conversation, Conversation};
+use crate::hints::pending_hint_carriers;
 use crate::permission::permission_inspector::PermissionInspector;
 use crate::permission::permission_judge::PermissionCheckResult;
 use crate::permission::{Permission, PermissionConfirmation};
@@ -1082,11 +1083,6 @@ impl Agent {
             tracing::Span::current().record("input", tracing::field::display(&input_summary));
         }
         gen_ai_telemetry::record_tool_arguments(&tracing::Span::current(), &tool_call);
-
-        self.prompt_manager
-            .lock()
-            .await
-            .record_tool_arguments(&tool_call.arguments, &session.working_dir);
 
         let tool_input_for_hooks = tool_call
             .arguments
@@ -2642,6 +2638,16 @@ impl Agent {
                     break;
                 }
 
+                for carrier in pending_hint_carriers(conversation.messages(), &working_dir) {
+                    persist_and_push_message_with_id(
+                        &session_manager,
+                        &session_config.id,
+                        &mut conversation,
+                        carrier,
+                    )
+                    .await?;
+                }
+
                 let mut stream = crate::agents::reply_parts::stream_response_from_provider(
                     self.provider().await?,
                     model_config.clone(),
@@ -3234,18 +3240,6 @@ impl Agent {
                 if tools_updated {
                     (tools, toolshim_tools, system_prompt, _) =
                         self.prepare_tools_and_prompt(&session_config.id, &session.working_dir).await?;
-                }
-
-                {
-                    let has_new_hints = self
-                        .prompt_manager
-                        .lock()
-                        .await
-                        .load_subdirectory_hints(&working_dir);
-                    if has_new_hints && !tools_updated {
-                        (tools, toolshim_tools, system_prompt, _) =
-                            self.prepare_tools_and_prompt(&session_config.id, &session.working_dir).await?;
-                    }
                 }
 
                 // An empty provider response — no tool calls, no text, and no error

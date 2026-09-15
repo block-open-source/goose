@@ -3,6 +3,7 @@ pub use goose_context_management::structured;
 use crate::conversation::message::MessageMetadata;
 use crate::conversation::message::{Message, MessageContent};
 use crate::conversation::{merge_consecutive_messages, Conversation};
+use crate::hints::hint_carrier_dir;
 use crate::providers::base::Provider;
 #[cfg(test)]
 use crate::providers::base::{stream_from_single_message, MessageStream};
@@ -92,11 +93,12 @@ pub async fn compact_messages(
         has_text && !has_tool_content
     };
 
-    // Turn-context events are agent-appended, never the message to preserve.
+    // Turn-context events and hint carriers are agent-appended, never the message to preserve.
     let (preserved_user_message, preserved_idx, is_most_recent) = if !manual_compact {
         let found_msg = messages.iter().enumerate().rev().find_map(|(idx, msg)| {
             if !msg.is_agent_visible()
                 || msg.is_turn_context()
+                || hint_carrier_dir(msg).is_some()
                 || !matches!(msg.role, rmcp::model::Role::User)
             {
                 return None;
@@ -119,7 +121,9 @@ pub async fn compact_messages(
         });
 
         if let Some((idx, msg)) = found_msg {
-            let is_last = messages[idx + 1..].iter().all(Message::is_turn_context);
+            let is_last = messages[idx + 1..]
+                .iter()
+                .all(|msg| msg.is_turn_context() || hint_carrier_dir(msg).is_some());
             (Some(msg), Some(idx), is_last)
         } else {
             (None, None, false)
@@ -337,11 +341,11 @@ async fn do_compact(
     session_id: &str,
     messages: &[Message],
 ) -> Result<(Message, ProviderUsage), anyhow::Error> {
-    // Keep stale per-turn state out of the summary.
+    // Turn-context events and hint carriers are re-derived after compaction.
     let agent_visible_messages = Conversation::new_unvalidated(
         messages
             .iter()
-            .filter(|msg| !msg.is_turn_context())
+            .filter(|msg| !msg.is_turn_context() && hint_carrier_dir(msg).is_none())
             .cloned(),
     )
     .agent_visible_messages();

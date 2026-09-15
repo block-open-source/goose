@@ -22,10 +22,12 @@ use crate::agents::{Agent, AgentConfig, AgentEvent, GoosePlatform, SessionConfig
 use crate::config::permission::PermissionManager;
 use crate::config::GooseMode;
 use crate::conversation::message::{ActionRequiredData, Message, MessageContent};
+use crate::hints::hint_carrier_dir;
 use crate::permission::Permission;
 use crate::providers::base::Provider;
 use crate::session::{SessionManager, SessionType};
 use goose_providers::model::ModelConfig;
+use serde_json::json;
 
 async fn agent_with_dummy_api() -> Result<(Agent, Arc<DummyApi>, String, tempfile::TempDir)> {
     let api = Arc::new(DummyApi::start(ProviderFeatures::default()).await);
@@ -527,4 +529,62 @@ async fn bang_shell_visibility_is_enforced_when_state_machine_is_disabled() -> R
 async fn bang_shell_visibility_is_enforced_when_state_machine_is_enabled() -> Result<()> {
     let _guard = env_lock::lock_env([("GOOSE_STATE_MACHINE", Some("1"))]);
     assert_bang_shell_uses_only_user_visible_content().await
+}
+
+async fn assert_subdirectory_hint_is_an_agent_only_message() -> Result<()> {
+    let (agent, api, session_id, _calculator, temp_dir) = agent_with_calculator().await?;
+    agent
+        .update_goose_mode(GooseMode::Auto, &session_id)
+        .await?;
+    let hint = "always run the nested tests before editing";
+    std::fs::create_dir(temp_dir.path().join("nested"))?;
+    std::fs::write(temp_dir.path().join("nested/.goosehints"), hint)?;
+
+    api.on("add one from nested")
+        .call(ADD, json!({ "value": 1, "path": "nested/file.txt" }));
+    api.on("result: 1").reply("done");
+    reply_messages(
+        &agent,
+        session_id.clone(),
+        Message::user().with_text("add one from nested"),
+    )
+    .await?;
+
+    let calls = api.calls();
+    assert_eq!(calls.len(), 2);
+    assert!(!calls[0].input_contains(hint));
+    assert!(calls[1].input_contains(hint));
+    assert!(!calls[1].system_contains(hint));
+    assert_eq!(calls[0].system(), calls[1].system());
+
+    let session_manager = &agent.config.session_manager;
+    let session = session_manager.get_session(&session_id, true).await?;
+    let carriers: Vec<&Message> = session
+        .conversation
+        .as_ref()
+        .unwrap()
+        .messages()
+        .iter()
+        .filter(|message| hint_carrier_dir(message).is_some())
+        .collect();
+    assert_eq!(carriers.len(), 1);
+    assert!(carriers[0].is_agent_visible() && !carriers[0].is_user_visible());
+    assert!(!session_manager
+        .export_session(&session_id)
+        .await?
+        .contains(hint));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn subdirectory_hint_is_an_agent_only_message_when_state_machine_is_disabled() -> Result<()> {
+    let _guard = env_lock::lock_env([("GOOSE_STATE_MACHINE", None::<&str>)]);
+    assert_subdirectory_hint_is_an_agent_only_message().await
+}
+
+#[tokio::test]
+async fn subdirectory_hint_is_an_agent_only_message_when_state_machine_is_enabled() -> Result<()> {
+    let _guard = env_lock::lock_env([("GOOSE_STATE_MACHINE", Some("1"))]);
+    assert_subdirectory_hint_is_an_agent_only_message().await
 }

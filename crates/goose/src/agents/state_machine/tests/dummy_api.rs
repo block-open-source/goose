@@ -158,6 +158,10 @@ impl ApiCall {
         request_system(&self.body).contains(needle)
     }
 
+    pub(super) fn system(&self) -> String {
+        request_system(&self.body)
+    }
+
     pub(super) fn advertises_tool(&self, name: &str) -> bool {
         self.body["tools"]
             .as_array()

@@ -511,8 +511,8 @@ fn fix_tool_calling(mut messages: Vec<Message>) -> (Vec<Message>, Vec<String>) {
     (messages, issues)
 }
 
-/// Never merges across visibility or turn-context boundaries, so the result
-/// is safe to persist.
+/// Never merges across visibility, turn-context, or operation-note boundaries,
+/// so the result is safe to persist.
 pub fn merge_consecutive_messages(messages: Vec<Message>) -> (Vec<Message>, Vec<String>) {
     merge_consecutive(messages, false)
 }
@@ -536,7 +536,8 @@ fn merge_consecutive(
             if effective_role(last) == effective
                 && (across_visibility
                     || (last.metadata.user_visible == message.metadata.user_visible
-                        && last.metadata.turn_context == message.metadata.turn_context))
+                        && last.metadata.turn_context == message.metadata.turn_context
+                        && last.metadata.operations == message.metadata.operations))
             {
                 last.content.extend(message.content);
                 issues.push(format!("Merged consecutive {} messages", effective));
@@ -1090,6 +1091,27 @@ mod tests {
         } else {
             panic!("Expected second item to be an image");
         }
+    }
+
+    #[test]
+    fn test_operation_notes_keep_consecutive_messages_separate_when_persisting() {
+        let noted = |dir: &str| {
+            let mut metadata = MessageMetadata::agent_only();
+            metadata.set_operation_note("subdir_hints", "dir", serde_json::json!(dir));
+            Message::user().with_text(dir).with_metadata(metadata)
+        };
+        let messages = vec![noted("/a"), noted("/b")];
+
+        assert_eq!(
+            crate::conversation::merge_consecutive_messages(messages.clone())
+                .0
+                .len(),
+            2
+        );
+        assert_eq!(
+            crate::conversation::merge_consecutive_messages_for_request(messages).len(),
+            1
+        );
     }
 
     #[test]

@@ -4,6 +4,7 @@
 use crate::agents::ExtensionManager;
 use crate::agents::PromptManager;
 use crate::config::GooseMode;
+use crate::hints::pending_hint_carriers;
 use crate::session::Session;
 use crate::tool_inspection::ToolInspectionManager;
 use anyhow::Result;
@@ -67,7 +68,7 @@ impl InferenceRequestPreparer<Session> for GooseInferenceRequestPreparer<'_> {
             .find(|message| message.is_turn_context())
             .map(Message::as_concat_text);
         let context_limit = Some(self.context_limit);
-        let additional_messages = crate::agents::moim::turn_context_event(
+        let mut additional_messages: Vec<Message> = crate::agents::moim::turn_context_event(
             &session.working_dir,
             context_limit,
             input.moim_parts,
@@ -76,6 +77,10 @@ impl InferenceRequestPreparer<Session> for GooseInferenceRequestPreparer<'_> {
         .filter(|event| Some(event.as_concat_text()) != last)
         .into_iter()
         .collect();
+        additional_messages.extend(pending_hint_carriers(
+            conversation.messages(),
+            &session.working_dir,
+        ));
         Ok(PreparedInferenceRequest {
             system_prompt,
             tools,

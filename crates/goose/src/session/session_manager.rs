@@ -2,6 +2,7 @@ use crate::config::paths::Paths;
 use crate::config::GooseMode;
 use crate::conversation::message::{Message, MessageUsage, TokenState};
 use crate::conversation::Conversation;
+use crate::hints::hint_carrier_dir;
 use crate::providers::base::CostSource;
 use crate::providers::base::Provider;
 use crate::recipe::Recipe;
@@ -2457,7 +2458,14 @@ impl SessionStorage {
     }
 
     async fn export_session(&self, id: &str) -> Result<String> {
-        let session = self.get_session(id, true).await?;
+        let mut session = self.get_session(id, true).await?;
+        session.conversation = session.conversation.map(|conversation| {
+            Conversation::new_unvalidated(
+                conversation
+                    .into_iter()
+                    .filter(|message| hint_carrier_dir(message).is_none()),
+            )
+        });
         serde_json::to_string_pretty(&session).map_err(Into::into)
     }
 

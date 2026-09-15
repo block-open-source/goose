@@ -35,8 +35,9 @@ async fn prompt_and_skill_lifecycle() -> Result<()> {
     api.on("result: 1").reply("nested work complete");
     pipeline.run(["work in nested"]).await?;
     let calls = api.calls();
-    assert!(!calls[calls.len() - 2].system_contains("NESTED_PROJECT_INSTRUCTION"));
-    assert!(calls[calls.len() - 1].system_contains("NESTED_PROJECT_INSTRUCTION"));
+    assert!(!calls[calls.len() - 2].input_contains("NESTED_PROJECT_INSTRUCTION"));
+    assert!(calls[calls.len() - 1].input_contains("NESTED_PROJECT_INSTRUCTION"));
+    assert!(!calls[calls.len() - 1].system_contains("NESTED_PROJECT_INSTRUCTION"));
 
     let skill_dir = pipeline.working_dir().join(".agents/skills/review");
     std::fs::create_dir_all(&skill_dir)?;

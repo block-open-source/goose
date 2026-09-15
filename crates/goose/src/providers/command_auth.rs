@@ -458,8 +458,11 @@ mod tests {
 
         let dir = tempfile::tempdir().unwrap();
         let script_path = dir.path().join("get-token.sh");
-        std::fs::write(&script_path, "#!/bin/sh\npwd\n").unwrap();
-        std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let temp_script_path = dir.path().join("get-token.sh.tmp");
+        std::fs::write(&temp_script_path, "#!/bin/sh\npwd\n").unwrap();
+        std::fs::set_permissions(&temp_script_path, std::fs::Permissions::from_mode(0o755))
+            .unwrap();
+        std::fs::rename(&temp_script_path, &script_path).unwrap();
 
         let mut config = auth_config("./get-token.sh", Vec::<&str>::new(), 3600);
         config.cwd = Some(dir.path().to_string_lossy().to_string());

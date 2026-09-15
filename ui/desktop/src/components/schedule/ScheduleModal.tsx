@@ -198,6 +198,7 @@ export const ScheduleModal: React.FC<ScheduleModalProps> = ({
     async (value: string) => {
       const requestId = bumpSourceRequest();
       setDeepLinkInput(value);
+      setParsedRecipe(null);
       setInternalValidationError(null);
 
       if (value.trim()) {

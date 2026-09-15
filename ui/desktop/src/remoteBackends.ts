@@ -208,12 +208,14 @@ const proxyNote = (hop: Hop): string => {
 };
 
 // Redirects are resolved anonymously; only the resolved URL is re-requested
-// with the secret, so no intermediate origin ever sees it.
+// with the secret, so no intermediate origin ever sees it. The secret is only
+// sent to credentialsOrigin, so a redirect elsewhere cannot capture it.
 const probe = async (
   request: HopRequest,
   url: string,
   pinnedHostname: string | null,
   credentials: Record<string, string> | null,
+  credentialsOrigin: string | null,
   expect: (hop: Hop, resolvedUrl: string) => Probe
 ): Promise<Probe> => {
   const controller = new AbortController();
@@ -222,6 +224,14 @@ const probe = async (
     const { url: resolvedUrl, hop } = await resolveRedirects(hopRequest, url, pinnedHostname, {
       signal: controller.signal,
     });
+    if (credentials) {
+      const resolvedOrigin = new URL(resolvedUrl).origin;
+      if (resolvedOrigin !== credentialsOrigin) {
+        throw new RedirectError(
+          `Refusing to send the secret key to ${resolvedOrigin} because /status resolved to ${credentialsOrigin}.`
+        );
+      }
+    }
     const finalHop = credentials
       ? await hopRequest(resolvedUrl, { headers: credentials, signal: controller.signal })
       : hop;
@@ -254,19 +264,25 @@ const probeStatus = (
   baseUrl: string,
   pinnedHostname: string | null
 ): Promise<Probe> =>
-  probe(request, statusHttpUrlFromHttpBase(baseUrl), pinnedHostname, null, (hop, resolvedUrl) =>
-    hop.status >= 200 && hop.status < 300
-      ? {
-          ok: true,
-          detail: `GET /status returned ${hop.status}.`,
-          retryable: false,
-          resolvedUrl,
-        }
-      : {
-          ok: false,
-          detail: `GET /status returned ${hop.status} ${hop.statusText}.${proxyNote(hop)}`,
-          retryable: hop.status >= 500,
-        }
+  probe(
+    request,
+    statusHttpUrlFromHttpBase(baseUrl),
+    pinnedHostname,
+    null,
+    null,
+    (hop, resolvedUrl) =>
+      hop.status >= 200 && hop.status < 300
+        ? {
+            ok: true,
+            detail: `GET /status returned ${hop.status}.`,
+            retryable: false,
+            resolvedUrl,
+          }
+        : {
+            ok: false,
+            detail: `GET /status returned ${hop.status} ${hop.statusText}.${proxyNote(hop)}`,
+            retryable: hop.status >= 500,
+          }
   );
 
 const probeAcp = (
@@ -280,6 +296,7 @@ const probeAcp = (
     acpHttpUrlFromHttpBase(baseUrl),
     pinnedHostname,
     { 'X-Secret-Key': secret },
+    new URL(baseUrl).origin,
     (hop, resolvedUrl) => {
       if (hop.status === 406) {
         return {
@@ -385,17 +402,6 @@ export const connectRemoteBackend = async ({
       probeAcp(request, resolvedBaseUrl, serverSecret, pin)
     );
     if (!accepted.ok || !accepted.resolvedUrl) {
-      return null;
-    }
-
-    const statusOrigin = new URL(resolvedBaseUrl).origin;
-    const acpOrigin = new URL(accepted.resolvedUrl).origin;
-    if (statusOrigin !== acpOrigin) {
-      steps.push({
-        name: 'Redirect',
-        ok: false,
-        detail: `/status and /acp resolved to different origins (${statusOrigin} and ${acpOrigin}).`,
-      });
       return null;
     }
 

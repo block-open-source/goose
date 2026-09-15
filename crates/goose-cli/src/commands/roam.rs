@@ -224,14 +224,14 @@ pub enum RoamCommand {
         target: String,
 
         /// Listen for one ACP client on this TCP address (e.g. `127.0.0.1:8900`)
-        /// instead of using stdio. Loopback only: the TCP side carries the
-        /// remote agent's full ACP surface with no authentication of its own.
+        /// instead of using stdio. Requires `--allow-remote-clients` because
+        /// the TCP side has no client authentication, including on loopback.
         #[arg(long, value_name = "ADDR")]
         listen: Option<String>,
 
-        /// Allow `--listen` on a non-loopback address. Anyone who can reach
-        /// the socket gets the remote agent — put real authentication or a
-        /// private network in front of it.
+        /// Allow an unauthenticated TCP client to connect via `--listen`.
+        /// Anyone who can reach the socket, including other local users when
+        /// bound to loopback, gets the remote agent.
         #[arg(long, requires = "listen")]
         allow_remote_clients: bool,
 
@@ -845,20 +845,7 @@ async fn handle_bridge(
 ) -> Result<()> {
     use tokio::io::AsyncWriteExt;
 
-    // Refuse a non-loopback --listen unless explicitly overridden: the TCP
-    // side is an unauthenticated door to the remote agent's full ACP surface.
-    if let Some(addr) = &listen {
-        let parsed: std::net::SocketAddr = addr
-            .parse()
-            .with_context(|| format!("invalid --listen address `{addr}`"))?;
-        if !parsed.ip().is_loopback() && !allow_remote_clients {
-            anyhow::bail!(
-                "--listen {addr} is not a loopback address; anyone who can reach it gets the \
-                 remote agent with no authentication. Use 127.0.0.1/[::1], or pass \
-                 --allow-remote-clients if you really mean to expose it."
-            );
-        }
-    }
+    validate_bridge_listener(listen.as_deref(), allow_remote_clients)?;
 
     let label = label.or_else(|| Some("bridge".to_string()));
     let (node, stream) = dial_target(&target, label).await?;
@@ -901,9 +888,42 @@ async fn handle_bridge(
     result
 }
 
+fn validate_bridge_listener(listen: Option<&str>, allow_remote_clients: bool) -> Result<()> {
+    if let Some(addr) = listen {
+        addr.parse::<std::net::SocketAddr>()
+            .with_context(|| format!("invalid --listen address `{addr}`"))?;
+        if !allow_remote_clients {
+            anyhow::bail!(
+                "--listen {addr} requires --allow-remote-clients because the TCP socket has no \
+                 client authentication; anyone who can connect, including other local users on \
+                 loopback, gets the remote agent."
+            );
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn loopback_bridge_listener_requires_explicit_opt_in() {
+        let error = validate_bridge_listener(Some("127.0.0.1:8900"), false).unwrap_err();
+        assert!(error.to_string().contains("--allow-remote-clients"));
+    }
+
+    #[test]
+    fn explicit_opt_in_allows_bridge_listeners() {
+        validate_bridge_listener(Some("127.0.0.1:8900"), true).unwrap();
+        validate_bridge_listener(Some("0.0.0.0:8900"), true).unwrap();
+    }
+
+    #[test]
+    fn stdio_bridge_does_not_require_tcp_opt_in() {
+        validate_bridge_listener(None, false).unwrap();
+    }
 
     #[test]
     fn no_urls_uses_default_managed_relays_not_public() {

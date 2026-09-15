@@ -181,11 +181,15 @@ forwarded to the remote agent.
 Or bridge over a local TCP port, for a client that connects to an address:
 
 ```bash
-goose roam bridge laptop --listen 127.0.0.1:8900
+goose roam bridge laptop --listen 127.0.0.1:8900 --allow-remote-clients
 ```
 
 This accepts a single ACP connection on that address and proxies it to the
-remote agent. Saved peer names work here too.
+remote agent. Saved peer names work here too. The explicit opt-in is required
+because the TCP listener does not authenticate its client: even on loopback,
+another local user or process can connect and receive the remote agent's ACP
+access. Use TCP bridging only on a trusted host where you control who can
+connect to the listener.
 
 Because a default `share` serves the full ACP surface, a bridged client gets
 everything — it can list, create, and load the host's sessions, not just a

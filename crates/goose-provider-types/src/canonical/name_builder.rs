@@ -49,6 +49,7 @@ pub fn map_provider_name(provider: &str) -> &str {
         "aws_bedrock" => "amazon-bedrock",
         "gcp_vertex_ai" => "google-vertex",
         "gemini_oauth" => "google",
+        "chatgpt_codex" => "openai",
         "databricks_v2" => "databricks",
         "zhipu" => "zhipuai",
         "novita" => "novita-ai",
@@ -133,12 +134,13 @@ pub fn map_to_canonical_model(
     // so models that DO infer (e.g. databricks-claude-* -> anthropic/*) keep
     // resolving to the richer first-party catalog entry.
     if is_meta_provider(provider) {
-        if let Some(canonical) = registry.get(registry_provider, model) {
-            return Some(canonical.id.clone());
-        }
         let normalized_model = strip_version_suffix(model);
-        if let Some(canonical) = registry.get(registry_provider, &normalized_model) {
-            return Some(canonical.id.clone());
+        let lowercased_model = normalized_model.to_ascii_lowercase();
+        // Registry keys are lowercase; deployment names may carry mixed case ("Phi-4").
+        for key in [model, normalized_model.as_str(), lowercased_model.as_str()] {
+            if let Some(canonical) = registry.get(registry_provider, key) {
+                return Some(canonical.id.clone());
+            }
         }
     }
 
@@ -347,6 +349,10 @@ mod tests {
             Some("openai/gpt-4-turbo".to_string())
         );
         assert_eq!(
+            map_to_canonical_model("chatgpt_codex", "gpt-5.6-sol", r),
+            Some("openai/gpt-5.6-sol".to_string())
+        );
+        assert_eq!(
             map_to_canonical_model("opencode_go", "kimi-k2.6", r),
             Some("opencode-go/kimi-k2.6".to_string())
         );
@@ -433,6 +439,10 @@ mod tests {
         assert_eq!(
             map_to_canonical_model("azure_foundry", "gpt-4o", r),
             Some("openai/gpt-4o".to_string())
+        );
+        assert_eq!(
+            map_to_canonical_model("azure_foundry", "Phi-4", r),
+            Some("azure/phi-4".to_string())
         );
 
         // === OpenAI O-series ===

@@ -379,7 +379,7 @@ The session cost is shown at the bottom of the goose window and updates dynamica
 
 Pricing data is regularly fetched from the OpenRouter API and cached locally. The `Advanced settings` tab shows when the data was last updated and allows you to refresh. 
 
-These costs are estimates only, and not connected to your actual provider bill. The cost shown is an approximation based on token counts and public pricing data.
+These costs are public-price estimates only, not invoices or a view of your actual provider bill. The displayed amount approximates usage from token counts and public catalog rates; provider-reported costs take precedence when available.
 </TabItem>
     <TabItem value="cli" label="goose CLI">
     Show estimated cost in the goose CLI by setting the `GOOSE_CLI_SHOW_COST` [environment variable](/docs/guides/environment-variables.md#session-management) or including it in the [configuration file](/docs/guides/config-files.md).

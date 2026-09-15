@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use async_trait::async_trait;
+use futures::StreamExt;
 use rmcp::model::Tool;
 
 use crate::anthropic::{AnthropicProvider, AnthropicProviderBuilder, ANTHROPIC_API_VERSION};
@@ -438,6 +439,22 @@ fn configured_client(
     Ok(client)
 }
 
+/// Usage chunks carry the model name the inference surface echoes back — the
+/// deployment alias, or a value the endpoint invented — but cost estimation
+/// needs the underlying model the alias resolves to, so re-tag each chunk.
+fn retag_usage_model(stream: MessageStream, model: &str) -> MessageStream {
+    let model = model.to_string();
+    Box::pin(stream.map(move |item| {
+        item.map(|(message, usage)| {
+            let usage = usage.map(|mut usage| {
+                usage.model.clone_from(&model);
+                usage
+            });
+            (message, usage)
+        })
+    }))
+}
+
 #[async_trait]
 impl Provider for AzureFoundryProvider {
     fn get_name(&self) -> &str {
@@ -571,7 +588,7 @@ impl Provider for AzureFoundryProvider {
         capability_config.model_name = capability_model.to_string();
         let capability_config =
             capability_config.with_canonical_limits(AZURE_FOUNDRY_PROVIDER_NAME);
-        match route {
+        let stream = match route {
             InferenceRoute::ProjectResponses => {
                 self.responses
                     .as_ref()
@@ -605,7 +622,8 @@ impl Provider for AzureFoundryProvider {
                     )
                     .await
             }
-        }
+        }?;
+        Ok(retag_usage_model(stream, underlying_model))
     }
 }
 
@@ -1112,10 +1130,11 @@ mod tests {
 
         let provider = project_provider(&server);
         let config = ModelConfig::new("production-chat").with_temperature(Some(0.7));
-        provider
+        let (_, usage) = provider
             .complete(&config, "system", &[], &[])
             .await
             .unwrap();
+        assert_eq!(usage.model, "gpt-5");
         let requests = server.received_requests().await.unwrap();
         let payload: serde_json::Value = requests
             .iter()
@@ -1385,11 +1404,16 @@ mod tests {
             .await;
 
         let provider = project_provider(&server);
-        for deployment in ["openai-prod", "claude-prod", "partner-prod"] {
-            provider
+        for (deployment, underlying_model) in [
+            ("openai-prod", "gpt-5"),
+            ("claude-prod", "claude-sonnet-4-6"),
+            ("partner-prod", "Mistral-large"),
+        ] {
+            let (_, usage) = provider
                 .complete(&ModelConfig::new(deployment), "system", &[], &[])
                 .await
                 .unwrap();
+            assert_eq!(usage.model, underlying_model);
         }
     }
 }

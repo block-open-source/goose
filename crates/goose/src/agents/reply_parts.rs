@@ -19,11 +19,12 @@ use crate::conversation::{fix_conversation, merge_consecutive_messages_for_reque
 #[cfg(test)]
 use crate::providers::base::stream_from_single_message;
 use crate::providers::base::{MessageStream, Provider};
+use crate::providers::canonical_cost::resolve_usage_cost;
 use crate::providers::toolshim::{
     augment_message_with_selected_tool_interpreter, convert_tool_messages_to_text,
     modify_system_prompt_for_tool_json, sanitize_residual_markers,
 };
-use goose_providers::conversation::token_usage::{CostSource, ProviderStats, ProviderUsage, Usage};
+use goose_providers::conversation::token_usage::{ProviderStats, ProviderUsage, Usage};
 use goose_providers::model::ModelConfig;
 use rmcp::model::{ErrorData, Tool};
 use tracing::warn;
@@ -750,8 +751,7 @@ impl Agent {
         let manager = self.config.session_manager.clone();
         let session = manager.get_session(session_id, false).await?;
 
-        let (chunk_cost, cost_source) =
-            self.resolve_chunk_cost(usage, session.provider_name.as_deref());
+        let (chunk_cost, cost_source) = resolve_usage_cost(session.provider_name.as_deref(), usage);
 
         let mut enriched = usage.clone();
         enriched.cost = chunk_cost;
@@ -775,22 +775,6 @@ impl Agent {
             .await?;
 
         Ok(enriched)
-    }
-
-    fn resolve_chunk_cost(
-        &self,
-        usage: &ProviderUsage,
-        provider_name: Option<&str>,
-    ) -> (Option<f64>, Option<CostSource>) {
-        if let Some(cost) = usage.cost {
-            return (Some(cost), Some(CostSource::ProviderReported));
-        }
-        match provider_name.and_then(|pn| {
-            crate::providers::canonical_cost::estimate_model_cost(pn, &usage.model, &usage.usage)
-        }) {
-            Some(cost) => (Some(cost), Some(CostSource::Estimated)),
-            None => (None, None),
-        }
     }
 }
 

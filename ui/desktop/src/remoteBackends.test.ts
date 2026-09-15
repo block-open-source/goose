@@ -67,12 +67,15 @@ describe('connectRemoteBackend', () => {
   it('sends the secret only to the resolved ACP endpoint', async () => {
     const request = vi.fn<HopRequest>(async (url) => {
       if (url === 'https://example.com/status') {
+        return respond(302, 'https://backend.example.com/status');
+      }
+      if (url === 'https://backend.example.com/status') {
         return respond(200);
       }
-      if (url === 'https://example.com/acp') {
-        return respond(302, 'https://backend.example.com/acp');
-      }
       if (url === 'https://backend.example.com/acp') {
+        return respond(302, 'https://backend.example.com/socket');
+      }
+      if (url === 'https://backend.example.com/socket') {
         return respond(406);
       }
 
@@ -88,7 +91,62 @@ describe('connectRemoteBackend', () => {
     const secretRecipients = request.mock.calls
       .filter(([, init]) => init.headers?.['X-Secret-Key'])
       .map(([url]) => url);
-    expect(secretRecipients).toEqual(['https://backend.example.com/acp']);
+    expect(secretRecipients).toEqual(['https://backend.example.com/socket']);
+  });
+
+  it('withholds the secret when /acp redirects to another origin', async () => {
+    const request = vi.fn<HopRequest>(async (url) => {
+      if (url === 'https://example.com/status') {
+        return respond(200);
+      }
+      if (url === 'https://example.com/acp') {
+        return respond(302, 'https://attacker.example.com/acp');
+      }
+      if (url === 'https://attacker.example.com/acp') {
+        return respond(406);
+      }
+
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+
+    const result = await connectRemoteBackend({
+      baseUrl: 'https://example.com',
+      serverSecret: 'test-secret',
+      request,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.acpUrl).toBeNull();
+    expect(result.failure).toContain(
+      'Refusing to send the secret key to https://attacker.example.com'
+    );
+    expect(request.mock.calls.filter(([, init]) => init.headers?.['X-Secret-Key'])).toHaveLength(0);
+  });
+
+  it('withholds the secret when a pinned host redirects to another port', async () => {
+    const request = vi.fn<HopRequest>(async (url) => {
+      if (url === 'https://example.com/status') {
+        return respond(200);
+      }
+      if (url === 'https://example.com/acp') {
+        return respond(302, 'https://example.com:8443/acp');
+      }
+      if (url === 'https://example.com:8443/acp') {
+        return respond(406);
+      }
+
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+
+    const result = await connectRemoteBackend({
+      baseUrl: 'https://example.com',
+      serverSecret: 'test-secret',
+      pinnedHostname: 'example.com',
+      request,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(request.mock.calls.filter(([, init]) => init.headers?.['X-Secret-Key'])).toHaveLength(0);
   });
 
   it('rejects an HTTPS to HTTP redirect', async () => {

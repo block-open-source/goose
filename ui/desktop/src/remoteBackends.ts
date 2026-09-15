@@ -1,4 +1,5 @@
 import { net } from 'electron';
+import { probeRequest } from './backendProbe';
 import {
   acpHttpUrlFromHttpBase,
   normalizeAcpHttpBaseUrl,
@@ -115,6 +116,31 @@ const netHopRequest: HopRequest = (url, init) =>
 
 class RedirectError extends Error {}
 
+const CLIENT_AUTH_PATTERN = /ERR_SSL_CLIENT_AUTH_CERT_NEEDED|ERR_BAD_SSL_CLIENT_AUTH_CERT/;
+
+// A server asking for a client certificate cannot be reached from net.request,
+// because Chromium only runs certificate selection for WebContents-originated
+// requests. That path follows redirects itself, so it is used only after the
+// hop-by-hop transport reports that a certificate is required.
+const mtlsHopRequest: HopRequest = async (url, init) => {
+  const result = await probeRequest(url, init.headers ?? {});
+  // This path follows redirects itself, so a hop cannot be validated. Rather
+  // than trust an unvalidated destination, a redirected mTLS backend fails.
+  if (result.url && result.url !== url) {
+    throw new RedirectError(
+      `Redirect to ${result.url} cannot be validated on an mTLS backend. Configure the final backend URL instead.`
+    );
+  }
+
+  const headers = new Map(result.headers.map(([name, value]) => [name.toLowerCase(), value]));
+  return {
+    status: result.status,
+    statusText: result.statusText,
+    header: (name) => headers.get(name.toLowerCase()) ?? null,
+    location: null,
+  };
+};
+
 const isRedirect = (status: number): boolean =>
   status === 301 || status === 302 || status === 303 || status === 307 || status === 308;
 
@@ -182,24 +208,45 @@ const proxyNote = (hop: Hop): string => {
 };
 
 // Redirects are resolved anonymously; only the resolved URL is re-requested
-// with the secret, so no intermediate origin ever sees it.
+// with the secret, so no intermediate origin ever sees it. The secret is only
+// sent to credentialsOrigin, so a redirect elsewhere cannot capture it.
 const probe = async (
   request: HopRequest,
   url: string,
   pinnedHostname: string | null,
   credentials: Record<string, string> | null,
+  credentialsOrigin: string | null,
   expect: (hop: Hop, resolvedUrl: string) => Probe
 ): Promise<Probe> => {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
-  try {
-    const { url: resolvedUrl, hop } = await resolveRedirects(request, url, pinnedHostname, {
+  const attempt = async (hopRequest: HopRequest): Promise<Probe> => {
+    const { url: resolvedUrl, hop } = await resolveRedirects(hopRequest, url, pinnedHostname, {
       signal: controller.signal,
     });
+    if (credentials) {
+      const resolvedOrigin = new URL(resolvedUrl).origin;
+      if (resolvedOrigin !== credentialsOrigin) {
+        throw new RedirectError(
+          `Refusing to send the secret key to ${resolvedOrigin} because /status resolved to ${credentialsOrigin}.`
+        );
+      }
+    }
     const finalHop = credentials
-      ? await request(resolvedUrl, { headers: credentials, signal: controller.signal })
+      ? await hopRequest(resolvedUrl, { headers: credentials, signal: controller.signal })
       : hop;
     return expect(finalHop, resolvedUrl);
+  };
+
+  try {
+    try {
+      return await attempt(request);
+    } catch (error) {
+      if (request !== netHopRequest || !CLIENT_AUTH_PATTERN.test(errorText(error))) {
+        throw error;
+      }
+      return await attempt(mtlsHopRequest);
+    }
   } catch (error) {
     const detail = errorText(error);
     return {
@@ -217,19 +264,25 @@ const probeStatus = (
   baseUrl: string,
   pinnedHostname: string | null
 ): Promise<Probe> =>
-  probe(request, statusHttpUrlFromHttpBase(baseUrl), pinnedHostname, null, (hop, resolvedUrl) =>
-    hop.status >= 200 && hop.status < 300
-      ? {
-          ok: true,
-          detail: `GET /status returned ${hop.status}.`,
-          retryable: false,
-          resolvedUrl,
-        }
-      : {
-          ok: false,
-          detail: `GET /status returned ${hop.status} ${hop.statusText}.${proxyNote(hop)}`,
-          retryable: hop.status >= 500,
-        }
+  probe(
+    request,
+    statusHttpUrlFromHttpBase(baseUrl),
+    pinnedHostname,
+    null,
+    null,
+    (hop, resolvedUrl) =>
+      hop.status >= 200 && hop.status < 300
+        ? {
+            ok: true,
+            detail: `GET /status returned ${hop.status}.`,
+            retryable: false,
+            resolvedUrl,
+          }
+        : {
+            ok: false,
+            detail: `GET /status returned ${hop.status} ${hop.statusText}.${proxyNote(hop)}`,
+            retryable: hop.status >= 500,
+          }
   );
 
 const probeAcp = (
@@ -243,6 +296,7 @@ const probeAcp = (
     acpHttpUrlFromHttpBase(baseUrl),
     pinnedHostname,
     { 'X-Secret-Key': secret },
+    new URL(baseUrl).origin,
     (hop, resolvedUrl) => {
       if (hop.status === 406) {
         return {
@@ -348,17 +402,6 @@ export const connectRemoteBackend = async ({
       probeAcp(request, resolvedBaseUrl, serverSecret, pin)
     );
     if (!accepted.ok || !accepted.resolvedUrl) {
-      return null;
-    }
-
-    const statusOrigin = new URL(resolvedBaseUrl).origin;
-    const acpOrigin = new URL(accepted.resolvedUrl).origin;
-    if (statusOrigin !== acpOrigin) {
-      steps.push({
-        name: 'Redirect',
-        ok: false,
-        detail: `/status and /acp resolved to different origins (${statusOrigin} and ${acpOrigin}).`,
-      });
       return null;
     }
 

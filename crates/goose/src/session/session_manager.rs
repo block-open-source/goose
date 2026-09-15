@@ -2787,7 +2787,7 @@ mod tests {
     use crate::providers::base::MessageStream;
     use goose_providers::conversation::token_usage::{CostSource, ProviderUsage};
     use goose_providers::errors::ProviderError;
-    use rmcp::model::Tool;
+    use rmcp::model::{CallToolRequestParams, Tool};
     use tempfile::TempDir;
     use test_case::test_case;
 
@@ -4369,6 +4369,114 @@ mod tests {
         assert_eq!(conversation.messages().len(), 2);
         assert_eq!(conversation.messages()[0].role, Role::User);
         assert_eq!(conversation.messages()[1].role, Role::Assistant);
+    }
+
+    async fn session_with_tool_request(
+        sm: &SessionManager,
+        arguments: serde_json::Map<String, serde_json::Value>,
+    ) -> String {
+        let session = sm
+            .create_session(
+                PathBuf::from("/tmp/test"),
+                "tool request".to_string(),
+                SessionType::User,
+                GooseMode::default(),
+            )
+            .await
+            .unwrap();
+        let message = Message::assistant().with_tool_request(
+            "tool-1",
+            Ok(CallToolRequestParams::new("test_tool").with_arguments(arguments)),
+        );
+        sm.add_message(&session.id, &message).await.unwrap();
+        session.id
+    }
+
+    fn tool_request_arguments(session: &Session) -> &serde_json::Map<String, serde_json::Value> {
+        let content = &session.conversation.as_ref().unwrap().messages()[0].content[0];
+        let MessageContent::ToolRequest(request) = content else {
+            panic!("expected tool request");
+        };
+        request
+            .tool_call
+            .as_ref()
+            .unwrap()
+            .arguments
+            .as_ref()
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn persisted_tool_request_arguments_are_sanitized_on_reload() {
+        let temp_dir = TempDir::new().unwrap();
+        let sm = SessionManager::new(temp_dir.path().to_path_buf());
+        let tagged = serde_json::json!({
+            "nested": {
+                "pa\u{E0041}th": ["visible\u{E0042}text", {"clean": "世界 e\u{301}"}]
+            }
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+        let session_id = session_with_tool_request(&sm, tagged).await;
+
+        let reloaded = sm.get_session(&session_id, true).await.unwrap();
+
+        assert_eq!(
+            tool_request_arguments(&reloaded),
+            serde_json::json!({
+                "nested": {"path": ["visibletext", {"clean": "世界 e\u{301}"}]}
+            })
+            .as_object()
+            .unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn native_import_sanitizes_legacy_non_object_tool_arguments() {
+        let temp_dir = TempDir::new().unwrap();
+        let sm = SessionManager::new(temp_dir.path().to_path_buf());
+        let session_id = session_with_tool_request(&sm, serde_json::Map::new()).await;
+        let mut exported: serde_json::Value =
+            serde_json::from_str(&sm.export_session(&session_id).await.unwrap()).unwrap();
+        exported["conversation"][0]["content"][0]["toolCall"]["value"]["arguments"] = serde_json::json!([
+            "visible\u{E0041}text",
+            {"ne\u{E0042}sted": "va\u{E0043}lue"}
+        ]);
+
+        let imported = sm
+            .import_session(&serde_json::to_string(&exported).unwrap(), None)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            tool_request_arguments(&imported),
+            serde_json::json!({
+                "value": ["visibletext", {"nested": "value"}]
+            })
+            .as_object()
+            .unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn native_import_rejects_tool_argument_key_collisions() {
+        let temp_dir = TempDir::new().unwrap();
+        let sm = SessionManager::new(temp_dir.path().to_path_buf());
+        let session_id = session_with_tool_request(&sm, serde_json::Map::new()).await;
+        let mut exported: serde_json::Value =
+            serde_json::from_str(&sm.export_session(&session_id).await.unwrap()).unwrap();
+        exported["conversation"][0]["content"][0]["toolCall"]["value"]["arguments"] =
+            serde_json::json!({"nested": {"key": 1, "k\u{E0041}ey": 2}});
+
+        let error = sm
+            .import_session(&serde_json::to_string(&exported).unwrap(), None)
+            .await
+            .unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("duplicate key after Unicode tag sanitization"));
     }
 
     #[tokio::test]

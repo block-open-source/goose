@@ -1,4 +1,5 @@
 use crate::conversation::message::ToolResult;
+use crate::utils::strip_unicode_tags;
 use rmcp::model::{CallToolRequestParams, ErrorCode, ErrorData, JsonObject};
 use serde::ser::SerializeStruct;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -52,6 +53,48 @@ impl ToolCallWithValueArguments {
     }
 }
 
+fn sanitize_json_strings(value: serde_json::Value) -> Result<serde_json::Value, &'static str> {
+    match value {
+        serde_json::Value::String(value) => {
+            Ok(serde_json::Value::String(strip_unicode_tags(&value)))
+        }
+        serde_json::Value::Array(values) => Ok(serde_json::Value::Array(
+            values
+                .into_iter()
+                .map(sanitize_json_strings)
+                .collect::<Result<_, _>>()?,
+        )),
+        serde_json::Value::Object(values) => {
+            let mut sanitized = JsonObject::new();
+            for (key, value) in values {
+                let key = strip_unicode_tags(&key);
+                if sanitized.contains_key(&key) {
+                    return Err(
+                        "tool arguments contain duplicate key after Unicode tag sanitization",
+                    );
+                }
+                sanitized.insert(key, sanitize_json_strings(value)?);
+            }
+            Ok(serde_json::Value::Object(sanitized))
+        }
+        value => Ok(value),
+    }
+}
+
+fn sanitize_tool_request(
+    mut request: CallToolRequestParams,
+) -> Result<CallToolRequestParams, &'static str> {
+    if let Some(arguments) = request.arguments.take() {
+        let serde_json::Value::Object(arguments) =
+            sanitize_json_strings(serde_json::Value::Object(arguments))?
+        else {
+            unreachable!("tool arguments remain an object after sanitization");
+        };
+        request.arguments = Some(arguments);
+    }
+    Ok(request)
+}
+
 pub fn deserialize<'de, D>(deserializer: D) -> Result<ToolResult<CallToolRequestParams>, D::Error>
 where
     D: Deserializer<'de>,
@@ -78,7 +121,9 @@ where
     match format {
         ResultFormat::SuccessWithCallToolRequestParams { status, value } => {
             if status == "success" {
-                Ok(Ok(value))
+                sanitize_tool_request(value)
+                    .map(Ok)
+                    .map_err(serde::de::Error::custom)
             } else {
                 Err(serde::de::Error::custom(format!(
                     "Expected status 'success', got '{}'",
@@ -88,7 +133,9 @@ where
         }
         ResultFormat::SuccessWithToolCallValueArguments { status, value } => {
             if status == "success" {
-                Ok(Ok(value.into_call_tool_request_param()))
+                sanitize_tool_request(value.into_call_tool_request_param())
+                    .map(Ok)
+                    .map_err(serde::de::Error::custom)
             } else {
                 Err(serde::de::Error::custom(format!(
                     "Expected status 'success', got '{}'",

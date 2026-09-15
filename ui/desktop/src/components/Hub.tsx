@@ -1,15 +1,5 @@
-/**
- * Hub Component
- *
- * The empty-chat landing screen. Visually it's "Pair with no messages yet" —
- * a large time + greeting above a centered, narrower ChatInput. Submitting
- * creates a session and navigates to /pair so the rest of the chat lifecycle
- * lives there.
- */
-
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { defineMessages, useIntl } from '../i18n';
-import { AppEvents } from '../constants/events';
 import ChatInput from './ChatInput';
 import { ChatInputCard } from './ChatInputCard';
 import { ChatState } from '../types/chatState';
@@ -17,16 +7,12 @@ import 'react-toastify/dist/ReactToastify.css';
 import { View, ViewOptions } from '../utils/navigationUtils';
 import { useConfig } from './ConfigContext';
 import { getEffectiveWorkingDir, getInitialWorkingDir } from '../utils/workingDir';
-import { createSession } from '../sessions';
-import LoadingGoose from './LoadingGoose';
 import { UserInput } from '../types/message';
 import {
   createNextChatExtensionDraft,
   selectNextChatExtensions,
   type NextChatExtensionDraft,
 } from '../utils/nextChatExtensions';
-import { formatAcpError } from '../acp/errors';
-import { toastError } from '../toasts';
 import { formatClockDisplay } from '../utils/timeUtils';
 
 const i18n = defineMessages({
@@ -51,13 +37,13 @@ export default function Hub({
 }: {
   setView: (view: View, viewOptions?: ViewOptions) => void;
   /** Unsent input of this screen, kept above the route outlet across the unmount. */
-  draftRef: RefObject<string>;
+  draftRef: RefObject<UserInput>;
 }) {
   const intl = useIntl();
   const { extensionsList } = useConfig();
   const [workingDir, setWorkingDir] = useState(getInitialWorkingDir());
   const userSelectedWorkingDirRef = useRef(false);
-  const [isCreatingSession, setIsCreatingSession] = useState(false);
+  const hasSubmittedRef = useRef(false);
   const [nextChatExtensionDraft, setNextChatExtensionDraft] =
     useState<NextChatExtensionDraft | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -103,52 +89,26 @@ export default function Hub({
     setWorkingDir(dir);
   }, []);
 
-  const handleSubmit = async (input: UserInput) => {
+  const handleSubmit = (input: UserInput) => {
     const { msg: userMessage, images } = input;
-    if (!(images.length > 0 || userMessage.trim()) || isCreatingSession) return;
+    if (!(images.length > 0 || userMessage.trim()) || hasSubmittedRef.current) return;
 
-    const draftAtSubmit = draftRef.current;
-    setIsCreatingSession(true);
+    hasSubmittedRef.current = true;
 
-    try {
-      const selectedExtensions = nextChatExtensionDraft
-        ? selectNextChatExtensions(extensionsList, nextChatExtensionDraft)
-        : [];
-      const sessionOptions =
-        selectedExtensions.length > 0
-          ? { extensionConfigs: selectedExtensions }
-          : { allExtensions: extensionsList };
+    const selectedExtensions = nextChatExtensionDraft
+      ? selectNextChatExtensions(extensionsList, nextChatExtensionDraft)
+      : [];
+    const sessionOptions =
+      selectedExtensions.length > 0
+        ? { extensionConfigs: selectedExtensions }
+        : { allExtensions: extensionsList };
 
-      // Resolve the effective directory at submit time: the IPC lookup may still
-      // be pending when the user submits, and an explicit pick must win.
-      const dir = userSelectedWorkingDirRef.current ? workingDir : await getEffectiveWorkingDir();
-      const session = await createSession(dir, sessionOptions);
-      setNextChatExtensionDraft(null);
-
-      window.dispatchEvent(new CustomEvent(AppEvents.SESSION_CREATED));
-      window.dispatchEvent(
-        new CustomEvent(AppEvents.ADD_ACTIVE_SESSION, {
-          detail: { sessionId: session.id, initialMessage: { msg: userMessage, images } },
-        })
-      );
-
-      // The draft is this screen's own, so it is dropped once the session exists.
-      // Comparing it against the value at submit leaves an edit made while the
-      // session was starting alone, including one that emptied the input.
-      if (draftRef.current === draftAtSubmit) {
-        draftRef.current = '';
-      }
-
-      setView('pair', {
-        disableAnimation: true,
-        resumeSessionId: session.id,
-        initialMessage: { msg: userMessage, images },
-      });
-    } catch (error) {
-      console.error('Failed to create session:', error);
-      toastError({ title: "Couldn't start chat", msg: formatAcpError(error) });
-      setIsCreatingSession(false);
-    }
+    setView('pair', {
+      disableAnimation: true,
+      initialMessage: { msg: userMessage, images },
+      workingDir: userSelectedWorkingDirRef.current ? workingDir : undefined,
+      ...sessionOptions,
+    });
   };
 
   return (
@@ -169,7 +129,7 @@ export default function Hub({
             sessionId={null}
             draftRef={draftRef}
             handleSubmit={handleSubmit}
-            chatState={isCreatingSession ? ChatState.LoadingConversation : ChatState.Idle}
+            chatState={ChatState.Idle}
             onStop={() => {}}
             initialValue=""
             setView={setView}
@@ -188,12 +148,6 @@ export default function Hub({
           />
         </ChatInputCard>
       </div>
-
-      {isCreatingSession && (
-        <div className="absolute bottom-4 left-4 z-20 pointer-events-none">
-          <LoadingGoose chatState={ChatState.LoadingConversation} />
-        </div>
-      )}
     </div>
   );
 }

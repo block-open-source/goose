@@ -174,7 +174,7 @@ interface ChatInputProps {
    * Only New Chat passes it: every other chat stays mounted in
    * `ChatSessionsContainer` and keeps its text in local state.
    */
-  draftRef?: React.RefObject<string>;
+  draftRef?: React.RefObject<UserInput>;
   droppedFiles?: DroppedFile[];
   onFilesProcessed?: () => void;
   setView: (view: View) => void;
@@ -250,7 +250,7 @@ export default function ChatInput({
       setDisplayValue(next);
       setValue(next);
       if (draftRef) {
-        draftRef.current = next;
+        draftRef.current = { msg: next, images: draftRef.current?.images ?? [] };
       }
     },
     [draftRef]
@@ -544,10 +544,17 @@ export default function ChatInput({
     // effect also runs on mount and would overwrite a value seeded into `useState`.
     // It stays a ref for the same reason: a prop that changed on every keystroke
     // would re-run this effect and reset the state it clears below.
-    const restored = draftRef?.current || initialValue;
-    setValue(restored);
-    setDisplayValue(restored);
-    setPastedImages([]);
+    const restoredText = draftRef?.current?.msg ?? initialValue;
+    const restoredImages = draftRef?.current?.images ?? [];
+    setValue(restoredText);
+    setDisplayValue(restoredText);
+    setPastedImages(
+      restoredImages.map((img, index) => ({
+        id: `draft-${index}`,
+        dataUrl: `data:${img.mimeType};base64,${img.data}`,
+        isLoading: false,
+      }))
+    );
     setHistoryIndex(-1);
     setIsInGlobalHistory(false);
     setHasUserTyped(false);
@@ -868,7 +875,7 @@ export default function ChatInput({
     setValue('');
     setPastedImages([]);
     if (draftRef) {
-      draftRef.current = '';
+      draftRef.current = { msg: '', images: [] };
     }
     if (onFilesProcessed && droppedFiles.length > 0) {
       onFilesProcessed();

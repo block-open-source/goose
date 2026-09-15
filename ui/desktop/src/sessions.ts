@@ -19,7 +19,7 @@ export function getSessionDisplayName(session: Session): string {
   return session.name;
 }
 
-interface CreateSessionOptions {
+export interface CreateSessionOptions {
   recipeDeeplink?: string;
   recipeId?: string;
   extensionConfigs?: ExtensionConfig[];

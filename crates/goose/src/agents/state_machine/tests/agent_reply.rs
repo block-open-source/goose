@@ -147,6 +147,7 @@ async fn state_machine_confirmation_through_agent_resumes_tool_call() -> Result<
         .reply(
             Message::user().with_text("add one"),
             session_config.clone(),
+            true,
             Some(CancellationToken::new()),
         )
         .await?;
@@ -325,8 +326,7 @@ async fn reply_streams_the_turn_and_ends() -> Result<()> {
 }
 
 #[tokio::test]
-async fn bang_shell_uses_the_state_machine_when_the_flag_is_disabled() -> Result<()> {
-    let _guard = env_lock::lock_env([("GOOSE_STATE_MACHINE", None::<&str>)]);
+async fn bang_shell_uses_state_machine_when_explicitly_enabled() -> Result<()> {
     let (agent, api, session_id, _temp_dir) = agent_with_dummy_api().await?;
     let session_config = SessionConfig {
         id: session_id,
@@ -338,6 +338,7 @@ async fn bang_shell_uses_the_state_machine_when_the_flag_is_disabled() -> Result
         .reply(
             Message::user().with_text("!echo hello"),
             session_config,
+            true,
             Some(CancellationToken::new()),
         )
         .await?;
@@ -375,6 +376,7 @@ async fn reply_messages(
                 max_turns: Some(2),
                 retry_config: None,
             },
+            crate::agents::state_machine::enabled(),
             Some(CancellationToken::new()),
         )
         .await?;
@@ -518,9 +520,15 @@ async fn assert_bang_shell_uses_only_user_visible_content() -> Result<()> {
 }
 
 #[tokio::test]
-async fn bang_shell_visibility_is_enforced_when_state_machine_is_disabled() -> Result<()> {
+async fn bang_shell_not_executed_in_legacy_loop() -> Result<()> {
     let _guard = env_lock::lock_env([("GOOSE_STATE_MACHINE", None::<&str>)]);
-    assert_bang_shell_uses_only_user_visible_content().await
+    let (agent, api, session_id, _temp_dir) = agent_with_dummy_api().await?;
+    api.on("!echo hello").reply("treated as text");
+    let messages =
+        reply_messages(&agent, session_id, Message::user().with_text("!echo hello")).await?;
+    assert!(shell_commands(&messages).is_empty());
+    assert_eq!(api.call_count(), 1);
+    Ok(())
 }
 
 #[tokio::test]

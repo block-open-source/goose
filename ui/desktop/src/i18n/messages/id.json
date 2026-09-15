@@ -4669,5 +4669,11 @@
   },
   "providerConfigurationModal.deviceCodeVisit": {
     "defaultMessage": "Kunjungi"
+  },
+  "settings.legacyAgentLoop.description": {
+    "defaultMessage": "Fall back to the classic agent loop if the new one causes issues"
+  },
+  "settings.legacyAgentLoop.title": {
+    "defaultMessage": "Use Legacy Agent Loop"
   }
 }

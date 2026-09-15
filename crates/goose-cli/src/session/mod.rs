@@ -1329,6 +1329,7 @@ impl CliSession {
             .reply(
                 user_message.clone(),
                 session_config.clone(),
+                goose::agents::state_machine::enabled(),
                 Some(cancel_token.clone()),
             )
             .await?;
@@ -1452,7 +1453,7 @@ impl CliSession {
                                         self.messages.push(response_message.clone());
                                         // Elicitation responses return an empty stream - the response
                                         // unblocks the waiting tool call via ActionRequiredManager
-                                        let _ = self.agent.reply(response_message, session_config.clone(), Some(cancel_token.clone())).await?;
+                                        let _ = self.agent.reply(response_message, session_config.clone(), goose::agents::state_machine::enabled(), Some(cancel_token.clone())).await?;
                                         if should_cancel {
                                             cancel_token_clone.cancel();
                                             drop(stream);

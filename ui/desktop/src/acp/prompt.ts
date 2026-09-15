@@ -8,9 +8,11 @@ export async function acpPromptSession(
   message: Message
 ): Promise<PromptResponse> {
   const client = await getAcpClient();
+  const useLegacyAgentLoop = await window.electron.getSetting('useLegacyAgentLoop');
   return client.connection.agent.request(methods.agent.session.prompt, {
     sessionId,
     prompt: messageToAcpPromptContent(message),
+    _meta: { goose: { unrolledAgentLoop: !useLegacyAgentLoop } },
   });
 }
 

@@ -2310,6 +2310,13 @@ impl GooseAcpAgent {
         }
 
         let user_message = Self::convert_acp_prompt_to_message(&args.prompt);
+        let use_state_machine = args
+            .meta
+            .as_ref()
+            .and_then(|meta| meta.get("goose"))
+            .and_then(|goose| goose.get("unrolledAgentLoop"))
+            .and_then(|value| value.as_bool())
+            .unwrap_or_else(crate::agents::state_machine::enabled);
         let session_config = SessionConfig {
             id: session_id.clone(),
             schedule_id: None,
@@ -2318,7 +2325,12 @@ impl GooseAcpAgent {
         };
 
         let stream = match agent
-            .reply(user_message, session_config, Some(cancel_token.clone()))
+            .reply(
+                user_message,
+                session_config,
+                use_state_machine,
+                Some(cancel_token.clone()),
+            )
             .await
         {
             Ok(stream) => stream,

@@ -588,7 +588,15 @@ impl ProviderFixture {
             retry_config: None,
         };
 
-        let mut stream = self.agent.reply(message, session_config, None).await?;
+        let mut stream = self
+            .agent
+            .reply(
+                message,
+                session_config,
+                goose::agents::state_machine::enabled(),
+                None,
+            )
+            .await?;
         let mut saw_action_required = false;
 
         while let Some(event) = stream.next().await {

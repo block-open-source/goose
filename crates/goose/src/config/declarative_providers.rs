@@ -7,6 +7,7 @@ use crate::providers::huggingface_auth;
 use crate::providers::inventory::declarative_inventory_identity;
 use crate::providers::ollama_def::OllamaProviderDef;
 use crate::providers::openai_def::OpenAiProviderDef;
+use crate::providers::private_file::write_private_file;
 use anyhow::Result;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
@@ -128,6 +129,13 @@ pub(crate) fn custom_provider_file_path(id: &str) -> Result<PathBuf> {
     Ok(custom_providers_dir().join(format!("{}.json", id)))
 }
 
+fn persist_custom_provider(provider: &DeclarativeProviderConfig) -> Result<()> {
+    let json_content = serde_json::to_string_pretty(provider)?;
+    let file_path = custom_provider_file_path(&provider.name)?;
+    write_private_file(&file_path, &json_content)?;
+    Ok(())
+}
+
 pub fn generate_api_key_name(id: &str) -> String {
     format!("{}_API_KEY", id.to_uppercase())
 }
@@ -234,12 +242,7 @@ pub fn create_custom_provider(
         setup: None,
     };
 
-    let custom_providers_dir = custom_providers_dir();
-    std::fs::create_dir_all(&custom_providers_dir)?;
-
-    let json_content = serde_json::to_string_pretty(&provider_config)?;
-    let file_path = custom_providers_dir.join(format!("{}.json", id));
-    std::fs::write(file_path, json_content)?;
+    persist_custom_provider(&provider_config)?;
 
     Ok(provider_config)
 }
@@ -354,9 +357,7 @@ pub fn update_custom_provider(params: UpdateCustomProviderParams) -> Result<()> 
             setup: existing_config.setup,
         };
 
-        let file_path = custom_provider_file_path(&updated_config.name)?;
-        let json_content = serde_json::to_string_pretty(&updated_config)?;
-        std::fs::write(file_path, json_content)?;
+        persist_custom_provider(&updated_config)?;
     }
     Ok(())
 }
@@ -897,6 +898,124 @@ mod tests {
     #[test]
     fn test_validate_provider_id_rejects_legacy_punctuation_for_new_ids() {
         assert!(validate_provider_id("custom_z.ai").is_err());
+    }
+
+    fn create_params(
+        display_name: &str,
+        headers: Option<HashMap<String, String>>,
+    ) -> CreateCustomProviderParams {
+        CreateCustomProviderParams {
+            engine: "openai".to_string(),
+            display_name: display_name.to_string(),
+            api_url: "https://example.invalid/v1".to_string(),
+            api_key: None,
+            models: vec!["test-model".to_string()],
+            supports_streaming: Some(true),
+            headers,
+            requires_auth: false,
+            catalog_provider_id: None,
+            base_path: None,
+            preserves_thinking: None,
+        }
+    }
+
+    #[test]
+    fn test_custom_provider_headers_round_trip_through_create_and_update() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_root = temp_dir.path().display().to_string();
+        let _guard = env_lock::lock_env([("GOOSE_PATH_ROOT", Some(temp_root.as_str()))]);
+        let original_headers = HashMap::from([
+            ("Authorization".to_string(), "Bearer original".to_string()),
+            ("X-Tenant".to_string(), "tenant-a".to_string()),
+        ]);
+
+        let created = create_custom_provider(create_params(
+            "Header Round Trip",
+            Some(original_headers.clone()),
+        ))
+        .unwrap();
+        assert_eq!(
+            load_provider(&created.name).unwrap().config.headers,
+            Some(original_headers)
+        );
+
+        let updated_headers = HashMap::from([
+            ("Authorization".to_string(), "Bearer updated".to_string()),
+            ("X-Tenant".to_string(), "tenant-b".to_string()),
+        ]);
+        update_custom_provider(UpdateCustomProviderParams {
+            id: created.name.clone(),
+            engine: "openai".to_string(),
+            display_name: "Header Round Trip".to_string(),
+            api_url: "https://example.invalid/v2".to_string(),
+            api_key: None,
+            models: vec!["test-model".to_string()],
+            supports_streaming: Some(true),
+            headers: Some(updated_headers.clone()),
+            requires_auth: false,
+            catalog_provider_id: None,
+            base_path: None,
+            preserves_thinking: None,
+        })
+        .unwrap();
+
+        assert_eq!(
+            load_provider(&created.name).unwrap().config.headers,
+            Some(updated_headers)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_create_custom_provider_uses_owner_only_file_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_root = temp_dir.path().display().to_string();
+        let _guard = env_lock::lock_env([("GOOSE_PATH_ROOT", Some(temp_root.as_str()))]);
+
+        let created = create_custom_provider(create_params("Private Create", None)).unwrap();
+        let path = custom_provider_file_path(&created.name).unwrap();
+
+        assert_eq!(
+            std::fs::metadata(path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_update_custom_provider_tightens_existing_file_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_root = temp_dir.path().display().to_string();
+        let _guard = env_lock::lock_env([("GOOSE_PATH_ROOT", Some(temp_root.as_str()))]);
+
+        let created = create_custom_provider(create_params("Private Update", None)).unwrap();
+        let path = custom_provider_file_path(&created.name).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        update_custom_provider(UpdateCustomProviderParams {
+            id: created.name,
+            engine: "openai".to_string(),
+            display_name: "Private Update".to_string(),
+            api_url: "https://example.invalid/v2".to_string(),
+            api_key: None,
+            models: vec!["test-model".to_string()],
+            supports_streaming: Some(true),
+            headers: None,
+            requires_auth: false,
+            catalog_provider_id: None,
+            base_path: None,
+            preserves_thinking: None,
+        })
+        .unwrap();
+
+        assert_eq!(
+            std::fs::metadata(path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
     }
 
     fn write_legacy_provider_config(id: &str, display_name: &str) {

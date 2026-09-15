@@ -45,7 +45,7 @@
     "@aaif/goose-binary-win32-x64": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "^26.2.0",
+    "@types/node": "^26.5.1",
     "prettier": "^3.9.6",
     "typescript": "~5.9.3"
   }

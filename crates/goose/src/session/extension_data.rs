@@ -3,6 +3,7 @@
 
 use crate::config::base::Config;
 use crate::config::extensions::is_extension_available;
+use crate::config::extensions::is_extension_enabled;
 use crate::config::ExtensionConfig;
 use crate::session::SessionManager;
 use anyhow::Result;
@@ -116,7 +117,9 @@ impl EnabledExtensionsState {
 
     pub fn from_extension_data(extension_data: &ExtensionData) -> Option<Self> {
         let mut state = <Self as ExtensionState>::from_extension_data(extension_data)?;
-        state.extensions.retain(is_extension_available);
+        state
+            .extensions
+            .retain(|ext| is_extension_available(ext) && is_extension_enabled(&ext.name()));
         Some(state)
     }
 
@@ -297,5 +300,49 @@ mod tests {
         assert!(!names
             .iter()
             .any(|name| name == "definitely_not_real_platform_extension"));
+    }
+
+    #[test]
+    fn test_from_extension_data_filters_disabled_extensions() {
+        // When an extension was previously enabled, used in a session (leaving
+        // state in extension_data), then later disabled in config, the stale
+        // state should not be loaded back on session resume.
+        //
+        // We test this by checking that from_extension_data does not return
+        // extensions that are disabled in the global config. The "todo"
+        // extension is disabled by default in the test config, so any todo
+        // state persisted in extension_data should be filtered out.
+        let mut extension_data = ExtensionData::new();
+        let state = EnabledExtensionsState::new(vec![
+            ExtensionConfig::Builtin {
+                name: "developer".to_string(),
+                description: "".to_string(),
+                display_name: Some("Developer".to_string()),
+                timeout: None,
+                bundled: None,
+                available_tools: Vec::new(),
+            },
+            ExtensionConfig::Platform {
+                name: "todo".to_string(),
+                description: "Todo list".to_string(),
+                display_name: Some("Todo".to_string()),
+                bundled: None,
+                available_tools: Vec::new(),
+            },
+        ]);
+
+        state.to_extension_data(&mut extension_data).unwrap();
+
+        let loaded =
+            EnabledExtensionsState::from_extension_data(&extension_data).expect("state present");
+        let names: Vec<String> = loaded.extensions.iter().map(|ext| ext.name()).collect();
+
+        // developer is enabled by default in the test config
+        assert!(names.iter().any(|name| name == "developer"));
+        // todo is disabled by default in the test config, so it should be filtered out
+        assert!(
+            !names.iter().any(|name| name == "todo"),
+            "disabled extension 'todo' should not be loaded from extension_data"
+        );
     }
 }

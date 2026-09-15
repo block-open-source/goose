@@ -49,7 +49,8 @@ use crate::config::extensions::name_to_key;
 use crate::config::permission::PermissionManager;
 use crate::config::{Config, GooseMode};
 use crate::context_mgmt::{
-    check_if_compaction_needed, compact_messages, DEFAULT_COMPACTION_THRESHOLD,
+    check_if_compaction_needed, compact_messages, COMPACTION_PROGRESS_TEXT,
+    DEFAULT_COMPACTION_THRESHOLD,
 };
 use crate::conversation::message::{
     ActionRequiredData, InferenceMetadata, Message, MessageContent, MessageUsage, ProviderMetadata,
@@ -84,7 +85,6 @@ use tracing::{debug, error, info, instrument, warn};
 
 const DEFAULT_MAX_TURNS: u32 = 1000;
 const DEFAULT_STOP_HOOK_BLOCK_CAP: u32 = 8;
-const COMPACTION_PROGRESS_TEXT: &str = "goose is compacting the conversation...";
 const MAX_EMPTY_TURN_RETRIES: u32 = 3;
 const EMPTY_TURN_MESSAGE: &str =
     "The model returned an empty response. Please resend your message to continue.";
@@ -344,6 +344,44 @@ fn agent_visible_message_text(message: &Message) -> String {
 
 fn user_visible_message_text(message: &Message) -> String {
     message.user_visible_content().as_concat_text()
+}
+
+/// Preserve the usage boundary of a response whose content was not
+/// persisted — an empty response the loop drops, or a notification-only
+/// reply that is yielded without persisting. The session baseline still
+/// reports that request, so the recount must learn where its input ended:
+/// mark the newest agent-visible message, which the request already
+/// carried. Without the marker the recount would sweep the messages this
+/// request already sent back in as growth and compact a context whose real
+/// next request still fits. A message that already carries usage is left
+/// alone: it is already the newest boundary.
+async fn preserve_usage_boundary(
+    session_manager: &SessionManager,
+    session_id: &str,
+    conversation: &mut Conversation,
+    usage: &ProviderUsage,
+) -> Result<()> {
+    let Some(index) = conversation
+        .messages()
+        .iter()
+        .rposition(|message| message.is_agent_visible())
+    else {
+        return Ok(());
+    };
+    if conversation.messages()[index].metadata.usage.is_some() {
+        return Ok(());
+    }
+    let marker = MessageUsage::from_provider_usage(usage, false);
+    conversation.messages_mut()[index].metadata.usage = Some(Box::new(marker.clone()));
+    if let Some(message_id) = conversation.messages()[index].id.clone() {
+        session_manager
+            .update_message_metadata(session_id, &message_id, move |mut metadata| {
+                metadata.usage = Some(Box::new(marker));
+                metadata
+            })
+            .await?;
+    }
+    Ok(())
 }
 
 fn attach_turn_usage(
@@ -1049,6 +1087,16 @@ impl Agent {
             }
         }
         Ok(())
+    }
+
+    /// Whether the final-output tool has collected the recipe result, which
+    /// the loop delivers on its next pass.
+    async fn has_collected_final_output(&self) -> bool {
+        self.final_output_tool
+            .lock()
+            .await
+            .as_ref()
+            .is_some_and(|tool| tool.final_output.is_some())
     }
 
     /// Dispatch a single tool call to the appropriate client
@@ -2294,10 +2342,10 @@ impl Agent {
             &conversation,
             None,
             &session,
+            true,
         )
         .await?;
 
-        let conversation_to_compact = conversation.clone();
         let reply_span = tracing::Span::current();
         reply_span.record("gen_ai.agent.name", gen_ai_telemetry::agent_name(&session));
 
@@ -2306,59 +2354,24 @@ impl Agent {
                 yield event;
             }
 
-            let final_conversation = if !needs_auto_compact {
-                conversation
-            } else {
-                let config = Config::global();
-                let threshold = config
-                    .get_param::<f64>("GOOSE_AUTO_COMPACT_THRESHOLD")
-                    .unwrap_or(DEFAULT_COMPACTION_THRESHOLD);
-                let threshold_percentage = (threshold * 100.0) as u32;
-
-                let inline_msg = format!(
-                    "Exceeded auto-compact threshold of {}%. Performing auto-compaction...",
-                    threshold_percentage
-                );
-
-                yield AgentEvent::Message(
-                    Message::assistant().with_system_notification(
-                        SystemNotificationType::InlineMessage,
-                        inline_msg,
+            let mut final_conversation = conversation;
+            if needs_auto_compact {
+                for event in super::reply_parts::auto_compaction_started_events() {
+                    yield event;
+                }
+                match self
+                    .auto_compact(
+                        "turn-boundary",
+                        &session_manager,
+                        &session_config,
+                        &mut final_conversation,
                     )
-                );
-
-                yield AgentEvent::Message(
-                    Message::assistant().with_system_notification(
-                        SystemNotificationType::ProgressMessage,
-                        COMPACTION_PROGRESS_TEXT,
-                    )
-                );
-
-                let compact_model_config = self.model_config_for_session(&session_config.id).await?;
-                match compact_messages(
-                    self.provider().await?.as_ref(),
-                    &compact_model_config,
-                    &session_config.id,
-                    &conversation_to_compact,
-                    false,
-                )
-                .await
+                    .await
                 {
-                    Ok(compaction) => {
-                        let compacted_conversation = compaction.conversation;
-                        session_manager.replace_conversation(&session_config.id, &compacted_conversation).await?;
-                        self.update_session_metrics(&session_config.id, session_config.schedule_id.clone(), &compaction.usage, Some(compaction.retained_context_tokens)).await?;
-
-                        yield AgentEvent::HistoryReplaced(compacted_conversation.clone());
-
-                        yield AgentEvent::Message(
-                            Message::assistant().with_system_notification(
-                                SystemNotificationType::InlineMessage,
-                                "Compaction complete",
-                            )
-                        );
-
-                        compacted_conversation
+                    Ok(events) => {
+                        for event in events {
+                            yield event;
+                        }
                     }
                     Err(e) => {
                         yield AgentEvent::Message(
@@ -2369,7 +2382,7 @@ impl Agent {
                         return;
                     }
                 }
-            };
+            }
 
             let parent_span = tracing::Span::current();
             let mut reply_stream = self.reply_internal(final_conversation, session_config, session, cancel_token, parent_span.clone()).await?;
@@ -2523,6 +2536,13 @@ impl Agent {
             let mut consecutive_stop_hook_blocks = 0u32;
             let stop_hook_block_cap = self.stop_hook_block_cap();
             let mut can_drain_pending_steers = false;
+            // A continuation appended mid-turn — a goal/grind nudge, a
+            // stop-hook denial, a final-output reminder — adds a user
+            // message no threshold check has seen, so it queues the
+            // pre-inference re-check below. A collected final output instead
+            // suppresses that re-check until it is delivered, matching the
+            // state machine's guard for a result awaiting its delivery.
+            let mut continuation_appended = false;
             let turn_start = chrono::Local::now();
             let turn_start_compaction_info =
                 super::moim::compute_compaction_info(&session_config.id, &self.extension_manager)
@@ -2555,7 +2575,9 @@ impl Agent {
                 }
 
                 if can_drain_pending_steers {
+                    let mut steers_drained = 0usize;
                     for message in self.drain_pending_steers(&session_config.id).await {
+                        steers_drained += 1;
                         let message_text = agent_visible_message_text(&message);
                         if self
                             .hook_manager
@@ -2579,6 +2601,42 @@ impl Agent {
                         .await?;
                         yield AgentEvent::Message(message);
                     }
+
+                    // A drained steer continues the turn without a provider
+                    // round-trip: after a text-only reply the mid-turn check
+                    // below never ran, and after a tool round-trip it ran
+                    // before the steer landed. Re-check now that the steer is
+                    // appended, before the request carries it to the
+                    // provider — mirroring the state machine, whose steer
+                    // operation appends the message ahead of its User-boundary
+                    // check. Skip when the client cancelled or the recipe
+                    // result is ready to deliver, for the same reasons as the
+                    // mid-turn check below.
+                    if steers_drained > 0
+                        && !is_token_cancelled(&cancel_token)
+                        && !self.has_collected_final_output().await
+                        && self
+                            .over_compaction_threshold(&session_manager, &session_config, &conversation)
+                            .await?
+                    {
+                        // The turn continues with the steer either way: the
+                        // request that follows may still fit, and the reactive
+                        // path catches it if not.
+                        for event in super::reply_parts::auto_compaction_started_events() {
+                            yield event;
+                        }
+                        match self
+                            .auto_compact("steer", &session_manager, &session_config, &mut conversation)
+                            .await
+                        {
+                            Ok(events) => {
+                                for event in events {
+                                    yield event;
+                                }
+                            }
+                            Err(e) => error!("Steer compaction failed: {}", e),
+                        }
+                    }
                 }
 
                 let final_output = {
@@ -2587,9 +2645,10 @@ impl Agent {
                 };
                 if let Some(output) = final_output {
                     last_assistant_text = output.clone();
-                    let message = Message::assistant()
+                    let mut message = Message::assistant()
                         .with_text(output)
                         .with_generated_id_if_missing();
+                    crate::context_mgmt::mark_final_output_delivery(&mut message);
                     yield AgentEvent::Message(message.clone());
                     session_manager.add_message(&session_config.id, &message).await?;
                     conversation.push(message);
@@ -2623,6 +2682,7 @@ impl Agent {
                             )
                             .await?;
                             yield AgentEvent::Message(stop_hook_denial_notification(&plugin));
+                            continuation_appended = true;
                             retrying_after_stop_hook_denial = true;
                             continue;
                         }
@@ -2640,6 +2700,42 @@ impl Agent {
                     last_assistant_text = MAX_TURNS_MESSAGE.to_string();
                     yield AgentEvent::Message(Message::assistant().with_text(last_assistant_text.clone()));
                     break;
+                }
+
+                // Continuation messages appended mid-turn — goal/grind nudges,
+                // a final-output reminder, a stop-hook denial — were never
+                // seen by a threshold check, and the mid-turn check below
+                // skips tool-free iterations, so re-check before this request
+                // leaves over the threshold. A collected final output skips
+                // the re-check until it is delivered — summarizing between
+                // the response and its delivery can end the run without the
+                // already-completed result. Compaction failure logs and
+                // continues — the reactive path owns the outcome if the
+                // request still does not fit.
+                if continuation_appended
+                    && !self.has_collected_final_output().await
+                    && !is_token_cancelled(&cancel_token)
+                {
+                    continuation_appended = false;
+                    if self
+                        .over_compaction_threshold(&session_manager, &session_config, &conversation)
+                        .await?
+                    {
+                        for event in super::reply_parts::auto_compaction_started_events() {
+                            yield event;
+                        }
+                        match self
+                            .auto_compact("continuation", &session_manager, &session_config, &mut conversation)
+                            .await
+                        {
+                            Ok(events) => {
+                                for event in events {
+                                    yield event;
+                                }
+                            }
+                            Err(e) => error!("Continuation compaction failed: {}", e),
+                        }
+                    }
                 }
 
                 let mut stream = crate::agents::reply_parts::stream_response_from_provider(
@@ -3104,6 +3200,7 @@ impl Agent {
                                 break;
                             }
 
+                            debug!(trigger = "reactive", "compacting after a context-length error");
                             yield AgentEvent::Message(
                                 Message::assistant().with_system_notification(
                                     SystemNotificationType::InlineMessage,
@@ -3127,9 +3224,7 @@ impl Agent {
                             .await
                             {
                                 Ok(compaction) => {
-                                    session_manager.replace_conversation(&session_config.id, &compaction.conversation).await?;
-                                    self.update_session_metrics(&session_config.id, session_config.schedule_id.clone(), &compaction.usage, Some(compaction.retained_context_tokens)).await?;
-                                    conversation = compaction.conversation;
+                                    self.persist_compaction(&session_manager, &session_config, compaction, &mut conversation).await?;
                                     did_recovery_compact_this_iteration = true;
                                     yield AgentEvent::HistoryReplaced(conversation.clone());
                                     break;
@@ -3278,6 +3373,7 @@ impl Agent {
 
                     match final_output {
                         Some(None) => {
+                            continuation_appended = true;
                             warn!("Final output tool has not been called yet. Continuing agent loop.");
                             let message = push_message_with_id(
                                 &mut messages_to_add,
@@ -3294,6 +3390,7 @@ impl Agent {
                         }
                         None if self.has_pending_steers(&session_config.id).await => {}
                         None if self.goal.lock().await.is_some() && !goal_check_pending => {
+                            continuation_appended = true;
                             goal_check_pending = true;
                             let goal = self.goal.lock().await.clone().unwrap();
                             let nudge = format!(
@@ -3313,6 +3410,7 @@ impl Agent {
                         }
 
                         None if self.grind.lock().await.is_some() => {
+                            continuation_appended = true;
                             let grind = self.grind.lock().await.clone().unwrap();
                             let nudge = format!(
                                 "Keep working. The grind goal is not yet complete:\n\n\
@@ -3435,10 +3533,9 @@ impl Agent {
                 if let Some(output) = pending_final_output.take() {
                     preferred_turn_usage_message_id = None;
                     last_assistant_text = output.clone();
-                    let message = push_message_with_id(
-                        &mut messages_to_add,
-                        Message::assistant().with_text(output),
-                    );
+                    let mut message = Message::assistant().with_text(output);
+                    crate::context_mgmt::mark_final_output_delivery(&mut message);
+                    let message = push_message_with_id(&mut messages_to_add, message);
                     yield AgentEvent::Message(message);
                 }
 
@@ -3459,6 +3556,19 @@ impl Agent {
                         preferred_turn_usage_message_id.as_deref(),
                     ) {
                         yield AgentEvent::MessageUsage { message_id, usage };
+                    } else {
+                        // No assistant message carried the usage, so the
+                        // response's content was dropped. `conversation`
+                        // still ends exactly where that request's input did —
+                        // the additions below have not landed yet — making
+                        // this the point to preserve its boundary.
+                        preserve_usage_boundary(
+                            &session_manager,
+                            &session_config.id,
+                            &mut conversation,
+                            &usage,
+                        )
+                        .await?;
                     }
                 }
 
@@ -3467,8 +3577,49 @@ impl Agent {
                 }
                 conversation.extend(messages_to_add);
 
+                // Revive the turn for pending steers before the mid-turn check
+                // below, so a turn that continues is not skipped as "ending".
                 if exit_chat && self.has_pending_steers(&session_config.id).await {
                     exit_chat = false;
+                }
+
+                // The turn-start check cannot see tool output, so a turn that
+                // begins under the threshold can grow past the context limit
+                // without ever being re-examined. Re-check now that the tool
+                // responses have landed: compacting between a request and its
+                // response would orphan the request. Skip when the turn is
+                // ending (the next turn starts with a check), right after a
+                // recovery compaction (the context was just shrunk), when the
+                // provider errored (the reactive path owns the outcome), and
+                // when the client cancelled — the state machine suppresses
+                // every operation once cancelled, and a summarization request
+                // is not something a cancelled turn should start.
+                if !no_tools_called
+                    && !exit_chat
+                    && !did_recovery_compact_this_iteration
+                    && !provider_errored
+                    && !is_token_cancelled(&cancel_token)
+                    && !self.has_collected_final_output().await
+                    && self
+                        .over_compaction_threshold(&session_manager, &session_config, &conversation)
+                        .await?
+                {
+                    // The turn can continue: the request that follows may
+                    // still fit, and the reactive path catches it if not.
+                    for event in super::reply_parts::auto_compaction_started_events() {
+                        yield event;
+                    }
+                    match self
+                        .auto_compact("mid-turn", &session_manager, &session_config, &mut conversation)
+                        .await
+                    {
+                        Ok(events) => {
+                            for event in events {
+                                yield event;
+                            }
+                        }
+                        Err(e) => error!("Mid-turn compaction failed: {}", e),
+                    }
                 }
 
                 if exit_chat {
@@ -3501,6 +3652,7 @@ impl Agent {
                             )
                             .await?;
                             yield AgentEvent::Message(stop_hook_denial_notification(&plugin));
+                            continuation_appended = true;
                             retrying_after_stop_hook_denial = true;
                         }
                     }
@@ -4661,6 +4813,32 @@ cat > "$PLUGIN_ROOT/payload.json"
 exit 0
 "#;
 
+    /// Blocks the first Stop invocation with a stderr reason large enough to
+    /// cross the auto-compact threshold on its own, then allows. The denial
+    /// context message the loop appends is then the only growth the session
+    /// sees, so a threshold re-check that skips it leaves the retry request
+    /// over the limit.
+    const BLOCK_ONCE_LARGE_REASON_SCRIPT: &str = r#"#!/bin/sh
+count_file="$PLUGIN_ROOT/count"
+count=0
+if [ -f "$count_file" ]; then
+  count=$(cat "$count_file")
+fi
+count=$((count + 1))
+echo "$count" > "$count_file"
+echo "$count" >> "$PLUGIN_ROOT/hook.log"
+if [ "$count" -eq 1 ]; then
+  printf 'policy denial: ' >&2
+  i=0
+  while [ "$i" -lt 10000 ]; do
+    printf 'x ' >&2
+    i=$((i + 1))
+  done
+  exit 2
+fi
+exit 0
+"#;
+
     struct StopHookTestEnv {
         temp_dir: TempDir,
         hook_log: PathBuf,
@@ -4776,6 +4954,222 @@ echo start >> "$PLUGIN_ROOT/hook.log"
                 .unwrap_or_default()
                 .lines()
                 .count()
+        }
+    }
+
+    /// Text-only replies against a 10k context limit (8k threshold). A lone
+    /// "summarize" message gets a summary so the loop can compact, and a
+    /// request carrying the post-compaction continuation gets a plain reply.
+    struct ThresholdSummarizingProvider {
+        call_count: AtomicUsize,
+    }
+
+    impl ThresholdSummarizingProvider {
+        fn new() -> Self {
+            Self {
+                call_count: AtomicUsize::new(0),
+            }
+        }
+
+        fn call_count(&self) -> usize {
+            self.call_count.load(Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl crate::providers::base::Provider for ThresholdSummarizingProvider {
+        async fn stream(
+            &self,
+            _model_config: &goose_providers::model::ModelConfig,
+            _system_prompt: &str,
+            messages: &[Message],
+            _tools: &[Tool],
+        ) -> Result<MessageStream, ProviderError> {
+            let call = self.call_count.fetch_add(1, Ordering::SeqCst);
+            let text = messages
+                .iter()
+                .map(Message::as_concat_text)
+                .collect::<String>()
+                .to_lowercase();
+            let message = if text.contains("your context was compacted") {
+                Message::assistant().with_text("done after compaction")
+            } else if text.contains("summarize") {
+                Message::assistant().with_text("<mock summary of conversation>")
+            } else {
+                Message::assistant().with_text(format!("provider response {call}"))
+            };
+            let usage = ProviderUsage::new("mock-model".to_string(), Usage::default());
+            Ok(stream_from_single_message(message, usage))
+        }
+
+        async fn get_context_limit(&self, _model: &str, _override_limit: Option<usize>) -> usize {
+            10_000
+        }
+
+        fn get_name(&self) -> &str {
+            "threshold-summarizing"
+        }
+    }
+
+    /// Drives a denied final-output delivery: the kickoff collects the recipe
+    /// result with reported usage under the 8k threshold of the 10k limit, so
+    /// the re-check the denial queues passes without compacting. The next
+    /// request makes an ordinary tool call reporting usage past the
+    /// threshold, so the mid-turn check after its response is the one that
+    /// must fire — the successful final-output response earlier in the
+    /// history must not suppress it. The re-collected result after the
+    /// compaction ends the run.
+    struct DeniedDeliveryProvider {
+        call_count: AtomicUsize,
+    }
+
+    impl Default for DeniedDeliveryProvider {
+        fn default() -> Self {
+            Self {
+                call_count: AtomicUsize::new(0),
+            }
+        }
+    }
+
+    impl DeniedDeliveryProvider {
+        fn call_count(&self) -> usize {
+            self.call_count.load(Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl crate::providers::base::Provider for DeniedDeliveryProvider {
+        async fn stream(
+            &self,
+            _model_config: &goose_providers::model::ModelConfig,
+            _system_prompt: &str,
+            messages: &[Message],
+            _tools: &[Tool],
+        ) -> Result<MessageStream, ProviderError> {
+            let call = self.call_count.fetch_add(1, Ordering::SeqCst);
+            let text = messages
+                .iter()
+                .map(Message::as_concat_text)
+                .collect::<String>()
+                .to_lowercase();
+            let (message, total_tokens) = if text.contains("summarize") {
+                (
+                    Message::assistant().with_text("<mock summary of conversation>"),
+                    200,
+                )
+            } else if call == 1 {
+                (
+                    Message::assistant().with_tool_request(
+                        "followup_call",
+                        Ok(CallToolRequestParams::new("echo_tool")),
+                    ),
+                    9_000,
+                )
+            } else {
+                let mut arguments = serde_json::Map::new();
+                arguments.insert(
+                    "result".to_string(),
+                    serde_json::Value::String("42".to_string()),
+                );
+                (
+                    Message::assistant().with_tool_request(
+                        "final_output_call",
+                        Ok(CallToolRequestParams::new("recipe__final_output")
+                            .with_arguments(arguments)),
+                    ),
+                    7_000,
+                )
+            };
+            let usage = ProviderUsage::new(
+                "mock-model".to_string(),
+                Usage::new(Some(total_tokens - 100), Some(100), Some(total_tokens)),
+            );
+            Ok(stream_from_single_message(message, usage))
+        }
+
+        async fn get_context_limit(&self, _model: &str, _override_limit: Option<usize>) -> usize {
+            10_000
+        }
+
+        fn get_name(&self) -> &str {
+            "denied-delivery"
+        }
+    }
+
+    /// Drives a denied delivery whose denial alone crosses the threshold:
+    /// the kickoff collects the recipe result, and the stop hook denies its
+    /// delivery with a reason large enough that the appended denial message
+    /// is the turn's only growth past the 8k threshold of the 10k limit. The
+    /// re-check after the denial must compact before the next request
+    /// leaves; after the compaction the recipe result is collected again and
+    /// delivered with the hook allowing.
+    struct DeniedDeliveryRecheckProvider {
+        call_count: AtomicUsize,
+    }
+
+    impl Default for DeniedDeliveryRecheckProvider {
+        fn default() -> Self {
+            Self {
+                call_count: AtomicUsize::new(0),
+            }
+        }
+    }
+
+    impl DeniedDeliveryRecheckProvider {
+        fn call_count(&self) -> usize {
+            self.call_count.load(Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl crate::providers::base::Provider for DeniedDeliveryRecheckProvider {
+        async fn stream(
+            &self,
+            _model_config: &goose_providers::model::ModelConfig,
+            _system_prompt: &str,
+            messages: &[Message],
+            _tools: &[Tool],
+        ) -> Result<MessageStream, ProviderError> {
+            let _ = self.call_count.fetch_add(1, Ordering::SeqCst);
+            let text = messages
+                .iter()
+                .map(Message::as_concat_text)
+                .collect::<String>()
+                .to_lowercase();
+            let (message, total_tokens) =
+                if text.contains("please summarize the conversation history") {
+                    (
+                        Message::assistant().with_text("<mock summary of conversation>"),
+                        200,
+                    )
+                } else {
+                    let mut arguments = serde_json::Map::new();
+                    arguments.insert(
+                        "result".to_string(),
+                        serde_json::Value::String("42".to_string()),
+                    );
+                    (
+                        Message::assistant().with_tool_request(
+                            "final_output_call",
+                            Ok(CallToolRequestParams::new("recipe__final_output")
+                                .with_arguments(arguments)),
+                        ),
+                        9_000,
+                    )
+                };
+            let usage = ProviderUsage::new(
+                "mock-model".to_string(),
+                Usage::new(Some(total_tokens - 100), Some(100), Some(total_tokens)),
+            );
+            Ok(stream_from_single_message(message, usage))
+        }
+
+        async fn get_context_limit(&self, _model: &str, _override_limit: Option<usize>) -> usize {
+            10_000
+        }
+
+        fn get_name(&self) -> &str {
+            "denied-delivery-recheck"
         }
     }
 
@@ -5465,6 +5859,217 @@ echo start >> "$PLUGIN_ROOT/hook.log"
     }
 
     #[tokio::test]
+    async fn stop_hook_denial_after_a_text_only_reply_rechecks_the_threshold() -> Result<()> {
+        let env = StopHookTestEnv::new(BLOCK_ONCE_LARGE_REASON_SCRIPT)?;
+        let provider = Arc::new(ThresholdSummarizingProvider::new());
+        let (mut agent, session_id) =
+            create_test_agent(env.data_dir(), env.hook_manager(), provider.clone()).await?;
+        agent.set_stop_hook_block_cap_for_test(5);
+
+        // The kickoff gets a text-only reply, so the mid-turn check never
+        // runs. The denial the stop hook then returns appends an agent-only
+        // user message — the turn's only growth — so the retry request must
+        // be re-checked against the threshold before it leaves.
+        let session_config = SessionConfig {
+            id: session_id.clone(),
+            schedule_id: None,
+            max_turns: Some(10),
+            retry_config: None,
+        };
+        let reply_stream = agent
+            .reply(Message::user().with_text("hello"), session_config, None)
+            .await?;
+        tokio::pin!(reply_stream);
+
+        let mut history_replacements = 0;
+        let mut texts = Vec::new();
+        while let Some(event_result) = reply_stream.next().await {
+            match event_result? {
+                AgentEvent::HistoryReplaced(_) => history_replacements += 1,
+                AgentEvent::Message(message) => {
+                    let text = message.as_concat_text();
+                    if !text.is_empty() {
+                        texts.push(text);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        assert_eq!(
+            history_replacements, 1,
+            "the appended stop-hook denial must be re-checked against the threshold"
+        );
+        assert_eq!(
+            provider.call_count(),
+            3,
+            "kickoff, then the compaction summarization, then the retried reply"
+        );
+        assert_eq!(
+            env.hook_invocations(),
+            2,
+            "the initial block and the Stop hook that allows the retried reply"
+        );
+        assert!(texts.iter().any(|text| text == "provider response 0"));
+        assert!(texts.iter().any(|text| text == "done after compaction"));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_denial_after_a_delivered_final_output_resumes_mid_turn_compaction() -> Result<()> {
+        let env = StopHookTestEnv::new(ALTERNATE_BLOCK_ALLOW_SCRIPT)?;
+        let provider = Arc::new(DeniedDeliveryProvider::default());
+        let (agent, session_id) =
+            create_test_agent(env.data_dir(), env.hook_manager(), provider.clone()).await?;
+        agent
+            .apply_recipe_components(
+                Some(Response {
+                    json_schema: Some(serde_json::json!({
+                        "type": "object",
+                        "properties": { "result": { "type": "string" } },
+                        "required": ["result"]
+                    })),
+                }),
+                true,
+            )
+            .await?;
+
+        // The first round-trip collects the recipe result with reported
+        // usage past the 8k threshold, so the mid-turn check after its
+        // response must skip for the delivery — which the stop hook then
+        // denies. The resumed run's next tool round-trip must be checked
+        // again even though the successful final-output response remains in
+        // the history, or the turn only recovers after a provider
+        // context-length error.
+        let session_config = SessionConfig {
+            id: session_id.clone(),
+            schedule_id: None,
+            max_turns: Some(10),
+            retry_config: None,
+        };
+        let reply_stream = agent
+            .reply(
+                Message::user().with_text("produce the structured result"),
+                session_config,
+                None,
+            )
+            .await?;
+        tokio::pin!(reply_stream);
+
+        let mut history_replacements = 0;
+        let mut texts = Vec::new();
+        while let Some(event_result) = reply_stream.next().await {
+            match event_result? {
+                AgentEvent::HistoryReplaced(_) => history_replacements += 1,
+                AgentEvent::Message(message) => {
+                    let text = message.as_concat_text();
+                    if !text.is_empty() {
+                        texts.push(text);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        assert_eq!(
+            history_replacements, 1,
+            "a delivered result must not suppress the mid-turn check of the resumed run"
+        );
+        assert_eq!(
+            provider.call_count(),
+            4,
+            "kickoff, resumed tool call, summarization, re-collected result"
+        );
+        assert_eq!(
+            env.hook_invocations(),
+            2,
+            "deny the delivery, allow the end"
+        );
+        assert!(texts.iter().any(|text| text == r#"{"result":"42"}"#));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_denial_after_a_delivered_final_output_rechecks_before_the_next_request() -> Result<()>
+    {
+        let env = StopHookTestEnv::new(BLOCK_ONCE_LARGE_REASON_SCRIPT)?;
+        let provider = Arc::new(DeniedDeliveryRecheckProvider::default());
+        let (mut agent, session_id) =
+            create_test_agent(env.data_dir(), env.hook_manager(), provider.clone()).await?;
+        agent.set_stop_hook_block_cap_for_test(5);
+        agent
+            .apply_recipe_components(
+                Some(Response {
+                    json_schema: Some(serde_json::json!({
+                        "type": "object",
+                        "properties": { "result": { "type": "string" } },
+                        "required": ["result"]
+                    })),
+                }),
+                true,
+            )
+            .await?;
+
+        // The kickoff collects the recipe result and the loop delivers it,
+        // but the stop hook denies with a reason large enough that the
+        // appended denial message alone crosses the 8k threshold. The
+        // delivery branch must queue the pre-inference re-check — the early
+        // final-output branch used to continue without it, so the retried
+        // request left over the threshold and only reactive recovery could
+        // save it. After the compaction the result is re-collected and the
+        // second Stop invocation allows the end.
+        let session_config = SessionConfig {
+            id: session_id.clone(),
+            schedule_id: None,
+            max_turns: Some(10),
+            retry_config: None,
+        };
+        let reply_stream = agent
+            .reply(
+                Message::user().with_text("produce the structured result"),
+                session_config,
+                None,
+            )
+            .await?;
+        tokio::pin!(reply_stream);
+
+        let mut history_replacements = 0;
+        let mut texts = Vec::new();
+        while let Some(event_result) = reply_stream.next().await {
+            match event_result? {
+                AgentEvent::HistoryReplaced(_) => history_replacements += 1,
+                AgentEvent::Message(message) => {
+                    let text = message.as_concat_text();
+                    if !text.is_empty() {
+                        texts.push(text);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        assert_eq!(
+            history_replacements, 1,
+            "the denial the delivered result's stop hook appended must be re-checked against the threshold"
+        );
+        assert_eq!(
+            provider.call_count(),
+            3,
+            "kickoff, the compaction summarization, then the re-collected result"
+        );
+        assert_eq!(
+            env.hook_invocations(),
+            2,
+            "deny the delivery, allow the end"
+        );
+        assert!(texts.iter().any(|text| text == r#"{"result":"42"}"#));
+
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn stop_hook_payload_includes_streamed_assistant_reply_text() -> Result<()> {
         let env = StopHookTestEnv::new(RECORD_PAYLOAD_SCRIPT)?;
         let provider = Arc::new(ChunkedTextProvider);
@@ -5687,6 +6292,73 @@ echo start >> "$PLUGIN_ROOT/hook.log"
         assert!(
             conversation.messages()[0].metadata.usage.is_none(),
             "user message must stay untouched"
+        );
+    }
+
+    #[tokio::test]
+    async fn preserve_usage_boundary_marks_the_newest_carried_message() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let manager = SessionManager::new(temp.path().to_path_buf());
+        let session = manager
+            .create_session(
+                temp.path().to_path_buf(),
+                "boundary-test".to_string(),
+                SessionType::Hidden,
+                GooseMode::default(),
+            )
+            .await
+            .unwrap();
+        let usage = ProviderUsage::new(
+            "test-model".to_string(),
+            Usage::new(Some(1200), Some(340), None),
+        );
+        let mut conversation = Conversation::new_unvalidated([
+            Message::user().with_id("kickoff").with_text("hi"),
+            Message::user().with_id("steer").with_text("and again"),
+        ]);
+        for message in conversation.messages() {
+            manager.add_message(&session.id, message).await.unwrap();
+        }
+
+        preserve_usage_boundary(&manager, &session.id, &mut conversation, &usage)
+            .await
+            .unwrap();
+
+        assert!(
+            conversation.messages()[0].metadata.usage.is_none(),
+            "older messages must stay untouched"
+        );
+        assert!(conversation.messages()[1].metadata.usage.is_some());
+        let reloaded = manager.get_session(&session.id, true).await.unwrap();
+        let persisted = reloaded.conversation.clone().expect("session conversation");
+        let marked = persisted
+            .messages()
+            .iter()
+            .find(|message| message.id.as_deref() == Some("steer"))
+            .unwrap();
+        assert!(
+            marked.metadata.usage.is_some(),
+            "the boundary must survive a session reload"
+        );
+
+        // An already-marked newest message is the boundary itself: the
+        // usage must not be overwritten.
+        let newer_usage = ProviderUsage::new(
+            "test-model".to_string(),
+            Usage::new(Some(9_999), Some(1), None),
+        );
+        preserve_usage_boundary(&manager, &session.id, &mut conversation, &newer_usage)
+            .await
+            .unwrap();
+        assert_eq!(
+            conversation.messages()[1]
+                .metadata
+                .usage
+                .as_ref()
+                .unwrap()
+                .input_tokens,
+            Some(1200),
+            "an existing boundary must be preserved"
         );
     }
 

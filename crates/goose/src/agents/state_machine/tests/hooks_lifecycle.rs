@@ -14,13 +14,13 @@ use crate::config::GooseMode;
 use crate::conversation::message::{Message, MessageContent, SystemNotificationType};
 use crate::permission::Permission;
 
-struct HookTestEnv {
+pub(super) struct HookTestEnv {
     _temp_dir: tempfile::TempDir,
     plugin_dir: std::path::PathBuf,
 }
 
 impl HookTestEnv {
-    fn new(event: &str, script: &str) -> Self {
+    pub(super) fn new(event: &str, script: &str) -> Self {
         let temp_dir = tempfile::tempdir().unwrap();
         let plugin_dir = temp_dir.path().join("test-plugin");
         std::fs::create_dir_all(plugin_dir.join("hooks")).unwrap();
@@ -38,7 +38,7 @@ impl HookTestEnv {
         }
     }
 
-    fn hook_manager(&self) -> crate::hooks::HookManager {
+    pub(super) fn hook_manager(&self) -> crate::hooks::HookManager {
         use crate::plugins::discovery::{DiscoveredPlugin, PluginScope};
         crate::hooks::HookManager::from_plugins_for_test(vec![DiscoveredPlugin {
             name: "test-plugin".into(),
@@ -376,7 +376,7 @@ impl RecordingHookEnv {
         }
     }
 
-    fn hook_manager(&self) -> crate::hooks::HookManager {
+    pub(super) fn hook_manager(&self) -> crate::hooks::HookManager {
         use crate::plugins::discovery::{DiscoveredPlugin, PluginScope};
         crate::hooks::HookManager::from_plugins_for_test(vec![DiscoveredPlugin {
             name: "test-plugin".into(),

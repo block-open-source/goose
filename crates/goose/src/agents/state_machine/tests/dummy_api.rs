@@ -13,6 +13,10 @@ pub(super) struct ProviderFeatures {
     pub(super) cache_read_tokens: Option<i32>,
     pub(super) cache_write_tokens: Option<i32>,
     pub(super) manages_own_context: bool,
+    /// Serves this limit from `get_context_limit` for the session's model, as
+    /// a declarative provider's configured model would. The compaction
+    /// operation itself keeps using the model config's limit.
+    pub(super) context_limit_override: Option<usize>,
 }
 
 impl Default for ProviderFeatures {
@@ -24,6 +28,7 @@ impl Default for ProviderFeatures {
             cache_read_tokens: None,
             cache_write_tokens: None,
             manages_own_context: false,
+            context_limit_override: None,
         }
     }
 }
@@ -77,6 +82,10 @@ struct DummyApiState {
     rules: Mutex<Vec<ApiRule>>,
     calls: Mutex<Vec<ApiCall>>,
     next_response_id: AtomicUsize,
+    context_limit_rejections: AtomicUsize,
+    /// Rejection wall for every request, replacing the canonical limit of the
+    /// request's model. Zero keeps the canonical lookup.
+    context_limit_override: AtomicUsize,
 }
 
 pub(super) struct DummyApi {
@@ -193,6 +202,8 @@ impl DummyApi {
             rules: Mutex::new(Vec::new()),
             calls: Mutex::new(Vec::new()),
             next_response_id: AtomicUsize::new(1),
+            context_limit_rejections: AtomicUsize::new(0),
+            context_limit_override: AtomicUsize::new(0),
         });
         let responder = state.clone();
         Mock::given(method("POST"))
@@ -227,6 +238,22 @@ impl DummyApi {
 
     pub(super) fn call_count(&self) -> usize {
         self.state.calls.lock().unwrap().len()
+    }
+
+    /// Requests the API rejected with a context-length 400, whether enforced
+    /// from the model's canonical limit or scripted via `context_limit_error`.
+    pub(super) fn context_limit_rejections(&self) -> usize {
+        self.state.context_limit_rejections.load(Ordering::SeqCst)
+    }
+
+    /// Pins the rejection wall for every request, decoupling it from the
+    /// canonical limit of the request's model (which thresholds derived from
+    /// the provider still use). Lets a test grow a context far past its
+    /// threshold without tripping the wall.
+    pub(super) fn set_context_limit(&self, limit: usize) {
+        self.state
+            .context_limit_override
+            .store(limit, Ordering::SeqCst);
     }
 
     fn add_rule(&self, matcher: ApiMatcher, response: ApiResponse) -> usize {
@@ -434,10 +461,16 @@ impl DummyApiState {
 
         let input_tokens = serialized_chars(&body);
         let model = body["model"].as_str().expect("OpenAI request model");
-        let context_limit = goose_providers::model::ModelConfig::new(model)
-            .with_canonical_limits("openai")
-            .context_limit();
+        let override_limit = self.context_limit_override.load(Ordering::SeqCst);
+        let context_limit = if override_limit > 0 {
+            override_limit
+        } else {
+            goose_providers::model::ModelConfig::new(model)
+                .with_canonical_limits("openai")
+                .context_limit()
+        };
         if input_tokens as usize > context_limit {
+            self.context_limit_rejections.fetch_add(1, Ordering::SeqCst);
             return context_limit_response(input_tokens, context_limit);
         }
 
@@ -535,9 +568,12 @@ impl DummyApiState {
             }
             ApiResponse::NoChoices => sse_response(no_choices_events(&id, model)),
             ApiResponse::OutputLimit => sse_response(output_limit_events(&meta(0))),
-            ApiResponse::ContextLimitError(message) => ResponseTemplate::new(400).set_body_json(
-                context_limit_error(format!("context_length_exceeded: {message}")),
-            ),
+            ApiResponse::ContextLimitError(message) => {
+                self.context_limit_rejections.fetch_add(1, Ordering::SeqCst);
+                ResponseTemplate::new(400).set_body_json(context_limit_error(format!(
+                    "context_length_exceeded: {message}"
+                )))
+            }
             ApiResponse::ServerError(message) => {
                 sse_response(format!("data: {}\n\n", api_error(message)))
             }

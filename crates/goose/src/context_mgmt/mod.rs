@@ -1,7 +1,7 @@
 pub use goose_context_management::structured;
 
 use crate::conversation::message::MessageMetadata;
-use crate::conversation::message::{Message, MessageContent};
+use crate::conversation::message::{Message, MessageContent, MessageUsage};
 use crate::conversation::{merge_consecutive_messages, Conversation};
 use crate::providers::base::Provider;
 #[cfg(test)]
@@ -29,6 +29,8 @@ pub(crate) fn tool_pair_summarization_enabled() -> bool {
         .get_param::<bool>("GOOSE_TOOL_PAIR_SUMMARIZATION")
         .unwrap_or(true)
 }
+
+pub(crate) const COMPACTION_PROGRESS_TEXT: &str = "goose is compacting the conversation...";
 
 const CONVERSATION_CONTINUATION_TEXT: &str =
     "Your context was compacted. The previous message contains a summary of the conversation so far.
@@ -190,7 +192,7 @@ pub async fn compact_messages(
         }
     }
 
-    let conversation = Conversation::new_unvalidated(final_messages);
+    let mut conversation = Conversation::new_unvalidated(final_messages);
     let retained_context_tokens = match count_context_tokens(&conversation).await {
         Ok(tokens) => tokens,
         Err(error) => {
@@ -198,6 +200,25 @@ pub async fn compact_messages(
             summarization_usage.usage.output_tokens.unwrap_or(0)
         }
     };
+    // The session baseline both loops install after replacement covers the
+    // whole replacement history, but the recount only trusts a baseline
+    // paired with a usage marker: without one it falls back to the summary
+    // boundary and counts the preserved messages as unsent growth,
+    // re-crossing the threshold on every pass. The next provider response
+    // supersedes the marker.
+    if let Some(boundary) = conversation
+        .messages_mut()
+        .iter_mut()
+        .rev()
+        .find(|message| message.is_agent_visible())
+    {
+        boundary.metadata.usage = Some(Box::new(MessageUsage {
+            input_tokens: Some(retained_context_tokens),
+            total_tokens: Some(retained_context_tokens),
+            is_compaction: true,
+            ..MessageUsage::default()
+        }));
+    }
 
     Ok(CompactionResult {
         conversation,
@@ -221,12 +242,183 @@ pub(crate) async fn count_context_tokens(conversation: &Conversation) -> Result<
     Ok(total.try_into()?)
 }
 
+/// Token estimates for a conversation recount.
+pub(crate) struct ContextTokenCounts {
+    /// Tokens of the whole agent-visible conversation.
+    pub(crate) total: i32,
+    /// Tokens of the agent-visible messages no request has carried yet: the
+    /// tool results, steers, user messages, and locally synthesized
+    /// final-output deliveries appended after the provider's latest
+    /// response.
+    pub(crate) unsent: i32,
+    /// Tokens of the tool pairs hidden behind the replacement summaries in
+    /// the unsent suffix. The session baseline still counts those pairs, so
+    /// the estimate subtracts them rather than dropping the baseline —
+    /// which would also drop the system prompt and tool schemas that the
+    /// recount, counting messages alone, cannot see.
+    pub(crate) replaced_pairs: i32,
+}
+
+impl ContextTokenCounts {
+    /// Estimate the next request's token count from the session baseline —
+    /// the size of the last request, system prompt and tool schemas
+    /// included — plus the growth no request has carried yet, minus the
+    /// pairs that growth's replacement summaries hid, floored by the
+    /// recounted conversation.
+    pub(crate) fn estimate(&self, baseline: usize) -> usize {
+        baseline
+            .saturating_sub(self.replaced_pairs as usize)
+            .saturating_add(self.unsent as usize)
+            .max(self.total as usize)
+    }
+}
+
+/// Operation notes marking a message as a tool-pair replacement summary
+/// (see `summarize_tool_call`) and recording the tokens of the pair it
+/// hides. Persisted, so a rebuilt pipeline and a reloaded session can
+/// still recognize them.
+const TOOL_PAIR_SUMMARY_NOTE: (&str, &str) = ("tool_pair_compaction", "summary");
+const TOOL_PAIR_REPLACED_TOKENS_NOTE: (&str, &str) = ("tool_pair_compaction", "replaced_tokens");
+
+/// Operation note marking an assistant message as synthesized locally — the
+/// recipe final-output delivery — rather than arriving inside a provider
+/// response. Persisted, so a reloaded session's recount still recognizes it.
+const FINAL_OUTPUT_DELIVERY_NOTE: (&str, &str) = ("final_output", "delivered");
+
+pub(crate) fn mark_final_output_delivery(message: &mut Message) {
+    let (operation, key) = FINAL_OUTPUT_DELIVERY_NOTE;
+    message
+        .metadata
+        .set_operation_note(operation, key, serde_json::Value::Bool(true));
+}
+
+fn is_final_output_delivery(message: &Message) -> bool {
+    let (operation, key) = FINAL_OUTPUT_DELIVERY_NOTE;
+    message.metadata.operation_note(operation, key).is_some()
+}
+
+fn mark_tool_pair_summary(message: &mut Message, replaced_tokens: usize) {
+    let (operation, key) = TOOL_PAIR_SUMMARY_NOTE;
+    message
+        .metadata
+        .set_operation_note(operation, key, serde_json::Value::Bool(true));
+    let (operation, key) = TOOL_PAIR_REPLACED_TOKENS_NOTE;
+    message.metadata.set_operation_note(
+        operation,
+        key,
+        serde_json::Value::from(replaced_tokens as u64),
+    );
+}
+
+fn is_tool_pair_summary(message: &Message) -> bool {
+    let (operation, key) = TOOL_PAIR_SUMMARY_NOTE;
+    message.metadata.operation_note(operation, key).is_some()
+}
+
+/// Tokens of the tool pair a replacement summary hides, recorded when the
+/// pair was summarized. Zero for a summary whose count is missing.
+fn tool_pair_replaced_tokens(message: &Message) -> usize {
+    if !is_tool_pair_summary(message) {
+        return 0;
+    }
+    let (operation, key) = TOOL_PAIR_REPLACED_TOKENS_NOTE;
+    message
+        .metadata
+        .operation_note(operation, key)
+        .and_then(serde_json::Value::as_u64)
+        .map(|tokens| tokens as usize)
+        .unwrap_or(0)
+}
+
+/// Tokens of the messages under the same per-message counter the recount
+/// uses, so the count a replacement summary records matches what the
+/// recount would have counted for the pair it hides.
+async fn count_replacement_tokens(messages: &[Message]) -> Result<usize> {
+    let counter = create_token_counter()
+        .await
+        .map_err(|error| anyhow::anyhow!("Failed to create token counter: {error}"))?;
+    Ok(messages
+        .iter()
+        .map(|message| counter.count_chat_tokens("", std::slice::from_ref(message), &[]))
+        .sum())
+}
+
+/// Count the agent-visible conversation and its unsent suffix in one pass.
+pub(crate) async fn recount_context_tokens(
+    conversation: &Conversation,
+) -> Result<ContextTokenCounts> {
+    let counter = create_token_counter()
+        .await
+        .map_err(|error| anyhow::anyhow!("Failed to create token counter: {error}"))?;
+    let messages = conversation.messages();
+    // The unsent suffix starts after the turn-usage marker, which both loops
+    // attach to the first persisted message of the provider's latest
+    // response: the legacy loop splits a parallel batch into per-request
+    // assistant messages, and only that marker distinguishes the batch's
+    // first split from an older response. The marker can sit on a user
+    // message — a dropped empty response preserves its boundary this way —
+    // and compaction marks its replacement history the same way, so in both
+    // cases the suffix starts after the marked message. The response's own
+    // content stays out of the growth: the baseline reports input plus
+    // output tokens, so the response is already counted in it — except an
+    // assistant message synthesized locally (the final-output delivery),
+    // which the baseline never saw and which carries its delivery note so
+    // the recount can tell it from the response's own assistant messages.
+    // Histories without usage metadata fall back to the last assistant
+    // message, which undercounts a legacy split batch but stays correct for
+    // the state machine's single-message representation.
+    let unsent_start = messages
+        .iter()
+        .rposition(|message| message.is_agent_visible() && message.metadata.usage.is_some())
+        .map(|marker| marker + 1)
+        .or_else(|| {
+            messages
+                .iter()
+                .rposition(|message| message.is_agent_visible() && message.role == Role::Assistant)
+                .map(|index| index + 1)
+        })
+        .unwrap_or(0);
+    let mut total: usize = 0;
+    let mut unsent: usize = 0;
+    let mut replaced_pairs: usize = 0;
+    for (index, message) in messages.iter().enumerate() {
+        let tokens = if message.is_agent_visible() {
+            counter.count_chat_tokens("", std::slice::from_ref(message), &[])
+        } else {
+            0
+        };
+        total += tokens;
+        if index >= unsent_start
+            && (message.role != Role::Assistant || is_final_output_delivery(message))
+        {
+            unsent += tokens;
+            replaced_pairs += tool_pair_replaced_tokens(message);
+        }
+    }
+    Ok(ContextTokenCounts {
+        total: total.try_into()?,
+        unsent: unsent.try_into()?,
+        replaced_pairs: replaced_pairs.try_into()?,
+    })
+}
+
 /// Check if messages exceed the auto-compaction threshold
+///
+/// `recount_context` re-estimates the context from the conversation instead
+/// of trusting the session metadata alone: the metadata covers the preceding
+/// request (its system prompt and tool schemas included) but cannot see what
+/// landed after it, so the unsent growth — what was appended after the
+/// provider's latest response — is added to it, the tool pairs hidden
+/// behind any replacement summaries in that growth are subtracted, and the
+/// whole conversation count is kept as a floor. Pass it at points where
+/// messages may have been appended since the last provider call — turn
+/// boundaries and mid-turn, after tool responses land.
 pub async fn check_if_compaction_needed(
     provider: &dyn Provider,
     conversation: &Conversation,
     threshold_override: Option<f64>,
     session: &crate::session::Session,
+    recount_context: bool,
 ) -> Result<bool> {
     if provider.manages_own_context() {
         return Ok(false);
@@ -248,7 +440,14 @@ pub async fn check_if_compaction_needed(
         crate::context_limit::get_context_limit(provider, &model_config.model_name).await?;
 
     let (current_tokens, _token_source) = match session.usage.total_tokens {
-        Some(tokens) => (tokens as usize, "session metadata"),
+        Some(tokens) if !recount_context => (tokens as usize, "session metadata"),
+        Some(tokens) => {
+            let counts = recount_context_tokens(conversation).await?;
+            (
+                counts.estimate(tokens as usize),
+                "session metadata plus unsent growth, floored by the recounted conversation",
+            )
+        }
         None => {
             let token_counter = create_token_counter()
                 .await
@@ -450,6 +649,7 @@ pub async fn summarize_tool_call(
     tool_id: &str,
 ) -> Result<Message> {
     let matching_messages = agent_visible_tool_pair(conversation, tool_id)?;
+    let replaced_tokens = count_replacement_tokens(&matching_messages).await?;
 
     let formatted = matching_messages
         .iter()
@@ -486,6 +686,7 @@ pub async fn summarize_tool_call(
     response.role = Role::User;
     response.created = matching_messages.last().unwrap().created;
     response.metadata = MessageMetadata::agent_only();
+    mark_tool_pair_summary(&mut response, replaced_tokens);
 
     Ok(response.with_generated_id())
 }
@@ -592,6 +793,7 @@ pub fn maybe_summarize_tool_pairs(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::conversation::message::MessageUsage;
     use async_trait::async_trait;
     use goose_providers::conversation::token_usage::Usage;
     use rmcp::model::{CallToolRequestParams, Tool};
@@ -740,6 +942,354 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn recount_totals_the_whole_conversation_but_only_the_suffix_is_unsent() {
+        let conversation = Conversation::new_unvalidated(vec![
+            Message::user().with_text("x ".repeat(200)),
+            Message::assistant().with_text("older reply"),
+            Message::user().with_text("newer request"),
+            Message::assistant().with_text("latest reply"),
+            Message::user().with_tool_response(
+                "call-1",
+                Ok(rmcp::model::CallToolResult::success(vec![
+                    ContentBlock::text("x ".repeat(100)),
+                ])),
+            ),
+        ]);
+
+        let counts = recount_context_tokens(&conversation).await.unwrap();
+
+        let whole = count_context_tokens(&conversation).await.unwrap();
+        assert_eq!(
+            counts.total, whole,
+            "total must cover messages before the newest assistant message too"
+        );
+        assert!(counts.unsent > 0);
+        assert!(
+            counts.unsent < counts.total,
+            "unsent must stop at the newest assistant message"
+        );
+    }
+
+    #[tokio::test]
+    async fn recount_starts_the_suffix_after_a_marker_on_a_user_message() {
+        // The legacy loop drops an empty response but preserves its boundary
+        // by marking the newest message the request already carried — a user
+        // message. The unsent suffix must start after that marker, not at
+        // it: the marked message was part of the request the session
+        // baseline reports, so counting it again as growth would compact a
+        // context whose real next request still fits.
+        let conversation = Conversation::new_unvalidated(vec![
+            Message::assistant()
+                .with_text("older reply")
+                .with_metadata(MessageMetadata {
+                    usage: Some(Box::new(MessageUsage::default())),
+                    ..MessageMetadata::default()
+                }),
+            Message::user()
+                .with_text("x ".repeat(200))
+                .with_metadata(MessageMetadata {
+                    usage: Some(Box::new(MessageUsage::default())),
+                    ..MessageMetadata::default()
+                }),
+            Message::user().with_text("x ".repeat(50)),
+        ]);
+
+        let counts = recount_context_tokens(&conversation).await.unwrap();
+
+        let suffix = Conversation::new_unvalidated(vec![conversation.messages()[2].clone()]);
+        let suffix_tokens = count_context_tokens(&suffix).await.unwrap();
+        assert_eq!(
+            counts.unsent, suffix_tokens,
+            "only what landed after the marked message may count as growth"
+        );
+    }
+
+    #[tokio::test]
+    async fn recount_counts_every_parallel_split_result_as_unsent() {
+        // The legacy loop persists one provider response with parallel tool
+        // calls as alternating assistant-request/user-response pairs, with
+        // the turn's usage attached to the first split. The unsent suffix
+        // must span the whole batch: the metadata baseline plus only the
+        // final response — the split-naive boundary — would miss the growth
+        // of the earlier results.
+        let conversation = Conversation::new_unvalidated(vec![
+            Message::user().with_text("run the batch"),
+            Message::assistant()
+                .with_id("response-1")
+                .with_tool_request(
+                    "call-1",
+                    Ok(CallToolRequestParams::new("shell".to_string())),
+                )
+                .with_metadata(MessageMetadata {
+                    usage: Some(Box::new(MessageUsage::default())),
+                    ..MessageMetadata::default()
+                }),
+            Message::user().with_tool_response(
+                "call-1",
+                Ok(rmcp::model::CallToolResult::success(vec![
+                    ContentBlock::text("x ".repeat(100)),
+                ])),
+            ),
+            Message::assistant().with_tool_request(
+                "call-2",
+                Ok(CallToolRequestParams::new("shell".to_string())),
+            ),
+            Message::user().with_tool_response(
+                "call-2",
+                Ok(rmcp::model::CallToolResult::success(vec![
+                    ContentBlock::text("x ".repeat(100)),
+                ])),
+            ),
+        ]);
+
+        let counts = recount_context_tokens(&conversation).await.unwrap();
+
+        let results = Conversation::new_unvalidated(vec![
+            conversation.messages()[2].clone(),
+            conversation.messages()[4].clone(),
+        ]);
+        let results_tokens = count_context_tokens(&results).await.unwrap();
+        assert_eq!(
+            counts.unsent, results_tokens,
+            "every result in the split batch is unsent growth"
+        );
+        let last_response = Conversation::new_unvalidated(vec![conversation.messages()[4].clone()]);
+        let last_response_tokens = count_context_tokens(&last_response).await.unwrap();
+        assert!(
+            counts.unsent > last_response_tokens,
+            "the final result alone must not bound the unsent growth"
+        );
+        assert_eq!(
+            counts.total,
+            count_context_tokens(&conversation).await.unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn recount_falls_back_to_the_last_assistant_without_usage_metadata() {
+        // Histories whose messages carry no usage metadata keep the
+        // assistant-message boundary: correct for the state machine's
+        // single-message batches, conservative for legacy splits.
+        let conversation = Conversation::new_unvalidated(vec![
+            Message::user().with_text("run the batch"),
+            Message::assistant().with_tool_request(
+                "call-1",
+                Ok(CallToolRequestParams::new("shell".to_string())),
+            ),
+            Message::user().with_tool_response(
+                "call-1",
+                Ok(rmcp::model::CallToolResult::success(vec![
+                    ContentBlock::text("x ".repeat(100)),
+                ])),
+            ),
+            Message::assistant().with_tool_request(
+                "call-2",
+                Ok(CallToolRequestParams::new("shell".to_string())),
+            ),
+            Message::user().with_tool_response(
+                "call-2",
+                Ok(rmcp::model::CallToolResult::success(vec![
+                    ContentBlock::text("x ".repeat(100)),
+                ])),
+            ),
+        ]);
+
+        let counts = recount_context_tokens(&conversation).await.unwrap();
+
+        let last_response = Conversation::new_unvalidated(vec![conversation.messages()[4].clone()]);
+        assert_eq!(
+            counts.unsent,
+            count_context_tokens(&last_response).await.unwrap(),
+            "without usage metadata the suffix stops after the last assistant message"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_replacement_summary_subtracts_its_pair_from_the_baseline() {
+        // A tool-pair summary lands after the provider's latest response,
+        // and the pair it stands for was hidden: the session baseline still
+        // counts the pair, so the estimate subtracts the recorded pair
+        // tokens and adds the summary with the rest of the unsent growth —
+        // keeping the baseline's system prompt and tool schemas, which the
+        // recount cannot see, rather than dropping them or charging the
+        // hidden pair a second time.
+        let mut summary = Message::user().with_text("a call to the shell was made");
+        summary.metadata = MessageMetadata::agent_only();
+        mark_tool_pair_summary(&mut summary, 900);
+        let conversation = Conversation::new_unvalidated(vec![
+            Message::user().with_text("x ".repeat(200)),
+            Message::assistant()
+                .with_text("latest reply")
+                .with_metadata(MessageMetadata {
+                    usage: Some(Box::new(MessageUsage::default())),
+                    ..MessageMetadata::default()
+                }),
+            Message::user().with_text("x ".repeat(50)),
+            summary,
+        ]);
+
+        let counts = recount_context_tokens(&conversation).await.unwrap();
+
+        assert_eq!(counts.replaced_pairs, 900);
+        assert_eq!(
+            counts.estimate(1_000_000),
+            1_000_000 - 900 + counts.unsent as usize,
+            "the hidden pair is subtracted, the summary added, the baseline kept"
+        );
+
+        let unmarked = Conversation::new_unvalidated(vec![
+            conversation.messages()[0].clone(),
+            conversation.messages()[1].clone(),
+            conversation.messages()[2].clone(),
+            Message::user().with_text("a call to the shell was made"),
+        ]);
+        let plain = recount_context_tokens(&unmarked).await.unwrap();
+        assert_eq!(plain.replaced_pairs, 0);
+        assert_eq!(
+            plain.estimate(1_000_000),
+            1_000_000 + plain.unsent as usize,
+            "an ordinary suffix keeps the baseline-plus-growth estimate"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_tool_pair_summary_records_the_tokens_of_the_pair_it_hides() {
+        // The recount subtracts the recorded count from the session
+        // baseline, so it must match what the recount would have counted
+        // for the pair — the same counter, the same per-message pass.
+        let provider = MockProvider::new(Message::assistant().with_text("summary"), 1000);
+        let request = Message::assistant()
+            .with_tool_request("tool_0", Ok(CallToolRequestParams::new("read_file")));
+        let response = Message::user().with_tool_response(
+            "tool_0",
+            Ok(rmcp::model::CallToolResult::success(vec![
+                ContentBlock::text("x ".repeat(100)),
+            ])),
+        );
+        let conversation = Conversation::new_unvalidated(vec![
+            Message::user().with_text("start"),
+            request.clone(),
+            response.clone(),
+        ]);
+
+        let summary = summarize_tool_call(
+            &provider,
+            &provider.config,
+            "test-session-id",
+            &conversation,
+            "tool_0",
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            tool_pair_replaced_tokens(&summary),
+            count_replacement_tokens(&[request, response])
+                .await
+                .unwrap(),
+            "the recorded count must match the recount's measure of the pair"
+        );
+    }
+
+    #[tokio::test]
+    async fn recount_excludes_the_latest_response_but_counts_what_lands_after_it() {
+        // Usage attaches to a text-only reply too, but the session baseline
+        // reports input plus output tokens, so the reply is already counted
+        // in it: counting it as growth again would compact a context whose
+        // real next request still fits. Only what lands after the reply —
+        // here a steer — is unsent.
+        let conversation = Conversation::new_unvalidated(vec![
+            Message::user().with_text("x ".repeat(200)),
+            Message::assistant()
+                .with_text("a long text-only reply")
+                .with_metadata(MessageMetadata {
+                    usage: Some(Box::new(MessageUsage::default())),
+                    ..MessageMetadata::default()
+                }),
+            Message::user().with_text("redirect the work"),
+        ]);
+
+        let counts = recount_context_tokens(&conversation).await.unwrap();
+
+        let suffix = Conversation::new_unvalidated(vec![conversation.messages()[2].clone()]);
+        assert_eq!(
+            counts.unsent,
+            count_context_tokens(&suffix).await.unwrap(),
+            "the reply is part of the reported baseline; the steer behind it is the growth"
+        );
+    }
+
+    #[tokio::test]
+    async fn recount_counts_a_delivered_final_output_as_unsent_growth() {
+        // A stop-hook denial of a delivered recipe result leaves the
+        // synthesized delivery between the usage marker and the denial: the
+        // baseline never carried that copy of the structured output, so the
+        // recount must count it — unlike the response's own assistant
+        // content, which the baseline already reports as output tokens.
+        let mut delivery =
+            Message::assistant().with_text(format!(r#"{{"result":"{}"}}"#, "x ".repeat(200)));
+        super::mark_final_output_delivery(&mut delivery);
+        let conversation = Conversation::new_unvalidated(vec![
+            Message::user().with_text("produce the structured result"),
+            Message::assistant()
+                .with_tool_request(
+                    "final_output_call",
+                    Ok(CallToolRequestParams::new(
+                        "recipe__final_output".to_string(),
+                    )),
+                )
+                .with_metadata(MessageMetadata {
+                    usage: Some(Box::new(MessageUsage::default())),
+                    ..MessageMetadata::default()
+                }),
+            Message::user().with_tool_response(
+                "final_output_call",
+                Ok(rmcp::model::CallToolResult::success(vec![
+                    ContentBlock::text("Final output successfully collected."),
+                ])),
+            ),
+            delivery,
+            Message::user().with_text("Stop hook blocked ending this turn"),
+        ]);
+
+        let counts = recount_context_tokens(&conversation).await.unwrap();
+
+        let suffix = Conversation::new_unvalidated(vec![
+            conversation.messages()[2].clone(),
+            conversation.messages()[3].clone(),
+            conversation.messages()[4].clone(),
+        ]);
+        assert_eq!(
+            counts.unsent,
+            count_context_tokens(&suffix).await.unwrap(),
+            "the delivery is locally synthesized, so it is growth the baseline never carried"
+        );
+
+        // Without its delivery note the same assistant message is
+        // indistinguishable from the response's own content, which the
+        // baseline already counts — the exclusion the note lifts.
+        let unmarked = Conversation::new_unvalidated(
+            conversation
+                .messages()
+                .iter()
+                .cloned()
+                .enumerate()
+                .map(|(index, mut message)| {
+                    if index == 3 {
+                        message.metadata.operations = None;
+                    }
+                    message
+                })
+                .collect::<Vec<_>>(),
+        );
+        let plain = recount_context_tokens(&unmarked).await.unwrap();
+        assert!(
+            plain.unsent < counts.unsent,
+            "an unmarked assistant message after the marker stays excluded from the growth"
+        );
+    }
+
+    #[tokio::test]
     async fn test_structured_summary_is_rendered() {
         let structured_response = r#"<analysis>User asked to fix a bug; I patched parser.rs.</analysis>
 ```json
@@ -817,6 +1367,48 @@ mod tests {
             long > short,
             "the preserved user message must be part of the retained context ({short} vs {long})"
         );
+    }
+
+    #[tokio::test]
+    async fn compaction_marks_the_boundary_the_replacement_baseline_covers() {
+        let provider = MockProvider::new(Message::assistant().with_text("summary"), 100_000);
+        let conversation = Conversation::new_unvalidated(vec![
+            Message::user().with_text("start"),
+            Message::assistant().with_text("ok"),
+            Message::user().with_text("keep going"),
+        ]);
+        let compaction = compact_messages(
+            &provider,
+            &provider.config,
+            "test-session-id",
+            &conversation,
+            false,
+        )
+        .await
+        .unwrap();
+
+        // The baseline both loops install after replacement is the token
+        // count of the whole compacted history; the recount must not add any
+        // part of that history back on top of it.
+        let boundary = compaction
+            .conversation
+            .messages()
+            .iter()
+            .rev()
+            .find(|message| message.is_agent_visible())
+            .and_then(|message| message.metadata.usage.as_deref())
+            .expect("the replacement history must carry a boundary marker");
+        assert!(boundary.is_compaction);
+        assert_eq!(
+            boundary.total_tokens,
+            Some(compaction.retained_context_tokens)
+        );
+
+        let counts = recount_context_tokens(&compaction.conversation)
+            .await
+            .unwrap();
+        assert_eq!(counts.unsent, 0, "nothing behind the boundary is unsent");
+        assert_eq!(counts.total, compaction.retained_context_tokens);
     }
 
     #[tokio::test]

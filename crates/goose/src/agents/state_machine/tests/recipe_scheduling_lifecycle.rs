@@ -1,5 +1,6 @@
 use anyhow::Result;
 use serde_json::json;
+use serial_test::serial;
 
 use super::dummy_api::{DummyApi, ProviderFeatures};
 use super::pipeline::{
@@ -90,6 +91,7 @@ extensions:
 }
 
 #[tokio::test]
+#[serial]
 async fn recipe_delegation_respects_mode_and_child_turn_limit() -> Result<()> {
     let (pipeline, api) = test_pipeline().await?;
     let pipeline = pipeline.with_goose_mode(GooseMode::Chat).await;
@@ -116,19 +118,39 @@ async fn recipe_delegation_respects_mode_and_child_turn_limit() -> Result<()> {
     result.assert_message(-2, ToolResponse, CHAT_MODE_TOOL_SKIPPED_RESPONSE);
     result.assert_message(-1, Agent, "delegation stayed in chat");
 
-    let (pipeline, api) = test_pipeline().await?;
+    let (pipeline, api) = test_pipeline_with(ProviderFeatures {
+        context_limit_override: Some(24_000),
+        ..ProviderFeatures::default()
+    })
+    .await?;
     let pipeline = pipeline.with_provider_name("state-machine-test").await?;
+    // Pin the rejection wall far above every request, including the child's
+    // summarization call: the compaction threshold still tracks the model's
+    // canonical limit, so this only removes the wall as a failure mode.
+    api.set_context_limit(1_000_000);
     let child_path = pipeline.working_dir().join("bounded-child.yaml");
+    // The delegated child resolves its context limit through the provider
+    // (24k above), so its auto-compact threshold sits at 19.2k. The kickoff
+    // padding is sized so the child's turn-boundary check — which counts
+    // ~14k tokens for it on a fresh session — stays under that threshold,
+    // while the first request bills past it (~28k serialized characters from
+    // the padding alone, before the system prompt and toolset, whose size
+    // varies with the environment). Only the mid-turn check can fire, in any
+    // environment.
+    let padding = "x ".repeat(14_000);
     std::fs::write(
         &child_path,
-        r#"
+        format!(
+            r#"
 version: 1.0.0
 title: Bounded child
 description: Stops after one turn
-prompt: Keep taking actions
+prompt: |
+  Keep taking actions {padding}
 settings:
   max_turns: 1
-"#,
+"#
+        ),
     )?;
     let recipe = Recipe::builder()
         .title("Delegating recipe")
@@ -155,12 +177,252 @@ settings:
         .call("delegate", json!({ "source": "bounded" }));
     api.on("Keep taking actions")
         .unadvertised_call("keep_working", json!({}));
+    // The delegated child mid-turn compacts once its first tool response
+    // lands (its first request reports usage past the threshold), then hits
+    // its turn limit. Rules match newest-first, so the summarization rule
+    // must be registered after "Keep taking actions", whose padded text the
+    // summarization prompt echoes.
+    api.on("Please summarize the conversation history")
+        .reply("child context summarized");
     api.on(MAX_TURNS_MESSAGE).reply("child stopped on time");
 
     let result = pipeline.run(["Delegate the bounded child"]).await?;
-    assert_eq!(api.call_count(), 3);
+    assert_eq!(api.call_count(), 4);
+    let summarization = api
+        .calls()
+        .into_iter()
+        .find(|call| call.input_contains("Please summarize the conversation history"))
+        .expect("child mid-turn compaction request");
+    assert!(summarization.system_contains("Keep taking actions"));
     result.assert_message(-2, ToolResponse, MAX_TURNS_MESSAGE);
     result.assert_message(-1, Agent, "child stopped on time");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_collected_final_output_skips_the_mid_turn_compaction() -> Result<()> {
+    let (pipeline, api) = test_pipeline().await?;
+    // The kickoff padding keeps its token count (what the turn-boundary check
+    // counts on a fresh session) far under the threshold, while the first
+    // request reports usage past it (the dummy API bills by serialized
+    // character): over threshold exactly when the final-output response has
+    // landed, so a mid-turn check that ignored the completed recipe would
+    // summarize before the result is delivered.
+    let kickoff = format!("deliver the structured result {}", "x ".repeat(48_000));
+    api.on("deliver the structured result")
+        .call(FINAL_OUTPUT_TOOL_NAME, json!({ "result": "42" }));
+    api.on("Please summarize the conversation history")
+        .reply("summarized before delivery");
+    let recipe = Recipe::builder()
+        .title("Structured output")
+        .description("Return structured output")
+        .prompt("deliver the structured result")
+        .response(Response {
+            json_schema: Some(json!({
+                "type": "object",
+                "properties": { "result": { "type": "string" } },
+                "required": ["result"]
+            })),
+        })
+        .build()
+        .expect("valid recipe");
+    pipeline.set_recipe(recipe).await?;
+
+    let completed = pipeline.run([kickoff.as_str()]).await?;
+
+    completed.assert_message(-1, Agent, r#"{"result":"42"}"#);
+    assert_eq!(
+        completed.history_replacements(),
+        0,
+        "the completed recipe result must be delivered, not summarized first"
+    );
+    assert!(
+        !api.calls()
+            .iter()
+            .any(|call| call.input_contains("Please summarize the conversation history")),
+        "no summarization request may run between the final-output response and its delivery"
+    );
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_steer_after_final_output_still_skips_the_compaction() -> Result<()> {
+    let (pipeline, api) = test_pipeline().await?;
+    // The queued steer waits for a Tool boundary, so it lands exactly between
+    // the successful final-output response and its delivery, and the User
+    // message it appends would bypass a guard keyed on the boundary being
+    // mid-turn. The kickoff padding keeps the first request under the
+    // threshold while its reported usage (the dummy API bills by serialized
+    // character) crosses it only once the final-output response has landed,
+    // so a bypassed guard summarizes before the result is delivered. The
+    // steer reply calls the final-output tool again — the recipe operation
+    // cannot deliver across the steer boundary — so the run must complete
+    // without any summarization in between.
+    let kickoff = format!("deliver the structured result {}", "x ".repeat(48_000));
+    api.on("deliver the structured result")
+        .call(FINAL_OUTPUT_TOOL_NAME, json!({ "result": "42" }));
+    api.on("Please summarize the conversation history")
+        .reply("summarized before delivery");
+    api.on("redirect the work")
+        .call(FINAL_OUTPUT_TOOL_NAME, json!({ "result": "42" }));
+    let recipe = Recipe::builder()
+        .title("Structured output")
+        .description("Return structured output")
+        .prompt("deliver the structured result")
+        .response(Response {
+            json_schema: Some(json!({
+                "type": "object",
+                "properties": { "result": { "type": "string" } },
+                "required": ["result"]
+            })),
+        })
+        .build()
+        .expect("valid recipe");
+    pipeline.set_recipe(recipe).await?;
+
+    pipeline
+        .steer(crate::conversation::message::Message::user().with_text("redirect the work"))
+        .await;
+    let completed = pipeline.run([kickoff.as_str()]).await?;
+
+    completed.assert_message(-1, Agent, r#"{"result":"42"}"#);
+    assert_eq!(
+        completed.history_replacements(),
+        0,
+        "the completed recipe result must be delivered, not summarized first"
+    );
+    assert!(
+        !api.calls()
+            .iter()
+            .any(|call| call.input_contains("Please summarize the conversation history")),
+        "a steer behind the completed result must not let the compaction run first"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_denial_after_a_delivered_final_output_resumes_proactive_compaction() -> Result<()> {
+    let blocked_once = super::hooks_lifecycle::HookTestEnv::new(
+        "Stop",
+        "#!/bin/sh\nif [ -f \"$PLUGIN_ROOT/denied\" ]; then exit 0; fi\ntouch \"$PLUGIN_ROOT/denied\"\necho \"not done yet\" >&2\nexit 2\n",
+    );
+    let (pipeline, api) = test_pipeline().await?;
+    let pipeline = pipeline.with_hook_manager(blocked_once.hook_manager());
+    // The kickoff padding keeps the turn-boundary count under the threshold
+    // while the first request reports usage past it, so the first check that
+    // can fire is the one after the final-output response lands — and that
+    // one must skip so the delivery happens. The stop hook then denies the
+    // delivered result, resuming the run with the successful final-output
+    // response still in its history: the check at the denial boundary must
+    // not stay suppressed by it, or the resumed run grows unchecked until a
+    // provider context-length error.
+    api.set_context_limit(1_000_000);
+    let kickoff = format!("deliver the structured result {}", "x ".repeat(48_000));
+    api.on("deliver the structured result")
+        .call(FINAL_OUTPUT_TOOL_NAME, json!({ "result": "42" }));
+    api.on("not done yet").reply("done after the denial");
+    api.on("Please summarize the conversation history")
+        .reply("summarized after the denial");
+    let recipe = Recipe::builder()
+        .title("Structured output")
+        .description("Return structured output")
+        .prompt("deliver the structured result")
+        .response(Response {
+            json_schema: Some(json!({
+                "type": "object",
+                "properties": { "result": { "type": "string" } },
+                "required": ["result"]
+            })),
+        })
+        .build()
+        .expect("valid recipe");
+    pipeline.set_recipe(recipe).await?;
+
+    let completed = pipeline.run([kickoff.as_str()]).await?;
+
+    completed.assert_emitted(r#"{"result":"42"}"#);
+    completed.assert_message(-1, Agent, "done after the denial");
+    assert_eq!(
+        completed.history_replacements(),
+        1,
+        "a delivered result must not suppress the checks of the resumed run"
+    );
+    let summarization = api
+        .calls()
+        .into_iter()
+        .find(|call| call.input_contains("Please summarize the conversation history"))
+        .expect("summarization request after the denial");
+    assert!(
+        summarization.system_contains("blocked ending this turn"),
+        "the summarization must run after the stop-hook denial resumed the run"
+    );
+    assert_eq!(api.context_limit_rejections(), 0);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_denial_boundary_check_counts_the_delivered_result_itself() -> Result<()> {
+    let blocked_once = super::hooks_lifecycle::HookTestEnv::new(
+        "Stop",
+        "#!/bin/sh\nif [ -f \"$PLUGIN_ROOT/denied\" ]; then exit 0; fi\ntouch \"$PLUGIN_ROOT/denied\"\necho \"not done yet\" >&2\nexit 2\n",
+    );
+    let (pipeline, api) = test_pipeline().await?;
+    let pipeline = pipeline.with_hook_manager(blocked_once.hook_manager());
+    // The structured result is large, so the locally synthesized delivery
+    // doubles it: the request that collected it reports the tool-call
+    // arguments as output tokens, and the delivered assistant message adds
+    // the same content again as growth no request has carried. With the
+    // baseline and the conversation-only floor each under the threshold —
+    // the prompt and schema overhead is what combines with the delivery to
+    // cross — only a recount that counts the delivered message sees the
+    // denial boundary over the threshold; one that excludes every
+    // assistant message lets the resumed run leave over the limit.
+    api.set_context_limit(1_000_000);
+    let huge_result = "x ".repeat(38_000);
+    api.on("deliver the structured result")
+        .call(FINAL_OUTPUT_TOOL_NAME, json!({ "result": huge_result }));
+    api.on("Please summarize the conversation history")
+        .reply("summarized after the denial");
+    api.on("not done yet").reply("done after the denial");
+    let recipe = Recipe::builder()
+        .title("Structured output")
+        .description("Return structured output")
+        .prompt("deliver the structured result")
+        .response(Response {
+            json_schema: Some(json!({
+                "type": "object",
+                "properties": { "result": { "type": "string" } },
+                "required": ["result"]
+            })),
+        })
+        .build()
+        .expect("valid recipe");
+    pipeline.set_recipe(recipe).await?;
+
+    let completed = pipeline.run(["deliver the structured result"]).await?;
+
+    let delivered = format!(r#"{{"result":"{}"}}"#, "x ".repeat(38_000));
+    completed.assert_emitted(&delivered);
+    completed.assert_message(-1, Agent, "done after the denial");
+    assert_eq!(
+        completed.history_replacements(),
+        1,
+        "the delivered result must count as growth at the denial boundary"
+    );
+    let summarization = api
+        .calls()
+        .into_iter()
+        .find(|call| call.input_contains("Please summarize the conversation history"))
+        .expect("summarization request after the denial");
+    assert!(
+        summarization.system_contains("blocked ending this turn"),
+        "the summarization must run after the stop-hook denial resumed the run"
+    );
+    assert_eq!(api.context_limit_rejections(), 0);
 
     Ok(())
 }

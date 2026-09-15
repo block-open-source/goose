@@ -415,9 +415,7 @@ fn callback_result_to_value(result: &CallToolResult) -> Value {
                     .annotations
                     .as_ref()
                     .and_then(|annotations| annotations.audience.as_ref())
-                    .is_none_or(|audiences| {
-                        audiences.is_empty() || audiences.contains(&Role::Assistant)
-                    }) =>
+                    .is_none_or(|audiences| audiences.contains(&Role::Assistant)) =>
             {
                 Some(text.text.clone())
             }
@@ -676,6 +674,20 @@ mod tests {
     use crate::agents::extension_manager::ExtensionManager;
     use pctx_code_mode::model::FunctionId;
     use rmcp::model::{Annotations, EmbeddedResource, MetaObject, ResourceContents, TextContent};
+
+    #[test]
+    fn callback_result_excludes_text_with_an_empty_audience() {
+        let hidden = ContentBlock::Text(
+            TextContent::new("empty-audience secret")
+                .with_annotations(Annotations::default().with_audience(vec![])),
+        );
+        let result = CallToolResult::success(vec![ContentBlock::text("visible"), hidden]);
+
+        assert_eq!(
+            callback_result_to_value(&result),
+            Value::String("visible".to_string())
+        );
+    }
 
     #[test]
     fn callback_result_ignores_hidden_structured_content_and_meta() {

@@ -1,5 +1,6 @@
 mod chat_history_search;
 mod diagnostics;
+mod export_html;
 mod export_markdown;
 pub mod extension_data;
 pub mod import_formats;
@@ -16,6 +17,7 @@ pub use diagnostics::{
     DiagnosticsLevel, DiagnosticsLogs, DiagnosticsPrompt, DiagnosticsReport,
     DiagnosticsScheduledRecipe, DiagnosticsTextFile, SystemInfo,
 };
+pub use export_html::export_session_to_html;
 pub use export_markdown::{
     export_session_to_markdown, message_to_markdown, user_projected_message_to_markdown,
 };

@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Goose Session Export</title>
+  <style>
+{{CSS}}
+  </style>
+</head>
+<body>
+  <button id="toc-toggle" aria-label="Toggle contents" aria-expanded="false">Contents</button>
+  <div id="toc-overlay"></div>
+  <div id="app">
+    <aside id="toc" aria-label="Session contents">
+      <div class="toc-head">Contents</div>
+      <nav id="toc-list"></nav>
+    </aside>
+    <main id="content">
+      <div id="header-container"></div>
+      <div id="messages"></div>
+      <div class="footer">Exported from goose</div>
+    </main>
+  </div>
+
+  <script id="session-data" type="application/json">{{SESSION_DATA}}</script>
+
+  <!-- Vendored libraries -->
+  <script>{{MARKED_JS}}</script>
+  <script>{{HIGHLIGHT_JS}}</script>
+
+  <!-- Main application code -->
+  <script>
+{{JS}}
+  </script>
+</body>
+</html>

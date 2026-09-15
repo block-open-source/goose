@@ -564,7 +564,7 @@ enum SessionCommand {
         #[arg(
             long = "format",
             value_name = "FORMAT",
-            help = "Output format (markdown, json, yaml)",
+            help = "Output format (markdown, json, yaml, html)",
             default_value = "markdown"
         )]
         format: String,

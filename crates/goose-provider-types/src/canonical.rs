@@ -60,6 +60,17 @@ pub fn recommended_models_from_registry(provider: &str) -> Vec<String> {
         })
         .collect();
 
+    if provider == "xai" {
+        models_with_dates.extend(
+            mapping_report()["all_mappings"][provider]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|mapping| mapping["provider_model"].as_str())
+                .map(|name| (name.to_string(), None)),
+        );
+    }
+
     models_with_dates.sort_by(|a, b| {
         let date_order = match (&a.1, &b.1) {
             (Some(date_a), Some(date_b)) => date_b.cmp(date_a),
@@ -70,10 +81,20 @@ pub fn recommended_models_from_registry(provider: &str) -> Vec<String> {
         date_order.then_with(|| a.0.cmp(&b.0))
     });
 
+    let mut seen = std::collections::HashSet::new();
+    models_with_dates.retain(|(name, _)| seen.insert(name.clone()));
     models_with_dates
         .into_iter()
         .map(|(name, _)| name)
         .collect()
+}
+
+fn mapping_report() -> &'static serde_json::Value {
+    static REPORT: once_cell::sync::Lazy<serde_json::Value> = once_cell::sync::Lazy::new(|| {
+        serde_json::from_str(include_str!("canonical/data/canonical_mapping_report.json"))
+            .expect("bundled canonical mapping report must be valid")
+    });
+    &REPORT
 }
 
 pub fn provider_wire_name(provider: &str, canonical_id: &str, canonical_name: &str) -> String {
@@ -81,17 +102,22 @@ pub fn provider_wire_name(provider: &str, canonical_id: &str, canonical_name: &s
         return dotted_version_to_dash(canonical_name);
     }
 
-    static REPORT: once_cell::sync::Lazy<serde_json::Value> = once_cell::sync::Lazy::new(|| {
-        serde_json::from_str(include_str!("canonical/data/canonical_mapping_report.json"))
-            .expect("bundled canonical mapping report must be valid")
-    });
-    REPORT["all_mappings"][provider]
+    let mapped = mapping_report()["all_mappings"][provider]
         .as_array()
         .into_iter()
         .flatten()
         .filter(|mapping| mapping["canonical_model"].as_str() == Some(canonical_id))
         .filter_map(|mapping| mapping["provider_model"].as_str())
-        .min_by_key(|name| (!name.ends_with("-latest"), name.len(), *name))
+        .min_by_key(|name| (!name.ends_with("-latest"), name.len(), *name));
+    mapped
+        .or_else(|| {
+            mapping_report()["unmapped_models"]
+                .as_array()?
+                .iter()
+                .filter(|model| model["provider"].as_str() == Some(provider))
+                .filter_map(|model| model["model"].as_str())
+                .find(|name| name.strip_suffix("-latest") == Some(canonical_name))
+        })
         .unwrap_or(canonical_name)
         .to_string()
 }
@@ -283,5 +309,18 @@ mod tests {
             provider_wire_name("openai", "openai/gpt-5.2-chat", "gpt-5.2-chat"),
             "gpt-5.2-chat-latest"
         );
+        assert_eq!(
+            provider_wire_name("openai", "openai/gpt-5.3-chat", "gpt-5.3-chat"),
+            "gpt-5.3-chat-latest"
+        );
+    }
+
+    #[test]
+    fn xai_models_include_provider_inventory_aliases() {
+        let models = recommended_models_from_registry("xai");
+        assert!(models.iter().any(|model| model == "grok-3"));
+        assert!(models.iter().any(|model| model == "grok-3-mini"));
+        assert!(models.iter().any(|model| model == "grok-4-0709"));
+        assert!(models.iter().any(|model| model == "grok-code-fast-1"));
     }
 }

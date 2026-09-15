@@ -34,6 +34,7 @@ use crate::retry::{
     RetryConfig, DEFAULT_BACKOFF_MULTIPLIER, DEFAULT_INITIAL_RETRY_INTERVAL_MS,
     DEFAULT_MAX_RETRIES, DEFAULT_MAX_RETRY_INTERVAL_MS,
 };
+use crate::thinking::ThinkingEffort;
 use rmcp::model::Tool;
 
 const DATABRICKS_V2_PROVIDER_NAME: &str = "databricks_v2";
@@ -254,6 +255,18 @@ impl DatabricksV2Provider {
         model_name.contains("claude")
     }
 
+    fn glm_5_3_reasoning_effort(model_config: &ModelConfig) -> Option<&'static str> {
+        if !model_config.is_reasoning_model() || !model_config.is_glm_5_3_reasoning_model() {
+            return None;
+        }
+
+        Some(match model_config.thinking_effort() {
+            Some(ThinkingEffort::Off | ThinkingEffort::Low) => "low",
+            Some(ThinkingEffort::Medium | ThinkingEffort::High) => "high",
+            Some(ThinkingEffort::Max) | None => "max",
+        })
+    }
+
     fn name_looks_chat_capable(name: &str) -> bool {
         if name.to_ascii_lowercase().contains("embedding") {
             return false;
@@ -373,6 +386,9 @@ impl DatabricksV2Provider {
         )?;
         if is_model_service {
             payload["model"] = Value::String(model_config.model_name.clone());
+        }
+        if let Some(effort) = Self::glm_5_3_reasoning_effort(model_config) {
+            payload["reasoning_effort"] = Value::String(effort.to_string());
         }
         if payload.get("max_tokens").is_none() {
             payload["max_tokens"] = Value::from(model_config.max_output_tokens());
@@ -869,6 +885,38 @@ mod tests {
                 .complete(&ModelConfig::new(model), "system", &[], &[])
                 .await
                 .expect("GPT-6 model service should use the Responses API");
+        }
+
+        #[tokio::test]
+        async fn glm_5_3_model_service_forwards_reasoning_effort() {
+            let model = "data_workflow_tools.goose.goose-glm-5-3";
+            let body = "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n";
+
+            let server = MockServer::start().await;
+            Mock::given(method("POST"))
+                .and(path("/ai-gateway/mlflow/v1/chat/completions"))
+                .and(body_partial_json(json!({
+                    "model": model,
+                    "reasoning_effort": "high"
+                })))
+                .respond_with(
+                    ResponseTemplate::new(200)
+                        .set_body_string(body)
+                        .append_header("content-type", "text/event-stream"),
+                )
+                .expect(1)
+                .mount(&server)
+                .await;
+
+            provider(server.uri())
+                .complete(
+                    &ModelConfig::new(model).with_thinking_effort(ThinkingEffort::High),
+                    "system",
+                    &[],
+                    &[],
+                )
+                .await
+                .expect("GLM-5.3 model service should receive reasoning effort");
         }
 
         #[tokio::test]

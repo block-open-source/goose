@@ -282,7 +282,19 @@ impl ModelConfig {
         self.is_openai_reasoning_model()
             || self.model_name.to_lowercase().contains("claude")
             || Self::is_gemini3_reasoning_model_name(&self.model_name)
+            || self.is_glm_5_3_reasoning_model()
             || is_xai_reasoning_model(&self.model_name)
+    }
+
+    pub fn is_glm_5_3_reasoning_model(&self) -> bool {
+        let lower = self.model_name.to_lowercase();
+        let segments: Vec<_> = lower
+            .split(|character: char| !character.is_ascii_alphanumeric())
+            .filter(|segment| !segment.is_empty())
+            .collect();
+        segments
+            .windows(3)
+            .any(|segments| segments == ["glm", "5", "3"])
     }
 
     fn is_gemini3_reasoning_model_name(model_name: &str) -> bool {
@@ -967,6 +979,11 @@ mod tests {
             assert!(ModelConfig::new("o3-mini").is_reasoning_model());
             assert!(ModelConfig::new("claude-sonnet-4").is_reasoning_model());
             assert!(ModelConfig::new("gemini-3-pro").is_reasoning_model());
+            assert!(ModelConfig::new("glm-5.3").is_reasoning_model());
+            assert!(
+                ModelConfig::new("data_workflow_tools.goose.goose-glm-5-3").is_reasoning_model()
+            );
+            assert!(!ModelConfig::new("glm-5.30").is_reasoning_model());
             assert!(ModelConfig::new("grok-4.5").is_reasoning_model());
             assert!(ModelConfig::new("grok-4.20-0309-reasoning").is_reasoning_model());
             assert!(!ModelConfig::new("grok-4.20-0309-non-reasoning").is_reasoning_model());

@@ -384,7 +384,15 @@ fn capability_thinking_effort_value(
 }
 
 fn thinking_effort_values(model_config: &ModelConfig) -> &'static [ThinkingEffort] {
-    if model_config.is_reasoning_model() {
+    if !model_config.is_reasoning_model() {
+        &[ThinkingEffort::Off]
+    } else if model_config.is_glm_5_3_reasoning_model() {
+        &[
+            ThinkingEffort::Low,
+            ThinkingEffort::High,
+            ThinkingEffort::Max,
+        ]
+    } else {
         &[
             ThinkingEffort::Off,
             ThinkingEffort::Low,
@@ -392,21 +400,29 @@ fn thinking_effort_values(model_config: &ModelConfig) -> &'static [ThinkingEffor
             ThinkingEffort::High,
             ThinkingEffort::Max,
         ]
-    } else {
-        &[ThinkingEffort::Off]
     }
 }
 
 fn current_thinking_effort_value(model_config: &ModelConfig) -> String {
-    if model_config.is_reasoning_model() {
-        model_config
-            .thinking_effort()
-            .or_else(|| Config::global().get_goose_thinking_effort())
-            .map(|effort| effort.to_string())
-            .unwrap_or_else(|| "off".to_string())
-    } else {
-        "off".to_string()
+    if !model_config.is_reasoning_model() {
+        return "off".to_string();
     }
+
+    let configured = model_config
+        .thinking_effort()
+        .or_else(|| Config::global().get_goose_thinking_effort());
+    if model_config.is_glm_5_3_reasoning_model() {
+        return match configured {
+            Some(ThinkingEffort::Off | ThinkingEffort::Low) => ThinkingEffort::Low,
+            Some(ThinkingEffort::Medium | ThinkingEffort::High) => ThinkingEffort::High,
+            Some(ThinkingEffort::Max) | None => ThinkingEffort::Max,
+        }
+        .to_string();
+    }
+
+    configured
+        .map(|effort| effort.to_string())
+        .unwrap_or_else(|| "off".to_string())
 }
 
 fn slash_command_meta(entry: &SlashCommandEntry) -> serde_json::Map<String, serde_json::Value> {
@@ -787,6 +803,42 @@ mod tests {
             select.options,
             agent_client_protocol::schema::v1::SessionConfigSelectOptions::Ungrouped(vec![
                 SessionConfigSelectOption::new("off", "off")
+            ])
+        );
+    }
+
+    #[test]
+    fn test_build_config_options_offers_glm_5_3_effort_levels() {
+        let _guard = env_lock::lock_env([("GOOSE_THINKING_EFFORT", None::<&str>)]);
+        let mode_state = build_mode_state(GooseMode::Auto).unwrap();
+        let model_name = "data_workflow_tools.goose.goose-glm-5-3";
+        let model_state = model_selection(model_name, &[model_name]);
+        let options = build_config_options(
+            &mode_state,
+            &model_state,
+            &ModelConfig::new(model_name).with_thinking_effort(ThinkingEffort::Max),
+            "databricks_v2",
+            vec![SessionConfigSelectOption::new(
+                "databricks_v2",
+                "databricks_v2",
+            )],
+            &ThinkingEffortSupport::Unspecified,
+        );
+        let option = options
+            .iter()
+            .find(|option| option.id.0.as_ref() == "thinking_effort")
+            .expect("thinking_effort option");
+        let SessionConfigKind::Select(select) = &option.kind else {
+            panic!("thinking_effort should be a select option");
+        };
+
+        assert_eq!(select.current_value.0.as_ref(), "max");
+        assert_eq!(
+            select.options,
+            agent_client_protocol::schema::v1::SessionConfigSelectOptions::Ungrouped(vec![
+                SessionConfigSelectOption::new("low", "low"),
+                SessionConfigSelectOption::new("high", "high"),
+                SessionConfigSelectOption::new("max", "max"),
             ])
         );
     }

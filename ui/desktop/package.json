@@ -80,7 +80,7 @@
     "framer-motion": "^13.2.0",
     "katex": "0.16.47",
     "lodash": "^4.18.1",
-    "lucide-react": "^0.575.0",
+    "lucide-react": "^1.43.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-icons": "^5.7.0",

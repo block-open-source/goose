@@ -146,7 +146,7 @@
     "electron-devtools-installer": "^4.0.0",
     "eslint": "^9.39.2",
     "eslint-plugin-react": "^7.37.5",
-    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "jsdom": "^28.1.0",
     "knip": "^5.85.0",
     "postcss": "^8.5.26",

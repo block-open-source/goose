@@ -60,13 +60,14 @@ pub fn recommended_models_from_registry(provider: &str) -> Vec<String> {
         })
         .collect();
 
-    if provider == "xai" {
+    if matches!(provider, "google" | "xai") {
         models_with_dates.extend(
             mapping_report()["all_mappings"][provider]
                 .as_array()
                 .into_iter()
                 .flatten()
                 .filter_map(|mapping| mapping["provider_model"].as_str())
+                .filter(|name| provider != "google" || google_generate_content_model(name))
                 .map(|name| (name.to_string(), None)),
         );
     }
@@ -87,6 +88,14 @@ pub fn recommended_models_from_registry(provider: &str) -> Vec<String> {
         .into_iter()
         .map(|(name, _)| name)
         .collect()
+}
+
+fn google_generate_content_model(name: &str) -> bool {
+    !name.contains("deep-research")
+        && !name.contains("live")
+        && !name.contains("image")
+        && !name.contains("tts")
+        && !name.contains("embedding")
 }
 
 fn mapping_report() -> &'static serde_json::Value {
@@ -285,6 +294,9 @@ mod tests {
         assert!(!models.iter().any(|model| model.contains("deep-research")));
         assert!(!models.iter().any(|model| model.contains("live")));
         assert!(models.iter().any(|model| model == "gemini-2.5-pro"));
+        assert!(models.iter().any(|model| model == "gemini-2.0-flash"));
+        assert!(models.iter().any(|model| model == "gemini-2.0-flash-lite"));
+        assert!(models.iter().any(|model| model == "gemini-3-pro-preview"));
     }
 
     #[test]

@@ -9,6 +9,15 @@ export interface AcpCreditsExhaustedError {
 const CREDITS_EXHAUSTED_REASON = 'credits_exhausted';
 const AUTH_REQUIRED_CODE = -32000;
 
+export class EmptyExtensionSelectionUnsupportedError extends Error {
+  constructor() {
+    super(
+      'The connected Goose server cannot create a session without extensions. Update the server and try again.'
+    );
+    this.name = 'EmptyExtensionSelectionUnsupportedError';
+  }
+}
+
 // Kept in sync with RECIPE_PARAMS_CANCELLED_REASON in crates/goose/src/acp/server/recipe.rs.
 const RECIPE_PARAMS_CANCELLED_REASON = 'recipe_params_cancelled';
 

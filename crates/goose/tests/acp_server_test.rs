@@ -3,8 +3,9 @@
 #[path = "acp_common_tests/mod.rs"]
 mod common_tests;
 use agent_client_protocol::schema::v1::{
-    ContentBlock, ListSessionsRequest, ListSessionsResponse, NewSessionRequest, PromptRequest,
-    SessionConfigKind, SessionConfigOptionCategory, SessionConfigOptionValue, SessionInfo,
+    CloseSessionRequest, ContentBlock, ListSessionsRequest, ListSessionsResponse,
+    LoadSessionRequest, NewSessionRequest, PromptRequest, SessionConfigKind,
+    SessionConfigOptionCategory, SessionConfigOptionValue, SessionInfo,
     SetSessionConfigOptionRequest, StopReason, TextContent,
 };
 use agent_client_protocol::ErrorCode;
@@ -32,11 +33,11 @@ use common_tests::{
 use goose::config::GooseMode;
 use goose::conversation::message::{Message, MessageMetadata};
 use goose::custom_requests::{
-    GetSessionInfoRequest, GetSessionInfoResponse, UpdateSessionProjectRequest,
+    GetSessionInfoRequest, GetSessionInfoResponse, GetToolsRequest, UpdateSessionProjectRequest,
 };
 use goose::recipe::{Recipe, Settings};
 use goose::recipe_deeplink;
-use goose::session::{SessionManager, SessionType};
+use goose::session::{EnabledExtensionsState, SessionManager, SessionType};
 use std::path::Path;
 
 tests_config_option_set_error!(AcpServerConnection);
@@ -846,6 +847,102 @@ fn test_model_list() {
 #[test]
 fn test_new_session_returns_initial_config() {
     run_test(async { run_new_session_returns_initial_config::<AcpServerConnection>().await });
+}
+
+#[test]
+fn explicit_empty_extensions_survive_prompt_and_reload() {
+    run_test(async {
+        let data_root = tempfile::tempdir().unwrap();
+        std::fs::write(
+            data_root.path().join(goose::config::base::CONFIG_YAML_NAME),
+            "GOOSE_MODEL: gpt-4o\nGOOSE_PROVIDER: openai\nGOOSE_TOOL_PAIR_SUMMARIZATION: false\nextensions:\n  developer:\n    enabled: true\n    type: builtin\n    name: developer\n",
+        ).unwrap();
+        let openai = OpenAiFixture::new(
+            vec![(
+                format!("what is 1+1{TURN_CONTEXT_OPEN}"),
+                include_str!("acp_test_data/openai_basic.txt"),
+            )],
+            <AcpServerConnection as Connection>::expected_session_id(),
+        )
+        .await;
+        let conn = <AcpServerConnection as Connection>::new(
+            TestConnectionConfig {
+                data_root: data_root.path().to_path_buf(),
+                builtins: vec!["developer".to_string()],
+                ..Default::default()
+            },
+            openai,
+        )
+        .await;
+        let work_dir = tempfile::tempdir().unwrap();
+        let plugin_dir = work_dir
+            .path()
+            .join(".agents/plugins/empty-selection-fixture");
+        std::fs::create_dir_all(&plugin_dir).unwrap();
+        std::fs::write(
+            plugin_dir.join("plugin.json"),
+            r#"{"name":"empty-selection-fixture"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            plugin_dir.join(".mcp.json"),
+            r#"{"mcpServers":{"excluded":{"command":"goose-empty-selection-must-not-start"}}}"#,
+        )
+        .unwrap();
+        assert!(
+            !goose::plugins::mcp_servers::enabled_plugin_mcp_servers(Some(work_dir.path()))
+                .is_empty()
+        );
+        let mut meta = serde_json::Map::new();
+        meta.insert("enabledExtensions".to_string(), serde_json::json!([]));
+        let session_id = new_session_with_meta(&conn, work_dir.path(), meta)
+            .await
+            .unwrap();
+        let manager = SessionManager::new(data_root.path().to_path_buf());
+        for resumed in [false, true] {
+            if resumed {
+                conn.cx()
+                    .send_request(CloseSessionRequest::new(session_id.clone()))
+                    .block_task()
+                    .await
+                    .unwrap();
+                conn.cx()
+                    .send_request(LoadSessionRequest::new(session_id.clone(), work_dir.path()))
+                    .block_task()
+                    .await
+                    .unwrap();
+            }
+            let session = manager.get_session(&session_id, false).await.unwrap();
+            assert!(
+                EnabledExtensionsState::from_extension_data(&session.extension_data)
+                    .expect("explicit selection must be persisted")
+                    .extensions
+                    .is_empty()
+            );
+            let tools = conn
+                .cx()
+                .send_request(GetToolsRequest {
+                    session_id: session_id.clone(),
+                    extension_name: None,
+                })
+                .block_task()
+                .await
+                .unwrap();
+            assert!(tools.tools.is_empty());
+            if !resumed {
+                let response = conn
+                    .cx()
+                    .send_request(PromptRequest::new(
+                        session_id.clone(),
+                        vec![ContentBlock::Text(TextContent::new("what is 1+1"))],
+                    ))
+                    .block_task()
+                    .await
+                    .unwrap();
+                assert_eq!(response.stop_reason, StopReason::EndTurn);
+            }
+        }
+    });
 }
 
 #[test]

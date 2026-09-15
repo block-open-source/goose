@@ -88,6 +88,7 @@ describe('createSession ACP session extensions', () => {
     mockedGetAcpFeatureCapabilities.mockResolvedValue({
       localInference: false,
       recipeParameterScopes: true,
+      emptyExtensionSelection: true,
     });
   });
 
@@ -104,23 +105,10 @@ describe('createSession ACP session extensions', () => {
     });
   });
 
-  it('falls back to enabled configured extensions when extension configs are empty', async () => {
+  it('preserves an explicit empty selection instead of falling back to defaults', async () => {
     await createSession('/tmp', {
       extensionConfigs: [],
       allExtensions: [configuredExtension('developer', true), configuredExtension('memory', false)],
-    });
-
-    expect(mockedGetConfiguredGooseExtensions).toHaveBeenCalledOnce();
-    expect(mockedCreateAcpSession).toHaveBeenCalledWith('/tmp', [gooseExtension('developer')], {
-      recipeDeeplink: undefined,
-      recipeId: undefined,
-      recipeParameterScopeId: undefined,
-    });
-  });
-
-  it('omits ACP session extensions when no configured extensions are enabled', async () => {
-    await createSession('/tmp', {
-      allExtensions: [configuredExtension('developer', false)],
     });
 
     expect(mockedGetConfiguredGooseExtensions).not.toHaveBeenCalled();
@@ -131,11 +119,53 @@ describe('createSession ACP session extensions', () => {
     });
   });
 
+  it('preserves an empty selection when every selected configuration disappears', async () => {
+    mockedGetConfiguredGooseExtensions.mockResolvedValue([gooseExtensionEntry('memory')]);
+    await createSession('/tmp', { extensionConfigs: [extensionConfig('developer')] });
+    expect(mockedCreateAcpSession).toHaveBeenCalledWith('/tmp', [], expect.any(Object));
+  });
+
+  it('keeps only the remaining selected configurations without adding defaults', async () => {
+    mockedGetConfiguredGooseExtensions.mockResolvedValue([gooseExtensionEntry('memory')]);
+    await createSession('/tmp', {
+      extensionConfigs: [extensionConfig('developer'), extensionConfig('memory')],
+    });
+    expect(mockedCreateAcpSession).toHaveBeenCalledWith(
+      '/tmp',
+      [gooseExtension('memory')],
+      expect.any(Object)
+    );
+  });
+
+  it('preserves nonempty globally configured defaults without an explicit selection', async () => {
+    await createSession('/tmp', {
+      allExtensions: [configuredExtension('developer', true), configuredExtension('memory', false)],
+    });
+    expect(mockedCreateAcpSession).toHaveBeenCalledWith(
+      '/tmp',
+      [gooseExtension('developer')],
+      expect.any(Object)
+    );
+  });
+
+  it('omits ACP session extensions when no configured extensions are enabled', async () => {
+    await createSession('/tmp', {
+      allExtensions: [configuredExtension('developer', false)],
+    });
+
+    expect(mockedGetConfiguredGooseExtensions).not.toHaveBeenCalled();
+    expect(mockedCreateAcpSession).toHaveBeenCalledWith('/tmp', undefined, {
+      recipeDeeplink: undefined,
+      recipeId: undefined,
+      recipeParameterScopeId: undefined,
+    });
+  });
+
   it('scopes startup parameters to recipe deeplink session creation', async () => {
     await createSession('/tmp', { recipeDeeplink: 'goose://recipe?url=example' });
 
     expect(mockedBeginConfiguredRecipeParameterScope).toHaveBeenCalledOnce();
-    expect(mockedCreateAcpSession).toHaveBeenCalledWith('/tmp', [], {
+    expect(mockedCreateAcpSession).toHaveBeenCalledWith('/tmp', undefined, {
       recipeDeeplink: 'goose://recipe?url=example',
       recipeId: undefined,
       recipeParameterScopeId: 'scope-1',
@@ -173,6 +203,7 @@ describe('createSession ACP session extensions', () => {
     mockedGetAcpFeatureCapabilities.mockResolvedValueOnce({
       localInference: false,
       recipeParameterScopes: false,
+      emptyExtensionSelection: false,
     });
 
     await expect(

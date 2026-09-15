@@ -73,7 +73,7 @@ export default function StandaloneAppView() {
       }
 
       try {
-        const { sessionId: sid } = await acpNewSession(workingDir, []);
+        const { sessionId: sid } = await acpNewSession(workingDir, undefined);
         setSessionId(sid);
         setLoading(false);
       } catch (err) {

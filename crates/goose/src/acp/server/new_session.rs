@@ -362,6 +362,27 @@ mod tests {
     }
 
     #[test]
+    fn extension_metadata_preserves_empty_and_rejects_invalid_values() {
+        assert!(meta_goose_extensions(None).unwrap().is_none());
+        assert!(
+            meta_goose_extensions(Some(&meta(json!({"enabledExtensions": null}))))
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            meta_goose_extensions(Some(&meta(json!({"enabledExtensions": []}))))
+                .unwrap()
+                .unwrap()
+                .is_empty()
+        );
+        for value in [json!(false), json!(""), json!({})] {
+            assert!(
+                meta_goose_extensions(Some(&meta(json!({"enabledExtensions": value})))).is_err()
+            );
+        }
+    }
+
+    #[test]
     fn hidden_overrides_client() {
         let meta = meta(json!({ "hidden": true, "client": "desktop" }));
         assert_eq!(

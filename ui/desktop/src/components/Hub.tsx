@@ -115,7 +115,7 @@ export default function Hub({
         ? selectNextChatExtensions(extensionsList, nextChatExtensionDraft)
         : [];
       const sessionOptions =
-        selectedExtensions.length > 0
+        nextChatExtensionDraft !== null
           ? { extensionConfigs: selectedExtensions }
           : { allExtensions: extensionsList };
 

@@ -11,6 +11,7 @@ import { UserInput } from '../types/message';
 type ChatInputCapture = {
   draftRef?: { current: string };
   handleSubmit: (input: UserInput) => void;
+  onNextChatExtensionDraftChange: (draft: { selectedNames: Set<string> }) => void;
 };
 
 type Session = Awaited<ReturnType<typeof createSession>>;
@@ -80,6 +81,21 @@ describe('Hub', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     captured.chatInput = null;
+  });
+
+  it('submits an explicit empty selection instead of global defaults', async () => {
+    vi.mocked(createSession).mockResolvedValue({ id: 'session-1' } as Session);
+    renderHub({ current: DRAFT });
+    act(() => captured.chatInput?.onNextChatExtensionDraftChange({ selectedNames: new Set() }));
+    await submit();
+    expect(createSession).toHaveBeenCalledWith('/tmp/goose', { extensionConfigs: [] });
+  });
+
+  it('uses global defaults when no per-chat selection was made', async () => {
+    vi.mocked(createSession).mockResolvedValue({ id: 'session-1' } as Session);
+    renderHub({ current: DRAFT });
+    await submit();
+    expect(createSession).toHaveBeenCalledWith('/tmp/goose', { allExtensions: [] });
   });
 
   it('hands the draft to the input', () => {

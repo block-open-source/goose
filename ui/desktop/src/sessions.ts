@@ -27,7 +27,7 @@ interface CreateSessionOptions {
 }
 
 function selectedExtensionConfigs(options?: CreateSessionOptions): ExtensionConfig[] {
-  if (options?.extensionConfigs && options.extensionConfigs.length > 0) {
+  if (options?.extensionConfigs !== undefined) {
     return options.extensionConfigs;
   }
   if (options?.allExtensions) {
@@ -61,7 +61,9 @@ async function createAcpSession(
         ? (await getConfiguredGooseExtensions())
             .filter((entry) => selectedNames.has(gooseExtensionName(entry.extension)))
             .map((entry) => entry.extension)
-        : [];
+        : options?.extensionConfigs !== undefined
+          ? []
+          : undefined;
     return await acpChatSessionController.createSession(workingDir, gooseExtensions, {
       recipeId: options?.recipeId,
       recipeDeeplink: options?.recipeDeeplink,

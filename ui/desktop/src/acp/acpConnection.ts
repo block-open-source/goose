@@ -128,6 +128,8 @@ async function getConnection(): Promise<AcpConnection> {
   return pendingConnection;
 }
 
+export { getConnection as getAcpConnection };
+
 async function openConnection(generation: number): Promise<AcpConnection> {
   const wsUrl = await window.electron.getAcpUrl();
   if (!wsUrl) {

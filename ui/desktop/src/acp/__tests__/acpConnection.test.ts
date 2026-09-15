@@ -106,6 +106,21 @@ describe('ACP connection ownership', () => {
     expect(transport.createWebSocketStream).toHaveBeenCalledTimes(2);
   });
 
+  it('keeps captured initialization metadata paired with its client across reconnects', async () => {
+    const supported = { agentCapabilities: { _meta: { goose: { emptyExtensionSelection: {} } } } };
+    const unsupported = { agentCapabilities: { _meta: { goose: {} } } };
+    mockClientFactory.initialize.mockResolvedValueOnce(supported).mockResolvedValue(unsupported);
+    const { getAcpConnection, reconnectAcpAfterSystemResume } = await import('../acpConnection');
+    const captured = await getAcpConnection();
+    reconnectAcpAfterSystemResume();
+    const replacement = await getAcpConnection();
+    expect(captured.initializeResponse).toBe(supported);
+    expect(captured.client).toBe(mockClientFactory.instances[0].client);
+    expect(replacement.initializeResponse).toBe(unsupported);
+    expect(replacement.client).toBe(mockClientFactory.instances[1].client);
+    expect(captured.client.connection.close).toHaveBeenCalledOnce();
+  });
+
   it('increases the backoff after a failed reconnect attempt', async () => {
     mockClientFactory.initialize
       .mockResolvedValueOnce({})

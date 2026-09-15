@@ -6,11 +6,17 @@ import {
   type NewSessionRequest,
   type SessionInfo,
 } from '@agentclientprotocol/sdk';
-import type { GooseExtension, SessionExportFormat, SessionImportSource } from '@aaif/goose-acp-client';
-import { getAcpClient } from './acpConnection';
+import type {
+  GooseExtension,
+  SessionExportFormat,
+  SessionImportSource,
+} from '@aaif/goose-acp-client';
+import { getAcpClient, getAcpConnection } from './acpConnection';
 import type { ExtensionLoadResult } from '../types/extensions';
 import type { Session } from '../types/session';
 import type { Recipe } from '../recipe';
+import { hasEmptyExtensionSelectionCapability } from './capabilities';
+import { EmptyExtensionSelectionUnsupportedError } from './errors';
 
 interface GooseSessionInfoMeta {
   messageCount?: number;
@@ -237,12 +243,15 @@ export interface AcpRecipeOptions {
 
 export async function acpNewSession(
   cwd: string,
-  gooseExtensions: GooseExtension[],
+  gooseExtensions: GooseExtension[] | undefined,
   recipe?: AcpRecipeOptions
 ): Promise<AcpNewSessionResult> {
-  const client = await getAcpClient();
+  const { client, initializeResponse } = await getAcpConnection();
+  if (gooseExtensions?.length === 0 && !hasEmptyExtensionSelectionCapability(initializeResponse)) {
+    throw new EmptyExtensionSelectionUnsupportedError();
+  }
   const meta: Record<string, unknown> = { client: 'goose-desktop' };
-  if (gooseExtensions.length > 0) {
+  if (gooseExtensions !== undefined) {
     meta.enabledExtensions = gooseExtensions;
   }
   if (recipe?.recipeId) {

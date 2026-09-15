@@ -180,6 +180,7 @@ mod tests {
         ; "prefers_session_data"
     )]
     #[test_case(None, None ; "no_session_falls_back_to_config")]
+    #[test_case(Some(extension_data_with(vec![])), Some(vec![]) ; "explicit_empty_does_not_fall_back")]
     #[test_case(Some(ExtensionData::default()), None ; "empty_session_data_falls_back_to_config")]
     fn test_extensions_or_default(
         extension_data: Option<ExtensionData>,

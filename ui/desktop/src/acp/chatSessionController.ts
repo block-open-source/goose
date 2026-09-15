@@ -48,7 +48,7 @@ export interface AcpSubmitMessageOptions extends AcpSnapshotOptions {
 export interface AcpChatSessionController {
   createSession(
     cwd: string,
-    gooseExtensions: GooseExtension[],
+    gooseExtensions: GooseExtension[] | undefined,
     recipe?: AcpRecipeOptions
   ): Promise<Session>;
   loadSession(sessionId: string, options?: AcpLoadSessionOptions): Promise<void>;
@@ -114,7 +114,7 @@ async function forkSessionWithEditedMessage(
 
 async function createSession(
   cwd: string,
-  gooseExtensions: GooseExtension[],
+  gooseExtensions: GooseExtension[] | undefined,
   recipe?: AcpRecipeOptions
 ): Promise<Session> {
   const { sessionId, sessionInfo, meta } = await acpNewSession(cwd, gooseExtensions, recipe);

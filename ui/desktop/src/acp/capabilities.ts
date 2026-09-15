@@ -4,6 +4,7 @@ import { getAcpInitializeResponse } from './acpConnection';
 export interface AcpFeatureCapabilities {
   localInference: boolean;
   recipeParameterScopes: boolean;
+  emptyExtensionSelection: boolean;
 }
 
 export async function getAcpFeatureCapabilities(): Promise<AcpFeatureCapabilities> {
@@ -12,6 +13,7 @@ export async function getAcpFeatureCapabilities(): Promise<AcpFeatureCapabilitie
   return {
     localInference: hasLocalInferenceCapability(initializeResponse),
     recipeParameterScopes: hasRecipeParameterScopesCapability(initializeResponse),
+    emptyExtensionSelection: hasEmptyExtensionSelectionCapability(initializeResponse),
   };
 }
 
@@ -55,6 +57,13 @@ export function hasRecipeParameterScopesCapability(
   }
 
   return 'recipeParameterScopes' in goose;
+}
+
+export function hasEmptyExtensionSelectionCapability(
+  initializeResponse: Pick<InitializeResponse, 'agentCapabilities'>
+): boolean {
+  const meta = initializeResponse.agentCapabilities?._meta;
+  return isRecord(meta) && isRecord(meta.goose) && isRecord(meta.goose.emptyExtensionSelection);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

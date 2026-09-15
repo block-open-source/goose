@@ -1,6 +1,6 @@
-import { methods, type SessionInfo } from '@agentclientprotocol/sdk';
+import { methods, type InitializeResponse, type SessionInfo } from '@agentclientprotocol/sdk';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { getAcpClient } from '../acpConnection';
+import { getAcpClient, getAcpConnection } from '../acpConnection';
 import {
   acpGetSessionListItem,
   acpListSessions,
@@ -11,7 +11,18 @@ import {
 
 vi.mock('../acpConnection', () => ({
   getAcpClient: vi.fn(),
+  getAcpConnection: vi.fn(),
 }));
+
+function connectionWithSelectionSupport(client: unknown, supported = true) {
+  return {
+    client: client as Awaited<ReturnType<typeof getAcpClient>>,
+    initializeResponse: {
+      protocolVersion: 1,
+      agentCapabilities: { _meta: { goose: supported ? { emptyExtensionSelection: {} } : {} } },
+    } as InitializeResponse,
+  };
+}
 
 function sessionInfo(overrides: Partial<SessionInfo> = {}): SessionInfo {
   return {
@@ -32,6 +43,70 @@ describe('ACP sessions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
+
+  it.each([undefined, [], [{ type: 'builtin' as const, name: 'developer' }]])(
+    'preserves the extension selection on the wire: %j',
+    async (selection) => {
+      const request = vi.fn().mockResolvedValue({ sessionId: 'session-1' });
+      vi.mocked(getAcpConnection).mockResolvedValue(
+        connectionWithSelectionSupport({
+          connection: { agent: { request } },
+          goose: { sessionInfo_unstable: vi.fn().mockResolvedValue({ session: sessionInfo() }) },
+        })
+      );
+      await acpNewSession('/tmp', selection);
+      const sent = request.mock.calls[0][1];
+      expect(Object.hasOwn(sent._meta, 'enabledExtensions')).toBe(selection !== undefined);
+      expect(sent._meta.enabledExtensions).toEqual(selection);
+      expect(getAcpConnection).toHaveBeenCalledOnce();
+    }
+  );
+
+  it('rejects empty selections on older servers before creating a session', async () => {
+    const request = vi.fn();
+    vi.mocked(getAcpConnection).mockResolvedValue(
+      connectionWithSelectionSupport(
+        {
+          connection: { agent: { request } },
+        },
+        false
+      )
+    );
+    await expect(acpNewSession('/tmp', [])).rejects.toThrow('Update the server');
+    expect(request).not.toHaveBeenCalled();
+    expect(getAcpClient).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])(
+    'does not switch to a replacement connection after checking capabilities (closed=%s)',
+    async (closed) => {
+      const request = closed
+        ? vi.fn().mockRejectedValue(new Error('connection closed'))
+        : vi.fn().mockResolvedValue({ sessionId: 'session-1' });
+      const captured = connectionWithSelectionSupport({
+        connection: { agent: { request } },
+        goose: { sessionInfo_unstable: vi.fn().mockResolvedValue({ session: sessionInfo() }) },
+      });
+      const replacementRequest = vi.fn();
+      const replacement = connectionWithSelectionSupport(
+        {
+          connection: { agent: { request: replacementRequest } },
+        },
+        false
+      );
+      vi.mocked(getAcpConnection).mockResolvedValueOnce(captured).mockResolvedValue(replacement);
+      vi.mocked(getAcpClient).mockResolvedValue(replacement.client);
+      if (closed) {
+        await expect(acpNewSession('/tmp', [])).rejects.toThrow('connection closed');
+      } else {
+        await expect(acpNewSession('/tmp', [])).resolves.toMatchObject({ sessionId: 'session-1' });
+      }
+      expect(request).toHaveBeenCalledOnce();
+      expect(getAcpConnection).toHaveBeenCalledOnce();
+      expect(getAcpClient).not.toHaveBeenCalled();
+      expect(replacementRequest).not.toHaveBeenCalled();
+    }
+  );
 
   it('preserves session type from ACP session info metadata', () => {
     const session = sessionInfoToSession(sessionInfo());
@@ -121,11 +196,9 @@ describe('ACP sessions', () => {
         sessionInfo_unstable: vi.fn().mockResolvedValue({ session: createdSessionInfo }),
       },
     };
-    vi.mocked(getAcpClient).mockResolvedValue(
-      client as unknown as Awaited<ReturnType<typeof getAcpClient>>
-    );
+    vi.mocked(getAcpConnection).mockResolvedValue(connectionWithSelectionSupport(client));
 
-    await acpNewSession('/tmp', [], {
+    await acpNewSession('/tmp', undefined, {
       recipeDeeplink: 'goose://recipe?url=example',
       recipeParameterScopeId: 'scope-1',
     });

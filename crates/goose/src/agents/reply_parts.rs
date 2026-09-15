@@ -225,13 +225,11 @@ impl Agent {
             self.tool_inspection_manager.apply_tool_annotations(&tools);
         }
 
-        let prompt_manager = self.prompt_manager.lock().await;
+        let mut prompt_manager = self.prompt_manager.lock().await;
         let system_prompt = prompt_manager
-            .builder()
+            .builder_with_fresh_hints(working_dir, goose_mode)
             .with_extensions(extensions_info.into_iter())
             .with_code_execution_mode(code_execution_active)
-            .with_hints(working_dir)
-            .with_goose_mode(goose_mode)
             .build();
 
         let (tools, toolshim_tools, system_prompt) =

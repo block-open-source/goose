@@ -6,7 +6,9 @@ use serde::Serialize;
 
 use crate::agents::{extension::ExtensionInfo, moim};
 use crate::hints::load_hints::build_gitignore;
-use crate::hints::{get_context_filenames, load_hint_files, SubdirectoryHintTracker};
+use crate::hints::{
+    get_context_filenames, load_hint_files, SubdirectoryHintTracker, MAX_HINT_OUTPUT_BYTES,
+};
 use crate::{
     config::{Config, GooseMode},
     prompt_template,
@@ -19,6 +21,8 @@ pub struct PromptManager {
     system_prompt_extras: IndexMap<String, String>,
     current_date_timestamp: String,
     subdirectory_hint_tracker: SubdirectoryHintTracker,
+    last_hint_snapshot: Option<String>,
+    pending_hint_snapshot: Option<String>,
 }
 
 impl Default for PromptManager {
@@ -84,14 +88,17 @@ impl<'a> SystemPromptBuilder<'a, PromptManager> {
     }
 
     pub fn with_hints(mut self, working_dir: &Path) -> Self {
-        let hints_filenames = get_context_filenames();
-        let ignore_patterns = build_gitignore(working_dir);
+        let hints = load_hint_files(
+            working_dir,
+            &get_context_filenames(),
+            &build_gitignore(working_dir),
+        );
+        self.hints = (!hints.is_empty()).then_some(hints);
+        self
+    }
 
-        let hints = load_hint_files(working_dir, &hints_filenames, &ignore_patterns);
-
-        if !hints.is_empty() {
-            self.hints = Some(hints);
-        }
+    fn with_hint_snapshot(mut self, hints: String) -> Self {
+        self.hints = (!hints.is_empty()).then_some(hints);
         self
     }
 
@@ -147,7 +154,7 @@ impl<'a> SystemPromptBuilder<'a, PromptManager> {
         let mut system_prompt_extras = self.manager.system_prompt_extras.clone();
         system_prompt_extras.extend(self.prompt_extras);
 
-        // Add hints if provided
+        let has_generated_hints = self.hints.is_some();
         if let Some(hints) = self.hints {
             system_prompt_extras.insert("hints".to_string(), hints);
         }
@@ -164,8 +171,14 @@ impl<'a> SystemPromptBuilder<'a, PromptManager> {
             base_prompt
         } else {
             let sanitized_system_prompt_extras: Vec<String> = system_prompt_extras
-                .into_values()
-                .map(|extra| sanitize_unicode_tags(&extra))
+                .into_iter()
+                .map(|(key, extra)| {
+                    let mut extra = sanitize_unicode_tags(&extra);
+                    if has_generated_hints && key == "hints" {
+                        extra.truncate(extra.floor_char_boundary(MAX_HINT_OUTPUT_BYTES));
+                    }
+                    extra
+                })
                 .collect();
 
             format!(
@@ -186,6 +199,8 @@ impl PromptManager {
             // Filtering to an hour to balance user time accuracy and multi session prompt cache hits.
             current_date_timestamp: Utc::now().format("%Y-%m-%d %H:00 %:z").to_string(),
             subdirectory_hint_tracker: SubdirectoryHintTracker::new(),
+            last_hint_snapshot: None,
+            pending_hint_snapshot: None,
         }
     }
 
@@ -196,6 +211,8 @@ impl PromptManager {
             system_prompt_extras: IndexMap::new(),
             current_date_timestamp: dt.format("%Y-%m-%d %H:%M:%S %:z").to_string(),
             subdirectory_hint_tracker: SubdirectoryHintTracker::new(),
+            last_hint_snapshot: None,
+            pending_hint_snapshot: None,
         }
     }
 
@@ -219,12 +236,24 @@ impl PromptManager {
     }
 
     pub fn load_subdirectory_hints(&mut self, working_dir: &Path) -> bool {
-        let new_hints = self.subdirectory_hint_tracker.load_new_hints(working_dir);
-        let has_new = !new_hints.is_empty();
-        for (key, content) in new_hints {
-            self.system_prompt_extras.insert(key, content);
+        let snapshot = self
+            .subdirectory_hint_tracker
+            .load_prompt_snapshot(working_dir, MAX_HINT_OUTPUT_BYTES);
+        let changed = self.last_hint_snapshot.as_ref() != Some(&snapshot);
+        if changed {
+            self.pending_hint_snapshot = Some(snapshot.clone());
         }
-        has_new
+        self.last_hint_snapshot = Some(snapshot);
+        self.pending_hint_snapshot.is_some()
+    }
+
+    fn take_fresh_hint_snapshot(&mut self, working_dir: &Path) -> String {
+        let snapshot = self.pending_hint_snapshot.take().unwrap_or_else(|| {
+            self.subdirectory_hint_tracker
+                .load_prompt_snapshot(working_dir, MAX_HINT_OUTPUT_BYTES)
+        });
+        self.last_hint_snapshot = Some(snapshot.clone());
+        snapshot
     }
 
     pub fn build_system_prompt(
@@ -233,13 +262,33 @@ impl PromptManager {
         prompt_parts: Vec<(String, String)>,
         goose_mode: GooseMode,
     ) -> String {
-        self.load_subdirectory_hints(working_dir);
+        let snapshot = self.take_fresh_hint_snapshot(working_dir);
+        self.build_system_prompt_from_snapshot(prompt_parts, goose_mode, snapshot)
+    }
+
+    pub(crate) fn build_system_prompt_from_snapshot(
+        &mut self,
+        prompt_parts: Vec<(String, String)>,
+        goose_mode: GooseMode,
+        snapshot: String,
+    ) -> String {
         self.builder()
+            .with_hint_snapshot(snapshot)
             .with_prompt_extras(prompt_parts)
-            .with_hints(working_dir)
             .with_goose_mode(goose_mode)
             .without_extensions()
             .build()
+    }
+
+    pub fn builder_with_fresh_hints(
+        &mut self,
+        working_dir: &Path,
+        goose_mode: GooseMode,
+    ) -> SystemPromptBuilder<'_, PromptManager> {
+        let snapshot = self.take_fresh_hint_snapshot(working_dir);
+        self.builder()
+            .with_hint_snapshot(snapshot)
+            .with_goose_mode(goose_mode)
     }
 
     /// Override the system prompt with custom text
@@ -325,6 +374,262 @@ mod tests {
 
         assert!(with_contribution.contains("temporary instruction"));
         assert!(!without_contribution.contains("temporary instruction"));
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn legacy_hint_refresh_hands_the_same_snapshot_to_the_next_build() {
+        let config_root = tempfile::tempdir().unwrap();
+        let _guard = env_lock::lock_env([
+            (
+                "GOOSE_PATH_ROOT",
+                Some(config_root.path().to_str().unwrap()),
+            ),
+            ("CONTEXT_FILE_NAMES", Some(r#"[".goosehints"]"#)),
+        ]);
+        let project = tempfile::tempdir().unwrap();
+        let nested = project.path().join("nested");
+        std::fs::create_dir(&nested).unwrap();
+        let root_hints = project.path().join(crate::hints::GOOSE_HINTS_FILENAME);
+        std::fs::write(&root_hints, "ROOT_V1").unwrap();
+        std::fs::write(
+            nested.join(crate::hints::GOOSE_HINTS_FILENAME),
+            format!("{}NESTED_HINT", "n".repeat(400 * 1024)),
+        )
+        .unwrap();
+
+        let mut manager = PromptManager::new();
+        let arguments = serde_json::json!({ "path": "nested/file.rs" })
+            .as_object()
+            .cloned();
+        manager.record_tool_arguments(&arguments, project.path());
+        let initial = manager
+            .builder_with_fresh_hints(project.path(), GooseMode::Auto)
+            .build();
+        assert!(initial.contains("ROOT_V1"));
+        assert!(initial.contains("NESTED_HINT"));
+
+        std::fs::write(&root_hints, format!("{}ROOT_V2", "r".repeat(700 * 1024))).unwrap();
+        assert!(manager.load_subdirectory_hints(project.path()));
+        std::fs::write(&root_hints, "ROOT_V3").unwrap();
+        let retained = manager
+            .builder_with_fresh_hints(project.path(), GooseMode::Auto)
+            .build();
+        assert!(retained.contains("ROOT_V2"));
+        assert!(!retained.contains("ROOT_V3"));
+        assert!(!retained.contains("NESTED_HINT"));
+
+        assert!(manager.load_subdirectory_hints(project.path()));
+        let refreshed = manager
+            .builder_with_fresh_hints(project.path(), GooseMode::Auto)
+            .build();
+        assert!(refreshed.contains("ROOT_V3"));
+        assert!(refreshed.contains("NESTED_HINT"));
+
+        assert!(!manager.load_subdirectory_hints(project.path()));
+        std::fs::write(&root_hints, "ROOT_V4").unwrap();
+        let reread = manager
+            .builder_with_fresh_hints(project.path(), GooseMode::Auto)
+            .build();
+        assert!(reread.contains("ROOT_V4"));
+        assert!(!reread.contains("ROOT_V3"));
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn load_subdirectory_hints_is_used_by_the_next_fresh_builder() {
+        let config_root = tempfile::tempdir().unwrap();
+        let _guard = env_lock::lock_env([
+            (
+                "GOOSE_PATH_ROOT",
+                Some(config_root.path().to_str().unwrap()),
+            ),
+            ("CONTEXT_FILE_NAMES", Some(r#"[".goosehints"]"#)),
+        ]);
+        let project = tempfile::tempdir().unwrap();
+        let nested = project.path().join("nested");
+        std::fs::create_dir(&nested).unwrap();
+        std::fs::write(
+            nested.join(crate::hints::GOOSE_HINTS_FILENAME),
+            "NESTED_HINT",
+        )
+        .unwrap();
+
+        let mut manager = PromptManager::new();
+        let arguments = serde_json::json!({ "path": "nested/file.rs" })
+            .as_object()
+            .cloned();
+        manager.record_tool_arguments(&arguments, project.path());
+
+        assert!(manager.load_subdirectory_hints(project.path()));
+        assert!(manager
+            .builder_with_fresh_hints(project.path(), GooseMode::Auto)
+            .build()
+            .contains("NESTED_HINT"));
+        assert!(!manager.load_subdirectory_hints(project.path()));
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn unchanged_hint_refresh_preserves_pending_snapshot_until_consumed() {
+        let config_root = tempfile::tempdir().unwrap();
+        let _guard = env_lock::lock_env([
+            (
+                "GOOSE_PATH_ROOT",
+                Some(config_root.path().to_str().unwrap()),
+            ),
+            ("CONTEXT_FILE_NAMES", Some(r#"[".goosehints"]"#)),
+        ]);
+        let project = tempfile::tempdir().unwrap();
+        let root_hints = project.path().join(crate::hints::GOOSE_HINTS_FILENAME);
+        std::fs::write(&root_hints, "ROOT_V1").unwrap();
+        let mut manager = PromptManager::new();
+        assert!(manager
+            .builder_with_fresh_hints(project.path(), GooseMode::Auto)
+            .build()
+            .contains("ROOT_V1"));
+
+        std::fs::write(&root_hints, "ROOT_V2").unwrap();
+        assert!(manager.load_subdirectory_hints(project.path()));
+        assert!(manager.load_subdirectory_hints(project.path()));
+        std::fs::write(&root_hints, "ROOT_V3").unwrap();
+        let staged = manager
+            .builder_with_fresh_hints(project.path(), GooseMode::Auto)
+            .build();
+        assert!(staged.contains("ROOT_V2"));
+        assert!(!staged.contains("ROOT_V3"));
+
+        assert!(manager.load_subdirectory_hints(project.path()));
+        std::fs::write(&root_hints, "ROOT_V4").unwrap();
+        assert!(manager.load_subdirectory_hints(project.path()));
+        let replaced = manager.build_system_prompt(project.path(), Vec::new(), GooseMode::Auto);
+        assert!(replaced.contains("ROOT_V4"));
+        assert!(!replaced.contains("ROOT_V3"));
+        assert!(!manager.load_subdirectory_hints(project.path()));
+
+        std::fs::write(&root_hints, "ROOT_V5").unwrap();
+        let fresh = manager
+            .builder_with_fresh_hints(project.path(), GooseMode::Auto)
+            .build();
+        assert!(fresh.contains("ROOT_V5"));
+        assert!(!fresh.contains("ROOT_V4"));
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn legacy_hint_refresh_preserves_caller_owned_hints_extra() {
+        let config_root = tempfile::tempdir().unwrap();
+        let _guard = env_lock::lock_env([
+            (
+                "GOOSE_PATH_ROOT",
+                Some(config_root.path().to_str().unwrap()),
+            ),
+            ("CONTEXT_FILE_NAMES", Some(r#"[".goosehints"]"#)),
+        ]);
+        let project = tempfile::tempdir().unwrap();
+        let hints_path = project.path().join(crate::hints::GOOSE_HINTS_FILENAME);
+        let mut manager = PromptManager::new();
+        manager.add_system_prompt_extra("hints".to_string(), "CALLER_HINTS".to_string());
+
+        assert!(manager.load_subdirectory_hints(project.path()));
+        assert!(manager.builder().build().contains("CALLER_HINTS"));
+
+        std::fs::write(&hints_path, "GENERATED_HINTS").unwrap();
+        assert!(manager.load_subdirectory_hints(project.path()));
+        let generated = manager
+            .builder_with_fresh_hints(project.path(), GooseMode::Auto)
+            .build();
+        assert!(generated.contains("GENERATED_HINTS"));
+        assert!(!generated.contains("CALLER_HINTS"));
+        assert!(manager.builder().build().contains("CALLER_HINTS"));
+
+        std::fs::remove_file(hints_path).unwrap();
+        assert!(manager.load_subdirectory_hints(project.path()));
+        let restored = manager
+            .builder_with_fresh_hints(project.path(), GooseMode::Auto)
+            .build();
+        assert!(restored.contains("CALLER_HINTS"));
+        assert!(!restored.contains("GENERATED_HINTS"));
+    }
+
+    #[test]
+    fn generated_hint_snapshot_is_sanitized_and_truncated_at_a_utf8_boundary() {
+        let mut manager = PromptManager::new();
+        manager.set_system_prompt_override("base".to_string());
+        for hints in [
+            format!(
+                "{}{}",
+                "\u{0344}".repeat(MAX_HINT_OUTPUT_BYTES / 2),
+                "\u{E0041}"
+            ),
+            sanitize_unicode_tags(&"\u{00c5}\u{E0041}\u{0323}".repeat(MAX_HINT_OUTPUT_BYTES / 4)),
+        ] {
+            let prompt = manager.builder().with_hint_snapshot(hints).build();
+            let output = prompt
+                .strip_prefix("base\n\n# Additional Instructions:\n\n")
+                .unwrap();
+
+            assert!(output.len() <= MAX_HINT_OUTPUT_BYTES);
+            assert!(output.len() >= MAX_HINT_OUTPUT_BYTES - 3);
+            assert!(!output.contains('\u{E0041}'));
+            assert_eq!(output, sanitize_unicode_tags(output));
+        }
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn hint_snapshot_budget_is_independent_of_other_prompt_extras() {
+        let config_root = tempfile::tempdir().unwrap();
+        let _guard = env_lock::lock_env([
+            (
+                "GOOSE_PATH_ROOT",
+                Some(config_root.path().to_str().unwrap()),
+            ),
+            ("CONTEXT_FILE_NAMES", Some(r#"[".goosehints"]"#)),
+        ]);
+        let project = tempfile::tempdir().unwrap();
+        let hints_path = project.path().join(crate::hints::GOOSE_HINTS_FILENAME);
+        const MARKER: &str = "BOUNDARY_MARKER";
+        std::fs::write(&hints_path, MARKER).unwrap();
+        let framing_bytes = load_hint_files(
+            project.path(),
+            &get_context_filenames(),
+            &build_gitignore(project.path()),
+        )
+        .len()
+            - MARKER.len();
+        std::fs::write(
+            &hints_path,
+            format!(
+                "{}{}",
+                "x".repeat(MAX_HINT_OUTPUT_BYTES - framing_bytes - MARKER.len()),
+                MARKER
+            ),
+        )
+        .unwrap();
+
+        let mut manager = PromptManager::new();
+        manager.add_system_prompt_extra("hints".to_string(), "CALLER_HINTS".to_string());
+        manager.add_system_prompt_extra("caller".to_string(), "CALLER_EXTRA".to_string());
+        for mode in [GooseMode::Auto, GooseMode::Chat] {
+            let prompt = manager
+                .builder()
+                .with_hints(project.path())
+                .with_prompt_extras([("operation".to_string(), "OPERATION_EXTRA".to_string())])
+                .with_goose_mode(mode)
+                .build();
+            assert!(prompt.contains(MARKER));
+            assert!(prompt.contains("CALLER_EXTRA"));
+            assert!(prompt.contains("OPERATION_EXTRA"));
+            assert!(!prompt.contains("CALLER_HINTS"));
+        }
+        assert!(manager.builder().build().contains("CALLER_HINTS"));
+
+        let builder = manager.builder().with_hints(project.path());
+        std::fs::write(&hints_path, "LATER_CONTENT").unwrap();
+        let captured = builder.build();
+        assert!(captured.contains(MARKER));
+        assert!(!captured.contains("LATER_CONTENT"));
     }
 
     #[test]

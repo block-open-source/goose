@@ -22,7 +22,6 @@ use crate::agents::AgentEvent;
 use crate::config::GooseMode;
 use crate::conversation::message::{ActionRequiredData, Message, MessageContent, ToolRequest};
 use crate::conversation::Conversation;
-use crate::hints::load_hints::SubdirectoryHintTracker;
 use crate::hooks::{HookChainOutcome, HookContext, HookEvent, HookManager};
 use crate::session::{EnabledExtensionsState, ExtensionState, Session};
 use std::sync::Arc;
@@ -773,19 +772,9 @@ impl Operation<Session, GooseEffect> for ToolExecutionOperation<'_> {
     async fn prompt_parts(
         &self,
         session: &Session,
-        conversation: &Conversation,
+        _conversation: &Conversation,
     ) -> Result<Vec<(String, String)>> {
-        let mut hints = SubdirectoryHintTracker::new();
-        for message in conversation.messages() {
-            for content in &message.content {
-                if let MessageContent::ToolRequest(request) = content {
-                    if let Ok(tool_call) = &request.tool_call {
-                        hints.record_tool_arguments(&tool_call.arguments, &session.working_dir);
-                    }
-                }
-            }
-        }
-        let mut prompt_parts = hints.load_new_hints(&session.working_dir);
+        let mut prompt_parts = Vec::new();
 
         #[cfg(feature = "code-mode")]
         if self

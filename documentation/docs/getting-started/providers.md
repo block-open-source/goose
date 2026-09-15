@@ -44,6 +44,7 @@ goose is compatible with a wide range of LLM providers, allowing you to choose a
 | [iFlytek Spark](https://www.xfyun.cn/doc/spark/HTTP%E8%B0%83%E7%94%A8%E6%96%87%E6%A1%A3.html) | iFlytek Spark (讯飞星火) models (4.0Ultra, generalv3.5, max-32k) via the OpenAI-compatible HTTP API. Best for chat: Spark needs `tool_calls_switch=true` (not injectable here) to return OpenAI-style tool calls. | `SPARK_API_PASSWORD` |
 | [iFlytek Astron MaaS](https://maas.xfyun.cn/)                               | iFlytek Astron MaaS (讯飞星辰) hosting Spark X2, DeepSeek, GLM, Kimi, MiniMax, Qwen, and Astron coding models via an OpenAI-compatible API. Set `ASTRON_BASE_URL` to switch between the Token Plan and Coding Plan endpoints. | `ASTRON_API_KEY`, `ASTRON_BASE_URL` (optional) |
 | [LiteLLM](https://docs.litellm.ai/docs/) | LiteLLM proxy supporting multiple models with automatic prompt caching and unified API access. | `LITELLM_HOST`, `LITELLM_BASE_PATH` (optional), `LITELLM_API_KEY` (optional), `LITELLM_CUSTOM_HEADERS` (optional), `LITELLM_TIMEOUT` (optional) |
+| [llmman](https://github.com/llmmanorg/llmman)                              | Local model runner that pulls models as [OCI](https://opencontainers.org/) artifacts ([CNCF ModelPack](https://github.com/modelpack/model-spec)) from any container registry and serves them over the Ollama API. **Because this provider runs locally, you must first [pull a model](#local-llms).** | None required. Connects to local server at `localhost:17434` by default.                                                                                                            |
 | [LM Studio](https://lmstudio.ai/)                                          | Run local models with LM Studio's OpenAI-compatible server. **Because this provider runs locally, you must first [download a model](#local-llms).**                                                           | None required. Connects to local server at `localhost:1234` by default.                                                                                                             |
 | [Meta](https://dev.meta.ai/)                                                | Meta's Model API, home of the Muse Spark models.                                                                                                                                | `META_MODEL_API_KEY`                                                                                                                                                                |
 | [Mistral AI](https://mistral.ai/)                                           | Provides access to Mistral models including general-purpose models, specialized coding models (Codestral), and multimodal models (Pixtral).                                                                   | `MISTRAL_API_KEY`                                                                                                 |
@@ -1357,6 +1358,61 @@ Here are some local providers we support:
 
     :::tip Model Name
     Make sure the model name you enter in goose matches the model identifier shown in LM Studio's server panel.
+    :::
+  </TabItem>
+  <TabItem value="llmman" label="llmman">
+    [llmman](https://github.com/llmmanorg/llmman) runs models pulled as OCI artifacts from any container registry and exposes an Ollama-compatible API. Model identifiers are registry references, so the models available are whatever you have pulled.
+
+    1. [Install llmman](https://github.com/llmmanorg/llmman#install).
+    2. Pull a model that supports tool calling, for example:
+        ```sh
+        llmman pull qwen3.8
+        ```
+        Short names resolve to Docker Hub's `ai/` namespace; full references such as `ghcr.io/org/model:tag` or `hf.co/owner/repo` also work.
+    3. Start the server. It listens on `http://localhost:17434` by default:
+        ```sh
+        llmman serve
+        ```
+    4. Configure goose to use llmman:
+
+    <Tabs groupId="interface">
+      <TabItem value="ui" label="goose Desktop" default>
+        1. Click the <PanelLeft className="inline" size={16} /> button in the top-left to open the sidebar.
+        2. Click the `Settings` button on the sidebar.
+        3. Click the `Models` tab.
+        4. Click `Configure providers`.
+        5. Choose `llmman` from the provider list and click `Configure`.
+        6. Click `Submit` (no API key is needed).
+        7. Select a model you have pulled.
+      </TabItem>
+      <TabItem value="cli" label="goose CLI">
+        1. Run:
+        ```sh
+        goose configure
+        ```
+        2. Select `Configure Providers` from the menu.
+        3. Choose `llmman` as the provider.
+        4. Enter the model reference you pulled.
+
+        ```
+        ┌   goose-configure
+        │
+        ◇  What would you like to configure?
+        │  Configure Providers
+        │
+        ◇  Which model provider should we use?
+        │  llmman
+        │
+        ◇  Enter a model from that provider:
+        │  qwen3.8
+        │
+        └  Configuration saved successfully
+        ```
+      </TabItem>
+    </Tabs>
+
+    :::tip Host
+    If `llmman serve` listens on a different address, set `LLMMAN_HOST` in goose to match (scheme, host, and port only).
     :::
   </TabItem>
   <TabItem value="atomic-chat" label="Atomic Chat">

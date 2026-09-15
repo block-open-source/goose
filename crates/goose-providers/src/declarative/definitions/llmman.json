@@ -1,0 +1,35 @@
+{
+  "name": "llmman",
+  "engine": "ollama",
+  "display_name": "llmman",
+  "description": "Run local models pulled as OCI artifacts from any container registry with llmman",
+  "api_key_env": "",
+  "base_url": "${LLMMAN_HOST}",
+  "env_vars": [
+    {
+      "name": "LLMMAN_HOST",
+      "required": false,
+      "secret": false,
+      "primary": true,
+      "default": "http://localhost:17434",
+      "description": "Base URL of the llmman server (default: http://localhost:17434)"
+    }
+  ],
+  "dynamic_models": true,
+  "models": [],
+  "supports_streaming": true,
+  "requires_auth": false,
+  "skip_canonical_filtering": true,
+  "setup": {
+    "category": "model",
+    "setup_method": "config_fields",
+    "group": "additional",
+    "docs_url": "https://github.com/llmmanorg/llmman",
+    "field_overrides": [{
+      "key": "LLMMAN_HOST",
+      "label": "Host URL",
+      "placeholder": "http://localhost:17434",
+      "default_value": "http://localhost:17434"
+    }]
+  }
+}

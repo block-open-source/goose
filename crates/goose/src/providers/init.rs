@@ -347,6 +347,21 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_llmman_provider_registry_wiring() {
+        let llmman = get_from_registry("llmman")
+            .await
+            .expect("llmman provider should be registered");
+        let meta = llmman.metadata();
+
+        assert_eq!(meta.name, "llmman");
+        assert_eq!(meta.display_name, "llmman");
+        assert!(meta.config_keys.iter().all(|key| !key.secret));
+        assert!(meta.config_keys.iter().any(|key| {
+            key.name == "LLMMAN_HOST" && key.default.as_deref() == Some("http://localhost:17434")
+        }));
+    }
+
+    #[tokio::test]
     async fn test_gondola_provider_registry_wiring() {
         let gondola = get_from_registry("gondola")
             .await

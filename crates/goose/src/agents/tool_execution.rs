@@ -37,6 +37,7 @@ impl ToolCallNotificationEmitter {
 pub struct ToolCallContext {
     pub session_id: String,
     pub working_dir: Option<PathBuf>,
+    pub model_name: Option<String>,
     pub tool_call_request_id: Option<String>,
     notification_emitter: Option<ToolCallNotificationEmitter>,
 }
@@ -50,8 +51,21 @@ impl ToolCallContext {
         Self {
             session_id,
             working_dir,
+            model_name: None,
             tool_call_request_id,
             notification_emitter: None,
+        }
+    }
+
+    pub fn with_model_name(mut self, model_name: impl Into<String>) -> Self {
+        self.model_name = Some(model_name.into());
+        self
+    }
+
+    pub fn with_model_from_session(self, session: &Session) -> Self {
+        match session.model_config.as_ref() {
+            Some(model_config) => self.with_model_name(model_config.model_name.clone()),
+            None => self,
         }
     }
 

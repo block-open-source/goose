@@ -433,6 +433,7 @@ struct ResolvedTool {
 async fn child_process_client(
     mut command: Command,
     timeout: &Option<u64>,
+    model_name: Option<&str>,
     provider: SharedProvider,
     working_dir: &PathBuf,
     docker_container: Option<String>,
@@ -443,6 +444,11 @@ async fn child_process_client(
 ) -> ExtensionResult<McpClient> {
     if let Ok(path) = SearchPaths::builder().path() {
         command.env("PATH", path);
+    }
+    if let Some(model_name) = model_name {
+        command.env("GOOSE_MODEL", model_name);
+    } else {
+        command.env_remove("GOOSE_MODEL");
     }
 
     if working_dir.exists() && working_dir.is_dir() {
@@ -1550,6 +1556,16 @@ impl ExtensionManager {
             .clone()
             .or_else(|| std::env::var("GOOSE_WORKING_DIR").ok().map(PathBuf::from))
             .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+        let session_model_name = match session_id {
+            Some(session_id) => self
+                .context
+                .session_manager
+                .get_session(session_id, false)
+                .await
+                .ok()
+                .and_then(|session| session.model_config.map(|config| config.model_name)),
+            None => None,
+        };
 
         let client: Box<dyn McpClientTrait> = match &config {
             ExtensionConfig::StreamableHttp {
@@ -1640,9 +1656,11 @@ impl ExtensionManager {
                             "Starting builtin extension inside Docker container"
                         );
                         let command = Command::new("docker").configure(|command| {
+                            command.arg("exec").arg("-i").arg("-e").arg(format!(
+                                "GOOSE_MODEL={}",
+                                session_model_name.as_deref().unwrap_or_default()
+                            ));
                             command
-                                .arg("exec")
-                                .arg("-i")
                                 .arg(container_id)
                                 .arg("goose")
                                 .arg("mcp")
@@ -1652,6 +1670,7 @@ impl ExtensionManager {
                         let client = child_process_client(
                             command,
                             &Some(timeout_secs),
+                            session_model_name.as_deref(),
                             self.provider.clone(),
                             &effective_working_dir,
                             Some(container_id.to_string()),
@@ -1719,7 +1738,13 @@ impl ExtensionManager {
                         for (key, value) in &all_envs {
                             command.arg("-e").arg(format!("{}={}", key, value));
                         }
-                        command.arg(container_id);
+                        command
+                            .arg("-e")
+                            .arg(format!(
+                                "GOOSE_MODEL={}",
+                                session_model_name.as_deref().unwrap_or_default()
+                            ))
+                            .arg(container_id);
                         command.arg(cmd);
                         command.args(args);
                     })
@@ -1733,6 +1758,7 @@ impl ExtensionManager {
                 let client = child_process_client(
                     command,
                     timeout,
+                    session_model_name.as_deref(),
                     self.provider.clone(),
                     &process_working_dir,
                     container.map(|c| c.id().to_string()),
@@ -2502,6 +2528,10 @@ impl ExtensionManager {
             ctx.working_dir.clone(),
             ctx.tool_call_request_id.clone(),
         );
+        let owned_ctx = match ctx.model_name.clone() {
+            Some(model_name) => owned_ctx.with_model_name(model_name),
+            None => owned_ctx,
+        };
         let (owned_ctx, tool_call_notifications_receiver) =
             if let Some(notification_emitter) = ctx.notification_emitter().cloned() {
                 (

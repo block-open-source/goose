@@ -217,6 +217,7 @@ impl McpClientTrait for DeveloperClient {
                         params,
                         working_dir,
                         Some(&ctx.session_id),
+                        ctx.model_name.as_deref(),
                         ctx.notification_emitter().cloned(),
                         cancel_token,
                     )
@@ -401,5 +402,30 @@ mod tests {
         let observed = std::fs::canonicalize(first_text(&result)).unwrap();
         let expected = std::fs::canonicalize(&cwd).unwrap();
         assert_eq!(observed, expected);
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn developer_client_exports_model_name_to_shell_tool() {
+        let temp = tempfile::tempdir().unwrap();
+        let client = DeveloperClient::new(test_context(temp.path().join("sessions"))).unwrap();
+        let expected_model = "session-model";
+        let ctx =
+            ToolCallContext::new("session".to_owned(), None, None).with_model_name(expected_model);
+
+        let result = client
+            .call_tool(
+                &ctx,
+                "shell",
+                Some(object!({
+                    "command": "printf 'model=%s' \"$GOOSE_MODEL\""
+                })),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result.is_error, Some(false));
+        assert_eq!(first_text(&result), format!("model={expected_model}"));
     }
 }

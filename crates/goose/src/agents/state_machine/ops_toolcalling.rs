@@ -369,6 +369,7 @@ impl<'a> ToolExecutionOperation<'a> {
                 Some(session.working_dir.clone()),
                 Some(request_id.clone()),
             );
+            let context = context.with_model_from_session(session);
             let result = self
                 .extension_manager
                 .dispatch_tool_call(&context, tool_call.clone(), cancellation_token)

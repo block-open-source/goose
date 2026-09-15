@@ -373,8 +373,15 @@ impl ShellTool {
         session_id: Option<&str>,
         cancellation_token: CancellationToken,
     ) -> CallToolResult {
-        self.shell_with_cwd_and_emitter(params, working_dir, session_id, None, cancellation_token)
-            .await
+        self.shell_with_cwd_and_emitter(
+            params,
+            working_dir,
+            session_id,
+            None,
+            None,
+            cancellation_token,
+        )
+        .await
     }
 
     pub(crate) async fn shell_with_cwd_and_emitter(
@@ -382,6 +389,7 @@ impl ShellTool {
         params: ShellParams,
         working_dir: Option<&std::path::Path>,
         session_id: Option<&str>,
+        model_name: Option<&str>,
         notification_emitter: Option<ToolCallNotificationEmitter>,
         cancellation_token: CancellationToken,
     ) -> CallToolResult {
@@ -412,6 +420,7 @@ impl ShellTool {
             working_dir,
             login_path_ref,
             session_id,
+            model_name,
             notification_emitter,
             cancellation_token,
         )
@@ -554,18 +563,26 @@ fn resolve_shell_timeout(timeout_secs: Option<u64>) -> u64 {
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_command(
     command_line: &str,
     timeout_secs: Option<u64>,
     working_dir: Option<&std::path::Path>,
     login_path: Option<&str>,
     session_id: Option<&str>,
+    model_name: Option<&str>,
     notification_emitter: Option<ToolCallNotificationEmitter>,
     cancellation_token: CancellationToken,
 ) -> Result<ExecutionOutput, String> {
     let timeout_secs = Some(resolve_shell_timeout(timeout_secs));
 
-    let mut command = build_shell_command(command_line, working_dir, login_path, session_id);
+    let mut command = build_shell_command(
+        command_line,
+        working_dir,
+        login_path,
+        session_id,
+        model_name,
+    );
 
     command.stdout(Stdio::piped());
     command.stderr(Stdio::piped());
@@ -684,6 +701,7 @@ fn build_shell_command(
     working_dir: Option<&std::path::Path>,
     login_path: Option<&str>,
     session_id: Option<&str>,
+    model_name: Option<&str>,
 ) -> tokio::process::Command {
     #[cfg(windows)]
     let mut command = {
@@ -724,6 +742,7 @@ fn build_shell_command(
                 command.arg(format!("--env=PATH={}", path));
             }
             apply_flatpak_session_environment(&mut command, session_id);
+            apply_flatpak_model_environment(&mut command, model_name);
             command
                 .arg(&shell)
                 .args(unix_shell_command_args(command_line));
@@ -738,12 +757,16 @@ fn build_shell_command(
                 command.env("PATH", path);
             }
             apply_session_environment(&mut command, session_id);
+            apply_model_environment(&mut command, model_name);
             command
         }
     };
 
     #[cfg(windows)]
-    apply_session_environment(&mut command, session_id);
+    {
+        apply_session_environment(&mut command, session_id);
+        apply_model_environment(&mut command, model_name);
+    }
     command.set_no_window();
     command
 }
@@ -756,6 +779,14 @@ fn apply_session_environment(command: &mut tokio::process::Command, session_id: 
     }
 }
 
+fn apply_model_environment(command: &mut tokio::process::Command, model_name: Option<&str>) {
+    if let Some(model_name) = model_name {
+        command.env("GOOSE_MODEL", model_name);
+    } else {
+        command.env_remove("GOOSE_MODEL");
+    }
+}
+
 #[cfg(not(windows))]
 fn apply_flatpak_session_environment(
     command: &mut tokio::process::Command,
@@ -765,6 +796,18 @@ fn apply_flatpak_session_environment(
         command.arg(format!("--env=AGENT_SESSION_ID={session_id}"));
     } else {
         command.arg("--unset-env=AGENT_SESSION_ID");
+    }
+}
+
+#[cfg(not(windows))]
+fn apply_flatpak_model_environment(
+    command: &mut tokio::process::Command,
+    model_name: Option<&str>,
+) {
+    if let Some(model_name) = model_name {
+        command.arg(format!("--env=GOOSE_MODEL={model_name}"));
+    } else {
+        command.arg("--unset-env=GOOSE_MODEL");
     }
 }
 
@@ -993,6 +1036,7 @@ mod tests {
                 },
                 None,
                 None,
+                None,
                 Some(ToolCallNotificationEmitter::new(sender)),
                 CancellationToken::new(),
             )
@@ -1003,6 +1047,52 @@ mod tests {
         assert_eq!(shell_output.stdout, "out-1\nout-2");
         assert_eq!(shell_output.stderr, "err-1\nerr-2");
         assert_eq!(shell_output.exit_code, Some(0));
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn shell_exports_model_name() {
+        let tool = ShellTool::new_for_test().unwrap();
+        let expected_model = "session-model";
+        let result = tool
+            .shell_with_cwd_and_emitter(
+                ShellParams {
+                    command: "printf '%s' \"$GOOSE_MODEL\"".to_string(),
+                    timeout_secs: None,
+                },
+                None,
+                None,
+                Some(expected_model),
+                None,
+                CancellationToken::new(),
+            )
+            .await;
+
+        assert_eq!(result.is_error, Some(false));
+        assert_eq!(extract_text(&result), expected_model);
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn shell_removes_inherited_model_name_when_not_provided() {
+        let _env = env_lock::lock_env([("GOOSE_MODEL", Some("stale-model"))]);
+        let tool = ShellTool::new_for_test().unwrap();
+        let result = tool
+            .shell_with_cwd_and_emitter(
+                ShellParams {
+                    command: "if [ -n \"$GOOSE_MODEL\" ]; then printf '%s' \"$GOOSE_MODEL\"; else printf '<unset>'; fi".to_string(),
+                    timeout_secs: None,
+                },
+                None,
+                None,
+                None,
+                None,
+                CancellationToken::new(),
+            )
+            .await;
+
+        assert_eq!(result.is_error, Some(false));
+        assert_eq!(extract_text(&result), "<unset>");
     }
 
     #[cfg(not(windows))]
@@ -1044,6 +1134,30 @@ mod tests {
     }
 
     #[test]
+    fn model_environment_is_set_or_removed() {
+        for (model_name, expected) in [
+            (
+                Some("session-model"),
+                Some(Some(std::ffi::OsStr::new("session-model"))),
+            ),
+            (None, Some(None)),
+        ] {
+            let mut command = tokio::process::Command::new("ignored");
+            command.env("GOOSE_MODEL", "stale-model");
+
+            apply_model_environment(&mut command, model_name);
+
+            assert_eq!(
+                command
+                    .as_std()
+                    .get_envs()
+                    .find_map(|(key, value)| (key == "GOOSE_MODEL").then_some(value)),
+                expected
+            );
+        }
+    }
+
+    #[test]
     fn session_environment_is_set_or_removed() {
         for (session_id, expected) in [
             (
@@ -1069,14 +1183,26 @@ mod tests {
 
     #[cfg(not(windows))]
     #[test]
-    fn flatpak_session_environment_is_set_or_unset() {
-        for (session_id, expected) in [
-            (Some("session-123"), "--env=AGENT_SESSION_ID=session-123"),
-            (None, "--unset-env=AGENT_SESSION_ID"),
+    fn flatpak_environment_is_set_or_unset() {
+        for (session_id, model_name, expected) in [
+            (
+                Some("session-123"),
+                Some("session-model"),
+                vec![
+                    "--env=AGENT_SESSION_ID=session-123",
+                    "--env=GOOSE_MODEL=session-model",
+                ],
+            ),
+            (
+                None,
+                None,
+                vec!["--unset-env=AGENT_SESSION_ID", "--unset-env=GOOSE_MODEL"],
+            ),
         ] {
             let mut command = tokio::process::Command::new("flatpak-spawn");
 
             apply_flatpak_session_environment(&mut command, session_id);
+            apply_flatpak_model_environment(&mut command, model_name);
 
             assert_eq!(
                 command
@@ -1084,7 +1210,7 @@ mod tests {
                     .get_args()
                     .map(|arg| arg.to_string_lossy().into_owned())
                     .collect::<Vec<_>>(),
-                vec![expected]
+                expected
             );
         }
     }

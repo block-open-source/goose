@@ -16,12 +16,13 @@ pub(super) async fn connect(
     args: &[String],
     envs: HashMap<String, String>,
     container: Option<&Container>,
-    ctx: ConnectContext,
+    mut ctx: ConnectContext,
 ) -> ExtensionResult<McpClient> {
     extension_malware_check::deny_if_malicious_cmd_args(cmd, args).await?;
 
     let command = match container {
         Some(container) => {
+            ctx.docker_container = Some(container.id().to_string());
             tracing::info!(
                 container = %container.id(),
                 cmd = %cmd,

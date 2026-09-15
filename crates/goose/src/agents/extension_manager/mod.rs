@@ -591,7 +591,7 @@ impl ExtensionManager {
             client_name: self.client_name.clone(),
             capabilities: self.mcp_client_capabilities(),
             working_dir,
-            docker_container: container.map(|c| c.id().to_string()),
+            docker_container: None,
             action_required: self.context.session_manager.action_required(),
             extension_manager: Arc::downgrade(self),
         };

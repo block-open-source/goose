@@ -2559,8 +2559,8 @@ mod tests {
         assert!(memo.starts_with(
             "Conversation context from goose before this ACP provider session was created:"
         ));
-        assert!(memo.contains("[user]: inspect src/lib.rs"));
-        assert!(memo.contains("[assistant]: I found the file"));
+        assert!(memo.contains(r#"{"role":"user","content":["inspect src/lib.rs"]}"#));
+        assert!(memo.contains(r#"{"role":"assistant","content":["I found the file"#));
         assert!(memo.contains("tool_request(read_file):"));
         assert!(memo.contains("tool_response: file contents"));
         assert!(memo.contains("Current user request follows."));
@@ -2630,7 +2630,9 @@ mod tests {
         let blocks = prompt_with_handoff(&messages).await;
 
         assert_eq!(blocks.len(), 3);
-        assert!(prompt_text(&blocks[0]).contains("[assistant]: prior answer"));
+        assert!(
+            prompt_text(&blocks[0]).contains(r#"{"role":"assistant","content":["prior answer"]}"#)
+        );
         match &blocks[1] {
             ContentBlock::Image(image) => {
                 assert_eq!(image.data, "base64-image");
@@ -4200,9 +4202,11 @@ mod tests {
 
         assert_eq!(blocks.len(), 2);
         let memo = prompt_text(&blocks[0]);
-        assert!(memo.contains("[user]: older context that should be retained"));
-        assert!(memo.contains("[assistant]: middle context"));
-        assert!(memo.contains("[assistant]: recent context"));
+        assert!(
+            memo.contains(r#"{"role":"user","content":["older context that should be retained"]}"#)
+        );
+        assert!(memo.contains(r#"{"role":"assistant","content":["middle context"]}"#));
+        assert!(memo.contains(r#"{"role":"assistant","content":["recent context"]}"#));
         assert_eq!(prompt_text(&blocks[1]), "current request");
     }
 

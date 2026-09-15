@@ -93,9 +93,10 @@ Third, `list_changed` invalidation now costs a held-open subscription stream, wh
 in tension with not holding connections open for stateless HTTP. For those servers we
 should lean on `ttlMs` rather than subscribing.
 
-goose today is an initialize-based client (`McpClient::connect` → `serve` →
-`peer_info`). Supporting the 2026 protocol is separate work; this redesign should avoid
-making it harder, which mostly means not baking the old handshake into the cache format.
+goose already negotiates 2026-07-28 with automatic fallback to 2025-11-25
+(`ClientLifecycleMode::Auto` in `mcp_client.rs:704`), so both protocols are live at once.
+The constraint on this redesign is not to bake the legacy `initialize` handshake into
+anything durable, since half the servers we talk to never send one.
 
 ## Completed cleanup
 
@@ -126,11 +127,11 @@ for free." Both were wrong. A plain value cannot provide refcounted release, and
 `Arc` held by the host does not by itself bound idle lifetime.
 
 ```rust
-struct ExtensionSet {                  // persisted desired state
+struct ExtensionSet {                  // built at resolve time
     id: ExtensionSetId,                // opaque scope
-    working_dir: PathBuf,
-    execution_target: ExecutionTarget, // local, or a container identity
-    extensions: Vec<ExtensionSelection>,
+    working_dir: PathBuf,              // from the session row
+    execution_target: ExecutionTarget, // local, or the live container id
+    extensions: Vec<ExtensionSelection>, // the only part that is persisted
 }
 
 struct ExtensionSelection {
@@ -146,6 +147,7 @@ struct ExtensionScopeContext {         // runtime services, never persisted
 }
 
 struct ExtensionLease {                // resolved, live
+    id: LeaseId,
     members: Vec<ExtensionHandle>,     // handles refer to slots, not clients
     catalog: ToolCatalog,
 }
@@ -157,7 +159,11 @@ lease.tools().await?;
 lease.call(name, params).await?;
 ```
 
-`ExtensionSet` is inert data the agent owns and persists. `ExtensionScopeContext` carries
+`ExtensionSet` is inert data the agent builds each time it resolves. Only `extensions`
+is persisted — that is `EnabledExtensionsState` today. `working_dir` comes from the
+session row and `execution_target` is rebuilt from whatever container the session has
+right now. It is the ephemeral Docker container id, and that is fine precisely because
+it never hits disk. `ExtensionScopeContext` carries
 the things extensions need in order to run but which must never hit disk — provider for
 legacy sampling, action-required routing, scheduler, client name and host capabilities.
 The first draft listed "client profile and capabilities" in the runtime key without
@@ -185,10 +191,13 @@ extension appearing twice with different configuration is not a meaningful set.
 - `Agent` owns the current lease.
 - An inference borrows or snapshots it.
 - After every tool call from that inference completes, a desired-state mutation may
-  replace it.
-- Dropping or replacing the old lease releases its selection references.
+  replace it: the agent resolves the new lease first, then drops the old one.
+- Dropping a lease releases exactly that lease's selection references.
 
-That is what makes the freeze rule concrete.
+That is what makes the freeze rule concrete. It also means two leases for the same scope
+overlap during every replacement, so slot bookkeeping is per lease, not per scope — a
+`HashSet<ExtensionSetId>` would have the replacement's insert be a no-op and the old
+lease's drop remove the scope while the replacement is still alive.
 
 ### Where the host lives
 
@@ -224,7 +233,7 @@ Selection must not pin a process. Three distinct things:
 struct ExtensionSlot {
     manifest: Option<PublishedManifest>,
     runtime: RuntimeState,             // Stopped | Starting | Running | Failed
-    selected_by: HashSet<ExtensionSetId>,
+    selected_by: HashSet<LeaseId>,
     in_flight: usize,
     last_used: Option<Instant>,
 }
@@ -322,8 +331,14 @@ them. Determinism removes the randomness; the diagnostic addresses the ambiguity
 
 ### Caching splits from process lifetime
 
-Cache a goose-owned type, not a protocol type, and cache per section rather than as one
-blob — the protocol gives tools and discovery their own freshness.
+The cache is durable. The whole point of lazy start is that a fresh goose process can
+build the first session's tool list and system prompt without spawning anything, which
+an in-memory cache cannot deliver. Manifests live on disk in the data dir keyed by
+`ManifestKey`; a slot holds an in-memory copy loaded from there, and a refresh writes
+through.
+
+Cache per section rather than as one blob — the protocol gives tools and discovery their
+own freshness.
 
 ```rust
 struct Cached<T> {
@@ -339,6 +354,12 @@ struct PublishedManifest {
 ```
 
 Prompts and resources stay uncached initially.
+
+"Goose-owned type" means the envelope, not the tool definitions. `Tool` is rmcp's serde
+form of the MCP wire object, and the wire object is the stable thing — more stable than
+anything we would invent. So on disk an entry is a versioned goose envelope around MCP
+wire JSON. An envelope version we do not recognise, or JSON that no longer parses, is a
+cache miss, never an error.
 
 Freshness policy by protocol:
 

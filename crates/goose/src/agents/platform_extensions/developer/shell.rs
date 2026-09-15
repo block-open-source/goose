@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 #[cfg(windows)]
 use std::path::Path;
 use std::path::PathBuf;
@@ -161,6 +162,7 @@ const OUTPUT_PREVIEW_LINES: usize = 50;
 const OUTPUT_PREVIEW_BYTES: usize = 10_000;
 
 const OUTPUT_SLOTS: usize = 8;
+const DEFAULT_CAPTURE_LIMIT_BYTES: usize = 10 * 1024 * 1024;
 
 /// Result of truncating command output.
 struct TruncateResult {
@@ -174,6 +176,7 @@ struct TruncateResult {
 struct TruncationInfo {
     path: PathBuf,
     reason: String,
+    is_fragment: bool,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -421,18 +424,32 @@ impl ShellTool {
             Err(error) => return Self::error_result(&error, None),
         };
 
-        // Derive stdout, stderr, and interleaved display from the single tagged-line buffer
         let (raw_stdout, raw_stderr, interleaved) = split_lines(&execution.lines);
+        let interleaved = if execution.capture_dropped_bytes > 0 {
+            inject_capture_notice(
+                &interleaved,
+                execution.head_line_count,
+                execution.capture_dropped_bytes,
+            )
+        } else {
+            interleaved
+        };
 
         let output_dir = self.output_dir.path();
         let slot = self.call_index.fetch_add(1, Ordering::Relaxed) % OUTPUT_SLOTS;
+        let is_fragment = execution.capture_dropped_bytes > 0;
         let stdout_result = if raw_stdout.is_empty() {
             TruncateResult {
                 text: String::new(),
                 truncation: None,
             }
         } else {
-            match truncate_output(&raw_stdout, &format!("stdout-{slot}"), output_dir) {
+            match truncate_output(
+                &raw_stdout,
+                &format!("stdout-{slot}"),
+                output_dir,
+                is_fragment,
+            ) {
                 Ok(r) => r,
                 Err(error) => return Self::error_result(&error, None),
             }
@@ -443,7 +460,12 @@ impl ShellTool {
                 truncation: None,
             }
         } else {
-            match truncate_output(&raw_stderr, &format!("stderr-{slot}"), output_dir) {
+            match truncate_output(
+                &raw_stderr,
+                &format!("stderr-{slot}"),
+                output_dir,
+                is_fragment,
+            ) {
                 Ok(r) => r,
                 Err(error) => return Self::error_result(&error, None),
             }
@@ -458,8 +480,12 @@ impl ShellTool {
             output_collection_error: execution.output_collection_error.clone(),
         };
         let structured_content = serde_json::to_value(&shell_output).ok();
-        let render_result = match render_output(&interleaved, &format!("output-{slot}"), output_dir)
-        {
+        let render_result = match render_output(
+            &interleaved,
+            &format!("output-{slot}"),
+            output_dir,
+            is_fragment,
+        ) {
             Ok(r) => r,
             Err(error) => return Self::error_result(&error, None),
         };
@@ -487,6 +513,13 @@ impl ShellTool {
             execution.exit_code.unwrap_or(1) != 0
         };
 
+        if execution.capture_dropped_bytes > 0 {
+            rendered.push_str(&format!(
+                "\n\n[Capture limit: {} bytes of output were not captured. \
+                 The beginning and end of the output are preserved.]",
+                execution.capture_dropped_bytes
+            ));
+        }
         if execution.output_truncated {
             rendered.push_str(
                 "\n\nOutput may be incomplete because stream draining timed out after process exit.",
@@ -540,10 +573,28 @@ impl ShellTool {
 struct ExecutionOutput {
     /// Lines in arrival order, tagged by source: (is_stderr, text)
     lines: Vec<(bool, String)>,
+    head_line_count: usize,
+    capture_dropped_bytes: usize,
     exit_code: Option<i32>,
     timed_out: bool,
     output_truncated: bool,
     output_collection_error: Option<String>,
+}
+
+#[derive(Default)]
+struct DrainOutput {
+    head: Vec<(bool, String)>,
+    tail: VecDeque<(bool, String)>,
+    head_bytes: usize,
+    tail_bytes: usize,
+    total_seen: usize,
+}
+
+fn capture_limit_bytes() -> usize {
+    std::env::var("GOOSE_SHELL_CAPTURE_LIMIT_BYTES")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(DEFAULT_CAPTURE_LIMIT_BYTES)
 }
 
 fn resolve_shell_timeout(timeout_secs: Option<u64>) -> u64 {
@@ -552,6 +603,51 @@ fn resolve_shell_timeout(timeout_secs: Option<u64>) -> u64 {
             .get_goose_default_extension_timeout()
             .unwrap_or(crate::config::DEFAULT_EXTENSION_TIMEOUT)
     })
+}
+
+async fn drain_with_budget(
+    mut rx: tokio::sync::mpsc::UnboundedReceiver<(bool, String)>,
+    budget: usize,
+) -> DrainOutput {
+    let half = budget / 2;
+    let mut out = DrainOutput::default();
+    let mut head_full = false;
+
+    while let Some((is_stderr, line)) = rx.recv().await {
+        let original_len = line.len() + 1;
+        out.total_seen += original_len;
+
+        // Without clamping, a line wider than `half` would evict the entire tail
+        // and then be stored in full, bypassing the budget.
+        let line = if original_len > half {
+            let mut s = line;
+            let mut end = half.saturating_sub(1).min(s.len());
+            while end > 0 && !s.is_char_boundary(end) {
+                end -= 1;
+            }
+            s.truncate(end);
+            s
+        } else {
+            line
+        };
+        let line_len = line.len() + 1;
+
+        if !head_full && out.head_bytes + line_len <= half {
+            out.head_bytes += line_len;
+            out.head.push((is_stderr, line));
+        } else {
+            head_full = true;
+            while !out.tail.is_empty() && out.tail_bytes + line_len > half {
+                if let Some((_, evicted)) = out.tail.pop_front() {
+                    out.tail_bytes -= evicted.len() + 1;
+                }
+            }
+            out.tail_bytes += line_len;
+            out.tail.push_back((is_stderr, line));
+        }
+    }
+
+    out
 }
 
 async fn run_command(
@@ -584,7 +680,9 @@ async fn run_command(
         .take()
         .ok_or_else(|| "Failed to capture stderr".to_string())?;
 
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let cap = capture_limit_bytes();
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    let drain_task = tokio::spawn(drain_with_budget(rx, cap));
     let output_task = tokio::spawn(collect_tagged_lines(
         child_stdout,
         child_stderr,
@@ -652,14 +750,19 @@ async fn run_command(
         }
     };
 
-    rx.close();
-    let mut lines = Vec::new();
-    while let Some(item) = rx.recv().await {
-        lines.push(item);
-    }
+    let drain = drain_task.await.unwrap_or_default();
+
+    let capture_dropped_bytes = drain
+        .total_seen
+        .saturating_sub(drain.head_bytes + drain.tail_bytes);
+    let head_line_count = drain.head.len();
+    let mut lines = drain.head;
+    lines.extend(drain.tail);
 
     Ok(ExecutionOutput {
         lines,
+        head_line_count,
+        capture_dropped_bytes,
         exit_code,
         timed_out,
         output_truncated,
@@ -768,6 +871,25 @@ fn apply_flatpak_session_environment(
     }
 }
 
+fn inject_capture_notice(interleaved: &str, head_line_count: usize, dropped: usize) -> String {
+    let notice = format!(
+        "[Capture limit reached: {dropped} bytes dropped. \
+         Showing the beginning and end of the output.]"
+    );
+    let lines: Vec<&str> = interleaved.split('\n').collect();
+    let insert_at = head_line_count.min(lines.len());
+    let (head_part, tail_part) = lines.split_at(insert_at);
+    if tail_part.is_empty() {
+        format!("{}\n{notice}", head_part.join("\n"))
+    } else {
+        format!(
+            "{}\n{notice}\n{}",
+            head_part.join("\n"),
+            tail_part.join("\n")
+        )
+    }
+}
+
 /// Split tagged lines into (stdout, stderr, interleaved) strings.
 fn split_lines(lines: &[(bool, String)]) -> (String, String, String) {
     let mut stdout = String::new();
@@ -857,18 +979,29 @@ fn truncation_notice(info: &TruncationInfo) -> String {
     } else {
         "shell commands like `head`, `tail`, or `sed -n '100,200p'`"
     };
-    format!(
-        "[{reason} Full output saved to {path}. \
-         Read it with {commands} up to {limit} lines at a time.]",
-        reason = info.reason,
-        limit = OUTPUT_LIMIT_LINES,
-    )
+    if info.is_fragment {
+        format!(
+            "[{reason} Captured fragment (beginning and end) saved to {path}; \
+             the dropped middle is unrecoverable. \
+             Read it with {commands} up to {limit} lines at a time.]",
+            reason = info.reason,
+            limit = OUTPUT_LIMIT_LINES,
+        )
+    } else {
+        format!(
+            "[{reason} Full output saved to {path}. \
+             Read it with {commands} up to {limit} lines at a time.]",
+            reason = info.reason,
+            limit = OUTPUT_LIMIT_LINES,
+        )
+    }
 }
 
 fn render_output(
     full_output: &str,
     label: &str,
     output_dir: &std::path::Path,
+    is_fragment: bool,
 ) -> Result<TruncateResult, String> {
     if full_output.is_empty() {
         return Ok(TruncateResult {
@@ -876,13 +1009,14 @@ fn render_output(
             truncation: None,
         });
     }
-    truncate_output(full_output, label, output_dir)
+    truncate_output(full_output, label, output_dir, is_fragment)
 }
 
 fn truncate_output(
     full_output: &str,
     label: &str,
     output_dir: &std::path::Path,
+    is_fragment: bool,
 ) -> Result<TruncateResult, String> {
     let lines: Vec<&str> = full_output.split('\n').collect();
     let total_lines = lines.len();
@@ -917,6 +1051,7 @@ fn truncate_output(
         truncation: Some(TruncationInfo {
             path: output_path,
             reason,
+            is_fragment,
         }),
     })
 }
@@ -1126,6 +1261,50 @@ mod tests {
     }
 
     #[cfg(not(windows))]
+    #[tokio::test]
+    async fn capture_limit_preserves_head_and_tail() {
+        std::env::set_var("GOOSE_SHELL_CAPTURE_LIMIT_BYTES", "500");
+        let tool = ShellTool::new_for_test().unwrap();
+        let result = tool
+            .shell(ShellParams {
+                command: "for i in $(seq 1 100); do \
+                    echo \"stdout-line-$i\"; \
+                    printf 'stderr-line-%d\\n' $i >&2; \
+                done"
+                    .to_string(),
+                timeout_secs: None,
+            })
+            .await;
+        std::env::remove_var("GOOSE_SHELL_CAPTURE_LIMIT_BYTES");
+
+        assert_eq!(result.is_error, Some(false));
+        let text = extract_text(&result);
+        assert!(
+            text.contains("[Capture limit"),
+            "truncation notice should appear in output"
+        );
+        let shell_output = extract_shell_output(&result);
+        assert_eq!(shell_output.exit_code, Some(0), "process should complete");
+        assert!(
+            shell_output.stdout.contains("stdout-line-1"),
+            "head should be preserved in stdout"
+        );
+        assert!(
+            shell_output.stdout.contains("stdout-line-100"),
+            "tail should be preserved in stdout"
+        );
+        assert!(
+            !shell_output.stdout.contains("[Capture limit"),
+            "truncation notice must not appear in structured stdout"
+        );
+        let captured_bytes = shell_output.stdout.len() + shell_output.stderr.len();
+        assert!(
+            captured_bytes <= 500 * 2,
+            "captured bytes should be within budget"
+        );
+    }
+
+    #[cfg(not(windows))]
     #[test]
     fn unix_shell_flavor_detects_nushell_names() {
         assert_eq!(unix_shell_flavor("nu"), UnixShellFlavor::Nushell);
@@ -1164,7 +1343,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
 
-        let result = render_output(&input, "test", dir.path()).unwrap();
+        let result = render_output(&input, "test", dir.path(), false).unwrap();
         assert_eq!(result.text, input);
         assert!(result.truncation.is_none());
     }
@@ -1172,7 +1351,7 @@ mod tests {
     #[test]
     fn render_output_shows_empty_message() {
         let dir = tempfile::tempdir().unwrap();
-        let result = render_output("", "test", dir.path()).unwrap();
+        let result = render_output("", "test", dir.path(), false).unwrap();
         assert_eq!(result.text, "(no output)");
         assert!(result.truncation.is_none());
     }
@@ -1185,7 +1364,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
 
-        let result = render_output(&input, "test_lines", dir.path()).unwrap();
+        let result = render_output(&input, "test_lines", dir.path(), false).unwrap();
         let preview = &result.text;
 
         assert_eq!(preview.lines().count(), OUTPUT_PREVIEW_LINES);
@@ -1214,7 +1393,7 @@ mod tests {
         assert!(input.len() > OUTPUT_LIMIT_BYTES);
         assert!(input.lines().count() <= OUTPUT_LIMIT_LINES);
 
-        let result = render_output(&input, "test_bytes", dir.path()).unwrap();
+        let result = render_output(&input, "test_bytes", dir.path(), false).unwrap();
         let info = result
             .truncation
             .as_ref()
@@ -1231,7 +1410,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let input = "x".repeat(200_000);
 
-        let result = render_output(&input, "test_giant_line", dir.path()).unwrap();
+        let result = render_output(&input, "test_giant_line", dir.path(), false).unwrap();
 
         assert!(result.text.len() <= OUTPUT_PREVIEW_BYTES);
         let info = result

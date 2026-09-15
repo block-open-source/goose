@@ -18,6 +18,8 @@ mod ops_project;
 mod ops_recipe;
 mod ops_retry;
 mod ops_skills;
+#[cfg(test)]
+pub(crate) use ops_skills::load_supporting_file as load_skill_supporting_file;
 mod ops_slash_command;
 mod ops_status;
 mod ops_steer;

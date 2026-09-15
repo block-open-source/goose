@@ -8,8 +8,13 @@ pub mod client;
 mod supporting_files;
 
 pub use client::{SkillsClient, EXTENSION_NAME};
-pub(crate) use supporting_files::{
-    create_source_file, load_supporting_file, read_source_file, write_source_file,
+#[cfg(test)]
+use supporting_files::load_supporting_file;
+pub(crate) use supporting_files::{create_source_file, read_source_file, write_source_file};
+use supporting_files::{
+    load_supporting_file_from_opened, walk_regular_files_from_opened_with_hook,
+    walk_regular_files_no_follow_with_hook, walk_skill_files_no_follow_with_hook,
+    OpenedSkillDirectory,
 };
 
 use crate::config::{paths::Paths, Config};
@@ -26,8 +31,47 @@ use goose_sdk_types::custom_requests::{SourceEntry, SourceType};
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use tracing::warn;
+
+pub(crate) struct DiscoveredSkill {
+    pub source: SourceEntry,
+    load_path: PathBuf,
+    load_root: Option<OpenedSkillDirectory>,
+}
+
+impl std::ops::Deref for DiscoveredSkill {
+    type Target = SourceEntry;
+
+    fn deref(&self) -> &Self::Target {
+        &self.source
+    }
+}
+
+impl DiscoveredSkill {
+    #[cfg(test)]
+    pub(crate) fn new(source: SourceEntry, load_path: PathBuf) -> Self {
+        Self {
+            source,
+            load_path,
+            load_root: None,
+        }
+    }
+
+    pub(crate) fn load_supporting_file(
+        &self,
+        relative: &Path,
+        skill_name: &str,
+    ) -> std::io::Result<String> {
+        match &self.load_root {
+            Some(load_root) => load_supporting_file_from_opened(load_root, relative, skill_name),
+            None => {
+                supporting_files::load_supporting_file(&self.load_path, relative, skill_name, false)
+            }
+        }
+    }
+}
 
 #[derive(Debug, Deserialize)]
 pub struct SkillFrontmatter {
@@ -493,110 +537,208 @@ fn should_skip_dir(path: &Path) -> bool {
     )
 }
 
-fn walk_files_recursively<F, G>(
-    dir: &Path,
-    visited_dirs: &mut HashSet<PathBuf>,
-    should_descend: &mut G,
-    visit_file: &mut F,
-) where
-    F: FnMut(&Path),
-    G: FnMut(&Path) -> bool,
-{
-    let canonical_dir = match std::fs::canonicalize(dir) {
-        Ok(path) => path,
-        Err(_) => return,
-    };
-
-    if !visited_dirs.insert(canonical_dir) {
-        return;
-    }
-
-    let entries = match std::fs::read_dir(dir) {
-        Ok(e) => e,
-        Err(_) => return,
-    };
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            if should_descend(&path) {
-                walk_files_recursively(&path, visited_dirs, should_descend, visit_file);
-            }
-        } else if path.is_file() {
-            visit_file(&path);
-        }
-    }
+#[cfg(test)]
+fn scan_skills_from_dir(dir: &Path, global: bool, seen: &mut HashSet<String>) -> Vec<SourceEntry> {
+    scan_skills_from_dir_with_details(dir, global, true, false, seen)
+        .into_iter()
+        .map(|skill| skill.source)
+        .collect()
 }
 
-fn scan_skills_from_dir(
+#[cfg(test)]
+fn scan_skills_from_dir_with_hook<H>(
+    dir: &Path,
+    global: bool,
+    seen: &mut HashSet<String>,
+    after_read_dir: &mut H,
+) -> Vec<SourceEntry>
+where
+    H: FnMut(&Path),
+{
+    scan_skills_from_dir_with_details_and_hooks(
+        dir,
+        global,
+        true,
+        false,
+        seen,
+        after_read_dir,
+        &mut |_| {},
+    )
+    .into_iter()
+    .map(|skill| skill.source)
+    .collect()
+}
+
+#[cfg(test)]
+fn scan_skills_from_dir_with_marker_hook<H>(
+    dir: &Path,
+    global: bool,
+    seen: &mut HashSet<String>,
+    after_marker_read: &mut H,
+) -> Vec<DiscoveredSkill>
+where
+    H: FnMut(&Path),
+{
+    scan_skills_from_dir_with_details_and_hooks(
+        dir,
+        global,
+        true,
+        false,
+        seen,
+        &mut |_| {},
+        after_marker_read,
+    )
+}
+
+fn scan_skills_from_dir_with_details(
     dir: &Path,
     global: bool,
     writable: bool,
     preserve_path: bool,
     seen: &mut HashSet<String>,
-) -> Vec<SourceEntry> {
-    let mut skill_files = Vec::new();
-    let mut visited_dirs = HashSet::new();
-
-    walk_files_recursively(
+) -> Vec<DiscoveredSkill> {
+    scan_skills_from_dir_with_details_and_hooks(
         dir,
-        &mut visited_dirs,
+        global,
+        writable,
+        preserve_path,
+        seen,
+        &mut |_| {},
+        &mut |_| {},
+    )
+}
+
+fn scan_skills_from_dir_with_details_and_hooks<H, M>(
+    dir: &Path,
+    global: bool,
+    writable: bool,
+    preserve_path: bool,
+    seen: &mut HashSet<String>,
+    after_read_dir: &mut H,
+    after_marker_read: &mut M,
+) -> Vec<DiscoveredSkill>
+where
+    H: FnMut(&Path),
+    M: FnMut(&Path),
+{
+    let logical_root = if dir.is_absolute() {
+        dir.to_path_buf()
+    } else {
+        let Ok(current_dir) = std::env::current_dir() else {
+            return Vec::new();
+        };
+        current_dir.join(dir)
+    };
+    let walk_root = if preserve_path {
+        let Ok(canonical_root) = logical_root.canonicalize() else {
+            return Vec::new();
+        };
+        canonical_root
+    } else {
+        logical_root.clone()
+    };
+    let mut skill_files = Vec::new();
+    let mut skill_dirs = HashSet::new();
+    walk_skill_files_no_follow_with_hook(
+        &walk_root,
         &mut |path| !should_skip_dir(path),
-        &mut |path| {
+        &mut |path, inside_linked_skill_root, directory, open_for_read| {
             if path.file_name().and_then(|name| name.to_str()) == Some("SKILL.md") {
-                skill_files.push(path.to_path_buf());
+                if let Some(skill_dir) = path.parent() {
+                    skill_dirs.insert(skill_dir.to_path_buf());
+                }
+                let mut content = String::new();
+                match open_for_read().and_then(|mut file| file.read_to_string(&mut content)) {
+                    Ok(_) => {
+                        let load_root = if inside_linked_skill_root {
+                            match OpenedSkillDirectory::from_opened(directory) {
+                                Ok(directory) => Some(directory),
+                                Err(error) => {
+                                    warn!(
+                                        "Failed to retain linked skill directory {}: {}",
+                                        path.display(),
+                                        error
+                                    );
+                                    return;
+                                }
+                            }
+                        } else {
+                            None
+                        };
+                        skill_files.push((path.to_path_buf(), content, load_root));
+                        after_marker_read(path);
+                    }
+                    Err(error) => warn!("Failed to read skill file {}: {}", path.display(), error),
+                }
             }
         },
-    );
+        after_read_dir,
+    )
+    .unwrap_or_default();
 
     let mut sources = Vec::new();
-    for skill_file in skill_files {
+    for (skill_file, content, load_root) in skill_files {
         let Some(skill_dir) = skill_file.parent() else {
             continue;
         };
         let registered_skill_dir = if preserve_path {
-            skill_dir.to_path_buf()
-        } else {
-            let Ok(canonical_dir) = skill_dir.canonicalize() else {
+            let Ok(relative) = skill_dir.strip_prefix(&walk_root) else {
                 continue;
             };
-            canonical_dir
-        };
-        let content = match std::fs::read_to_string(&skill_file) {
-            Ok(c) => c,
-            Err(e) => {
-                warn!("Failed to read skill file {}: {}", skill_file.display(), e);
-                continue;
-            }
+            logical_root.join(relative)
+        } else {
+            skill_dir.to_path_buf()
         };
 
         if let Some(mut source) =
             parse_skill_content(&content, &registered_skill_dir, global, writable)
         {
             if !seen.contains(&source.name) {
+                let load_path = skill_dir.to_path_buf();
                 let mut files = Vec::new();
-                let mut visited_support_dirs = HashSet::new();
-                walk_files_recursively(
-                    skill_dir,
-                    &mut visited_support_dirs,
-                    &mut |path| !should_skip_dir(path) && !path.join("SKILL.md").is_file(),
-                    &mut |path| {
-                        if path.file_name().and_then(|n| n.to_str()) != Some("SKILL.md") {
-                            if let Ok(relative) = path.strip_prefix(skill_dir) {
-                                files.push(
-                                    registered_skill_dir
-                                        .join(relative)
-                                        .to_string_lossy()
-                                        .into_owned(),
-                                );
-                            }
+                let mut should_descend =
+                    |path: &Path| !should_skip_dir(path) && !skill_dirs.contains(path);
+                let mut visit_file = |path: &Path,
+                                      _inside_linked_skill_root: bool,
+                                      _directory: &std::fs::File,
+                                      _open_for_read: &mut dyn FnMut() -> std::io::Result<
+                    std::fs::File,
+                >| {
+                    if path.file_name().and_then(|n| n.to_str()) != Some("SKILL.md") {
+                        if let Ok(relative) = path.strip_prefix(&load_path) {
+                            files.push(
+                                registered_skill_dir
+                                    .join(relative)
+                                    .to_string_lossy()
+                                    .into_owned(),
+                            );
                         }
-                    },
-                );
+                    }
+                };
+                let _ = match &load_root {
+                    Some(load_root) => walk_regular_files_from_opened_with_hook(
+                        &load_path,
+                        load_root,
+                        &mut should_descend,
+                        &mut visit_file,
+                        after_read_dir,
+                    ),
+                    None => walk_regular_files_no_follow_with_hook(
+                        &load_path,
+                        false,
+                        &mut should_descend,
+                        &mut visit_file,
+                        after_read_dir,
+                    ),
+                };
                 source.supporting_files = files;
 
                 seen.insert(source.name.clone());
-                sources.push(source);
+                sources.push(DiscoveredSkill {
+                    load_path,
+                    load_root,
+                    source,
+                });
             }
         }
     }
@@ -606,16 +748,19 @@ fn scan_skills_from_dir(
 /// Discover skills from all configured filesystem locations and built-ins.
 /// Each returned entry has `global` set according to the directory it was
 /// found in (or `true` for built-ins).
-pub fn discover_skills(working_dir: Option<&Path>) -> Vec<SourceEntry> {
-    discover_skills_with_config(working_dir, Config::global())
+pub(crate) fn discover_skills_with_details(working_dir: Option<&Path>) -> Vec<DiscoveredSkill> {
+    discover_skills_with_details_and_config(working_dir, Config::global())
 }
 
-fn discover_skills_with_config(working_dir: Option<&Path>, config: &Config) -> Vec<SourceEntry> {
-    let mut sources: Vec<SourceEntry> = Vec::new();
+pub(crate) fn discover_skills_with_details_and_config(
+    working_dir: Option<&Path>,
+    config: &Config,
+) -> Vec<DiscoveredSkill> {
+    let mut sources = Vec::new();
     let mut seen = HashSet::new();
 
     for dir in all_skill_dirs_with_config(working_dir, config) {
-        for source in scan_skills_from_dir(
+        for source in scan_skills_from_dir_with_details(
             &dir.path,
             dir.is_global,
             dir.writable,
@@ -631,16 +776,31 @@ fn discover_skills_with_config(working_dir: Option<&Path>, config: &Config) -> V
             if !seen.contains(&source.name) {
                 seen.insert(source.name.clone());
                 let path = format!("builtin://skills/{}", source.name);
-                sources.push(SourceEntry {
-                    source_type: SourceType::BuiltinSkill,
-                    path,
-                    ..source
+                sources.push(DiscoveredSkill {
+                    source: SourceEntry {
+                        source_type: SourceType::BuiltinSkill,
+                        path,
+                        ..source
+                    },
+                    load_path: PathBuf::new(),
+                    load_root: None,
                 });
             }
         }
     }
 
     sources
+}
+
+pub fn discover_skills(working_dir: Option<&Path>) -> Vec<SourceEntry> {
+    discover_skills_with_config(working_dir, Config::global())
+}
+
+fn discover_skills_with_config(working_dir: Option<&Path>, config: &Config) -> Vec<SourceEntry> {
+    discover_skills_with_details_and_config(working_dir, config)
+        .into_iter()
+        .map(|skill| skill.source)
+        .collect()
 }
 
 pub fn list_installed_skills(working_dir: Option<&Path>) -> Vec<SourceEntry> {
@@ -659,6 +819,16 @@ pub fn list_installed_skills(working_dir: Option<&Path>) -> Vec<SourceEntry> {
 mod tests {
     use super::*;
     use serde_json::json;
+    use tempfile::TempDir;
+
+    fn write_skill(skill_dir: &Path, name: &str) {
+        std::fs::create_dir_all(skill_dir).unwrap();
+        std::fs::write(
+            skill_dir.join("SKILL.md"),
+            format!("---\nname: {name}\ndescription: Test skill\n---\n\nTest content\n"),
+        )
+        .unwrap();
+    }
 
     fn write_test_skill(dir: &Path, name: &str, body: &str) {
         std::fs::create_dir_all(dir).unwrap();
@@ -696,6 +866,12 @@ mod tests {
         assert!(!skill.global);
         assert!(!skill.writable);
         assert_path_rejected_by_source_crud(&skill.path, &skill.name, skill_dir);
+    }
+
+    fn canonical_temp_root() -> (TempDir, PathBuf) {
+        let temp_dir = TempDir::new().unwrap();
+        let root = temp_dir.path().canonicalize().unwrap();
+        (temp_dir, root)
     }
 
     fn skill_with_content(content: &str) -> SourceEntry {
@@ -1179,11 +1355,12 @@ mod tests {
     #[test]
     fn ordinary_project_skill_under_plugin_manifest_remains_writable() {
         let project = tempfile::tempdir().unwrap();
+        let project_root = project.path().canonicalize().unwrap();
         let path_root = tempfile::tempdir().unwrap();
-        let skill_dir = project.path().join(".agents/skills/project-owned");
+        let skill_dir = project_root.join(".agents/skills/project-owned");
         write_test_skill(&skill_dir, "project-owned", "project body");
         std::fs::write(
-            project.path().join("plugin.json"),
+            project_root.join("plugin.json"),
             r#"{"name":"ordinary-project","skills":{"paths":["./.agents/skills"]}}"#,
         )
         .unwrap();
@@ -1193,7 +1370,7 @@ mod tests {
             ("PLUGINS", None),
         ]);
 
-        let skill = discover_skills_with_config(Some(project.path()), &config)
+        let skill = discover_skills_with_config(Some(&project_root), &config)
             .into_iter()
             .find(|skill| skill.name == "project-owned")
             .unwrap();
@@ -1218,5 +1395,553 @@ mod tests {
 
         crate::sources::delete_source(SourceType::Skill, &skill.path).unwrap();
         assert!(!skill_dir.exists());
+    }
+
+    #[test]
+    fn scan_skills_discovers_regular_files_inside_root() {
+        let (_temp_dir, temp_root) = canonical_temp_root();
+        let skill_dir = temp_root.join("regular-skill");
+        write_skill(&skill_dir, "regular-skill");
+        let supporting_file = skill_dir.join("references").join("guide.md");
+        std::fs::create_dir_all(supporting_file.parent().unwrap()).unwrap();
+        std::fs::write(&supporting_file, "guide").unwrap();
+
+        let sources = scan_skills_from_dir(&temp_root, false, &mut HashSet::new());
+
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].name, "regular-skill");
+        assert_eq!(
+            sources[0].supporting_files,
+            vec![supporting_file
+                .canonicalize()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned()]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn scan_skills_preserves_execute_only_supporting_files() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let (_temp_dir, temp_root) = canonical_temp_root();
+        let skill_dir = temp_root.join("native-helper-skill");
+        write_skill(&skill_dir, "native-helper-skill");
+        let helper = skill_dir.join("bin").join("helper");
+        std::fs::create_dir_all(helper.parent().unwrap()).unwrap();
+        std::fs::write(&helper, "native helper").unwrap();
+        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o111)).unwrap();
+
+        let sources = scan_skills_from_dir(&temp_root, false, &mut HashSet::new());
+
+        assert_eq!(sources.len(), 1);
+        assert_eq!(
+            sources[0].supporting_files,
+            vec![helper.to_string_lossy().into_owned()]
+        );
+        let context = loaded_skill_context_with_args(&sources[0], None).unwrap();
+        assert!(context.contains(&helper.to_string_lossy().replace('\\', "/")));
+        assert!(load_supporting_file(
+            &skill_dir,
+            Path::new("bin/helper"),
+            "native-helper-skill/bin/helper",
+            false,
+        )
+        .is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn scan_skills_ignores_symlinked_root() {
+        use std::os::unix::fs::symlink;
+
+        let (_temp_dir, temp_root) = canonical_temp_root();
+        let regular_root = temp_root.join("regular-root");
+        write_skill(&regular_root.join("linked-skill"), "linked-skill");
+        let linked_root = temp_root.join("linked-root");
+        symlink(&regular_root, &linked_root).unwrap();
+
+        let sources = scan_skills_from_dir(&linked_root, false, &mut HashSet::new());
+
+        assert!(sources.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn scan_skills_ignores_roots_with_symlinked_ancestor() {
+        use std::os::unix::fs::symlink;
+
+        let (_temp_dir, temp_root) = canonical_temp_root();
+        let regular_parent = temp_root.join("regular-parent");
+        let regular_root = regular_parent.join("skills");
+        write_skill(&regular_root.join("linked-skill"), "linked-skill");
+        let linked_parent = temp_root.join("linked-parent");
+        symlink(&regular_parent, &linked_parent).unwrap();
+
+        let sources =
+            scan_skills_from_dir(&linked_parent.join("skills"), false, &mut HashSet::new());
+
+        assert!(sources.is_empty());
+    }
+
+    #[cfg(windows)]
+    fn create_junction(target: &Path, junction: &Path) {
+        let output = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(junction)
+            .arg(target)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "failed to create junction: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn scan_skills_ignores_junction_root() {
+        let (_temp_dir, temp_root) = canonical_temp_root();
+        let regular_root = temp_root.join("regular-root");
+        write_skill(&regular_root.join("linked-skill"), "linked-skill");
+        let junction_root = temp_root.join("junction-root");
+        create_junction(&regular_root, &junction_root);
+
+        let sources = scan_skills_from_dir(&junction_root, false, &mut HashSet::new());
+
+        assert!(sources.is_empty());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn scan_skills_discovers_junctioned_skill_directories() {
+        let (_temp_dir, temp_root) = canonical_temp_root();
+        let skill_root = temp_root.join("skills");
+        std::fs::create_dir_all(&skill_root).unwrap();
+        let outside_skill_dir = temp_root.join("outside-skill");
+        write_skill(&outside_skill_dir, "outside-skill");
+        create_junction(&outside_skill_dir, &skill_root.join("junction-skill"));
+
+        let sources =
+            scan_skills_from_dir_with_details(&skill_root, false, true, false, &mut HashSet::new());
+
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].name, "outside-skill");
+        assert_eq!(sources[0].load_path, skill_root.join("junction-skill"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn scan_skills_ignores_symlinked_skill_files() {
+        use std::os::unix::fs::symlink;
+
+        let (_temp_dir, temp_root) = canonical_temp_root();
+        let skill_root = temp_root.join("skills");
+        let linked_skill_dir = skill_root.join("linked-skill");
+        std::fs::create_dir_all(&linked_skill_dir).unwrap();
+        let outside_skill = temp_root.join("outside-skill.md");
+        std::fs::write(
+            &outside_skill,
+            "---\nname: linked-skill\ndescription: Linked skill\n---\n\nOutside content\n",
+        )
+        .unwrap();
+        symlink(&outside_skill, linked_skill_dir.join("SKILL.md")).unwrap();
+
+        let sources = scan_skills_from_dir(&skill_root, false, &mut HashSet::new());
+
+        assert!(sources.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn scan_skills_discovers_linked_skill_without_following_nested_links() {
+        use std::os::unix::fs::symlink;
+
+        let (_temp_dir, temp_root) = canonical_temp_root();
+        let skill_root = temp_root.join("skills");
+        std::fs::create_dir_all(&skill_root).unwrap();
+        let outside_skill_dir = temp_root.join("outside-skill");
+        write_skill(&outside_skill_dir, "outside-skill");
+        let guide = outside_skill_dir.join("guide.md");
+        std::fs::write(&guide, "legitimate guide").unwrap();
+        let escaped_dir = temp_root.join("escaped");
+        std::fs::create_dir(&escaped_dir).unwrap();
+        std::fs::write(escaped_dir.join("secret.md"), "outside secret").unwrap();
+        symlink(&escaped_dir, outside_skill_dir.join("escaped")).unwrap();
+        let linked_skill_dir = skill_root.join("linked-skill");
+        symlink(&outside_skill_dir, &linked_skill_dir).unwrap();
+
+        let sources =
+            scan_skills_from_dir_with_details(&skill_root, false, true, false, &mut HashSet::new());
+
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].name, "outside-skill");
+        assert_eq!(sources[0].load_path, linked_skill_dir);
+        assert_eq!(sources[0].path, linked_skill_dir.to_string_lossy());
+        assert_eq!(
+            sources[0].supporting_files,
+            vec![linked_skill_dir.join("guide.md").to_string_lossy()]
+        );
+        assert!(sources[0]
+            .load_supporting_file(Path::new("guide.md"), "outside-skill/guide.md")
+            .is_ok());
+        assert!(sources[0]
+            .load_supporting_file(
+                Path::new("escaped/secret.md"),
+                "outside-skill/escaped/secret.md",
+            )
+            .is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn scan_skills_preserves_supporting_files_for_nested_skill_under_linked_root() {
+        use std::os::unix::fs::symlink;
+
+        let (_temp_dir, temp_root) = canonical_temp_root();
+        let skill_root = temp_root.join("skills");
+        std::fs::create_dir_all(&skill_root).unwrap();
+        let external_skill = temp_root.join("external-skill");
+        write_skill(&external_skill, "outer-skill");
+        let nested_skill = external_skill.join("nested");
+        write_skill(&nested_skill, "nested-skill");
+        std::fs::write(nested_skill.join("guide.md"), "nested guidance").unwrap();
+        let escaped = temp_root.join("escaped");
+        std::fs::create_dir(&escaped).unwrap();
+        std::fs::write(escaped.join("secret.md"), "outside secret").unwrap();
+        symlink(&escaped, nested_skill.join("escaped")).unwrap();
+        let linked_skill = skill_root.join("linked-skill");
+        symlink(&external_skill, &linked_skill).unwrap();
+
+        let sources =
+            scan_skills_from_dir_with_details(&skill_root, false, true, false, &mut HashSet::new());
+        let nested = sources
+            .iter()
+            .find(|skill| skill.name == "nested-skill")
+            .unwrap();
+
+        assert_eq!(nested.path, linked_skill.join("nested").to_string_lossy());
+        assert_eq!(
+            nested.supporting_files,
+            vec![linked_skill.join("nested/guide.md").to_string_lossy()]
+        );
+        assert!(nested
+            .load_supporting_file(Path::new("guide.md"), "nested-skill/guide.md")
+            .is_ok());
+        assert!(nested
+            .load_supporting_file(
+                Path::new("escaped/secret.md"),
+                "nested-skill/escaped/secret.md",
+            )
+            .is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn linked_skill_retarget_after_marker_read_stays_bound_to_opened_target() {
+        use std::os::unix::fs::symlink;
+
+        let (_temp_dir, temp_root) = canonical_temp_root();
+        let skill_root = temp_root.join("skills");
+        std::fs::create_dir_all(&skill_root).unwrap();
+        let original = temp_root.join("original-skill");
+        write_skill(&original, "linked-skill");
+        std::fs::create_dir(original.join("references")).unwrap();
+        std::fs::write(original.join("references/guide.md"), "original guidance").unwrap();
+        let replacement = temp_root.join("replacement-skill");
+        write_skill(&replacement, "replacement-skill");
+        std::fs::write(replacement.join("replacement.md"), "replacement data").unwrap();
+        let load_replacement = temp_root.join("load-replacement-skill");
+        write_skill(&load_replacement, "load-replacement-skill");
+        std::fs::create_dir(load_replacement.join("references")).unwrap();
+        std::fs::write(
+            load_replacement.join("references/guide.md"),
+            "replacement data",
+        )
+        .unwrap();
+        let linked_skill = skill_root.join("linked-skill");
+        symlink(&original, &linked_skill).unwrap();
+        let mut retargeted = false;
+
+        let sources = scan_skills_from_dir_with_marker_hook(
+            &skill_root,
+            false,
+            &mut HashSet::new(),
+            &mut |marker| {
+                if marker == linked_skill.join("SKILL.md") && !retargeted {
+                    std::fs::remove_file(&linked_skill).unwrap();
+                    symlink(&replacement, &linked_skill).unwrap();
+                    retargeted = true;
+                }
+            },
+        );
+
+        let skill = sources
+            .iter()
+            .find(|skill| skill.name == "linked-skill")
+            .unwrap();
+        assert_eq!(
+            skill.supporting_files,
+            vec![linked_skill.join("references/guide.md").to_string_lossy()]
+        );
+        std::fs::remove_file(&linked_skill).unwrap();
+        symlink(&load_replacement, &linked_skill).unwrap();
+
+        let legacy = crate::skills::client::load_supporting_file(
+            skill,
+            "linked-skill/references/guide.md",
+            Path::new("references/guide.md"),
+        );
+        assert!(!legacy.is_error.unwrap_or(false));
+        let legacy_text = legacy.content[0].as_text().unwrap();
+        assert!(legacy_text.text.contains("original guidance"));
+        assert!(!legacy_text.text.contains("replacement data"));
+
+        let state_machine = crate::agents::state_machine::load_skill_supporting_file(
+            skill,
+            "linked-skill/references/guide.md",
+            "references/guide.md",
+        );
+        assert!(!state_machine.is_error.unwrap_or(false));
+        let state_machine_text = state_machine.content[0].as_text().unwrap();
+        assert!(state_machine_text.text.contains("original guidance"));
+        assert!(!state_machine_text.text.contains("replacement data"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn supporting_file_rejects_regular_skill_root_swapped_after_discovery() {
+        use std::os::unix::fs::symlink;
+
+        let (_temp_dir, temp_root) = canonical_temp_root();
+        let skill_root = temp_root.join("skills");
+        let skill_dir = skill_root.join("regular-skill");
+        let moved_skill_dir = skill_root.join("moved-skill");
+        write_skill(&skill_dir, "regular-skill");
+        std::fs::write(skill_dir.join("guide.md"), "safe content").unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("guide.md"), "outside secret").unwrap();
+
+        let sources =
+            scan_skills_from_dir_with_details(&skill_root, false, true, false, &mut HashSet::new());
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].load_path, skill_dir);
+
+        std::fs::rename(&skill_dir, &moved_skill_dir).unwrap();
+        symlink(outside.path(), &skill_dir).unwrap();
+
+        let result = load_supporting_file(
+            &skill_dir,
+            Path::new("guide.md"),
+            "regular-skill/guide.md",
+            false,
+        );
+
+        assert!(result.is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn supporting_file_enumeration_rejects_regular_root_swapped_after_marker_discovery() {
+        use std::os::unix::fs::symlink;
+
+        let (_temp_dir, temp_root) = canonical_temp_root();
+        let skill_root = temp_root.join("skills");
+        let skill_dir = skill_root.join("regular-skill");
+        let moved_skill_dir = skill_root.join("moved-skill");
+        write_skill(&skill_dir, "regular-skill");
+        std::fs::read_to_string(skill_dir.join("SKILL.md")).unwrap();
+
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("outside.md"), "outside secret").unwrap();
+        std::fs::rename(&skill_dir, &moved_skill_dir).unwrap();
+        symlink(outside.path(), &skill_dir).unwrap();
+
+        let mut published = Vec::new();
+        let _ = walk_regular_files_no_follow_with_hook(
+            &skill_dir,
+            false,
+            &mut |_| true,
+            &mut |path, _, _, _open_for_read| published.push(path.to_path_buf()),
+            &mut |_| {},
+        );
+
+        assert!(published.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn scan_skills_discovers_linked_skill_below_grouping_directory() {
+        use std::os::unix::fs::symlink;
+
+        let (_temp_dir, temp_root) = canonical_temp_root();
+        let skill_root = temp_root.join("skills");
+        let group = skill_root.join("team");
+        std::fs::create_dir_all(&group).unwrap();
+        let outside_skill_dir = temp_root.join("outside-skill");
+        write_skill(&outside_skill_dir, "reviewer");
+        symlink(&outside_skill_dir, group.join("reviewer")).unwrap();
+
+        let sources = scan_skills_from_dir(&skill_root, false, &mut HashSet::new());
+
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].name, "reviewer");
+        assert_eq!(sources[0].path, group.join("reviewer").to_string_lossy());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn scan_skills_ignores_symlinked_supporting_files() {
+        use std::os::unix::fs::symlink;
+
+        let (_temp_dir, temp_root) = canonical_temp_root();
+        let skill_dir = temp_root.join("regular-skill");
+        write_skill(&skill_dir, "regular-skill");
+        let outside_file = temp_root.join("outside.txt");
+        std::fs::write(&outside_file, "outside").unwrap();
+        symlink(&outside_file, skill_dir.join("linked.txt")).unwrap();
+
+        let sources = scan_skills_from_dir(&temp_root, false, &mut HashSet::new());
+
+        assert_eq!(sources.len(), 1);
+        assert!(sources[0].supporting_files.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn scan_skills_rejects_skill_file_swapped_to_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let (_temp_dir, temp_root) = canonical_temp_root();
+        let skill_dir = temp_root.join("skill");
+        write_skill(&skill_dir, "safe-skill");
+        let moved_marker = skill_dir.join("moved-SKILL.md");
+        let outside_marker = temp_root.join("outside-SKILL.md");
+        std::fs::write(
+            &outside_marker,
+            "---\nname: outside-skill\ndescription: Outside skill\n---\n\nOutside content\n",
+        )
+        .unwrap();
+        let mut swapped = false;
+
+        let sources = scan_skills_from_dir_with_hook(
+            &temp_root,
+            false,
+            &mut HashSet::new(),
+            &mut |opened_dir| {
+                if opened_dir == skill_dir && !swapped {
+                    std::fs::rename(skill_dir.join("SKILL.md"), &moved_marker).unwrap();
+                    symlink(&outside_marker, skill_dir.join("SKILL.md")).unwrap();
+                    swapped = true;
+                }
+            },
+        );
+
+        assert!(sources.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn scan_skills_rejects_nested_directory_swapped_to_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let (_temp_dir, temp_root) = canonical_temp_root();
+        let skill_dir = temp_root.join("skill");
+        write_skill(&skill_dir, "safe-skill");
+        let nested = skill_dir.join("nested");
+        let moved_nested = skill_dir.join("moved-nested");
+        std::fs::create_dir(&nested).unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        write_skill(&outside.path().join("outside-skill"), "outside-skill");
+        let mut swapped = false;
+
+        let sources = scan_skills_from_dir_with_hook(
+            &temp_root,
+            false,
+            &mut HashSet::new(),
+            &mut |opened_dir| {
+                if opened_dir == skill_dir && !swapped {
+                    std::fs::rename(&nested, &moved_nested).unwrap();
+                    symlink(outside.path(), &nested).unwrap();
+                    swapped = true;
+                }
+            },
+        );
+
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].name, "safe-skill");
+        assert!(sources.iter().all(|source| source.name != "outside-skill"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn scan_skills_does_not_read_replaced_root() {
+        use std::os::unix::fs::symlink;
+
+        let parent = tempfile::tempdir().unwrap();
+        let parent = parent.path().canonicalize().unwrap();
+        let root = parent.join("skills");
+        let moved_root = parent.join("moved-skills");
+        write_skill(&root.join("safe"), "safe-skill");
+        let outside = tempfile::tempdir().unwrap();
+        write_skill(&outside.path().join("outside"), "outside-skill");
+        let mut swapped = false;
+
+        let sources =
+            scan_skills_from_dir_with_hook(&root, false, &mut HashSet::new(), &mut |opened_dir| {
+                if opened_dir == root && !swapped {
+                    std::fs::rename(&root, &moved_root).unwrap();
+                    symlink(outside.path(), &root).unwrap();
+                    swapped = true;
+                }
+            });
+
+        assert!(sources.iter().all(|source| source.name != "outside-skill"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn scan_skills_linked_nested_marker_does_not_prune_siblings() {
+        use std::os::unix::fs::symlink;
+
+        let (_temp_dir, temp_root) = canonical_temp_root();
+        let skill_dir = temp_root.join("outer-skill");
+        write_skill(&skill_dir, "outer-skill");
+        let nested = skill_dir.join("nested");
+        std::fs::create_dir(&nested).unwrap();
+        let guide = nested.join("guide.md");
+        std::fs::write(&guide, "legitimate guide").unwrap();
+        let outside_marker = temp_root.join("outside-SKILL.md");
+        std::fs::write(
+            &outside_marker,
+            "---\nname: outside-skill\ndescription: Outside skill\n---\n\nOutside content\n",
+        )
+        .unwrap();
+        symlink(&outside_marker, nested.join("SKILL.md")).unwrap();
+
+        let sources = scan_skills_from_dir(&temp_root, false, &mut HashSet::new());
+
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].name, "outer-skill");
+        assert_eq!(sources[0].supporting_files, vec![guide.to_string_lossy()]);
+    }
+
+    #[test]
+    fn scan_skills_regular_invalid_nested_marker_still_prunes_siblings() {
+        let (_temp_dir, temp_root) = canonical_temp_root();
+        let skill_dir = temp_root.join("outer-skill");
+        write_skill(&skill_dir, "outer-skill");
+        let nested = skill_dir.join("nested");
+        std::fs::create_dir(&nested).unwrap();
+        std::fs::write(nested.join("SKILL.md"), [0xff, 0xfe]).unwrap();
+        std::fs::write(nested.join("secret.md"), "nested secret").unwrap();
+
+        let sources = scan_skills_from_dir(&temp_root, false, &mut HashSet::new());
+
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].name, "outer-skill");
+        assert!(sources[0].supporting_files.is_empty());
     }
 }

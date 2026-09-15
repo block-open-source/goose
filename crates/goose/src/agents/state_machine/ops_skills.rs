@@ -95,7 +95,7 @@ fn execute_skill(working_dir: &Path, arguments: Option<JsonObject>) -> CallToolR
     };
     let skill_name = params.name.as_str();
     let args = params.args.as_deref();
-    let skills = crate::skills::discover_skills(Some(working_dir));
+    let skills = crate::skills::discover_skills_with_details(Some(working_dir));
 
     if let Some(skill) = skills.iter().find(|skill| skill.name == skill_name) {
         return match crate::skills::loaded_skill_context_with_args(skill, args) {
@@ -145,8 +145,8 @@ fn execute_skill(working_dir: &Path, arguments: Option<JsonObject>) -> CallToolR
     }
 }
 
-fn load_supporting_file(
-    skill: &SourceEntry,
+pub(crate) fn load_supporting_file(
+    skill: &crate::skills::DiscoveredSkill,
     skill_name: &str,
     relative_path: &str,
 ) -> CallToolResult {
@@ -159,7 +159,7 @@ fn load_supporting_file(
         if relative.to_string_lossy().replace('\\', "/") != relative_path {
             continue;
         }
-        return match crate::skills::load_supporting_file(&skill_dir, relative, skill_name) {
+        return match skill.load_supporting_file(relative, skill_name) {
             Ok(content) => CallToolResult::success(vec![ContentBlock::text(content)]),
             Err(error) => CallToolResult::error(vec![ContentBlock::text(format!(
                 "Failed to read '{skill_name}': {error}"
@@ -411,22 +411,76 @@ mod tests {
         std::fs::create_dir(&nested).unwrap();
         let file = nested.join("guide.md");
         std::fs::write(&file, "Nested guidance.").unwrap();
-        let skill = SourceEntry {
-            source_type: SourceType::Skill,
-            name: "test-skill".to_string(),
-            description: String::new(),
-            content: String::new(),
-            path: skill_dir.to_string_lossy().into_owned(),
-            global: false,
-            writable: true,
-            supporting_files: vec![file.to_string_lossy().into_owned()],
-            properties: HashMap::new(),
-        };
+        let skill = crate::skills::DiscoveredSkill::new(
+            SourceEntry {
+                source_type: SourceType::Skill,
+                name: "test-skill".to_string(),
+                description: String::new(),
+                content: String::new(),
+                path: skill_dir.to_string_lossy().into_owned(),
+                global: false,
+                writable: true,
+                supporting_files: vec![file.to_string_lossy().into_owned()],
+                properties: HashMap::new(),
+            },
+            skill_dir,
+        );
 
         let result = load_supporting_file(&skill, "test-skill/nested/guide.md", "nested/guide.md");
 
         assert_eq!(result.is_error, Some(false));
         let text = result.content[0].as_text().expect("expected text");
         assert!(text.text.contains("Nested guidance."));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn nested_skill_under_linked_root_loads_only_regular_supporting_files() {
+        use std::os::unix::fs::symlink;
+
+        let project = tempfile::tempdir().unwrap();
+        let working_dir = project.path().canonicalize().unwrap();
+        let skill_root = working_dir.join(".agents/skills");
+        std::fs::create_dir_all(&skill_root).unwrap();
+        let external_skill = working_dir.join("external-skill");
+        std::fs::create_dir_all(external_skill.join("nested")).unwrap();
+        std::fs::write(
+            external_skill.join("SKILL.md"),
+            "---\nname: outer-skill\ndescription: Outer skill\n---\nOuter body",
+        )
+        .unwrap();
+        std::fs::write(
+            external_skill.join("nested/SKILL.md"),
+            "---\nname: nested-skill\ndescription: Nested skill\n---\nNested body",
+        )
+        .unwrap();
+        std::fs::write(external_skill.join("nested/guide.md"), "Nested guidance.").unwrap();
+        let escaped = working_dir.join("escaped");
+        std::fs::create_dir(&escaped).unwrap();
+        std::fs::write(escaped.join("secret.md"), "outside secret").unwrap();
+        symlink(&escaped, external_skill.join("nested/escaped")).unwrap();
+        symlink(&external_skill, skill_root.join("linked-skill")).unwrap();
+
+        let guide = execute_skill(
+            &working_dir,
+            serde_json::from_value(serde_json::json!({
+                "name": "nested-skill/guide.md"
+            }))
+            .unwrap(),
+        );
+        assert!(!guide.is_error.unwrap_or(false));
+        let text = guide.content[0].as_text().expect("expected text");
+        assert!(text.text.contains("Nested guidance."));
+
+        let escaped = execute_skill(
+            &working_dir,
+            serde_json::from_value(serde_json::json!({
+                "name": "nested-skill/escaped/secret.md"
+            }))
+            .unwrap(),
+        );
+        assert!(escaped.is_error.unwrap_or(false));
+        let text = escaped.content[0].as_text().expect("expected text");
+        assert!(!text.text.contains("outside secret"));
     }
 }

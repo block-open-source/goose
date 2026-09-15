@@ -705,6 +705,21 @@ enum GatewayCommand {
 
 #[derive(Subcommand)]
 enum PluginCommand {
+    /// Import an MCP Registry server.json as an enabled Goose extension
+    #[command(about = "Import an MCP Registry server.json")]
+    ImportServer {
+        #[arg(help = "Path to server.json, or - for stdin")]
+        input: String,
+        #[arg(long, conflicts_with_all = ["remote", "all"], help = "Zero-based package index")]
+        package: Option<usize>,
+        #[arg(long, conflicts_with_all = ["package", "all"], help = "Zero-based remote index")]
+        remote: Option<usize>,
+        #[arg(long, conflicts_with_all = ["package", "remote"], help = "Import every package and remote")]
+        all: bool,
+        #[arg(long = "value", value_name = "NAME=VALUE", action = clap::ArgAction::Append, value_parser = parse_key_val)]
+        values: Vec<(String, String)>,
+    },
+
     /// Install a plugin from a git repository URL
     #[command(about = "Install a plugin from a git repository URL")]
     Install {
@@ -2377,7 +2392,62 @@ async fn handle_schedule_command(command: SchedulerCommand) -> Result<()> {
 }
 
 fn handle_plugin_subcommand(command: PluginCommand) -> Result<()> {
+    use goose::plugins::registry_server::ServerSelection;
+    use std::io::IsTerminal;
     match command {
+        PluginCommand::ImportServer {
+            input,
+            package,
+            remote,
+            all,
+            values,
+        } => {
+            let json = if input == "-" {
+                let mut json = String::new();
+                std::io::stdin().read_to_string(&mut json)?;
+                json
+            } else {
+                std::fs::read_to_string(&input)?
+            };
+            let choices = goose::plugins::registry_server::server_json_choices(&json)?;
+            anyhow::ensure!(
+                !choices.is_empty(),
+                "server.json contains no packages or remotes"
+            );
+            let selections = if all {
+                choices.iter().map(|(selection, _)| *selection).collect()
+            } else if let Some(index) = package {
+                vec![ServerSelection::Package(index)]
+            } else if let Some(index) = remote {
+                vec![ServerSelection::Remote(index)]
+            } else {
+                anyhow::ensure!(
+                    std::io::stdin().is_terminal() && std::io::stderr().is_terminal(),
+                    "no import selected; pass --package N, --remote N, or --all in non-interactive mode"
+                );
+                let mut prompt = cliclack::multiselect(
+                    "Select MCP server configurations to import (Space to toggle, Enter to confirm)",
+                );
+                for (selection, label) in choices {
+                    prompt = prompt.item(selection, label, "");
+                }
+                let selected = prompt.interact()?;
+                anyhow::ensure!(!selected.is_empty(), "no package or remote selected");
+                selected
+            };
+            let values = values.into_iter().collect();
+            let (entries, secrets) =
+                goose::plugins::registry_server::import_server_json(&json, &selections, &values)?;
+            for (name, value) in secrets {
+                Config::global().set_secret(&name, &value)?;
+            }
+            for entry in entries {
+                let name = entry.config.name();
+                goose::config::set_extension(entry);
+                println!("Imported and enabled MCP server '{name}'");
+            }
+            Ok(())
+        }
         PluginCommand::Install { url, auto_update } => handle_plugin_install(&url, auto_update),
         PluginCommand::Update { name } => handle_plugin_update(&name),
     }

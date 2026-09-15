@@ -12,6 +12,7 @@ activities:
   - Validate the configurable Databricks AI Gateway path across all inference routes
   - Analyze code structure and parsing capabilities
   - Test extension discovery and management
+  - Smoke-test MCP Registry server.json import parsing and selection
   - Test load tool for knowledge injection and discovery
   - Test delegate tool for task delegation (sync and async)
   - Test multi-turn thinking preservation for providers that reject replayed reasoning_content
@@ -83,6 +84,8 @@ instructions: |
   - Enable/disable extensions
   - Test extension interactions
   - Verify isolation between extensions
+
+  - MCP Registry import smoke test: create a minimal server.json with one npm package, run `goose plugin import-server <file> --package 0`, and verify it reports a successful import.
 
   ### Phase 3: Delegate & Load Testing
   Test the unified delegation and knowledge-loading tools:

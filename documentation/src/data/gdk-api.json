@@ -175,7 +175,28 @@
         },
         {
           "name": "openai_provider",
-          "docs": "",
+          "docs": "Create an OpenAI provider with an optional custom base URL.\n\nPass `None` for the default `https://api.openai.com`, or a custom host\n(e.g. DeepSeek, Kimi) to enable reasoning-context preservation.",
+          "params": [
+            {
+              "name": "api_key",
+              "type": "String",
+              "default": null,
+              "docs": ""
+            },
+            {
+              "name": "base_url",
+              "type": "Option<String>",
+              "default": "None",
+              "docs": ""
+            }
+          ],
+          "returns": "Provider",
+          "throws": "GooseError",
+          "isAsync": false
+        },
+        {
+          "name": "openai_provider_simple",
+          "docs": "Simple one-argument wrapper for Rust callers who do not need a custom base URL.\n\nThis preserves backward compatibility: existing code calling `openai_provider(api_key)`\ncan continue to compile after the `base_url` parameter was added.",
           "params": [
             {
               "name": "api_key",

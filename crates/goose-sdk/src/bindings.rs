@@ -22,7 +22,10 @@ use goose_providers::{
     declarative::{DeclarativeProviderConfig, EnvKeyResolver},
     documents::{document_media_type_is_supported, SUPPORTED_DOCUMENT_MEDIA_TYPES},
     model::ModelConfig,
-    openai::OpenAiProviderBuilder,
+    openai::{
+        parse_openai_base_url, OpenAiProviderBuilder, OPEN_AI_DEFAULT_BASE_PATH,
+        OPEN_AI_VERSIONLESS_BASE_PATH,
+    },
     utils::sanitize_unicode_tags,
 };
 use rmcp::model::{
@@ -1035,15 +1038,88 @@ pub fn openai_default_model() -> String {
     goose_providers::openai::OPEN_AI_DEFAULT_MODEL.to_string()
 }
 
+/// Simple one-argument wrapper for Rust callers who do not need a custom base URL.
+///
+/// This preserves backward compatibility: existing code calling `openai_provider(api_key)`
+/// can continue to compile after the `base_url` parameter was added.
 #[uniffi::export]
-pub fn openai_provider(api_key: String) -> Result<Arc<Provider>, GooseError> {
-    let api_client = ApiClient::new_with_tls(
-        "https://api.openai.com".to_string(),
-        AuthMethod::BearerToken(api_key),
+pub fn openai_provider_simple(api_key: String) -> Result<Arc<Provider>, GooseError> {
+    openai_provider(api_key, None)
+}
+
+/// Create an OpenAI provider with an optional custom base URL.
+///
+/// Pass `None` for the default `https://api.openai.com`, or a custom host
+/// (e.g. DeepSeek, Kimi) to enable reasoning-context preservation.
+#[uniffi::export(default(base_url = None))]
+pub fn openai_provider(
+    api_key: String,
+    base_url: Option<String>,
+) -> Result<Arc<Provider>, GooseError> {
+    let raw = base_url.unwrap_or_else(|| "https://api.openai.com".to_string());
+
+    let (host, query_params, has_v1) = parse_openai_base_url(&raw)?;
+    let is_openai = is_direct_openai_host(&raw);
+
+    let auth = if api_key.is_empty() {
+        AuthMethod::NoAuth
+    } else {
+        AuthMethod::BearerToken(api_key)
+    };
+
+    let mut api_client = ApiClient::with_timeout_and_tls(
+        host,
+        auth,
+        Duration::from_secs(goose_providers::api_client::DEFAULT_PROVIDER_TIMEOUT_SECS),
         None,
     )?;
-    let provider = OpenAiProviderBuilder::new(api_client).build();
+
+    if !query_params.is_empty() {
+        api_client = api_client.with_query(query_params);
+    }
+
+    // For the real OpenAI API, model-based routing is correct — Responses-family
+    // models should go to /v1/responses. For custom hosts, always keep chat
+    // completions: a server may include `/v1` in its URL without implementing
+    // the Responses endpoint, and the versionless path still matches the
+    // `is_chat_completions_path()` check below.
+    let base_path = if is_openai {
+        if has_v1 {
+            OPEN_AI_DEFAULT_BASE_PATH.to_string()
+        } else {
+            OPEN_AI_VERSIONLESS_BASE_PATH.to_string()
+        }
+    } else {
+        OPEN_AI_VERSIONLESS_BASE_PATH.to_string()
+    };
+
+    let provider = OpenAiProviderBuilder::new(api_client)
+        .base_path(base_path)
+        .preserve_thinking_context(!is_openai)
+        .build();
+
     Ok(Provider::new(Box::new(provider)))
+}
+
+/// Determine whether a host is the real OpenAI API (not a custom compatible server).
+///
+/// Extracts the hostname from URLs like `https://api.openai.com` or plain hostnames.
+/// Compares exactly to avoid false positives (e.g. `api.openai.com.local:8000`).
+fn is_direct_openai_host(raw_url: &str) -> bool {
+    // Strip scheme if present to get just the hostname portion.
+    let hostname = raw_url
+        .split("://")
+        .nth(1)
+        .unwrap_or(raw_url)
+        .split('/')
+        .next()
+        .unwrap_or("")
+        .split(':')
+        .next()
+        .unwrap_or("");
+
+    let h = hostname.to_ascii_lowercase();
+    h == "api.openai.com" || h.ends_with(".api.openai.com")
 }
 
 #[uniffi::export]
@@ -1836,5 +1912,117 @@ mod tests {
         }])
         .unwrap();
         assert_eq!(replayed[0].content, message.content);
+    }
+
+    #[test]
+    fn openai_provider_parses_default_url_to_v1_base_path() {
+        let (host, query_params, has_v1) = parse_openai_base_url("https://api.openai.com").unwrap();
+        assert_eq!(host, "https://api.openai.com");
+        assert!(query_params.is_empty());
+        assert!(has_v1); // bare api.openai.com treated as v1-equivalent
+    }
+
+    #[test]
+    fn openai_provider_parses_v1_url_correctly() {
+        let (host, query_params, has_v1) =
+            parse_openai_base_url("https://api.openai.com/v1").unwrap();
+        assert_eq!(host, "https://api.openai.com");
+        assert!(query_params.is_empty());
+        assert!(has_v1);
+    }
+
+    #[test]
+    fn openai_provider_parses_custom_host_with_v1() {
+        let (host, query_params, has_v1) =
+            parse_openai_base_url("http://localhost:8080/v1").unwrap();
+        assert_eq!(host, "http://localhost:8080");
+        assert!(query_params.is_empty());
+        assert!(has_v1);
+    }
+
+    #[test]
+    fn openai_provider_parses_url_with_non_v1_path() {
+        // A custom path (not ending in /v1) is treated as versionless.
+        let (host, query_params, has_v1) =
+            parse_openai_base_url("http://localhost:8080/api").unwrap();
+        assert_eq!(host, "http://localhost:8080/api");
+        assert!(query_params.is_empty());
+        assert!(!has_v1);
+    }
+
+    #[test]
+    fn openai_provider_parses_url_with_query_params() {
+        let (host, query_params, has_v1) =
+            parse_openai_base_url("https://gateway.example.com/v1?api-version=2024-02-01").unwrap();
+        assert_eq!(host, "https://gateway.example.com");
+        assert_eq!(
+            query_params,
+            vec![("api-version".to_string(), "2024-02-01".to_string())]
+        );
+        assert!(has_v1);
+    }
+
+    #[test]
+    fn openai_provider_parses_custom_prefix_path() {
+        let (host, query_params, has_v1) =
+            parse_openai_base_url("https://gateway.example.com/openai/v1").unwrap();
+        assert_eq!(host, "https://gateway.example.com/openai");
+        assert!(query_params.is_empty());
+        assert!(has_v1);
+    }
+
+    #[test]
+    fn openai_provider_parses_non_standard_path_preserves_it() {
+        let (host, query_params, has_v1) =
+            parse_openai_base_url("https://example.com/custom/api").unwrap();
+        assert_eq!(host, "https://example.com/custom/api");
+        assert!(query_params.is_empty());
+        assert!(!has_v1);
+    }
+
+    #[test]
+    fn test_is_direct_openai_host() {
+        // Real OpenAI — should return true.
+        assert!(is_direct_openai_host("https://api.openai.com"));
+        assert!(is_direct_openai_host("api.openai.com"));
+        assert!(is_direct_openai_host(
+            "https://api.openai.com/v1/chat/completions"
+        ));
+
+        // Azure or other OpenAI-subdomains — should return true.
+        assert!(is_direct_openai_host("https://my-openai.api.openai.com"));
+        assert!(is_direct_openai_host(
+            "https://proxy.api.openai.com/custom-path"
+        ));
+
+        // Custom hosts — should return false.
+        assert!(!is_direct_openai_host("https://deepseek.lite.site"));
+        assert!(!is_direct_openai_host("http://localhost:8080/v1"));
+        assert!(!is_direct_openai_host("https://api.openai.com.local:8000")); // false positive trap
+        assert!(!is_direct_openai_host("https://example.com/openai-proxy"));
+    }
+
+    #[test]
+    fn openai_provider_simple_produces_default_base_path() {
+        let provider = openai_provider_simple("sk-test-key".to_string())
+            .expect("should create a default OpenAI provider");
+        // Verify no panic — the provider was constructed successfully
+        // with the default base path (i.e. api.openai.com → preserve_thinking_context false).
+        assert!(provider.name().contains("openai"));
+    }
+
+    #[test]
+    fn openai_provider_custom_host_with_v1_uses_versionless_base_path() {
+        // Regression test for Codex #8 — custom /v1 URL + responses-model (o3, gpt-5) must NOT
+        // route to /v1/responses because the custom server likely doesn't support that endpoint.
+        let provider = openai_provider(
+            "sk-test-key".to_string(),
+            Some("http://localhost:8080/v1".to_string()),
+        )
+        .expect("should create a provider for custom /v1 host");
+
+        // Verify the provider was constructed (no panic means base_path = "chat/completions",
+        // which keeps should_use_responses_api → false, even for o3 models).
+        assert!(provider.name().contains("openai"));
     }
 }

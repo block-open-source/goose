@@ -1339,6 +1339,20 @@ mod tests {
     }
 
     #[test]
+    fn custom_host_with_chat_completions_path_avoids_responses_routing() {
+        // Custom hosts must use versionless "chat/completions" to keep should_use_responses_api
+        // returning false — the path is detected as custom AND matches chat completions.
+        assert!(!OpenAiProvider::should_use_responses_api(
+            "o3",
+            "chat/completions"
+        ));
+        assert!(!OpenAiProvider::should_use_responses_api(
+            "gpt-5",
+            "chat/completions"
+        ));
+    }
+
+    #[test]
     fn ensure_url_scheme_adds_http_for_local_hosts() {
         assert_eq!(ensure_url_scheme("localhost:1234"), "http://localhost:1234");
         assert_eq!(

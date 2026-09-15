@@ -386,7 +386,8 @@ fn capability_thinking_effort_value(
 fn thinking_effort_values(model_config: &ModelConfig) -> &'static [ThinkingEffort] {
     if !model_config.is_reasoning_model() {
         &[ThinkingEffort::Off]
-    } else if model_config.is_glm_5_3_reasoning_model() {
+    } else if model_config.is_glm_5_3_reasoning_model() || model_config.is_kimi_k3_reasoning_model()
+    {
         &[
             ThinkingEffort::Low,
             ThinkingEffort::High,
@@ -411,7 +412,7 @@ fn current_thinking_effort_value(model_config: &ModelConfig) -> String {
     let configured = model_config
         .thinking_effort()
         .or_else(|| Config::global().get_goose_thinking_effort());
-    if model_config.is_glm_5_3_reasoning_model() {
+    if model_config.is_glm_5_3_reasoning_model() || model_config.is_kimi_k3_reasoning_model() {
         return match configured {
             Some(ThinkingEffort::Off | ThinkingEffort::Low) => ThinkingEffort::Low,
             Some(ThinkingEffort::Medium | ThinkingEffort::High) => ThinkingEffort::High,
@@ -807,11 +808,11 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_build_config_options_offers_glm_5_3_effort_levels() {
+    #[test_case("catalog.schema.goose-glm-5-3" ; "glm 5.3")]
+    #[test_case("catalog.schema.goose-kimi-k3" ; "kimi k3")]
+    fn test_build_config_options_offers_always_on_effort_levels(model_name: &str) {
         let _guard = env_lock::lock_env([("GOOSE_THINKING_EFFORT", None::<&str>)]);
         let mode_state = build_mode_state(GooseMode::Auto).unwrap();
-        let model_name = "data_workflow_tools.goose.goose-glm-5-3";
         let model_state = model_selection(model_name, &[model_name]);
         let options = build_config_options(
             &mode_state,

@@ -255,8 +255,11 @@ impl DatabricksV2Provider {
         model_name.contains("claude")
     }
 
-    fn glm_5_3_reasoning_effort(model_config: &ModelConfig) -> Option<&'static str> {
-        if !model_config.is_reasoning_model() || !model_config.is_glm_5_3_reasoning_model() {
+    fn always_on_reasoning_effort(model_config: &ModelConfig) -> Option<&'static str> {
+        if !model_config.is_reasoning_model()
+            || !(model_config.is_glm_5_3_reasoning_model()
+                || model_config.is_kimi_k3_reasoning_model())
+        {
             return None;
         }
 
@@ -387,7 +390,7 @@ impl DatabricksV2Provider {
         if is_model_service {
             payload["model"] = Value::String(model_config.model_name.clone());
         }
-        if let Some(effort) = Self::glm_5_3_reasoning_effort(model_config) {
+        if let Some(effort) = Self::always_on_reasoning_effort(model_config) {
             payload["reasoning_effort"] = Value::String(effort.to_string());
         }
         if payload.get("max_tokens").is_none() {
@@ -630,6 +633,40 @@ impl DatabricksV2Provider {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn always_on_effort_mapping_preserves_supported_values() {
+        for model in [
+            "catalog.schema.goose-glm-5-3",
+            "catalog.schema.goose-kimi-k3",
+        ] {
+            for (effort, expected) in [
+                (None, "max"),
+                (Some(ThinkingEffort::Off), "low"),
+                (Some(ThinkingEffort::Low), "low"),
+                (Some(ThinkingEffort::Medium), "high"),
+                (Some(ThinkingEffort::High), "high"),
+                (Some(ThinkingEffort::Max), "max"),
+            ] {
+                let mut config = ModelConfig::new(model).with_default_thinking_effort(effort);
+                assert_eq!(
+                    DatabricksV2Provider::always_on_reasoning_effort(&config),
+                    Some(expected)
+                );
+                config.reasoning = Some(false);
+                assert_eq!(
+                    DatabricksV2Provider::always_on_reasoning_effort(&config),
+                    None
+                );
+            }
+        }
+        assert_eq!(
+            DatabricksV2Provider::always_on_reasoning_effort(&ModelConfig::new(
+                "catalog.schema.custom"
+            )),
+            None
+        );
+    }
 
     #[test]
     fn routes_known_model_families() {
@@ -887,9 +924,10 @@ mod tests {
                 .expect("GPT-6 model service should use the Responses API");
         }
 
+        #[test_case::test_case("catalog.schema.goose-glm-5-3" ; "glm 5.3")]
+        #[test_case::test_case("catalog.schema.goose-kimi-k3" ; "kimi k3")]
         #[tokio::test]
-        async fn glm_5_3_model_service_forwards_reasoning_effort() {
-            let model = "data_workflow_tools.goose.goose-glm-5-3";
+        async fn model_service_forwards_reasoning_effort(model: &str) {
             let body = "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n";
 
             let server = MockServer::start().await;
@@ -916,7 +954,7 @@ mod tests {
                     &[],
                 )
                 .await
-                .expect("GLM-5.3 model service should receive reasoning effort");
+                .expect("model service should receive reasoning effort");
         }
 
         #[tokio::test]

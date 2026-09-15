@@ -155,14 +155,14 @@ sqlx = { version = "0.9.0", default-features = false, features = [
 ] }
 
 # For Bedrock provider (optional, behind "aws-providers" feature)
-aws-config = { version = "1.8", default-features = false, features = ["credentials-process", "rt-tokio", "sso", "behavior-version-latest"], optional = true }
-aws-smithy-types = { version = "1.3.4", default-features = false, features = ["rt-tokio"], optional = true }
-aws-sdk-bedrockruntime = { version = "1.132", default-features = false, features = ["rt-tokio"], optional = true }
-aws-smithy-runtime-api = { version = "1.13", default-features = false, features = ["client"], optional = true }
+aws-config = { version = "=1.12.0", default-features = false, features = ["credentials-process", "rt-tokio", "sso", "behavior-version-latest"], optional = true }
+aws-smithy-types = { version = "=1.6.3", default-features = false, features = ["rt-tokio"], optional = true }
+aws-sdk-bedrockruntime = { version = "=1.143.0", default-features = false, features = ["rt-tokio"], optional = true }
+aws-smithy-runtime-api = { version = "=1.16.0", default-features = false, features = ["client"], optional = true }
 smithy-transport-reqwest = { version = "0.1", default-features = false, features = ["http2", "system-proxy"], optional = true }
 
 # For SageMaker TGI provider (optional, behind "aws-providers" feature)
-aws-sdk-sagemakerruntime = { version = "1.104", default-features = false, features = ["rt-tokio"], optional = true }
+aws-sdk-sagemakerruntime = { version = "=1.113.0", default-features = false, features = ["rt-tokio"], optional = true }
 
 # For GCP Vertex AI provider auth
 jsonwebtoken = { version = "11.0", default-features = false, features = ["use_pem"] }

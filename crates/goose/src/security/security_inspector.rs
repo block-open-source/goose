@@ -6,6 +6,30 @@ use crate::conversation::message::{Message, ToolRequest};
 use crate::security::{SecurityManager, SecurityResult};
 use crate::tool_inspection::{InspectionAction, InspectionResult, ToolInspector};
 
+fn is_bidi_formatting_control(character: char) -> bool {
+    matches!(
+        character,
+        '\u{61c}'
+            | '\u{200e}'
+            | '\u{200f}'
+            | '\u{202a}'..='\u{202e}'
+            | '\u{2066}'..='\u{2069}'
+    )
+}
+
+fn escape_approval_explanation(explanation: &str) -> String {
+    let mut escaped = String::with_capacity(explanation.len());
+    for character in explanation.chars() {
+        if character == '\n' || (!character.is_control() && !is_bidi_formatting_control(character))
+        {
+            escaped.push(character);
+        } else {
+            escaped.extend(character.escape_default());
+        }
+    }
+    escaped
+}
+
 /// Security inspector that uses pattern matching to detect malicious tool calls
 pub struct SecurityInspector {
     security_manager: SecurityManager,
@@ -32,11 +56,12 @@ impl SecurityInspector {
         tool_request_id: String,
     ) -> InspectionResult {
         let action = if security_result.is_malicious && security_result.should_ask_user {
+            let explanation = escape_approval_explanation(&security_result.explanation);
             InspectionAction::RequireApproval(Some(format!(
                 "🔒 Security Alert\n\n\
                 {}\n\n\
                 Finding ID: {}",
-                security_result.explanation, security_result.finding_id
+                explanation, security_result.finding_id
             )))
         } else {
             InspectionAction::Allow
@@ -150,5 +175,91 @@ mod tests {
     fn test_security_inspector_name() {
         let inspector = SecurityInspector::new();
         assert_eq!(inspector.name(), "security");
+    }
+
+    #[tokio::test]
+    async fn security_prompt_escapes_scanner_explanation_controls() {
+        let inspector = SecurityInspector::enabled();
+        let command = concat!(
+            "rm -rf / # flagged\nordinary 🪿\n",
+            "\t\r\u{8}\u{7}\u{1b}[2J\u{1b}[H\u{1b}]0;spoofed\u{7}\u{9b}31m\u{7f}",
+            "\u{61c}\u{200e}\u{200f}\u{202a}\u{202b}\u{202c}\u{202d}\u{202e}",
+            "\u{2066}\u{2067}\u{2068}\u{2069}"
+        );
+        let tool_requests = vec![ToolRequest {
+            id: "dangerous".to_string(),
+            tool_call: Ok(
+                CallToolRequestParams::new("shell").with_arguments(object!({"command": command}))
+            ),
+            metadata: None,
+            tool_meta: None,
+        }];
+
+        let results = inspector
+            .inspect("test", &tool_requests, &[], GooseMode::Auto)
+            .await
+            .unwrap();
+        let prompt = match &results[0].action {
+            InspectionAction::RequireApproval(Some(prompt)) => prompt,
+            action => panic!("expected security approval, got {action:?}"),
+        };
+
+        assert!(prompt.contains("ordinary 🪿\n"));
+        for visible_escape in [
+            "\\t",
+            "\\r",
+            "\\u{8}",
+            "\\u{7}",
+            "\\u{1b}",
+            "\\u{9b}",
+            "\\u{7f}",
+            "\\u{61c}",
+            "\\u{200e}",
+            "\\u{200f}",
+            "\\u{202a}",
+            "\\u{202b}",
+            "\\u{202c}",
+            "\\u{202d}",
+            "\\u{202e}",
+            "\\u{2066}",
+            "\\u{2067}",
+            "\\u{2068}",
+            "\\u{2069}",
+        ] {
+            assert!(
+                prompt.contains(visible_escape),
+                "missing {visible_escape:?} in {prompt:?}"
+            );
+        }
+        assert!(!prompt.chars().any(|character| {
+            character != '\n'
+                && (character.is_control()
+                    || matches!(
+                        character,
+                        '\u{61c}'
+                            | '\u{200e}'
+                            | '\u{200f}'
+                            | '\u{202a}'..='\u{202e}'
+                            | '\u{2066}'..='\u{2069}'
+                    ))
+        }));
+    }
+
+    #[test]
+    fn non_malicious_security_result_remains_allowed() {
+        let inspector = SecurityInspector::new();
+        let security_result = SecurityResult {
+            is_malicious: false,
+            confidence: 0.0,
+            explanation: "ordinary 🪿\u{1b}[2J".to_string(),
+            should_ask_user: true,
+            finding_id: "SEC-test".to_string(),
+            tool_request_id: "safe".to_string(),
+        };
+
+        let result = inspector.convert_security_result(&security_result, "safe".to_string());
+
+        assert_eq!(result.action, InspectionAction::Allow);
+        assert_eq!(result.reason, security_result.explanation);
     }
 }

@@ -24,11 +24,10 @@ With ACP you are using the tools that are (mostly) in the underlying agent. Code
 If you have a Claude Code subscription, you can use it through goose via the [Agent Client Protocol (ACP)](https://agentclientprotocol.com/). This requires installing a small adapter package:
 
 ```bash
-npm install -g @zed-industries/claude-agent-acp
+npm install -g @agentclientprotocol/claude-agent-acp
 ```
 
 Then configure goose to use it via the claude acp extension (CLI or GUI)
-
 
 Or set it via environment variables:
 
@@ -61,7 +60,7 @@ Goose previously supported `claude-code`, `codex`, and `gemini-cli` as "pass-thr
 
 | Subscription | Provider | Install | Extensions |
 |---|---|---|---|
-| Claude Code | `claude-acp` | `npm install -g @zed-industries/claude-agent-acp` | ✅ via MCP |
+| Claude Code | `claude-acp` | `npm install -g @agentclientprotocol/claude-agent-acp` | ✅ via MCP |
 | ChatGPT Plus/Pro | `chatgpt_codex` | Nothing — OAuth sign-in | ✅ via MCP |
 | Gemini | `gemini_oauth` | Nothing — OAuth sign-in | ✅ native |
 

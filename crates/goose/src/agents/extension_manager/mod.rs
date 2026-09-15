@@ -3,7 +3,6 @@ use chrono::{DateTime, Utc};
 use futures::stream::{self, FuturesUnordered, StreamExt};
 use futures::Stream;
 use futures::{future, FutureExt};
-use once_cell::sync::Lazy;
 use rmcp::service::ServiceError;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -15,23 +14,21 @@ use std::time::Duration;
 use tokio::sync::{mpsc, Mutex};
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::CancellationToken;
-use tracing::{error, warn};
+use tracing::warn;
 
 use super::container::Container;
 use super::extension::{
-    ExtensionConfig, ExtensionError, ExtensionInfo, ExtensionResult, PlatformExtensionContext,
-    PLATFORM_EXTENSIONS,
+    ExtensionConfig, ExtensionInfo, ExtensionResult, PlatformExtensionContext, PLATFORM_EXTENSIONS,
 };
 use super::tool_execution::{ToolCallContext, ToolCallNotificationEmitter, ToolCallResult};
 use super::types::SharedProvider;
 use crate::action_required_manager::ActionRequiredManager;
-use crate::agents::extension::Envs;
 use crate::agents::mcp_client::{
     ConnectContext, GooseMcpClientCapabilities, GooseMcpHostInfo, McpClientTrait,
 };
 use crate::agents::reply_parts::is_tool_visible_to_app;
 use crate::config::extensions::name_to_key;
-use crate::config::{get_all_extensions, Config};
+use crate::config::Config;
 use crate::oauth::GooseCredentialStore;
 use rmcp::model::{
     CallToolRequestParams, CallToolResult, ContentBlock, ErrorCode, ErrorData, GetPromptResult,
@@ -95,12 +92,6 @@ impl Drop for ActionRequiredStream {
         });
     }
 }
-
-static RE_ENV_BRACES: Lazy<regex::Regex> =
-    Lazy::new(|| regex::Regex::new(r"\$\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}").expect("valid regex"));
-
-static RE_ENV_SIMPLE: Lazy<regex::Regex> =
-    Lazy::new(|| regex::Regex::new(r"\$([A-Za-z_][A-Za-z0-9_]*)").expect("valid regex"));
 
 fn resolve_timeout(timeout: Option<u64>) -> u64 {
     timeout.unwrap_or_else(|| {
@@ -406,87 +397,6 @@ struct ResolvedTool {
     resource_uri: Option<String>,
 }
 
-/// Merge environment variables from direct envs and keychain-stored env_keys
-pub(crate) async fn merge_environments(
-    envs: &Envs,
-    env_keys: &[String],
-    ext_name: &str,
-    config: &Config,
-) -> Result<HashMap<String, String>, ExtensionError> {
-    let mut all_envs = envs.get_env();
-
-    for key in env_keys {
-        if all_envs.contains_key(key) {
-            continue;
-        }
-
-        match config.get(key, true) {
-            Ok(value) => {
-                if value.is_null() {
-                    warn!(
-                        key = %key,
-                        ext_name = %ext_name,
-                        "Secret key not found in config (returned null)."
-                    );
-                    continue;
-                }
-
-                if let Some(str_val) = value.as_str() {
-                    all_envs.insert(key.clone(), str_val.to_string());
-                } else {
-                    warn!(
-                        key = %key,
-                        ext_name = %ext_name,
-                        value_type = %value.get("type").and_then(|t| t.as_str()).unwrap_or("unknown"),
-                        "Secret value is not a string; skipping."
-                    );
-                }
-            }
-            Err(e) => {
-                error!(
-                    key = %key,
-                    ext_name = %ext_name,
-                    error = %e,
-                    "Failed to fetch secret from config."
-                );
-                return Err(ExtensionError::ConfigError(format!(
-                    "Failed to fetch secret '{}' from config: {}",
-                    key, e
-                )));
-            }
-        }
-    }
-
-    Ok(Envs::new(all_envs).get_env())
-}
-
-/// Substitute environment variables in a string. Supports both ${VAR} and $VAR syntax.
-pub(crate) fn substitute_env_vars(value: &str, env_map: &HashMap<String, String>) -> String {
-    let mut result = value.to_string();
-
-    for cap in RE_ENV_BRACES.captures_iter(value) {
-        if let Some(var_name) = cap.get(1) {
-            if let Some(env_value) = env_map.get(var_name.as_str()) {
-                result = result.replace(&cap[0], env_value);
-            }
-        }
-    }
-
-    // Scan the original input for $VAR patterns (not the post-substitution result)
-    // to avoid recursive expansion when a substituted value contains $OTHER_VAR.
-    for cap in RE_ENV_SIMPLE.captures_iter(value) {
-        if let Some(var_name) = cap.get(1) {
-            if !value.contains(&format!("${{{}}}", var_name.as_str())) {
-                if let Some(env_value) = env_map.get(var_name.as_str()) {
-                    result = result.replace(&cap[0], env_value);
-                }
-            }
-        }
-    }
-
-    result
-}
-
 impl ExtensionManager {
     fn mcp_client_capabilities(&self) -> GooseMcpClientCapabilities {
         GooseMcpClientCapabilities {
@@ -596,45 +506,37 @@ impl ExtensionManager {
             extension_manager: Arc::downgrade(self),
         };
 
-        let client: Box<dyn McpClientTrait> = match &config {
+        let client: Box<dyn McpClientTrait> = match &resolved_config {
             ExtensionConfig::StreamableHttp {
                 uri,
                 timeout,
                 headers,
                 name,
                 envs,
-                env_keys,
                 socket,
                 client_id,
                 client_secret_key,
                 scopes,
                 ..
             } => {
-                let all_envs =
-                    merge_environments(envs, env_keys, &sanitized_name, Config::global()).await?;
                 let static_oauth_client = streamable_http::resolve_static_oauth_client(
                     client_id.as_deref(),
                     client_secret_key.as_deref(),
                     scopes,
-                    &all_envs,
-                    Config::global(),
+                    &envs.get_env(),
                 )
                 .map_err(|error| *error)?;
                 let params = streamable_http::ConnectParams {
-                    uri: substitute_env_vars(uri, &all_envs),
+                    uri: uri.clone(),
                     name: name.clone(),
-                    headers: headers
-                        .iter()
-                        .map(|(k, v)| (k.clone(), substitute_env_vars(v, &all_envs)))
-                        .collect(),
+                    headers: headers.clone(),
                     static_oauth_client,
                     ctx: ctx(*timeout, working_dir),
                 };
-                let socket = socket.as_ref().map(|s| substitute_env_vars(s, &all_envs));
                 streamable_http::connect(
                     params,
                     socket.as_deref(),
-                    Box::new(GooseCredentialStore::new(name.to_string())),
+                    Box::new(GooseCredentialStore::new(name.clone())),
                 )
                 .await?
             }
@@ -666,20 +568,17 @@ impl ExtensionManager {
                 cmd,
                 args,
                 envs,
-                env_keys,
                 timeout,
                 cwd,
                 ..
             } => {
-                let mut all_envs =
-                    merge_environments(envs, env_keys, &sanitized_name, Config::global()).await?;
+                let mut envs = envs.get_env();
                 if let Some(sid) = session_id {
-                    all_envs.insert("AGENT_SESSION_ID".to_string(), sid.to_string());
+                    envs.insert("AGENT_SESSION_ID".to_string(), sid.to_string());
                 }
                 let working_dir = cwd.as_deref().map(PathBuf::from).unwrap_or(working_dir);
                 Box::new(
-                    stdio::connect(cmd, args, all_envs, container, ctx(*timeout, working_dir))
-                        .await?,
+                    stdio::connect(cmd, args, envs, container, ctx(*timeout, working_dir)).await?,
                 )
             }
         };
@@ -1617,70 +1516,6 @@ impl ExtensionManager {
             .map_err(|e| anyhow::anyhow!("Failed to get prompt: {}", e))
     }
 
-    pub async fn search_available_extensions(&self) -> Result<Vec<ContentBlock>, ErrorData> {
-        let mut output_parts = vec![];
-
-        // First get disabled extensions from current config (skip hidden ones)
-        let mut disabled_extensions: Vec<String> = vec![];
-        for extension in get_all_extensions() {
-            if !extension.enabled && !is_hidden_extension(&extension.config.name()) {
-                let config = extension.config.clone();
-                let description = match &config {
-                    ExtensionConfig::Builtin {
-                        description,
-                        display_name,
-                        ..
-                    } => {
-                        if description.is_empty() {
-                            display_name.as_deref().unwrap_or("Built-in extension")
-                        } else {
-                            description
-                        }
-                    }
-                    ExtensionConfig::Platform { description, .. }
-                    | ExtensionConfig::StreamableHttp { description, .. }
-                    | ExtensionConfig::Stdio { description, .. } => description,
-                };
-                disabled_extensions.push(format!("- {} - {}", config.name(), description));
-            }
-        }
-
-        // Get currently enabled extensions that can be disabled (skip hidden ones)
-        let enabled_extensions: Vec<String> = self
-            .extensions
-            .lock()
-            .await
-            .keys()
-            .filter(|name| !is_hidden_extension(name))
-            .cloned()
-            .collect();
-
-        // Build output string
-        if !disabled_extensions.is_empty() {
-            output_parts.push(format!(
-                "Extensions available to enable:\n{}\n",
-                disabled_extensions.join("\n")
-            ));
-        } else {
-            output_parts.push("No extensions available to enable.\n".to_string());
-        }
-
-        if !enabled_extensions.is_empty() {
-            output_parts.push(format!(
-                "\n\nExtensions available to disable:\n{}\n",
-                enabled_extensions
-                    .iter()
-                    .map(|name| format!("- {}", name))
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            ));
-        } else {
-            output_parts.push("No extensions that can be disabled.\n".to_string());
-        }
-
-        Ok(vec![ContentBlock::text(output_parts.join("\n"))])
-    }
-
     async fn get_server_client(&self, name: impl Into<String>) -> Option<McpClientBox> {
         let normalized = name_to_key(&name.into());
         self.extensions
@@ -2236,54 +2071,6 @@ mod tests {
             .await;
 
         assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_streamable_http_header_env_substitution() {
-        let mut env_map = HashMap::new();
-        env_map.insert("AUTH_TOKEN".to_string(), "secret123".to_string());
-        env_map.insert("API_KEY".to_string(), "key456".to_string());
-
-        // Test ${VAR} syntax
-        let result = substitute_env_vars("Bearer ${ AUTH_TOKEN }", &env_map);
-        assert_eq!(result, "Bearer secret123");
-
-        // Test ${VAR} syntax without spaces
-        let result = substitute_env_vars("Bearer ${AUTH_TOKEN}", &env_map);
-        assert_eq!(result, "Bearer secret123");
-
-        // Test $VAR syntax
-        let result = substitute_env_vars("Bearer $AUTH_TOKEN", &env_map);
-        assert_eq!(result, "Bearer secret123");
-
-        // Test multiple substitutions
-        let result = substitute_env_vars("Key: $API_KEY, Token: ${AUTH_TOKEN}", &env_map);
-        assert_eq!(result, "Key: key456, Token: secret123");
-
-        // Test no substitution when variable doesn't exist
-        let result = substitute_env_vars("Bearer ${UNKNOWN_VAR}", &env_map);
-        assert_eq!(result, "Bearer ${UNKNOWN_VAR}");
-
-        // Test mixed content
-        let result = substitute_env_vars(
-            "Authorization: Bearer ${AUTH_TOKEN} and API ${API_KEY}",
-            &env_map,
-        );
-        assert_eq!(result, "Authorization: Bearer secret123 and API key456");
-    }
-
-    #[tokio::test]
-    async fn test_substitute_env_vars_no_recursive_expansion() {
-        let mut env_map = HashMap::new();
-        env_map.insert("TOKEN".to_string(), "abc$KEY".to_string());
-        env_map.insert("KEY".to_string(), "xyz".to_string());
-
-        // A substituted value containing $KEY should NOT be re-expanded
-        let result = substitute_env_vars("${TOKEN}", &env_map);
-        assert_eq!(result, "abc$KEY");
-
-        let result = substitute_env_vars("$TOKEN", &env_map);
-        assert_eq!(result, "abc$KEY");
     }
 
     #[tokio::test]

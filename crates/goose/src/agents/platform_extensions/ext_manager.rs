@@ -1,7 +1,9 @@
+use crate::agents::extension::ExtensionConfig;
 use crate::agents::extension::PlatformExtensionContext;
+use crate::agents::extension_manager::is_hidden_extension;
 use crate::agents::mcp_client::{Error, McpClientTrait};
 use crate::agents::tool_execution::ToolCallContext;
-use crate::config::get_extension_by_name;
+use crate::config::{get_all_extensions, get_extension_by_name};
 use crate::session::SessionType;
 use anyhow::Result;
 use async_trait::async_trait;
@@ -105,20 +107,20 @@ impl ExtensionManagerClient {
     async fn handle_search_available_extensions(
         &self,
     ) -> Result<Vec<ContentBlock>, ExtensionManagerToolError> {
-        if let Some(weak_ref) = &self.context.extension_manager {
-            if let Some(extension_manager) = weak_ref.upgrade() {
-                match extension_manager.search_available_extensions().await {
-                    Ok(content) => Ok(content),
-                    Err(e) => Err(ExtensionManagerToolError::OperationFailed {
-                        message: format!("Failed to search available extensions: {}", e.message),
-                    }),
-                }
-            } else {
-                Err(ExtensionManagerToolError::ManagerUnavailable)
+        let extension_manager = self
+            .context
+            .extension_manager
+            .as_ref()
+            .and_then(|weak| weak.upgrade())
+            .ok_or(ExtensionManagerToolError::ManagerUnavailable)?;
+        let enabled = extension_manager.list_extensions().await.map_err(|e| {
+            ExtensionManagerToolError::OperationFailed {
+                message: format!("Failed to search available extensions: {}", e),
             }
-        } else {
-            Err(ExtensionManagerToolError::ManagerUnavailable)
-        }
+        })?;
+        Ok(vec![ContentBlock::text(search_available_extensions(
+            &enabled,
+        ))])
     }
 
     async fn handle_manage_extensions(
@@ -503,6 +505,54 @@ impl McpClientTrait for ExtensionManagerClient {
     fn get_info(&self) -> Option<&InitializeResult> {
         Some(&self.info)
     }
+}
+
+fn search_available_extensions(enabled: &[String]) -> String {
+    let disabled: Vec<String> = get_all_extensions()
+        .into_iter()
+        .filter(|extension| !extension.enabled && !is_hidden_extension(&extension.config.name()))
+        .map(|extension| {
+            let description = match &extension.config {
+                ExtensionConfig::Builtin {
+                    description,
+                    display_name,
+                    ..
+                } if description.is_empty() => display_name
+                    .as_deref()
+                    .unwrap_or("Built-in extension")
+                    .to_string(),
+                ExtensionConfig::Builtin { description, .. }
+                | ExtensionConfig::Platform { description, .. }
+                | ExtensionConfig::StreamableHttp { description, .. }
+                | ExtensionConfig::Stdio { description, .. } => description.clone(),
+            };
+            format!("- {} - {}", extension.config.name(), description)
+        })
+        .collect();
+    let enabled: Vec<String> = enabled
+        .iter()
+        .filter(|name| !is_hidden_extension(name))
+        .map(|name| format!("- {}", name))
+        .collect();
+
+    let mut output_parts = vec![];
+    if disabled.is_empty() {
+        output_parts.push("No extensions available to enable.\n".to_string());
+    } else {
+        output_parts.push(format!(
+            "Extensions available to enable:\n{}\n",
+            disabled.join("\n")
+        ));
+    }
+    if enabled.is_empty() {
+        output_parts.push("No extensions that can be disabled.\n".to_string());
+    } else {
+        output_parts.push(format!(
+            "\n\nExtensions available to disable:\n{}\n",
+            enabled.join("\n")
+        ));
+    }
+    output_parts.join("\n")
 }
 
 #[cfg(test)]

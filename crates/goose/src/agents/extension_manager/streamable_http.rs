@@ -24,8 +24,6 @@ use tracing::warn;
 use super::super::extension::{ExtensionError, ExtensionResult};
 use super::super::mcp_client::{ConnectContext, McpClient, McpClientTrait};
 use super::super::tool_execution::ToolCallContext;
-use super::substitute_env_vars;
-use crate::config::Config;
 use crate::oauth::{oauth_flow, oauth_flow_with_challenge, StaticOAuthClientConfig};
 
 /// Retry with OAuth for typed auth challenges and wrapped bare HTTP 401 responses.
@@ -159,15 +157,11 @@ async fn clear_credentials_on_post_refresh_auth_failure(
     true
 }
 
-/// The client secret is referenced by key and resolved from the merged
-/// environment or the config secret store, so it is never stored inline in
-/// the extension config.
 pub(super) fn resolve_static_oauth_client(
     client_id: Option<&str>,
     client_secret_key: Option<&str>,
     scopes: &[String],
     envs: &HashMap<String, String>,
-    config: &Config,
 ) -> Result<Option<StaticOAuthClientConfig>, Box<ExtensionError>> {
     let Some(client_id) = client_id else {
         if client_secret_key.is_some() {
@@ -184,39 +178,20 @@ pub(super) fn resolve_static_oauth_client(
     };
 
     let client_secret = match client_secret_key {
-        Some(key) => Some(resolve_secret_value(key, envs, config)?),
+        Some(key) => Some(envs.get(key).cloned().ok_or_else(|| {
+            Box::new(ExtensionError::ConfigError(format!(
+                "Secret '{}' not found",
+                key
+            )))
+        })?),
         None => None,
     };
 
     Ok(Some(StaticOAuthClientConfig {
-        client_id: substitute_env_vars(client_id, envs),
+        client_id: client_id.to_string(),
         client_secret,
         scopes: scopes.to_vec(),
     }))
-}
-
-fn resolve_secret_value(
-    key: &str,
-    envs: &HashMap<String, String>,
-    config: &Config,
-) -> Result<String, Box<ExtensionError>> {
-    if let Some(value) = envs.get(key) {
-        return Ok(value.clone());
-    }
-
-    let value = config.get(key, true).map_err(|error| {
-        Box::new(ExtensionError::ConfigError(format!(
-            "Failed to fetch secret '{}' from config: {}",
-            key, error
-        )))
-    })?;
-
-    value.as_str().map(str::to_string).ok_or_else(|| {
-        Box::new(ExtensionError::ConfigError(format!(
-            "Secret '{}' is not a string",
-            key
-        )))
-    })
 }
 
 const GOOSE_USER_AGENT: reqwest::header::HeaderValue =
@@ -990,36 +965,20 @@ mod tests {
     mod static_oauth_client {
         use super::*;
 
-        fn test_config(dir: &tempfile::TempDir) -> Config {
-            Config::new_with_file_secrets(
-                dir.path().join("config.yaml"),
-                dir.path().join("secrets.yaml"),
-            )
-            .unwrap()
-        }
-
         #[test]
         fn absent_client_id_yields_no_static_client() {
-            let dir = tempfile::tempdir().unwrap();
-            let config = test_config(&dir);
-
-            let resolved =
-                resolve_static_oauth_client(None, None, &[], &HashMap::new(), &config).unwrap();
+            let resolved = resolve_static_oauth_client(None, None, &[], &HashMap::new()).unwrap();
 
             assert_eq!(resolved, None);
         }
 
         #[test]
         fn client_id_without_secret_resolves_public_client() {
-            let dir = tempfile::tempdir().unwrap();
-            let config = test_config(&dir);
-
             let resolved = resolve_static_oauth_client(
                 Some("registered-client"),
                 None,
                 &["scope.read".to_string()],
                 &HashMap::new(),
-                &config,
             )
             .unwrap()
             .unwrap();
@@ -1030,114 +989,61 @@ mod tests {
         }
 
         #[test]
-        fn client_id_supports_env_substitution() {
-            let dir = tempfile::tempdir().unwrap();
-            let config = test_config(&dir);
-            let envs = HashMap::from([(
-                "OAUTH_CLIENT_ID".to_string(),
-                "registered-client".to_string(),
-            )]);
-
-            let resolved =
-                resolve_static_oauth_client(Some("${OAUTH_CLIENT_ID}"), None, &[], &envs, &config)
-                    .unwrap()
-                    .unwrap();
-
-            assert_eq!(resolved.client_id, "registered-client");
-        }
-
-        #[test]
         fn client_secret_resolves_from_envs() {
-            let dir = tempfile::tempdir().unwrap();
-            let config = test_config(&dir);
-            let envs = HashMap::from([(
-                "OAUTH_CLIENT_SECRET".to_string(),
-                "secret-value".to_string(),
-            )]);
+            let envs =
+                HashMap::from([("OAUTH_CLIENT_SECRET".to_string(), "env-secret".to_string())]);
 
             let resolved = resolve_static_oauth_client(
                 Some("registered-client"),
                 Some("OAUTH_CLIENT_SECRET"),
                 &[],
                 &envs,
-                &config,
             )
             .unwrap()
             .unwrap();
 
-            assert_eq!(resolved.client_secret.as_deref(), Some("secret-value"));
-        }
-
-        #[test]
-        fn client_secret_falls_back_to_config_secret_store() {
-            let dir = tempfile::tempdir().unwrap();
-            let config = test_config(&dir);
-            config
-                .set("OAUTH_CLIENT_SECRET", &"stored-secret", true)
-                .unwrap();
-
-            let resolved = resolve_static_oauth_client(
-                Some("registered-client"),
-                Some("OAUTH_CLIENT_SECRET"),
-                &[],
-                &HashMap::new(),
-                &config,
-            )
-            .unwrap()
-            .unwrap();
-
-            assert_eq!(resolved.client_secret.as_deref(), Some("stored-secret"));
+            assert_eq!(resolved.client_secret.as_deref(), Some("env-secret"));
         }
 
         #[test]
         fn client_secret_key_without_client_id_is_rejected() {
-            let dir = tempfile::tempdir().unwrap();
-            let config = test_config(&dir);
-
             let error = resolve_static_oauth_client(
                 None,
                 Some("OAUTH_CLIENT_SECRET"),
                 &[],
                 &HashMap::new(),
-                &config,
             )
             .unwrap_err();
 
-            assert!(matches!(*error, ExtensionError::ConfigError(_)));
+            assert!(error
+                .to_string()
+                .contains("client_secret_key requires client_id"));
         }
 
         #[test]
         fn scopes_without_client_id_are_rejected() {
-            let dir = tempfile::tempdir().unwrap();
-            let config = test_config(&dir);
-
             let error = resolve_static_oauth_client(
                 None,
                 None,
                 &["scope.read".to_string()],
                 &HashMap::new(),
-                &config,
             )
             .unwrap_err();
 
-            assert!(matches!(*error, ExtensionError::ConfigError(_)));
+            assert!(error.to_string().contains("scopes requires client_id"));
         }
 
         #[test]
         fn missing_client_secret_key_is_an_error() {
-            let dir = tempfile::tempdir().unwrap();
-            let config = test_config(&dir);
-
             let error = resolve_static_oauth_client(
                 Some("registered-client"),
                 Some("MISSING_KEY"),
                 &[],
                 &HashMap::new(),
-                &config,
             )
             .unwrap_err();
 
-            assert!(matches!(*error, ExtensionError::ConfigError(_)));
+            assert!(error.to_string().contains("MISSING_KEY"));
         }
     }
 }

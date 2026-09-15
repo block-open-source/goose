@@ -4,12 +4,13 @@ use crate::config;
 use crate::config::extensions::name_to_key;
 use crate::config::permission::PermissionLevel;
 use crate::config::Config;
+use once_cell::sync::Lazy;
 use rmcp::service::ClientInitializeError;
 use rmcp::ServiceError as ClientError;
 use serde::Deserializer;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tracing::warn;
+use tracing::{error, warn};
 
 pub use crate::agents::platform_extensions::{
     PlatformExtensionContext, PlatformExtensionDef, PLATFORM_EXTENSIONS,
@@ -392,8 +393,6 @@ impl ExtensionConfig {
     }
 
     pub async fn resolve(self, config: &Config) -> ExtensionResult<Self> {
-        use crate::agents::extension_manager::{merge_environments, substitute_env_vars};
-
         match self {
             Self::Stdio {
                 name,
@@ -474,6 +473,93 @@ impl ExtensionConfig {
             other => Ok(other),
         }
     }
+}
+
+static RE_ENV_BRACES: Lazy<regex::Regex> =
+    Lazy::new(|| regex::Regex::new(r"\$\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}").expect("valid regex"));
+
+static RE_ENV_SIMPLE: Lazy<regex::Regex> =
+    Lazy::new(|| regex::Regex::new(r"\$([A-Za-z_][A-Za-z0-9_]*)").expect("valid regex"));
+
+/// Merge environment variables from direct envs and keychain-stored env_keys
+async fn merge_environments(
+    envs: &Envs,
+    env_keys: &[String],
+    ext_name: &str,
+    config: &Config,
+) -> Result<HashMap<String, String>, ExtensionError> {
+    let mut all_envs = envs.get_env();
+
+    for key in env_keys {
+        if all_envs.contains_key(key) {
+            continue;
+        }
+
+        match config.get(key, true) {
+            Ok(value) => {
+                if value.is_null() {
+                    warn!(
+                        key = %key,
+                        ext_name = %ext_name,
+                        "Secret key not found in config (returned null)."
+                    );
+                    continue;
+                }
+
+                if let Some(str_val) = value.as_str() {
+                    all_envs.insert(key.clone(), str_val.to_string());
+                } else {
+                    warn!(
+                        key = %key,
+                        ext_name = %ext_name,
+                        value_type = %value.get("type").and_then(|t| t.as_str()).unwrap_or("unknown"),
+                        "Secret value is not a string; skipping."
+                    );
+                }
+            }
+            Err(e) => {
+                error!(
+                    key = %key,
+                    ext_name = %ext_name,
+                    error = %e,
+                    "Failed to fetch secret from config."
+                );
+                return Err(ExtensionError::ConfigError(format!(
+                    "Failed to fetch secret '{}' from config: {}",
+                    key, e
+                )));
+            }
+        }
+    }
+
+    Ok(Envs::new(all_envs).get_env())
+}
+
+/// Substitute environment variables in a string. Supports both ${VAR} and $VAR syntax.
+fn substitute_env_vars(value: &str, env_map: &HashMap<String, String>) -> String {
+    let mut result = value.to_string();
+
+    for cap in RE_ENV_BRACES.captures_iter(value) {
+        if let Some(var_name) = cap.get(1) {
+            if let Some(env_value) = env_map.get(var_name.as_str()) {
+                result = result.replace(&cap[0], env_value);
+            }
+        }
+    }
+
+    // Scan the original input for $VAR patterns (not the post-substitution result)
+    // to avoid recursive expansion when a substituted value contains $OTHER_VAR.
+    for cap in RE_ENV_SIMPLE.captures_iter(value) {
+        if let Some(var_name) = cap.get(1) {
+            if !value.contains(&format!("${{{}}}", var_name.as_str())) {
+                if let Some(env_value) = env_map.get(var_name.as_str()) {
+                    result = result.replace(&cap[0], env_value);
+                }
+            }
+        }
+    }
+
+    result
 }
 
 impl std::fmt::Display for ExtensionConfig {
@@ -561,6 +647,7 @@ impl ToolInfo {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::agents::*;
     use crate::config;
     use test_case::test_case;
@@ -1114,5 +1201,53 @@ timeout: 300",
             config.to_string(),
             "StreamableHttp(test: http://localhost:8080/mcp)"
         );
+    }
+
+    #[tokio::test]
+    async fn test_streamable_http_header_env_substitution() {
+        let mut env_map = HashMap::new();
+        env_map.insert("AUTH_TOKEN".to_string(), "secret123".to_string());
+        env_map.insert("API_KEY".to_string(), "key456".to_string());
+
+        // Test ${VAR} syntax
+        let result = substitute_env_vars("Bearer ${ AUTH_TOKEN }", &env_map);
+        assert_eq!(result, "Bearer secret123");
+
+        // Test ${VAR} syntax without spaces
+        let result = substitute_env_vars("Bearer ${AUTH_TOKEN}", &env_map);
+        assert_eq!(result, "Bearer secret123");
+
+        // Test $VAR syntax
+        let result = substitute_env_vars("Bearer $AUTH_TOKEN", &env_map);
+        assert_eq!(result, "Bearer secret123");
+
+        // Test multiple substitutions
+        let result = substitute_env_vars("Key: $API_KEY, Token: ${AUTH_TOKEN}", &env_map);
+        assert_eq!(result, "Key: key456, Token: secret123");
+
+        // Test no substitution when variable doesn't exist
+        let result = substitute_env_vars("Bearer ${UNKNOWN_VAR}", &env_map);
+        assert_eq!(result, "Bearer ${UNKNOWN_VAR}");
+
+        // Test mixed content
+        let result = substitute_env_vars(
+            "Authorization: Bearer ${AUTH_TOKEN} and API ${API_KEY}",
+            &env_map,
+        );
+        assert_eq!(result, "Authorization: Bearer secret123 and API key456");
+    }
+
+    #[tokio::test]
+    async fn test_substitute_env_vars_no_recursive_expansion() {
+        let mut env_map = HashMap::new();
+        env_map.insert("TOKEN".to_string(), "abc$KEY".to_string());
+        env_map.insert("KEY".to_string(), "xyz".to_string());
+
+        // A substituted value containing $KEY should NOT be re-expanded
+        let result = substitute_env_vars("${TOKEN}", &env_map);
+        assert_eq!(result, "abc$KEY");
+
+        let result = substitute_env_vars("$TOKEN", &env_map);
+        assert_eq!(result, "abc$KEY");
     }
 }

@@ -259,16 +259,21 @@ fn prompt_single_select(select: SingleSelect<'_>) -> io::Result<ElicitationInput
 }
 
 fn read_line() -> io::Result<Option<String>> {
-    if !std::io::stdin().is_terminal() {
-        let mut line = String::new();
-        io::stdin().lock().read_line(&mut line)?;
-        return Ok(Some(line.trim().to_string()));
-    }
+    read_line_from(&mut io::stdin().lock())
+}
 
+fn read_line_from(reader: &mut impl BufRead) -> io::Result<Option<String>> {
+    read_line_with(|line| reader.read_line(line))
+}
+
+fn read_line_with(
+    read: impl FnOnce(&mut String) -> io::Result<usize>,
+) -> io::Result<Option<String>> {
     let mut line = String::new();
-    match io::stdin().lock().read_line(&mut line) {
+    match read(&mut line) {
         Ok(0) => Ok(None),
-        Ok(_) => Ok(Some(line.trim().to_string())),
+        Ok(_) if line.ends_with('\n') => Ok(Some(line.trim().to_string())),
+        Ok(_) => Ok(None),
         Err(e) if e.kind() == io::ErrorKind::Interrupted => Ok(None),
         Err(e) => Err(e),
     }
@@ -319,7 +324,34 @@ fn parse_value(input: &str, field_type: &str, enum_values: Option<&Vec<Value>>) 
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::io::Cursor;
     use test_case::test_case;
+
+    #[test]
+    fn nonterminal_eof_cancels_elicitation_input() {
+        assert_eq!(read_line_from(&mut Cursor::new([])).unwrap(), None);
+    }
+
+    #[test]
+    fn blank_line_accepts_the_field_default() {
+        assert_eq!(
+            read_line_from(&mut Cursor::new(b"\n")).unwrap(),
+            Some(String::new())
+        );
+    }
+
+    #[test]
+    fn partial_line_at_eof_cancels_elicitation_input() {
+        assert_eq!(read_line_from(&mut Cursor::new(b"partial")).unwrap(), None);
+    }
+
+    #[test]
+    fn interrupted_read_cancels_elicitation_input() {
+        assert_eq!(
+            read_line_with(|_| Err(io::Error::from(io::ErrorKind::Interrupted))).unwrap(),
+            None
+        );
+    }
 
     #[test]
     fn builds_required_enum_select_with_default() {

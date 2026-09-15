@@ -7,43 +7,13 @@ use futures::future::BoxFuture;
 const XAI_PROVIDER_NAME: &str = "xai";
 pub const XAI_API_HOST: &str = "https://api.x.ai/v1";
 pub const XAI_DEFAULT_MODEL: &str = "grok-4.5";
-pub const XAI_KNOWN_MODELS: &[&str] = &[
-    "grok-4.5",
-    "grok-4.3",
-    "grok-4.20-0309-reasoning",
-    "grok-4.20-0309-non-reasoning",
-    "grok-build-0.1",
-    "grok-code-fast-1",
-    "grok-4-0709",
-    "grok-3",
-    "grok-3-fast",
-    "grok-3-mini",
-    "grok-3-mini-fast",
-    "grok-2-vision-1212",
-    "grok-2-image-1212",
-    "grok-3-latest",
-    "grok-3-fast-latest",
-    "grok-3-mini-latest",
-    "grok-3-mini-fast-latest",
-    "grok-2-vision",
-    "grok-2-vision-latest",
-    "grok-2-image",
-    "grok-2-image-latest",
-    "grok-2",
-    "grok-2-latest",
-];
 
 pub const XAI_DOC_URL: &str = "https://docs.x.ai/docs/overview";
 
 pub struct XaiProvider;
 
 pub fn xai_known_model_info() -> Vec<goose_providers::base::ModelInfo> {
-    XAI_KNOWN_MODELS
-        .iter()
-        .map(|model_name| {
-            goose_providers::base::model_info_for_provider_model(XAI_PROVIDER_NAME, model_name)
-        })
-        .collect()
+    goose_providers::base::known_models_from_registry(XAI_PROVIDER_NAME)
 }
 
 impl goose_providers::base::ProviderDescriptor for XaiProvider {

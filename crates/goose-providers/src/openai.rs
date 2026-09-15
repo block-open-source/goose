@@ -1,5 +1,5 @@
 use super::api_client::ApiClient;
-use super::base::{ConfigKey, ModelInfo, Provider, ProviderMetadata};
+use super::base::{known_models_from_registry, ConfigKey, ModelInfo, Provider, ProviderMetadata};
 use super::retry::ProviderRetry;
 use crate::api_client::{AuthMethod, TlsConfig};
 use crate::conversation::message::Message;
@@ -58,40 +58,6 @@ impl CachedContextLimit {
     }
 }
 pub const OPEN_AI_DEFAULT_MODEL: &str = "gpt-4o";
-pub const OPEN_AI_KNOWN_MODELS: &[(&str, usize)] = &[
-    ("gpt-4o", 128_000),
-    ("gpt-4o-mini", 128_000),
-    ("gpt-4.1", 1_047_576),
-    ("gpt-4.1-mini", 1_047_576),
-    ("gpt-4.1-nano", 1_047_576),
-    ("o1", 200_000),
-    ("o1-pro", 200_000),
-    ("o3", 200_000),
-    ("o3-mini", 200_000),
-    ("o3-pro", 200_000),
-    ("gpt-3.5-turbo", 16_385),
-    ("gpt-4-turbo", 128_000),
-    ("o4-mini", 200_000),
-    ("gpt-5", 400_000),
-    ("gpt-5-mini", 400_000),
-    ("gpt-5-nano", 400_000),
-    ("gpt-5-pro", 400_000),
-    ("gpt-5.1", 400_000),
-    ("gpt-5.2", 400_000),
-    ("gpt-5.2-pro", 400_000),
-    ("gpt-5.3-codex", 400_000),
-    ("gpt-5.4", 1_050_000),
-    ("gpt-5.4-mini", 400_000),
-    ("gpt-5.4-nano", 400_000),
-    ("gpt-5.4-pro", 1_050_000),
-    ("gpt-5.5", 1_050_000),
-    ("gpt-5.5-pro", 1_050_000),
-    ("gpt-5.6", 1_050_000),
-    ("gpt-5.6-sol", 1_050_000),
-    ("gpt-5.6-terra", 1_050_000),
-    ("gpt-5.6-luna", 1_050_000),
-    ("gpt-6-astra", 1_050_000),
-];
 
 pub const OPEN_AI_DOC_URL: &str = "https://platform.openai.com/docs/models";
 const DEFAULT_TIMEOUT_SECONDS: u64 = 600;
@@ -655,16 +621,12 @@ fn parse_n_ctx_from_models(json: &serde_json::Value, model_name: &str) -> Option
 
 impl ProviderDescriptor for OpenAiProvider {
     fn metadata() -> ProviderMetadata {
-        let models = OPEN_AI_KNOWN_MODELS
-            .iter()
-            .map(|(name, limit)| ModelInfo::new(*name).with_context_limit(*limit))
-            .collect();
         ProviderMetadata::with_models(
             OPEN_AI_PROVIDER_NAME,
             "OpenAI",
             "GPT-4 and other OpenAI models, including OpenAI compatible ones",
             OPEN_AI_DEFAULT_MODEL,
-            models,
+            known_models_from_registry(OPEN_AI_PROVIDER_NAME),
             OPEN_AI_DOC_URL,
             vec![
                 ConfigKey::new("OPENAI_API_KEY", false, true, None, true),
@@ -1907,5 +1869,23 @@ mod tests {
         assert_eq!(payload["stream"], json!(true));
         assert_eq!(payload["stream_options"], json!({"include_usage": true}));
         assert_eq!(payload["messages"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn metadata_comes_from_the_registry() {
+        let metadata = OpenAiProvider::metadata();
+        let gpt_4o = metadata
+            .known_models
+            .iter()
+            .find(|model| model.name == "gpt-4o")
+            .expect("gpt-4o should come from the catalog");
+        assert_eq!(gpt_4o.context_limit, Some(128_000));
+        assert!(
+            metadata
+                .known_models
+                .iter()
+                .any(|model| model.name == "gpt-4"),
+            "registry-only list should include models the old hardcoded list had drifted past"
+        );
     }
 }

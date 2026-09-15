@@ -5,7 +5,7 @@ use crate::errors::ProviderError;
 use crate::openai_compatible::{handle_status, map_http_error_to_provider_error, sanitize_url};
 use crate::retry::ProviderRetry;
 
-use crate::base::{ConfigKey, Provider, ProviderMetadata};
+use crate::base::{known_models_from_registry, ConfigKey, Provider, ProviderMetadata};
 use crate::formats::google::{create_request_with_thinking_budget, response_to_streaming_message};
 use crate::model::ModelConfig;
 use crate::request_log::{start_log, LoggerHandleExt};
@@ -24,36 +24,6 @@ use tokio_util::io::StreamReader;
 pub const GOOGLE_PROVIDER_NAME: &str = "google";
 pub const GOOGLE_API_HOST: &str = "https://generativelanguage.googleapis.com";
 pub const GOOGLE_DEFAULT_MODEL: &str = "gemini-2.5-pro";
-pub const GOOGLE_KNOWN_MODELS: &[&str] = &[
-    "gemini-3.6-flash",
-    "gemini-3.5-flash",
-    "gemini-3.5-flash-lite",
-    // Gemini 3 models
-    "gemini-3-pro-preview",
-    "gemini-3-pro-image-preview",
-    // Gemini 2.5 Pro models
-    "gemini-2.5-pro",
-    "gemini-2.5-pro-preview-tts",
-    // Gemini 2.5 Flash models
-    "gemini-2.5-flash",
-    "gemini-2.5-flash-preview-09-2025",
-    "gemini-2.5-flash-image",
-    "gemini-2.5-flash-image-preview",
-    "gemini-2.5-flash-native-audio-preview-09-2025",
-    "gemini-2.5-flash-preview-tts",
-    // Gemini 2.5 Flash-Lite models
-    "gemini-2.5-flash-lite",
-    "gemini-2.5-flash-lite-preview-09-2025",
-    // Gemini 2.0 Flash models
-    "gemini-2.0-flash",
-    "gemini-2.0-flash-001",
-    "gemini-2.0-flash-exp",
-    "gemini-2.0-flash-preview-image-generation",
-    "gemini-2.0-flash-live-001",
-    // Gemini 2.0 Flash-Lite models
-    "gemini-2.0-flash-lite",
-    "gemini-2.0-flash-lite-001",
-];
 
 pub const GOOGLE_DOC_URL: &str = "https://ai.google.dev/gemini-api/docs/models";
 
@@ -115,12 +85,12 @@ impl GoogleProvider {
 
 impl crate::base::ProviderDescriptor for GoogleProvider {
     fn metadata() -> ProviderMetadata {
-        ProviderMetadata::new(
+        ProviderMetadata::with_models(
             GOOGLE_PROVIDER_NAME,
             "Google Gemini (API Key)",
             "Gemini models from Google AI",
             GOOGLE_DEFAULT_MODEL,
-            GOOGLE_KNOWN_MODELS.to_vec(),
+            known_models_from_registry(GOOGLE_PROVIDER_NAME),
             GOOGLE_DOC_URL,
             vec![
                 ConfigKey::new("GOOGLE_API_KEY", true, true, None, true),
@@ -217,5 +187,29 @@ impl Provider for GoogleProvider {
                 yield (message, usage);
             }
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::base::ProviderDescriptor;
+
+    #[test]
+    fn metadata_comes_from_the_registry() {
+        let metadata = GoogleProvider::metadata();
+        assert!(
+            metadata
+                .known_models
+                .iter()
+                .any(|model| model.name == GOOGLE_DEFAULT_MODEL),
+            "default model should be in the catalog-backed picker"
+        );
+        let pro = metadata
+            .known_models
+            .iter()
+            .find(|model| model.name == "gemini-2.5-pro")
+            .unwrap();
+        assert_eq!(pro.context_limit, Some(1_048_576));
     }
 }

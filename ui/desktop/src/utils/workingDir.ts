@@ -33,14 +33,16 @@ export const getEffectiveWorkingDir = async (): Promise<string> => {
     }
     // Env-mode backends use settings.externalGoosed.workingDir regardless of the
     // enabled flag or URL (see getActiveExternalBackend); settings-mode requires
-    // the backend to still match the window-bound URL.
+    // the backend to still match the window-bound URL and credential.
     if (source === 'env') {
       return remote;
     }
     if (
       external?.enabled &&
       external?.url &&
-      normalizeUrl(boundUrl) === normalizeUrl(external.url)
+      external?.secret &&
+      normalizeUrl(boundUrl) === normalizeUrl(external.url) &&
+      external.secret === (await window.electron.getSecretKey())
     ) {
       return remote;
     }

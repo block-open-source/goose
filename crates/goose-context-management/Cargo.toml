@@ -1,6 +1,6 @@
 [package]
 name = "goose-context-management"
-version = "0.1.0-alpha.9"
+version = "0.1.0-alpha.10"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
@@ -12,7 +12,7 @@ description = "Conversation compaction for Goose"
 workspace = true
 
 [dependencies]
-goose-provider-types = { version = "0.1.0-alpha.9", path = "../goose-provider-types" }
+goose-provider-types = { version = "0.1.0-alpha.10", path = "../goose-provider-types" }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 include_dir = { workspace = true }

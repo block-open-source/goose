@@ -1,6 +1,7 @@
 use crate::config::Config;
 use crate::conversation::message::Message;
 use crate::security::classification_client::ClassificationClient;
+use crate::security::is_shell_tool;
 use crate::security::patterns::{PatternMatch, PatternMatcher};
 use crate::utils::safe_truncate;
 use anyhow::Result;
@@ -134,7 +135,7 @@ impl PromptInjectionScanner {
         tool_call: &CallToolRequestParams,
         messages: &[Message],
     ) -> Result<ScanResult> {
-        if !is_shell_tool_name(tool_call.name.as_ref()) {
+        if !is_shell_tool(tool_call.name.as_ref()) {
             return Ok(ScanResult {
                 is_malicious: false,
                 confidence: 0.0,
@@ -416,10 +417,6 @@ impl PromptInjectionScanner {
         }
         s
     }
-}
-
-fn is_shell_tool_name(name: &str) -> bool {
-    matches!(name, "shell")
 }
 
 impl Default for PromptInjectionScanner {

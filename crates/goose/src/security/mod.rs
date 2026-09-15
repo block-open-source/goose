@@ -14,6 +14,21 @@ use std::env;
 use std::sync::OnceLock;
 use uuid::Uuid;
 
+/// Tools that execute a shell command, and so carry command-injection risk.
+///
+/// Shared by the ML command scanner and the egress inspector: a name only one
+/// of them recognises is a silent coverage gap, since the scanner fails open on
+/// anything it does not match. Extensions namespace their tools, hence the
+/// suffix checks.
+pub(crate) fn is_shell_tool(name: &str) -> bool {
+    matches!(
+        name,
+        "shell" | "bash" | "execute_command" | "run_command" | "terminal"
+    ) || name.ends_with("__shell")
+        || name.ends_with("__bash")
+        || name.ends_with("__terminal")
+}
+
 pub(crate) fn get_override(env_key: &str) -> Option<bool> {
     env::var(env_key).ok().and_then(|v| match v.as_str() {
         "true" => Some(true),
@@ -261,5 +276,33 @@ impl SecurityManager {
 impl Default for SecurityManager {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_shell_tool;
+
+    #[test]
+    fn recognises_shell_aliases_and_namespaced_variants() {
+        for name in [
+            "shell",
+            "bash",
+            "execute_command",
+            "run_command",
+            "terminal",
+            "developer__shell",
+            "developer__bash",
+            "computercontroller__terminal",
+        ] {
+            assert!(is_shell_tool(name), "{name} should be scanned");
+        }
+    }
+
+    #[test]
+    fn ignores_tools_that_do_not_execute_commands() {
+        for name in ["text_editor", "fetch", "shellcheck", "__shellish"] {
+            assert!(!is_shell_tool(name), "{name} should not be scanned");
+        }
     }
 }

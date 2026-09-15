@@ -6,6 +6,7 @@ use std::sync::OnceLock;
 
 use crate::config::GooseMode;
 use crate::conversation::message::{Message, ToolRequest};
+use crate::security::is_shell_tool;
 use crate::tool_inspection::{InspectionAction, InspectionResult, ToolInspector};
 
 pub struct EgressInspector;
@@ -270,15 +271,6 @@ fn detect_direction(command: &str) -> EgressDirection {
     }
 
     EgressDirection::Unknown
-}
-
-fn is_shell_tool(name: &str) -> bool {
-    matches!(
-        name,
-        "shell" | "bash" | "execute_command" | "run_command" | "terminal"
-    ) || name.ends_with("__shell")
-        || name.ends_with("__bash")
-        || name.ends_with("__terminal")
 }
 
 fn is_web_tool(name: &str) -> bool {

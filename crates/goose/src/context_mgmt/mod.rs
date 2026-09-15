@@ -1,8 +1,13 @@
 pub use goose_context_management::structured;
 
+pub mod request_header;
+
 use crate::conversation::message::MessageMetadata;
 use crate::conversation::message::{Message, MessageContent};
-use crate::conversation::{merge_consecutive_messages, Conversation};
+use crate::conversation::{
+    fix_conversation, merge_consecutive_messages, merge_consecutive_messages_for_request,
+    Conversation,
+};
 use crate::providers::base::Provider;
 #[cfg(test)]
 use crate::providers::base::{stream_from_single_message, MessageStream};
@@ -277,7 +282,9 @@ pub async fn check_if_compaction_needed(
 struct GooseCompactionModel<'a> {
     provider: &'a dyn Provider,
     model_config: &'a ModelConfig,
+    compaction_config: ModelConfig,
     session_id: &'a str,
+    toolshim_tools: &'a [rmcp::model::Tool],
 }
 
 #[async_trait::async_trait]
@@ -297,6 +304,72 @@ impl goose_context_management::CompactionModel for GooseCompactionModel<'_> {
         )
         .await
     }
+
+    async fn complete_prefix(
+        &self,
+        system: &str,
+        messages: &[Message],
+        tools: &[rmcp::model::Tool],
+    ) -> Result<(Message, ProviderUsage), ProviderError> {
+        // Toolshim conversion happens at send time (as in the session's own
+        // requests) so overflow elision upstream still sees tool responses.
+        let converted;
+        let messages = if self.model_config.toolshim {
+            converted = crate::providers::toolshim::convert_tool_messages_to_text(messages);
+            converted.messages().as_slice()
+        } else {
+            messages
+        };
+
+        let result = crate::session_context::with_session_id(
+            Some(self.session_id.to_string()),
+            self.provider
+                .complete(&self.compaction_config, system, messages, tools),
+        )
+        .await;
+
+        // A toolshim model expresses tool calls as text; interpret the
+        // response the same way the session does so a textual tool call is
+        // rejected as a summary instead of silently accepted. A parseable
+        // structured summary is accepted as-is: interpreting it could mistake
+        // quoted historical tool calls for fresh ones.
+        match result {
+            Ok((response, usage))
+                if self.model_config.toolshim
+                    && goose_context_management::StructuredSummary::parse(
+                        &response.as_concat_text(),
+                    )
+                    .is_none() =>
+            {
+                let response = match crate::providers::toolshim::
+                    augment_message_with_selected_tool_interpreter(
+                        response.clone(),
+                        self.toolshim_tools,
+                    )
+                    .await
+                {
+                    Ok(augmented) => augmented,
+                    Err(error) => {
+                        warn!("Toolshim augmentation failed, skipping tool augmentation: {error}");
+                        crate::providers::toolshim::sanitize_residual_markers(response)
+                    }
+                };
+                Ok((response, usage))
+            }
+            other => other,
+        }
+    }
+
+    async fn context_limit(&self) -> Option<usize> {
+        Some(
+            self.provider
+                .get_context_limit(
+                    &self.compaction_config.model_name,
+                    self.compaction_config.context_limit,
+                )
+                .await,
+        )
+    }
 }
 
 struct GooseTokenEstimator;
@@ -304,8 +377,18 @@ struct GooseTokenEstimator;
 #[async_trait::async_trait]
 impl goose_context_management::TokenEstimator for GooseTokenEstimator {
     async fn count_chat_tokens(&self, system: &str, messages: &[Message]) -> usize {
+        self.count_chat_tokens_with_tools(system, messages, &[])
+            .await
+    }
+
+    async fn count_chat_tokens_with_tools(
+        &self,
+        system: &str,
+        messages: &[Message],
+        tools: &[rmcp::model::Tool],
+    ) -> usize {
         match create_token_counter().await {
-            Ok(counter) => counter.count_chat_tokens(system, messages, &[]),
+            Ok(counter) => counter.count_chat_tokens(system, messages, tools),
             Err(error) => {
                 warn!("Failed to create token counter: {error}");
                 0
@@ -324,40 +407,69 @@ impl goose_context_management::TokenEstimator for GooseTokenEstimator {
     }
 }
 
-fn compaction_templates() -> Result<goose_context_management::Templates> {
-    Ok(goose_context_management::Templates {
-        compaction: crate::prompt_template::template_source("compaction.md")?,
-        summary: crate::prompt_template::template_source("compaction_summary.md")?,
-    })
-}
-
+/// Summarizes by extending the conversation's last routed request (same
+/// system prompt, tools, and projected messages, instruction appended as the
+/// final user message) so the provider's prompt cache is reused. A session
+/// with no routed request yet in this process summarizes without a header.
+///
+/// On failure the returned error may downcast to
+/// [`goose_context_management::CompactionFailure`], carrying the billed usage
+/// of a completed-but-rejected attempt.
 async fn do_compact(
     provider: &dyn Provider,
     model_config: &ModelConfig,
     session_id: &str,
     messages: &[Message],
 ) -> Result<(Message, ProviderUsage), anyhow::Error> {
-    // Keep stale per-turn state out of the summary.
-    let agent_visible_messages = Conversation::new_unvalidated(
-        messages
-            .iter()
-            .filter(|msg| !msg.is_turn_context())
-            .cloned(),
-    )
-    .agent_visible_messages();
+    if crate::prompt_template::user_override_exists(
+        goose_context_management::templates::COMPACTION_TEMPLATE,
+    ) {
+        warn!(
+            "Ignoring customized compaction.md: compaction now extends the conversation's own \
+             request. Customize compaction_prefix.md and compaction_summary.md instead."
+        );
+    }
+    let instruction = crate::prompt_template::template_source(
+        goose_context_management::templates::COMPACTION_PREFIX_TEMPLATE,
+    )?;
+    let summary_template = crate::prompt_template::template_source(
+        goose_context_management::templates::COMPACTION_SUMMARY_TEMPLATE,
+    )?;
+    let header =
+        request_header::last_for_session(session_id, provider.get_name()).unwrap_or_default();
 
+    // Cache stays on and thinking is inherited: both are part of the
+    // provider's cache key, so this request extends the conversation's own
+    // cache entry.
+    let compaction_config = model_config
+        .clone()
+        .with_default_thinking_effort(Config::global().get_goose_thinking_effort());
     let model = GooseCompactionModel {
         provider,
         model_config,
+        compaction_config,
         session_id,
+        toolshim_tools: &header.toolshim_tools,
     };
-    let summary = goose_context_management::summarize(
+
+    // Same projection as `stream_response_from_provider`; the instruction is
+    // appended before the merge pass to keep role alternation valid.
+    let mut projected =
+        Conversation::new_unvalidated(messages.iter().cloned()).agent_visible_messages();
+    projected.push(Message::user().with_text(&instruction));
+    let (fixed, _) = fix_conversation(Conversation::new_unvalidated(projected));
+    let request_messages = merge_consecutive_messages_for_request(fixed.messages().clone());
+
+    let summary = goose_context_management::summarize_as_prefix(
         &model,
         Some(&GooseTokenEstimator),
-        &compaction_templates()?,
-        &agent_visible_messages,
+        &summary_template,
+        &header.system_prompt,
+        &header.tools,
+        &request_messages,
     )
-    .await?;
+    .await
+    .map_err(anyhow::Error::new)?;
 
     Ok((summary.message, summary.usage))
 }
@@ -623,8 +735,9 @@ mod tests {
     struct MockProvider {
         message: Message,
         config: ModelConfig,
-        max_tool_responses: Option<usize>,
+        max_request_bytes: Option<usize>,
         captured_system: std::sync::Mutex<Option<String>>,
+        captured_messages: std::sync::Mutex<Option<Vec<Message>>>,
         calls: std::sync::atomic::AtomicUsize,
     }
 
@@ -644,14 +757,15 @@ mod tests {
                     supports_vision: None,
                     request_headers: None,
                 },
-                max_tool_responses: None,
+                max_request_bytes: None,
                 captured_system: std::sync::Mutex::new(None),
+                captured_messages: std::sync::Mutex::new(None),
                 calls: std::sync::atomic::AtomicUsize::new(0),
             }
         }
 
-        fn with_max_tool_responses(mut self, max: usize) -> Self {
-            self.max_tool_responses = Some(max);
+        fn with_max_request_bytes(mut self, max: usize) -> Self {
+            self.max_request_bytes = Some(max);
             self
         }
 
@@ -676,21 +790,13 @@ mod tests {
             self.calls
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             *self.captured_system.lock().unwrap() = Some(system.to_string());
-            // If max_tool_responses is set, fail if we have too many
-            if let Some(max) = self.max_tool_responses {
-                let tool_response_count = messages
-                    .iter()
-                    .filter(|m| {
-                        m.content
-                            .iter()
-                            .any(|c| matches!(c, MessageContent::ToolResponse(_)))
-                    })
-                    .count();
-
-                if tool_response_count > max {
+            *self.captured_messages.lock().unwrap() = Some(messages.to_vec());
+            if let Some(max) = self.max_request_bytes {
+                let request_bytes = serde_json::to_string(messages).unwrap().len();
+                if request_bytes > max {
                     return Err(ProviderError::ContextLengthExceeded(format!(
-                        "Too many tool responses: {} > {}",
-                        tool_response_count, max
+                        "Request too large: {} > {}",
+                        request_bytes, max
                     )));
                 }
             }
@@ -708,7 +814,7 @@ mod tests {
     #[tokio::test]
     async fn test_keeps_tool_request() {
         let response_message = Message::assistant().with_text("<mock summary>");
-        let provider = MockProvider::new(response_message, 1);
+        let provider = MockProvider::new(response_message, 100_000);
         let basic_conversation = vec![
             Message::user().with_text("read hello.txt"),
             Message::assistant()
@@ -1044,8 +1150,13 @@ mod tests {
         );
     }
 
+    /// Replaces `summarizer_input_excludes_turn_context_events`, which dropped
+    /// the events before flattening them into the summarizer system prompt.
+    /// A prefix request cannot drop them: any removal diverges from the
+    /// conversation's own request and forfeits the cache from that point on.
+    /// The instruction carries the exclusion rule instead.
     #[tokio::test]
-    async fn summarizer_input_excludes_turn_context_events() {
+    async fn turn_context_events_stay_in_the_prefix_and_are_excluded_by_instruction() {
         let provider = MockProvider::new(Message::assistant().with_text("summary"), 1000);
         let turn_context = |text: &str| {
             Message::user()
@@ -1059,7 +1170,7 @@ mod tests {
             turn_context("<turn-context>cwd /new/dir</turn-context>"),
         ]);
 
-        let compacted = compact_messages(
+        compact_messages(
             &provider,
             &provider.config,
             "test-session-id",
@@ -1067,20 +1178,24 @@ mod tests {
             false,
         )
         .await
-        .unwrap()
-        .conversation;
+        .unwrap();
 
         let system = provider.captured_system.lock().unwrap().clone().unwrap();
-        assert!(system.contains("please refactor the parser"));
         assert!(
-            !system.contains("/old/dir") && !system.contains("/new/dir"),
-            "turn-context events must not reach the summarizer as dialogue"
+            !system.contains("please refactor the parser"),
+            "the summarizer system prompt is the conversation's own, not a flattened transcript"
         );
 
-        let carried = compacted.messages().last().unwrap();
+        let request = provider.captured_messages.lock().unwrap().clone().unwrap();
+        let request_text = request
+            .iter()
+            .map(Message::as_concat_text)
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(request_text.contains("/new/dir"));
         assert!(
-            carried.is_turn_context() && carried.as_concat_text().contains("/new/dir"),
-            "the newest turn-context event must still be carried forward"
+            request_text.contains("`<turn-context>` blocks are ephemeral per-request state"),
+            "the instruction must tell the summarizer to exclude turn-context state"
         );
     }
 
@@ -1224,13 +1339,10 @@ mod tests {
         assert_eq!(provider.call_count(), 5);
     }
 
-    #[tokio::test]
-    async fn test_progressive_removal_on_context_exceeded() {
-        let response_message = Message::assistant().with_text("<mock summary>");
-        // Set max to 2 tool responses - will trigger progressive removal
-        let provider = MockProvider::new(response_message, 1000).with_max_tool_responses(2);
-
-        // Create a conversation with many tool responses
+    /// Prose rather than a repeated character: a run of one character
+    /// collapses to almost nothing under BPE, which would leave the fixture
+    /// far inside any realistic budget.
+    fn conversation_with_bulky_tool_responses() -> Conversation {
         let mut messages = vec![Message::user().with_text("start")];
         for i in 0..10 {
             messages.push(Message::assistant().with_tool_request(
@@ -1240,26 +1352,277 @@ mod tests {
             messages.push(Message::user().with_tool_response(
                 format!("tool_{}", i),
                 Ok(rmcp::model::CallToolResult::success(vec![
-                    ContentBlock::text(format!("response{}", i)),
+                    ContentBlock::text(format!(
+                        "response {i}: {}",
+                        "the quick brown fox jumps over the lazy dog ".repeat(400)
+                    )),
                 ])),
             ));
         }
+        Conversation::new_unvalidated(messages)
+    }
 
-        let conversation = Conversation::new_unvalidated(messages);
-        let model_config = provider.config.clone();
-        let result = compact_messages(
+    fn elided_response_count(request: &[Message]) -> usize {
+        request
+            .iter()
+            .flat_map(|message| &message.content)
+            .filter(|content| match content {
+                MessageContent::ToolResponse(response) => response
+                    .tool_result
+                    .as_ref()
+                    .is_ok_and(|result| format!("{result:?}").contains("tool response elided")),
+                _ => false,
+            })
+            .count()
+    }
+
+    #[tokio::test]
+    async fn oversized_request_is_elided_to_fit_before_it_is_sent() {
+        let conversation = conversation_with_bulky_tool_responses();
+        // Calibrated off the real tokenizer so the fixture stays about a third
+        // over budget however the tokenizer changes.
+        let counter = create_token_counter().await.unwrap();
+        let transcript_tokens = counter.count_chat_tokens("", conversation.messages(), &[]);
+        let context_limit = transcript_tokens * 2 / 3;
+        let provider = MockProvider::new(
+            Message::assistant().with_text("<mock summary>"),
+            context_limit,
+        );
+
+        compact_messages(
             &provider,
-            &model_config,
+            &provider.config.clone(),
             "test-session-id",
             &conversation,
             false,
         )
-        .await;
+        .await
+        .unwrap();
 
+        assert_eq!(
+            provider.call_count(),
+            1,
+            "the request must be sized before it is sent, not probed"
+        );
+        let request = provider.captured_messages.lock().unwrap().clone().unwrap();
+        let elided = elided_response_count(&request);
+        assert!(elided > 0, "an oversized request must be elided");
         assert!(
-            result.is_ok(),
-            "Should succeed with progressive removal: {:?}",
-            result.err()
+            elided < 10,
+            "eliding must stop once the request fits, not sacrifice every response"
+        );
+        assert_eq!(
+            request
+                .iter()
+                .flat_map(|m| &m.content)
+                .filter(|c| matches!(c, MessageContent::ToolResponse(_)))
+                .count(),
+            10,
+            "every tool request must keep its (elided) response"
+        );
+    }
+
+    /// The estimator is approximate and the resolved context limit can be
+    /// wrong, so a provider that rejects anyway must still be recovered from.
+    #[tokio::test]
+    async fn provider_overflow_escalates_past_the_estimate() {
+        let provider = MockProvider::new(Message::assistant().with_text("<mock summary>"), 100_000)
+            .with_max_request_bytes(12_000);
+        let conversation = conversation_with_bulky_tool_responses();
+
+        compact_messages(
+            &provider,
+            &provider.config.clone(),
+            "test-session-id",
+            &conversation,
+            false,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            provider.call_count(),
+            5,
+            "escalation stays graduated: the estimator undercounts thinking and images, \
+             so a bad estimate must not cost every tool response on the second attempt"
+        );
+        let request = provider.captured_messages.lock().unwrap().clone().unwrap();
+        assert!(serde_json::to_string(&request).unwrap().len() <= 12_000);
+        assert_eq!(elided_response_count(&request), 10);
+    }
+
+    /// The header is measured too, tool schemas included. When no request that
+    /// keeps it can fit, the headerless one must be the first attempt rather
+    /// than the second: the alternative is uploading a request the estimator
+    /// already rejected.
+    #[tokio::test]
+    async fn header_is_dropped_without_a_doomed_first_attempt() {
+        let conversation = Conversation::new_unvalidated(vec![
+            Message::user().with_text("the quick brown fox jumps over the lazy dog ".repeat(400)),
+            Message::assistant().with_text("acknowledged"),
+        ]);
+        let system_prompt = "you are a helpful assistant ".repeat(400);
+        let tools = vec![rmcp::model::Tool::new(
+            "read_file",
+            "Read a file from disk",
+            rmcp::object!({
+                "type": "object",
+                "properties": { "path": { "type": "string" } }
+            }),
+        )];
+
+        // The budget has to land between the headerless request and the one
+        // that keeps the header. Below both is the "nothing fits at all" case,
+        // which is a different branch, so a budget there would let this pass
+        // without the header ever being the reason.
+        let counter = create_token_counter().await.unwrap();
+        let instruction = counter.count_tokens(
+            &crate::prompt_template::template_source("compaction_prefix.md").unwrap(),
+        );
+        let headerless = counter.count_chat_tokens("", conversation.messages(), &[]) + instruction;
+        let with_header = headerless + counter.count_chat_tokens(&system_prompt, &[], &tools);
+
+        let session_id = "header-is-dropped-session";
+        request_header::record(
+            session_id,
+            request_header::RequestHeader {
+                provider: "mock".to_string(),
+                system_prompt,
+                tools,
+                toolshim_tools: vec![],
+            },
+        );
+        let provider = MockProvider::new(
+            Message::assistant().with_text("<mock summary>"),
+            (headerless + with_header) / 2 * 10 / 9,
+        );
+
+        compact_messages(
+            &provider,
+            &provider.config.clone(),
+            session_id,
+            &conversation,
+            false,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            provider.call_count(),
+            1,
+            "the with-header request was already measured as too big to send"
+        );
+        assert_eq!(
+            provider.captured_system.lock().unwrap().clone().unwrap(),
+            "",
+            "the attempt that was made must be the headerless one"
+        );
+    }
+
+    /// The header costs nothing to rebuild; an elided tool response is gone
+    /// from the summary for good. So when the header is what overflows, it is
+    /// what should go.
+    #[tokio::test]
+    async fn header_is_given_back_before_tool_responses_are() {
+        let mut messages = vec![Message::user().with_text("start")];
+        for i in 0..4 {
+            messages.push(Message::assistant().with_tool_request(
+                format!("tool_{i}"),
+                Ok(CallToolRequestParams::new("read_file")),
+            ));
+            messages.push(Message::user().with_tool_response(
+                format!("tool_{i}"),
+                Ok(rmcp::model::CallToolResult::success(vec![
+                    ContentBlock::text(format!("small result {i}")),
+                ])),
+            ));
+        }
+        let conversation = Conversation::new_unvalidated(messages);
+        let system_prompt = "you are a helpful assistant ".repeat(400);
+
+        // Responses small enough that eliding every one of them cannot cover a
+        // header-sized deficit, so the header is the only thing that can give.
+        let counter = create_token_counter().await.unwrap();
+        let instruction = counter.count_tokens(
+            &crate::prompt_template::template_source("compaction_prefix.md").unwrap(),
+        );
+        let headerless = counter.count_chat_tokens("", conversation.messages(), &[]) + instruction;
+        let with_header = headerless + counter.count_chat_tokens(&system_prompt, &[], &[]);
+
+        let session_id = "header-before-responses-session";
+        request_header::record(
+            session_id,
+            request_header::RequestHeader {
+                provider: "mock".to_string(),
+                system_prompt,
+                tools: vec![],
+                toolshim_tools: vec![],
+            },
+        );
+        let provider = MockProvider::new(
+            Message::assistant().with_text("<mock summary>"),
+            (headerless + with_header) / 2 * 10 / 9,
+        );
+
+        compact_messages(
+            &provider,
+            &provider.config.clone(),
+            session_id,
+            &conversation,
+            false,
+        )
+        .await
+        .unwrap();
+
+        let request = provider.captured_messages.lock().unwrap().clone().unwrap();
+        assert_eq!(provider.call_count(), 1);
+        assert_eq!(
+            provider.captured_system.lock().unwrap().clone().unwrap(),
+            "",
+            "the header is what overflowed, so the header is what should go"
+        );
+        assert_eq!(
+            elided_response_count(&request),
+            0,
+            "dropping the header was enough, so every tool response must survive"
+        );
+    }
+
+    /// Switching providers mid-session leaves a header describing the old
+    /// provider's wire shape. Replaying it would mix a shim system prompt with
+    /// native tools, or the reverse.
+    #[tokio::test]
+    async fn header_from_another_provider_is_not_replayed() {
+        let conversation = Conversation::new_unvalidated(vec![
+            Message::user().with_text("what does this do?"),
+            Message::assistant().with_text("it compacts"),
+        ]);
+        let session_id = "provider-switch-session";
+        request_header::record(
+            session_id,
+            request_header::RequestHeader {
+                provider: "some-other-provider".to_string(),
+                system_prompt: "STALE HEADER FROM THE OLD PROVIDER".to_string(),
+                tools: vec![],
+                toolshim_tools: vec![],
+            },
+        );
+        let provider = MockProvider::new(Message::assistant().with_text("<mock summary>"), 200_000);
+
+        compact_messages(
+            &provider,
+            &provider.config.clone(),
+            session_id,
+            &conversation,
+            false,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            provider.captured_system.lock().unwrap().clone().unwrap(),
+            "",
+            "a header recorded against another provider must be ignored"
         );
     }
 

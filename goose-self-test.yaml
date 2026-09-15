@@ -18,6 +18,7 @@ activities:
   - Validate ACP thinking-effort discovery, forwarding, and provider switching
   - Validate GDK observability hook lifecycle events and payload opt-in
   - Test error boundaries including nested delegation prevention
+  - Test auto-compaction continuity in a nested session
   - Generate comprehensive test report
 
 parameters:
@@ -445,6 +446,15 @@ prompt: |
 
   {% if test_phases == "all" or "advanced" in test_phases %}
   ## 🔬 PHASE 4: Advanced Testing
+
+  ### Compaction Continuity Test
+  1. Use the shell tool to run a nested goose session with a context limit small enough to
+     force auto-compaction mid-run (single process, multiple turns via stdin):
+     `printf 'Now list every file you read and one fact about each.\n/exit\n' | env GOOSE_CONTEXT_LIMIT=9000 GOOSE_DISABLE_SESSION_NAMING=true goose run -s -n selftest-compaction -t "Read three source files of your choice under crates/goose/src/context_mgmt/ and quote one line from each."`
+  2. Verify the output shows auto-compaction ran ("auto-compact" / "Compaction complete")
+     and the run did NOT error ("Ran into this error trying to compact" is a FAILURE).
+  3. Verify the post-compaction turn still recalls the files read before compaction —
+     the summary must carry the session's state across the compaction boundary.
 
   ### Error Boundary Testing
   1. Create a file with an invalid path (should fail gracefully)

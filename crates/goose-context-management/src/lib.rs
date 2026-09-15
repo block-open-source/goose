@@ -26,7 +26,7 @@ pub use format::format_message_for_compacting;
 pub use model::{CompactionModel, ProviderModel, TokenEstimator};
 pub use provider::CompactingProvider;
 pub use structured::{FileActivity, StructuredSummary};
-pub use summarize::{summarize, Summary};
+pub use summarize::{summarize, summarize_as_prefix, CompactionFailure, Summary};
 pub use templates::Templates;
 
 pub const DEFAULT_COMPACTION_THRESHOLD: f64 = 0.8;

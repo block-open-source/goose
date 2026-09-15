@@ -8,7 +8,7 @@ use tracing_futures::Instrument;
 
 use crate::agents::state_machine::ops_llm::{chat_span, record_chat_usage};
 use crate::agents::state_machine::{
-    applied, last_effective_role, messages_since_kickoff, not_applicable, trailing_error, yielded,
+    applied, last_effective_role, messages_since_kickoff, not_applicable, trailing_error,
     yielded_with, ConversationEffect, Emitter, GooseEffect, Operation, OperationResult,
     SlashCommand,
 };
@@ -20,6 +20,17 @@ use crate::session::Session;
 use goose_providers::model::ModelConfig;
 
 const COMPACTION_THINKING_TEXT: &str = "goose is compacting the conversation...";
+
+/// A failed compaction may still have billed completed-but-rejected
+/// summarization calls.
+fn billed_compaction_usage(
+    error: &anyhow::Error,
+) -> Vec<goose_providers::conversation::token_usage::ProviderUsage> {
+    error
+        .downcast_ref::<goose_context_management::CompactionFailure>()
+        .map(|failure| failure.billed_usage.clone())
+        .unwrap_or_default()
+}
 
 pub(super) const MAX_CONTEXT_ERROR_COMPACTIONS: usize = 2;
 
@@ -173,7 +184,15 @@ impl Operation<Session, GooseEffect> for CompactionOperation {
             Ok(result) => result,
             Err(error) => {
                 span.record("error.type", "compaction_error");
-                return Self::command_error(conversation, error.to_string(), emit).await;
+                let mut result = Self::command_error(conversation, error.to_string(), emit).await;
+                if let Ok(OperationResult::Applied(step)) = &mut result {
+                    step.effects.extend(
+                        billed_compaction_usage(&error)
+                            .into_iter()
+                            .map(GooseEffect::RecordUsage),
+                    );
+                }
+                return result;
             }
         };
         let compacted = result.conversation;
@@ -318,7 +337,11 @@ impl Operation<Session, GooseEffect> for CompactionOperation {
                      Please try again or create a new session"
                 )))
                 .await;
-                yielded()
+                yielded_with(
+                    billed_compaction_usage(&e)
+                        .into_iter()
+                        .map(GooseEffect::RecordUsage),
+                )
             }
         }
     }

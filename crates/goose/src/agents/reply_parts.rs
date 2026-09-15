@@ -383,6 +383,15 @@ pub(crate) async fn stream_response_from_provider(
     // so they can be handled by the existing error handling logic in the agent
     let model_config =
         model_config.with_default_thinking_effort(Config::global().get_goose_thinking_effort());
+    crate::context_mgmt::request_header::record(
+        &session_id,
+        crate::context_mgmt::request_header::RequestHeader {
+            provider: provider.get_name().to_string(),
+            system_prompt: system_prompt.clone(),
+            tools: tools.clone(),
+            toolshim_tools: toolshim_tools.clone(),
+        },
+    );
     let request_started = std::time::Instant::now();
     debug!("WAITING_LLM_STREAM_START");
     let stream_result = crate::session_context::with_session_id(
@@ -735,6 +744,28 @@ impl Agent {
             .collect();
 
         (tool_requests, filtered_message)
+    }
+
+    /// A failed compaction may still have billed completed-but-rejected
+    /// summarization calls; record each so session accounting stays complete.
+    pub(crate) async fn record_failed_compaction_usage(
+        &self,
+        session_id: &str,
+        schedule_id: Option<String>,
+        error: &anyhow::Error,
+    ) {
+        let Some(failure) = error.downcast_ref::<goose_context_management::CompactionFailure>()
+        else {
+            return;
+        };
+        for usage in &failure.billed_usage {
+            if let Err(record_error) = self
+                .update_session_metrics(session_id, schedule_id.clone(), usage, None)
+                .await
+            {
+                tracing::warn!("Failed to record usage of a failed compaction: {record_error}");
+            }
+        }
     }
 
     /// `post_compaction_context_tokens` is `Some` when this usage came from a

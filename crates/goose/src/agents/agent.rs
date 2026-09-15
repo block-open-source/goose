@@ -2334,7 +2334,12 @@ impl Agent {
                     )
                 );
 
-                let compact_model_config = self.model_config_for_session(&session_config.id).await?;
+                // Effective, not stored: a registry entry can force toolshim
+                // on, and compaction has to match the wire shape the session's
+                // own requests use.
+                let compact_model_config = self
+                    .effective_model_config_for_session(&session_config.id)
+                    .await?;
                 match compact_messages(
                     self.provider().await?.as_ref(),
                     &compact_model_config,
@@ -2361,6 +2366,7 @@ impl Agent {
                         compacted_conversation
                     }
                     Err(e) => {
+                        self.record_failed_compaction_usage(&session_config.id, session_config.schedule_id.clone(), &e).await;
                         yield AgentEvent::Message(
                             Message::assistant().with_text(
                                 format!("Ran into this error trying to compact: {e}.\n\nPlease try again or create a new session")
@@ -3138,6 +3144,7 @@ impl Agent {
                                     #[cfg(feature = "telemetry")]
                                     crate::posthog::emit_error("compaction_failed", &e.to_string());
                                     error!("Compaction failed: {}", e);
+                                    self.record_failed_compaction_usage(&session_config.id, session_config.schedule_id.clone(), &e).await;
                                     yield AgentEvent::Message(
                                         Message::assistant().with_text(
                                             format!("Ran into this error trying to compact: {e}.\n\nPlease try again or create a new session")

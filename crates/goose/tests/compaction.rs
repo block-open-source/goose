@@ -473,14 +473,13 @@ async fn test_manual_compaction_updates_token_counts_and_conversation() -> Resul
 
     // Accumulated tokens increased by the compaction cost
     // Initial: 1000
-    // Compaction input: ~6700 (system 6000 + compaction prompt + 4 messages;
-    // the mock derives input tokens from the rendered prompt length, so the
-    // band must absorb compaction.md wording changes)
+    // Compaction input: ~500 (no routed request yet, so no header: the 4
+    // replayed messages plus the appended instruction at 100 tokens each)
     // Compaction output: 200
     let accumulated = updated_session.accumulated_usage.total_tokens.unwrap();
     assert!(
-        (7300..=8600).contains(&accumulated),
-        "Accumulated should be ~7900 (1000 initial + ~6700 input + 200 output). Got: {}",
+        (1500..=2200).contains(&accumulated),
+        "Accumulated should be ~1700 (1000 initial + ~500 input + 200 output). Got: {}",
         accumulated
     );
 
@@ -809,13 +808,15 @@ async fn test_context_limit_recovery_compaction() -> Result<()> {
 
     // Accumulated tokens should include all operations:
     // - Initial: 1000
-    // - Compaction: ~6400 input (mock uses system_prompt.len()/4) + 200 output = ~6600
-    // - Reply: ~6500 input + 200 output = ~6700
-    // Total: 1000 + 6600 + 6700 = ~14300
+    // - Compaction: ~21500 input (the failed request's header and messages are
+    //   replayed, including the 15k long_tool_call; in production this prefix
+    //   is a prompt-cache read) + 200 output = ~21700
+    // - Reply: ~6300 input + 200 output = ~6500
+    // Total: 1000 + 21700 + 6500 = ~29200
     let accumulated = updated_session.accumulated_usage.total_tokens.unwrap();
     assert!(
-        (13000..=16000).contains(&accumulated),
-        "Accumulated should be ~14300 (initial + compaction + reply). Got: {}",
+        (28000..=30500).contains(&accumulated),
+        "Accumulated should be ~29200 (initial + compaction replay + reply). Got: {}",
         accumulated
     );
 

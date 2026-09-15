@@ -4,7 +4,7 @@ use tokio_util::sync::CancellationToken;
 use super::pipeline::{self, test_pipeline, MessageKind::Agent};
 use crate::conversation::message::Message;
 
-const SUMMARIZE_HISTORY: &str = "Please summarize the conversation history";
+const SUMMARIZE_HISTORY: &str = "distill the conversation so far";
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn steering_is_fifo_during_inference_and_survives_compaction() -> Result<()> {
@@ -70,7 +70,7 @@ async fn steering_is_fifo_during_inference_and_survives_compaction() -> Result<(
         .into_iter()
         .find(|call| call.input_contains(SUMMARIZE_HISTORY))
         .expect("compaction request");
-    assert!(summarization.system_contains("redirect before compaction"));
+    assert!(summarization.input_contains("redirect before compaction"));
 
     Ok(())
 }

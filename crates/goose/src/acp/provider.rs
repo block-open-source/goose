@@ -1846,7 +1846,21 @@ pub fn extension_configs_to_mcp_servers(configs: &[ExtensionConfig]) -> Vec<McpS
     for config in configs {
         match config {
             ExtensionConfig::StreamableHttp {
-                name, uri, headers, ..
+                name,
+                socket: Some(_),
+                ..
+            } => {
+                tracing::debug!(
+                    name,
+                    "skipping socket-backed HTTP extension, unsupported by ACP"
+                );
+            }
+            ExtensionConfig::StreamableHttp {
+                name,
+                uri,
+                headers,
+                socket: None,
+                ..
             } => {
                 let http_headers = headers
                     .iter()
@@ -4271,6 +4285,51 @@ mod tests {
                 _ => panic!("server type mismatch"),
             }
         }
+    }
+
+    #[test]
+    fn socket_backed_http_is_omitted_without_dropping_ordinary_http() {
+        let socket_backed = ExtensionConfig::StreamableHttp {
+            name: "socket-backed".into(),
+            description: String::new(),
+            uri: "http://127.0.0.1:4711/mcp".into(),
+            envs: Envs::default(),
+            env_keys: vec![],
+            headers: HashMap::from([("Authorization".into(), "Bearer socket-secret".into())]),
+            timeout: None,
+            socket: Some("/run/private-mcp.sock".into()),
+            client_id: None,
+            client_secret_key: None,
+            scopes: vec![],
+            bundled: Some(false),
+            available_tools: vec![],
+        };
+        let ordinary_http = ExtensionConfig::StreamableHttp {
+            name: "ordinary-http".into(),
+            description: String::new(),
+            uri: "https://mcp.example.com/".into(),
+            envs: Envs::default(),
+            env_keys: vec![],
+            headers: HashMap::from([("Authorization".into(), "Bearer network-secret".into())]),
+            timeout: None,
+            socket: None,
+            client_id: None,
+            client_secret_key: None,
+            scopes: vec![],
+            bundled: Some(false),
+            available_tools: vec![],
+        };
+
+        let result = extension_configs_to_mcp_servers(&[socket_backed, ordinary_http]);
+
+        assert_eq!(
+            result,
+            vec![McpServer::Http(
+                McpServerHttp::new("ordinary-http", "https://mcp.example.com/").headers(vec![
+                    HttpHeader::new("Authorization", "Bearer network-secret")
+                ])
+            )]
+        );
     }
 
     #[test]

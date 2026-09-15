@@ -1,6 +1,6 @@
 {
   "name": "@aaif/goose-binary-win32-x64",
-  "version": "1.50.0",
+  "version": "1.51.0",
   "description": "Goose binary for Windows x64",
   "license": "Apache-2.0",
   "repository": {

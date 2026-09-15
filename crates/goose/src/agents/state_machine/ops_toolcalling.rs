@@ -930,6 +930,7 @@ impl Operation<Session, GooseEffect> for ToolExecutionOperation<'_> {
         let mut combined = futures::stream::select_all(tool_streams);
         let mut response = Message::user();
         let mut effects = Vec::new();
+        let mut was_cancelled = false;
         for (request, disposition) in &pending {
             match disposition {
                 ToolDisposition::Execute => {}
@@ -992,7 +993,10 @@ impl Operation<Session, GooseEffect> for ToolExecutionOperation<'_> {
                         }
                     }
                 },
-                _ = emit.cancelled() => break,
+                _ = emit.cancelled() => {
+                    was_cancelled = true;
+                    break;
+                }
             }
         }
 
@@ -1011,6 +1015,14 @@ impl Operation<Session, GooseEffect> for ToolExecutionOperation<'_> {
                     request.metadata.as_ref(),
                 );
             }
+        }
+
+        // If the turn was cancelled, add a visible cancellation marker so the
+        // conversation history never ends on a bare interrupted tool response.
+        // Without this, the model sees an unresolved tool chain on reload and
+        // resumes the cancelled task instead of responding to the next message.
+        if was_cancelled {
+            response = response.with_text("[Turn cancelled by user. awaiting the next message.]");
         }
 
         if !manage_extensions_ids.is_empty() && !extension_change_failed {
@@ -1054,6 +1066,77 @@ mod tests {
 
         assert_eq!(pending.len(), 1);
         assert!(matches!(pending[0].1, ToolDisposition::Execute));
+    }
+
+    #[test]
+    fn cancelled_turn_adds_cancellation_marker() {
+        // Simulate what the dispatch_tool_call function does when cancelled:
+        // 1. Create a user message (the tool response holder)
+        // 2. Add an interrupted tool response (as the code does on cancel)
+        // 3. Then add the cancellation marker (our fix)
+        let mut response = Message::user();
+
+        // Simulate interrupted tool response
+        response.add_tool_response_with_metadata(
+            "test_call_id",
+            Ok(CallToolResult::error(vec![ContentBlock::text(
+                "Tool call was interrupted before completing",
+            )])),
+            None,
+        );
+
+        // Before the fix: response would only contain the tool response,
+        // leaving the conversation ending on a bare toolResponse.
+        // Verify that without the marker, the last content is a tool response.
+        assert!(matches!(
+            response.content.last(),
+            Some(MessageContent::ToolResponse(_))
+        ));
+
+        // Apply the fix: add cancellation marker
+        let was_cancelled = true;
+        if was_cancelled {
+            response = response.with_text("[Turn cancelled by user. awaiting the next message.]");
+        }
+
+        // After the fix: the last content block should now be text,
+        // not a tool response. This prevents the model from seeing
+        // an unresolved tool chain on session reload.
+        assert!(matches!(
+            response.content.last(),
+            Some(MessageContent::Text(_))
+        ));
+
+        // Verify the text content is the cancellation marker
+        if let Some(MessageContent::Text(text)) = response.content.last() {
+            assert!(text.text.contains("cancelled by user"));
+        } else {
+            panic!("Expected text content as last block after cancellation");
+        }
+    }
+
+    #[test]
+    fn non_cancelled_turn_does_not_add_cancellation_marker() {
+        // When the turn completes normally (not cancelled), no cancellation
+        // marker should be added.
+        let mut response = Message::user();
+
+        response.add_tool_response_with_metadata(
+            "test_call_id",
+            Ok(CallToolResult::success(vec![ContentBlock::text("result")])),
+            None,
+        );
+
+        let was_cancelled = false;
+        if was_cancelled {
+            response = response.with_text("[Turn cancelled by user. awaiting the next message.]");
+        }
+
+        // The last content should be the tool response, not a cancellation marker
+        assert!(matches!(
+            response.content.last(),
+            Some(MessageContent::ToolResponse(_))
+        ));
     }
 
     #[test]

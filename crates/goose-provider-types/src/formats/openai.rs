@@ -2555,6 +2555,36 @@ mod tests {
     }
 
     #[test]
+    fn test_moonshot_image_reaches_the_request_payload() -> anyhow::Result<()> {
+        // The declarative provider is named "moonshot", but the canonical registry
+        // keys its models under "moonshotai". Vision support only reaches this
+        // layer once that mapping resolves; without it the image block is replaced
+        // by a placeholder and never leaves the client.
+        let config = ModelConfig::new("kimi-k3").with_canonical_limits("moonshot");
+        let message = Message::user().with_image("aW1hZ2VkYXRh", "image/png");
+
+        let request = create_request(
+            &config,
+            "system",
+            std::slice::from_ref(&message),
+            &[],
+            &ImageFormat::OpenAi,
+            false,
+        )?;
+
+        let messages = request["messages"].as_array().unwrap();
+        let content = messages[1]["content"].as_array().unwrap();
+        assert_eq!(content.len(), 1);
+        assert_eq!(content[0]["type"], "image_url");
+        assert!(content[0]["image_url"]["url"]
+            .as_str()
+            .unwrap()
+            .starts_with("data:image/png;base64,"));
+
+        Ok(())
+    }
+
+    #[test]
     fn test_format_messages_with_image_block_passthrough_when_not_vision() -> anyhow::Result<()> {
         let user_message = Message::user().with_image("aW1hZ2VkYXRh", "image/png");
 

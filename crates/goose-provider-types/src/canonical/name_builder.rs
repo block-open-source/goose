@@ -51,6 +51,7 @@ pub fn map_provider_name(provider: &str) -> &str {
         "gemini_oauth" => "google",
         "databricks_v2" => "databricks",
         "zhipu" => "zhipuai",
+        "moonshot" => "moonshotai",
         "novita" => "novita-ai",
         "opencode_go" => "opencode-go",
         "opencode_zen" => "opencode",
@@ -353,6 +354,14 @@ mod tests {
         assert_eq!(
             map_to_canonical_model("opencode_zen", "kimi-k3", r),
             Some("opencode/kimi-k3".to_string())
+        );
+        assert_eq!(
+            map_to_canonical_model("moonshot", "kimi-k3", r),
+            Some("moonshotai/kimi-k3".to_string())
+        );
+        assert_eq!(
+            map_to_canonical_model("moonshot", "kimi-k2.6", r),
+            Some("moonshotai/kimi-k2.6".to_string())
         );
 
         // === OpenRouter ===

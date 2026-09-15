@@ -811,6 +811,17 @@ mod tests {
         }
 
         #[test]
+        fn restores_vision_support_for_moonshot_provider() {
+            let _guard = env_lock::lock_env([
+                ("GOOSE_MAX_TOKENS", None::<&str>),
+                ("GOOSE_CONTEXT_LIMIT", None::<&str>),
+            ]);
+            let config = ModelConfig::new("kimi-k3").with_canonical_limits("moonshot");
+            assert_eq!(config.supports_vision, Some(true));
+            assert_eq!(config.reasoning, Some(true));
+        }
+
+        #[test]
         fn resolves_claude_sonnet_5_on_aws_bedrock() {
             let _guard = env_lock::lock_env([
                 ("GOOSE_MAX_TOKENS", None::<&str>),

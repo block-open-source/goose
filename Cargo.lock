@@ -5381,6 +5381,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "tracing-subscriber",
+ "unicode-segmentation",
  "url",
  "urlencoding",
  "webbrowser",

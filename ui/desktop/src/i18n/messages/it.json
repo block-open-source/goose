@@ -932,6 +932,7 @@
 
 
 
+
   "dirSwitcher.failedToUpdateWorkingDir": {
     "defaultMessage": "Impossibile aggiornare la cartella di lavoro"
   },
@@ -1745,32 +1746,23 @@
   "liveVoice.error": {
     "defaultMessage": "Live voice failed. Try again"
   },
-  "liveVoice.featureDisabled": {
-    "defaultMessage": "Live voice is disabled"
-  },
   "liveVoice.live": {
     "defaultMessage": "Stop Live voice"
   },
   "liveVoice.mute": {
     "defaultMessage": "Mute microphone"
   },
-  "liveVoice.providerUnavailable": {
-    "defaultMessage": "Live voice provider is not configured"
-  },
-  "liveVoice.ready": {
-    "defaultMessage": "Start Live voice"
-  },
-  "liveVoice.requiresAutonomousMode": {
-    "defaultMessage": "Live voice requires Autonomous mode"
-  },
-  "liveVoice.sessionBusy": {
-    "defaultMessage": "Live voice is unavailable while this chat is busy"
-  },
   "liveVoice.stopping": {
     "defaultMessage": "Stopping Live voice"
   },
   "liveVoice.unmute": {
     "defaultMessage": "Unmute microphone"
+  },
+  "liveVoiceSettings.description": {
+    "defaultMessage": "Parla con Goose in tempo reale"
+  },
+  "liveVoiceSettings.title": {
+    "defaultMessage": "Voce in tempo reale"
   },
   "loadingGoose.compacting": {
     "defaultMessage": "goose sta compattando la conversazione..."

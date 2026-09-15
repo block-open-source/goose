@@ -102,6 +102,7 @@ export default function BaseChat({
   const [liveVoiceAvailability, setLiveVoiceAvailability] =
     useState<LiveVoiceAvailabilityResponse_unstable | null>(null);
   const liveVoice = useLiveVoice(sessionId);
+  const startLiveVoice = liveVoice.start;
   const isMobile = useIsMobile();
   const navContext = useNavigationContextSafe();
   const setView = useNavigation();
@@ -148,7 +149,7 @@ export default function BaseChat({
     }
 
     if (liveVoiceAvailability.status === 'ready') {
-      void liveVoice.start(NEW_LIVE_VOICE_GREETING);
+      void startLiveVoice(NEW_LIVE_VOICE_GREETING);
     }
 
     navigate(location, {
@@ -159,7 +160,7 @@ export default function BaseChat({
     isActiveSession,
     shouldStartLiveVoice,
     liveVoiceAvailability,
-    liveVoice.start,
+    startLiveVoice,
     location,
     navigate,
   ]);

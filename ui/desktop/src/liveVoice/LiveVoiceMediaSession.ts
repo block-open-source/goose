@@ -102,7 +102,7 @@ export class LiveVoiceMediaSession {
       this.dataChannel.send(
         JSON.stringify({
           type: 'session.commentary.append',
-          event_id: `event_${crypto.randomUUID()}`,
+          event_id: `event_${globalThis.crypto.randomUUID()}`,
           delegation_id: null,
           content,
         })

@@ -211,7 +211,9 @@ export default function Hub({
             nextChatExtensionDraft={draftForMenu}
             onNextChatExtensionDraftChange={handleNextChatExtensionDraftChange}
             liveVoice={{
-              availability: isCreatingSession ? null : 'ready',
+              availability: isCreatingSession
+                ? null
+                : { status: 'ready', message: 'Start Live voice' },
               phase: 'idle',
               muted: false,
               start: handleStartLiveVoice,

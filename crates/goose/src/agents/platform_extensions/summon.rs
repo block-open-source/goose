@@ -1724,6 +1724,7 @@ impl SummonClient {
         provider_default_model: Option<&str>,
     ) -> Result<goose_providers::model::ModelConfig, anyhow::Error> {
         let env_model = std::env::var("GOOSE_SUBAGENT_MODEL").ok();
+        let env_provider = std::env::var("GOOSE_SUBAGENT_PROVIDER").ok();
         let recipe_settings = recipe.settings.as_ref();
         let configured = Config::global().all_values().ok();
         let configured_provider = configured
@@ -1743,7 +1744,11 @@ impl SummonClient {
                     recipe_settings.and_then(|settings| settings.goose_provider.as_deref()),
                 )
             })
-            .or_else(|| env_model.clone())
+            .or_else(|| {
+                env_model
+                    .clone()
+                    .filter(|_| matches_provider(env_provider.as_deref()))
+            })
             .or_else(|| {
                 params
                     .model
@@ -3300,6 +3305,37 @@ You review code."#;
             resolved_provider.get_name(),
             PROVIDER,
             "recipe settings.goose_provider must take priority over GOOSE_SUBAGENT_PROVIDER"
+        );
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_resolve_model_config_recipe_provider_rejects_env_model_of_other_provider() {
+        let _env = env_lock::lock_env([
+            ("GOOSE_CONTEXT_LIMIT", None::<&str>),
+            ("GOOSE_MAX_TOKENS", None::<&str>),
+            ("GOOSE_SUBAGENT_PROVIDER", Some("openai")),
+            ("GOOSE_SUBAGENT_MODEL", Some("gpt-5.2")),
+            ("ANTHROPIC_API_KEY", Some("test-key")),
+        ]);
+
+        let client = SummonClient::new(create_test_context()).unwrap();
+        let mut recipe = empty_recipe();
+        recipe.settings = Some(crate::recipe::Settings {
+            goose_provider: Some(PROVIDER.to_string()),
+            goose_model: None,
+            temperature: None,
+            max_turns: None,
+        });
+        let session = crate::session::Session::default();
+        let (_, result) = client
+            .resolve_provider(&DelegateParams::default(), &recipe, &session, &[])
+            .await
+            .expect("resolve_provider");
+
+        assert_ne!(
+            result.model_name, "gpt-5.2",
+            "env model for another provider must not be sent to the recipe provider"
         );
     }
 

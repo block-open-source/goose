@@ -4514,6 +4514,12 @@
   "toolConfirmation.gooseWouldLikeToCallWithName": {
     "defaultMessage": "goose가 {toolName}을 호출하려고 합니다. 허용하시겠습니까?"
   },
+  "transcriptWindow.hiddenMessages": {
+    "defaultMessage": "성능을 위해 {count, plural, other {#개의 메시지}}를 숨겼습니다"
+  },
+  "transcriptWindow.loadEarlier": {
+    "defaultMessage": "이전 메시지 불러오기"
+  },
   "updateSection.autoDownload": {
     "defaultMessage": "goose가 백그라운드에서 업데이트를 다운로드하며, 종료하거나 다시 시작할 때 설치합니다."
   },

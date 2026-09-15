@@ -4514,6 +4514,12 @@
   "toolConfirmation.gooseWouldLikeToCallWithName": {
     "defaultMessage": "Goose ingin memanggil {toolName}. Benarkan?"
   },
+  "transcriptWindow.hiddenMessages": {
+    "defaultMessage": "{count, plural, other {# mesej disembunyikan}} untuk prestasi"
+  },
+  "transcriptWindow.loadEarlier": {
+    "defaultMessage": "Muat mesej terdahulu"
+  },
   "updateSection.autoDownload": {
     "defaultMessage": "Goose akan memuat turun kemas kini di latar belakang dan memasangnya pada kali seterusnya anda keluar atau mula semula."
   },

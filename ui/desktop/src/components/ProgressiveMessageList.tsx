@@ -147,7 +147,7 @@ function MessageRowComponent({
 
 const MessageRow = memo(MessageRowComponent, isEqual);
 
-interface ProgressiveMessageListProps {
+export interface ProgressiveMessageListProps {
   messages: Message[];
   sessionId: string;
   toolCallNotifications?: Map<string, NotificationEvent[]>;
@@ -169,6 +169,9 @@ interface ProgressiveMessageListProps {
     elicitationId: string,
     userData: Record<string, unknown>
   ) => Promise<boolean>;
+  insertAfter?: { index: number; node: React.ReactNode };
+  rowContexts?: MessageRowContext[];
+  toRawIndex?: (index: number) => number;
 }
 
 export default function ProgressiveMessageList({
@@ -185,11 +188,24 @@ export default function ProgressiveMessageList({
   onMessageUpdate,
   onRenderingComplete,
   submitElicitationResponse,
+  insertAfter,
+  rowContexts: rowContextsOverride,
+  toRawIndex,
 }: ProgressiveMessageListProps) {
   const intl = useIntl();
   const [renderedCount, setRenderedCount] = useState(() =>
     messages.length <= showLoadingThreshold ? messages.length : Math.min(batchSize, messages.length)
   );
+  // A raised threshold (e.g. transcript-window expansion) must take effect in
+  // the same commit: updating renderedCount in an effect would paint a frame
+  // with the already-mounted tail sliced off.
+  const [lastShowLoadingThreshold, setLastShowLoadingThreshold] = useState(showLoadingThreshold);
+  if (showLoadingThreshold !== lastShowLoadingThreshold) {
+    setLastShowLoadingThreshold(showLoadingThreshold);
+    if (messages.length <= showLoadingThreshold) {
+      setRenderedCount(messages.length);
+    }
+  }
   const completedMessageKeyRef = useRef<string | null>(null);
   const isLoading = renderedCount < messages.length;
 
@@ -238,53 +254,69 @@ export default function ProgressiveMessageList({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isLoading, messages.length]);
 
-  const rowContexts = useMemo(() => deriveMessageRowContexts(messages), [messages]);
+  const rowContexts = useMemo(
+    () => rowContextsOverride ?? deriveMessageRowContexts(messages),
+    [messages, rowContextsOverride]
+  );
   const messagesToRender = messages.slice(0, renderedCount);
+
+  const renderRow = (message: Message, index: number) => {
+    if (!message.metadata.userVisible) return null;
+    if (renderMessage) return renderMessage(message, index);
+
+    const isUser = isUserMessage(message);
+    const messageIdentifier =
+      message.id ?? `msg-${toRawIndex ? toRawIndex(index) : index}-${message.created}`;
+    const messageKey = getSystemNotification(message)
+      ? `notification-${messageIdentifier}`
+      : messageIdentifier;
+    const rowContext = rowContexts[index];
+    const currentResolvedModel = getResolvedModel(message);
+    const modelChangeMessage =
+      currentResolvedModel &&
+      rowContext.previousResolvedModel &&
+      currentResolvedModel !== rowContext.previousResolvedModel
+        ? intl.formatMessage(i18n.modelChanged, {
+            previousModel: getModelDisplayName(rowContext.previousResolvedModel),
+            currentModel: getModelDisplayName(currentResolvedModel),
+          })
+        : null;
+    const toolNotifications = rowContext.toolStates.map((toolState) =>
+      toolCallNotifications.get(toolState.requestId)
+    );
+
+    return (
+      <MessageRow
+        key={messageKey}
+        append={append}
+        index={toRawIndex ? toRawIndex(index) : index}
+        isStreaming={
+          isStreamingMessage &&
+          !isUser &&
+          index === messagesToRender.length - 1 &&
+          message.role === 'assistant'
+        }
+        isUser={isUser}
+        message={message}
+        modelChangeMessage={modelChangeMessage}
+        onMessageUpdate={onMessageUpdate}
+        rowContext={rowContext}
+        sessionId={sessionId}
+        submitElicitationResponse={submitElicitationResponse}
+        toolNotifications={toolNotifications}
+      />
+    );
+  };
+
   const messageRows = messagesToRender
     .map((message, index) => {
-      if (!message.metadata.userVisible) return null;
-      if (renderMessage) return renderMessage(message, index);
-
-      const isUser = isUserMessage(message);
-      const messageIdentifier = message.id ?? `msg-${index}-${message.created}`;
-      const messageKey = getSystemNotification(message)
-        ? `notification-${messageIdentifier}`
-        : messageIdentifier;
-      const rowContext = rowContexts[index];
-      const currentResolvedModel = getResolvedModel(message);
-      const modelChangeMessage =
-        currentResolvedModel &&
-        rowContext.previousResolvedModel &&
-        currentResolvedModel !== rowContext.previousResolvedModel
-          ? intl.formatMessage(i18n.modelChanged, {
-              previousModel: getModelDisplayName(rowContext.previousResolvedModel),
-              currentModel: getModelDisplayName(currentResolvedModel),
-            })
-          : null;
-      const toolNotifications = rowContext.toolStates.map((toolState) =>
-        toolCallNotifications.get(toolState.requestId)
-      );
-
+      const row = renderRow(message, index);
+      if (!insertAfter || index !== insertAfter.index) return row;
       return (
-        <MessageRow
-          key={messageKey}
-          append={append}
-          index={index}
-          isStreaming={
-            isStreamingMessage &&
-            !isUser &&
-            index === messagesToRender.length - 1 &&
-            message.role === 'assistant'
-          }
-          isUser={isUser}
-          message={message}
-          modelChangeMessage={modelChangeMessage}
-          onMessageUpdate={onMessageUpdate}
-          rowContext={rowContext}
-          sessionId={sessionId}
-          submitElicitationResponse={submitElicitationResponse}
-          toolNotifications={toolNotifications}
-        />
+        <Fragment key={`insert-after-${index}`}>
+          {row}
+          {insertAfter.node}
+        </Fragment>
       );
     })
     .filter(Boolean);

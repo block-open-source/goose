@@ -4514,6 +4514,12 @@
   "toolConfirmation.gooseWouldLikeToCallWithName": {
     "defaultMessage": "Goose ingin memanggil {toolName}. Izinkan?"
   },
+  "transcriptWindow.hiddenMessages": {
+    "defaultMessage": "{count, plural, other {# pesan disembunyikan}} demi performa"
+  },
+  "transcriptWindow.loadEarlier": {
+    "defaultMessage": "Muat pesan lebih awal"
+  },
   "updateSection.autoDownload": {
     "defaultMessage": "Goose akan mengunduh pembaruan di latar belakang dan menginstalnya saat Anda keluar atau memulai ulang berikutnya."
   },

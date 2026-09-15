@@ -4514,6 +4514,12 @@
   "toolConfirmation.gooseWouldLikeToCallWithName": {
     "defaultMessage": "Goose 想调用 {toolName}，允许吗？"
   },
+  "transcriptWindow.hiddenMessages": {
+    "defaultMessage": "为提升性能，已隐藏 {count, plural, other {# 条消息}}"
+  },
+  "transcriptWindow.loadEarlier": {
+    "defaultMessage": "加载更早的消息"
+  },
   "updateSection.autoDownload": {
     "defaultMessage": "更新将在后台自动下载。"
   },

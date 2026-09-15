@@ -4514,6 +4514,12 @@
   "toolConfirmation.gooseWouldLikeToCallWithName": {
     "defaultMessage": "Goose 想要呼叫 {toolName}。要允許嗎？"
   },
+  "transcriptWindow.hiddenMessages": {
+    "defaultMessage": "為提升效能，已隱藏 {count, plural, other {# 則訊息}}"
+  },
+  "transcriptWindow.loadEarlier": {
+    "defaultMessage": "載入較早的訊息"
+  },
   "updateSection.autoDownload": {
     "defaultMessage": "Goose 會在背景下載更新，並於您下次結束或重新啟動時安裝。"
   },

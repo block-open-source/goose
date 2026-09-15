@@ -4514,6 +4514,12 @@
   "toolConfirmation.gooseWouldLikeToCallWithName": {
     "defaultMessage": "Goose quiere invocar {toolName}. ¿Permitir?"
   },
+  "transcriptWindow.hiddenMessages": {
+    "defaultMessage": "{count, plural, one {# mensaje oculto} other {# mensajes ocultos}} por motivos de rendimiento"
+  },
+  "transcriptWindow.loadEarlier": {
+    "defaultMessage": "Cargar mensajes anteriores"
+  },
   "updateSection.autoDownload": {
     "defaultMessage": "La actualización se descargará automáticamente en segundo plano."
   },

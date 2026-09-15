@@ -4514,6 +4514,12 @@
   "toolConfirmation.gooseWouldLikeToCallWithName": {
     "defaultMessage": "Goose {toolName} को कॉल करना चाहेंगे। अनुमति दें?"
   },
+  "transcriptWindow.hiddenMessages": {
+    "defaultMessage": "{count, plural, one {# संदेश छिपाया गया} other {# संदेश छिपाए गए}} प्रदर्शन हेतु"
+  },
+  "transcriptWindow.loadEarlier": {
+    "defaultMessage": "पुराने संदेश लोड करें"
+  },
   "updateSection.autoDownload": {
     "defaultMessage": "अपडेट बैकग्राउंड में अपने आप डाउनलोड हो जाएगा."
   },

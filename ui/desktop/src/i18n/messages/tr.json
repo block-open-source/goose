@@ -4514,6 +4514,12 @@
   "toolConfirmation.gooseWouldLikeToCallWithName": {
     "defaultMessage": "Goose, {toolName}'yi aramak istiyor. İzin vermek?"
   },
+  "transcriptWindow.hiddenMessages": {
+    "defaultMessage": "{count, plural, other {# mesaj gizlendi}} performans amaçlı"
+  },
+  "transcriptWindow.loadEarlier": {
+    "defaultMessage": "Daha önceki mesajları yükle"
+  },
   "updateSection.autoDownload": {
     "defaultMessage": "Güncelleme arka planda otomatik olarak indirilecektir."
   },

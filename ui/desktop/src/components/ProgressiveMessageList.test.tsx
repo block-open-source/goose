@@ -254,3 +254,78 @@ describe('ProgressiveMessageList batching', () => {
     expect(onRenderingComplete).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('ProgressiveMessageList insertAfter', () => {
+  const divider = <div data-testid="insert-divider">divider</div>;
+
+  function renderWithInsert(
+    messages: Message[],
+    insertAfter: { index: number; node: React.ReactNode },
+    renderMessage?: (message: Message, index: number) => React.ReactNode | null
+  ) {
+    return render(
+      <IntlTestWrapper>
+        <ProgressiveMessageList
+          messages={messages}
+          sessionId="test-session"
+          append={append}
+          isUserMessage={isUserMessage}
+          insertAfter={insertAfter}
+          renderMessage={renderMessage}
+        />
+      </IntlTestWrapper>
+    );
+  }
+
+  it('inserts the node after the given raw message index', () => {
+    const messages = [
+      message('a-1', 'user', [{ type: 'text', text: 'One' }]),
+      message('a-2', 'user', [{ type: 'text', text: 'Two' }]),
+      message('a-3', 'user', [{ type: 'text', text: 'Three' }]),
+    ];
+    renderWithInsert(messages, { index: 1, node: divider });
+
+    const first = screen.getByText('a-1');
+    const second = screen.getByText('a-2');
+    const inserted = screen.getByTestId('insert-divider');
+    const third = screen.getByText('a-3');
+    expect(first.compareDocumentPosition(inserted) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(
+      second.compareDocumentPosition(inserted) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(inserted.compareDocumentPosition(third) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('still renders the node when the row at the index is not user-visible', () => {
+    const messages = [
+      message('a-1', 'user', [{ type: 'text', text: 'One' }]),
+      {
+        ...message('a-2', 'user', [{ type: 'text', text: 'Two' }]),
+        metadata: { ...visibleMetadata, userVisible: false },
+      },
+      message('a-3', 'user', [{ type: 'text', text: 'Three' }]),
+    ];
+    renderWithInsert(messages, { index: 1, node: divider });
+
+    expect(screen.getByTestId('insert-divider')).not.toBeNull();
+    expect(screen.queryByText('a-2')).toBeNull();
+  });
+
+  it('ignores an out-of-range index', () => {
+    const messages = [message('a-1', 'user', [{ type: 'text', text: 'One' }])];
+    renderWithInsert(messages, { index: 5, node: divider });
+
+    expect(screen.queryByTestId('insert-divider')).toBeNull();
+    expect(screen.getByText('a-1')).not.toBeNull();
+  });
+
+  it('renders the node even when renderMessage returns null for the row', () => {
+    const messages = [
+      message('a-1', 'user', [{ type: 'text', text: 'One' }]),
+      message('a-2', 'user', [{ type: 'text', text: 'Two' }]),
+    ];
+    renderWithInsert(messages, { index: 1, node: divider }, () => null);
+
+    expect(screen.getByTestId('insert-divider')).not.toBeNull();
+  });
+});

@@ -4514,6 +4514,12 @@
   "toolConfirmation.gooseWouldLikeToCallWithName": {
     "defaultMessage": "Goose muốn gọi {toolName}. Cho phép?"
   },
+  "transcriptWindow.hiddenMessages": {
+    "defaultMessage": "{count, plural, other {# tin nhắn đã bị ẩn}} để tối ưu hiệu suất"
+  },
+  "transcriptWindow.loadEarlier": {
+    "defaultMessage": "Tải các tin nhắn trước đó"
+  },
   "updateSection.autoDownload": {
     "defaultMessage": "Goose sẽ tải bản cập nhật ở chế độ nền và cài đặt vào lần tiếp theo khi bạn thoát hoặc khởi động lại."
   },

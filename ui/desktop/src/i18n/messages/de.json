@@ -4514,6 +4514,12 @@
   "toolConfirmation.gooseWouldLikeToCallWithName": {
     "defaultMessage": "Goose möchte {toolName} aufrufen. Erlauben?"
   },
+  "transcriptWindow.hiddenMessages": {
+    "defaultMessage": "{count, plural, one {# Nachricht ausgeblendet} other {# Nachrichten ausgeblendet}} zur Leistungsverbesserung"
+  },
+  "transcriptWindow.loadEarlier": {
+    "defaultMessage": "Frühere Nachrichten laden"
+  },
   "updateSection.autoDownload": {
     "defaultMessage": "Goose lädt das Update im Hintergrund herunter und installiert es beim nächsten Beenden oder Neustart."
   },

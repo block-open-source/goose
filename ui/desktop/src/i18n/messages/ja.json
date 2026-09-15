@@ -4514,6 +4514,12 @@
   "toolConfirmation.gooseWouldLikeToCallWithName": {
     "defaultMessage": "Gooseが{toolName}を実行しようとしています。許可しますか？"
   },
+  "transcriptWindow.hiddenMessages": {
+    "defaultMessage": "{count, plural, other {# 件のメッセージを非表示}} パフォーマンスのため"
+  },
+  "transcriptWindow.loadEarlier": {
+    "defaultMessage": "以前のメッセージを読み込む"
+  },
   "updateSection.autoDownload": {
     "defaultMessage": "アップデートはバックグラウンドで自動的にダウンロードされます。"
   },

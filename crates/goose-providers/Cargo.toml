@@ -13,6 +13,7 @@ workspace = true
 
 [features]
 default = []
+test-utils = []
 local-inference = ["dep:goose-local-inference"]
 local-inference-hf-hub = ["local-inference", "goose-local-inference/hf-hub"]
 cuda = ["local-inference", "goose-local-inference/cuda"]
@@ -21,13 +22,16 @@ mlx = ["local-inference", "goose-local-inference/mlx"]
 rustls-tls = [
     "reqwest/rustls",
     "rmcp/reqwest",
+    "tokio-tungstenite?/rustls-tls-webpki-roots",
 ]
+live-websocket = ["dep:tokio-tungstenite", "dep:http"]
 native-tls = [
     "dep:pem",
     "dep:pkcs8",
     "dep:sec1",
     "reqwest/native-tls",
     "rmcp/reqwest-native-tls",
+    "tokio-tungstenite?/native-tls",
 ]
 
 [dependencies]
@@ -48,6 +52,10 @@ tokio-stream = { workspace = true, features = ["io-util"] }
 tokio-util = { workspace = true, features = ["compat"] }
 url = { workspace = true }
 urlencoding = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+base64 = { workspace = true }
+tokio-tungstenite = { version = "0.28", default-features = false, features = ["connect", "handshake"], optional = true }
+http = { workspace = true, optional = true }
 pem = { version = "4.0.0", default-features = false, features = ["std"], optional = true }
 pkcs8 = { version = "0.11", default-features = false, features = ["alloc", "std"], optional = true }
 sec1 = { version = "0.8", default-features = false, features = ["der", "std"], optional = true }
@@ -56,7 +64,7 @@ include_dir = { workspace = true }
 [dev-dependencies]
 test-case = { workspace = true }
 tempfile = { workspace = true }
-tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "time"] }
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "test-util", "time"] }
 tokio-stream = { workspace = true }
 env-lock = { workspace = true }
 wiremock.workspace = true
@@ -66,3 +74,7 @@ reqwest = { workspace = true, features = ["gzip"] }
 [[example]]
 name = "streaming"
 required-features = ["rustls-tls"]
+
+[[example]]
+name = "openai_live"
+required-features = ["live-websocket", "rustls-tls"]

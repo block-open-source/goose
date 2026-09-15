@@ -1920,7 +1920,19 @@ impl SessionStorage {
                 .bind(session_id)
                 .fetch_one(&mut *tx)
                 .await?;
-        let created = message.created.max(latest.unwrap_or(message.created));
+        // Normalize the latest timestamp to seconds before comparing, to
+        // prevent stale or mismatched-unit values (e.g. millisecond timestamps
+        // from older Goose versions) from clobbering new message timestamps.
+        let latest_normalized = latest
+            .map(|t| {
+                if t > MILLISECOND_TIMESTAMP_THRESHOLD {
+                    t / 1000
+                } else {
+                    t
+                }
+            })
+            .unwrap_or(message.created);
+        let created = message.created.max(latest_normalized);
 
         let message_id = message
             .id
@@ -4955,5 +4967,69 @@ mod tests {
                 .await
                 .unwrap();
         assert_eq!(remaining, 0);
+    }
+
+    #[tokio::test]
+    async fn test_add_message_normalizes_stale_millisecond_timestamp() {
+        // When a session contains millisecond-scale timestamps from an older
+        // Goose version, the MAX(created_timestamp) returns a 13-digit value.
+        // Without normalization, .max() picks this stale ms value over the
+        // current time (seconds), and every new message gets stamped with it.
+        // With normalization, the ms value is converted to seconds before
+        // comparison, so the new message keeps its correct current timestamp.
+        let temp_dir = TempDir::new().unwrap();
+        let sm = SessionManager::new(temp_dir.path().to_path_buf());
+
+        let session = sm
+            .create_session(
+                PathBuf::from("/tmp/test-stale-ts"),
+                "test-session".to_string(),
+                SessionType::User,
+                GooseMode::default(),
+            )
+            .await
+            .unwrap();
+
+        // Insert a message with a millisecond timestamp (simulating old Goose)
+        add_message_at_millis(&sm, &session.id, "old message", "2025-01-01T00:00:00Z").await;
+
+        // Verify the old message has a ms-scale timestamp
+        let pool = sm.storage().pool().await.unwrap();
+        let old_ts: i64 =
+            sqlx::query_scalar("SELECT created_timestamp FROM messages WHERE session_id = ?")
+                .bind(&session.id)
+                .fetch_one(pool)
+                .await
+                .unwrap();
+        assert!(
+            old_ts > MILLISECOND_TIMESTAMP_THRESHOLD,
+            "old message should have ms-scale timestamp"
+        );
+
+        // Now add a new message normally (current time in seconds)
+        sm.add_message(&session.id, &Message::user().with_text("new message"))
+            .await
+            .unwrap();
+
+        // The new message's created_timestamp should be in seconds, not the
+        // stale ms value from the old message.
+        let pool = sm.storage().pool().await.unwrap();
+        let timestamps: Vec<i64> = sqlx::query_scalar(
+            "SELECT created_timestamp FROM messages WHERE session_id = ? ORDER BY id",
+        )
+        .bind(&session.id)
+        .fetch_all(pool)
+        .await
+        .unwrap();
+
+        assert_eq!(timestamps.len(), 2);
+        // Old message: ms-scale (from add_message_at_millis)
+        assert!(timestamps[0] > MILLISECOND_TIMESTAMP_THRESHOLD);
+        // New message: seconds-scale (not clobbered by the stale ms value)
+        assert!(
+            timestamps[1] < MILLISECOND_TIMESTAMP_THRESHOLD,
+            "new message timestamp should be in seconds, not clobbered by stale ms value: {}",
+            timestamps[1]
+        );
     }
 }

@@ -1,6 +1,6 @@
 use super::message::{
     ToolChainSummary, ToolNameParts, ToolRequest, TOOL_META_CHAIN_SUMMARY_KEY,
-    TOOL_META_EXTERNAL_DISPATCH_KEY, TOOL_META_TITLE_KEY,
+    TOOL_META_EXTERNAL_DISPATCH_KEY, TOOL_META_PROVIDER_INDEX_KEY, TOOL_META_TITLE_KEY,
 };
 
 impl<'a> From<&'a str> for ToolNameParts<'a> {
@@ -68,6 +68,16 @@ impl ToolRequest {
             .as_ref()
             .and_then(|v| v.get(TOOL_META_TITLE_KEY))
             .and_then(|v| v.as_str())
+    }
+
+    /// Provider-reported index of this tool call within the streamed response.
+    /// See [`TOOL_META_PROVIDER_INDEX_KEY`].
+    pub fn provider_index(&self) -> Option<i32> {
+        self.tool_meta
+            .as_ref()
+            .and_then(|v| v.get(TOOL_META_PROVIDER_INDEX_KEY))
+            .and_then(|v| v.as_i64())
+            .map(|index| index as i32)
     }
 
     pub fn generated_chain_summary(&self) -> Option<ToolChainSummary> {

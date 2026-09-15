@@ -47,7 +47,6 @@ fn inventory_entry_to_dto(entry: ProviderInventoryEntry) -> ProviderInventoryEnt
         configured: entry.configured,
         available: entry.available,
         provider_type: format!("{:?}", entry.provider_type),
-        category: provider_setup_category_to_dto(entry.category),
         acp: entry.acp,
         visible_in_setup: entry.visible_in_setup,
         deprecated: entry.deprecated,
@@ -76,7 +75,6 @@ fn inventory_entry_to_dto(entry: ProviderInventoryEntry) -> ProviderInventoryEnt
         last_refresh_attempt_at: entry.last_refresh_attempt_at.map(|t| t.to_rfc3339()),
         last_refresh_error: entry.last_refresh_error,
         stale,
-        model_selection_hint: entry.model_selection_hint,
     }
 }
 
@@ -450,6 +448,7 @@ fn custom_provider_config_to_dto(
         requires_auth: config.requires_auth,
         catalog_provider_id: config.catalog_provider_id.clone(),
         base_path: config.base_path.clone(),
+        toolshim: config.toolshim,
         api_key_env,
         api_key_set,
         preserves_thinking: config.preserves_thinking,
@@ -633,6 +632,7 @@ impl GooseAcpAgent {
         &self,
         req: CustomProviderCreateRequest,
     ) -> Result<CustomProviderCreateResponse, agent_client_protocol::Error> {
+        let toolshim = req.toolshim;
         let provider = normalize_custom_provider_upsert(req.provider, true)?;
         let config = declarative_providers::create_custom_provider(
             declarative_providers::CreateCustomProviderParams {
@@ -650,7 +650,9 @@ impl GooseAcpAgent {
                 requires_auth: provider.requires_auth,
                 catalog_provider_id: provider.catalog_provider_id,
                 base_path: provider.base_path,
+                toolshim,
                 preserves_thinking: provider.preserves_thinking,
+                auth: None,
             },
         )
         .internal_err_ctx("Failed to create custom provider")?;
@@ -695,7 +697,7 @@ impl GooseAcpAgent {
         }
 
         let provider = normalize_custom_provider_upsert(req.provider, false)?;
-        if provider.requires_auth && provider.api_key.is_none() {
+        if provider.requires_auth && provider.api_key.is_none() && loaded.config.auth.is_none() {
             let api_key_env = if loaded.config.api_key_env.is_empty() {
                 declarative_providers::generate_api_key_name(&req.provider_id)
             } else {
@@ -712,7 +714,11 @@ impl GooseAcpAgent {
                 engine: provider.engine,
                 display_name: provider.display_name,
                 api_url: provider.api_url,
-                api_key: provider.api_key,
+                api_key: if loaded.config.auth.is_some() {
+                    None
+                } else {
+                    provider.api_key
+                },
                 models: custom_provider_models(
                     provider.models,
                     &loaded.config.models,
@@ -723,7 +729,17 @@ impl GooseAcpAgent {
                 requires_auth: provider.requires_auth,
                 catalog_provider_id: provider.catalog_provider_id,
                 base_path: provider.base_path,
+                toolshim: req.toolshim,
                 preserves_thinking: provider.preserves_thinking,
+                // The desktop/ACP form doesn't yet support editing command-based
+                // auth, so carry the existing setting forward unchanged rather
+                // than silently clearing it — but only while auth stays enabled;
+                // disabling auth must actually stop the credential command.
+                auth: if provider.requires_auth {
+                    loaded.config.auth.clone()
+                } else {
+                    None
+                },
             },
         )
         .internal_err_ctx("Failed to update custom provider")?;
@@ -846,6 +862,7 @@ impl GooseAcpAgent {
             let provider_factory = Arc::clone(&self.provider_factory);
             let provider_id = refresh_job.provider_id.clone();
             let identity = refresh_job.identity.clone();
+            let toolshim = refresh_job.toolshim;
             tokio::spawn(async move {
                 let mut refresh_guard = provider_inventory.refresh_guard(&identity);
                 let provider_result = AssertUnwindSafe(async {
@@ -854,28 +871,27 @@ impl GooseAcpAgent {
                 .catch_unwind()
                 .await;
 
-                let fetch_result: Result<Vec<String>> =
-                    match provider_result {
-                        Ok(Ok(provider)) => {
-                            match ensure_refresh_identity_current(&provider_id, &identity).await {
-                                Ok(()) => match AssertUnwindSafe(provider.fetch_recommended_models(
-                                    crate::model_config::global_toolshim(),
-                                ))
-                                .catch_unwind()
-                                .await
+                let fetch_result: Result<Vec<String>> = match provider_result {
+                    Ok(Ok(provider)) => {
+                        match ensure_refresh_identity_current(&provider_id, &identity).await {
+                            Ok(()) => {
+                                match AssertUnwindSafe(provider.fetch_recommended_models(toolshim))
+                                    .catch_unwind()
+                                    .await
                                 {
                                     Ok(Ok(models)) => Ok(models),
                                     Ok(Err(error)) => Err(anyhow::anyhow!(error.to_string())),
                                     Err(_) => Err(anyhow::anyhow!(
                                         "provider inventory refresh task panicked"
                                     )),
-                                },
-                                Err(error) => Err(error),
+                                }
                             }
+                            Err(error) => Err(error),
                         }
-                        Ok(Err(error)) => Err(error),
-                        Err(_) => Err(anyhow::anyhow!("provider inventory refresh task panicked")),
-                    };
+                    }
+                    Ok(Err(error)) => Err(error),
+                    Err(_) => Err(anyhow::anyhow!("provider inventory refresh task panicked")),
+                };
 
                 match fetch_result {
                     Ok(models) => match provider_inventory

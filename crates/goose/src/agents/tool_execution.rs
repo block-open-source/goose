@@ -168,7 +168,10 @@ impl Agent {
                         }
                     });
 
-                let confirmation_rx = self.tool_confirmation_router.register(request.id.clone()).await;
+                let confirmation_rx = self
+                    .tool_confirmation_router
+                    .register(session.id.clone(), request.id.clone())
+                    .await;
 
                 let action_required_msg = Message::assistant()
                     .with_action_required(

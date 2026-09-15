@@ -954,6 +954,15 @@ enum Command {
         )]
         history: bool,
 
+        /// Additional system prompt to customize agent behavior
+        #[arg(
+            long = "system",
+            value_name = "TEXT",
+            help = "Additional system prompt to customize agent behavior",
+            long_help = "Provide additional system instructions to customize the agent's behavior"
+        )]
+        system: Option<String>,
+
         #[command(flatten)]
         session_opts: SessionOptions,
 
@@ -1983,6 +1992,7 @@ struct InteractiveSessionArgs {
     fork: bool,
     edit: bool,
     history: bool,
+    system: Option<String>,
     session_opts: SessionOptions,
     extension_opts: ExtensionOptions,
     model_opts: ModelOptions,
@@ -1995,6 +2005,7 @@ async fn handle_interactive_session(args: InteractiveSessionArgs) -> Result<()> 
         fork,
         edit,
         history,
+        system,
         session_opts,
         extension_opts,
         model_opts,
@@ -2072,7 +2083,7 @@ async fn handle_interactive_session(args: InteractiveSessionArgs) -> Result<()> 
         builtins: extension_opts.builtins,
         no_profile: extension_opts.no_profile,
         recipe: None,
-        additional_system_prompt: None,
+        additional_system_prompt: system,
         provider: model_opts.provider,
         model: model_opts.model,
         debug: session_opts.debug,
@@ -2334,7 +2345,10 @@ async fn handle_gateway_command(command: GatewayCommand) -> Result<()> {
             gateway_type,
             bot_token,
         } => {
-            let platform_config = serde_json::json!({ "bot_token": bot_token });
+            let mut platform_config = serde_json::json!({ "bot_token": bot_token });
+            if let Some(ids) = goose::gateway::manager::saved_allowed_user_ids(&gateway_type) {
+                platform_config["allowed_user_ids"] = serde_json::json!(ids);
+            }
             gateway::handle_gateway_start(gateway_type, platform_config).await
         }
         GatewayCommand::Stop { gateway_type } => gateway::handle_gateway_stop(gateway_type).await,
@@ -2527,7 +2541,6 @@ fn recommended_variant(
 #[cfg(feature = "local-inference")]
 async fn handle_local_models_command(command: LocalModelsCommand) -> Result<()> {
     use goose::providers::local_inference::hf_models;
-    use goose::providers::local_inference::local_model_registry::get_registry;
 
     goose::providers::local_inference::configure_huggingface_auth();
 
@@ -2687,7 +2700,7 @@ async fn handle_local_models_command(command: LocalModelsCommand) -> Result<()> 
             let total_size = resolved.total_size();
 
             println!(
-                "\nDownloaded {} ({}). Registering...",
+                "\nDownloaded {} ({})",
                 model_id,
                 if total_size > 0 {
                     format!("{:.1}GB", total_size as f64 / (1024.0 * 1024.0 * 1024.0))
@@ -2695,16 +2708,9 @@ async fn handle_local_models_command(command: LocalModelsCommand) -> Result<()> 
                     "unknown size".to_string()
                 }
             );
-
-            let model_id = hf_models::register_resolved_model(resolved, &spec)?;
-
-            println!("Registered: {}", model_id);
         }
         LocalModelsCommand::List => {
-            let registry = get_registry()
-                .lock()
-                .map_err(|_| anyhow::anyhow!("Failed to acquire registry lock"))?;
-            let models = registry.list_models();
+            let models = hf_models::cached_local_models().await?;
 
             if models.is_empty() {
                 println!("No local models downloaded.");
@@ -2716,23 +2722,13 @@ async fn handle_local_models_command(command: LocalModelsCommand) -> Result<()> 
                 "ID", "Backend", "Variant"
             );
             println!("{}", "-".repeat(88));
-            for m in models {
-                println!(
-                    "{:<50} {:<10} {:<12} {}",
-                    m.id,
-                    m.backend_id.as_deref().unwrap_or("llamacpp"),
-                    m.quantization,
-                    if m.is_downloaded() { "✓" } else { "✗" }
-                );
+            for m in &models {
+                println!("{:<50} {:<10} {:<12} ✓", m.id, m.backend_id, m.quantization);
             }
         }
         LocalModelsCommand::Delete { id } => {
-            let mut registry = get_registry()
-                .lock()
-                .map_err(|_| anyhow::anyhow!("Failed to acquire registry lock"))?;
-
-            if registry.get_model(&id).is_some() {
-                registry.delete_model(&id)?;
+            if hf_models::cached_local_model(&id).await?.is_some() {
+                hf_models::delete_cached_local_model(&id).await?;
                 println!("Deleted model: {}", id);
             } else {
                 println!("Model not found: {}", id);
@@ -2851,6 +2847,7 @@ pub async fn cli() -> anyhow::Result<()> {
             fork,
             edit,
             history,
+            system,
             session_opts,
             extension_opts,
             model_opts,
@@ -2861,6 +2858,7 @@ pub async fn cli() -> anyhow::Result<()> {
                 fork,
                 edit,
                 history,
+                system,
                 session_opts,
                 extension_opts,
                 model_opts,
@@ -3029,6 +3027,19 @@ mod tests {
             }) => {
                 assert!(!resume);
                 assert_eq!(model_opts.model.as_deref(), Some("gpt-5.4"));
+            }
+            _ => panic!("expected session command"),
+        }
+    }
+
+    #[test]
+    fn session_accepts_system_prompt() {
+        let cli = Cli::try_parse_from(["goose", "session", "--system", "extra instructions"])
+            .expect("system prompt should work for a new session");
+
+        match cli.command {
+            Some(Command::Session { system, .. }) => {
+                assert_eq!(system.as_deref(), Some("extra instructions"));
             }
             _ => panic!("expected session command"),
         }

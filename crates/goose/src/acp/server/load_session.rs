@@ -35,17 +35,6 @@ fn messages_for_acp_replay(conversation: &Conversation) -> Vec<Message> {
         .collect()
 }
 
-fn active_turn_messages(conversation: &Conversation) -> &[Message] {
-    let messages = conversation.messages();
-    messages
-        .iter()
-        .rposition(|message| {
-            message.role == Role::User && message.is_user_visible() && !message.is_tool_response()
-        })
-        .map(|start| &messages[start..])
-        .unwrap_or(messages)
-}
-
 fn send_replay_content_chunk(
     cx: &ConnectionTo<Client>,
     session_id: &SessionId,
@@ -233,67 +222,164 @@ impl GooseAcpAgent {
         &self,
         cx: &ConnectionTo<Client>,
         agent: &Arc<Agent>,
-        session: &Session,
+        session_id: &str,
+        requests: &[ToolConfirmationRequest],
+        cancel_token: Option<CancellationToken>,
     ) -> Result<(), agent_client_protocol::Error> {
-        let session_id = SessionId::new(session.id.clone());
-        let messages = session
-            .conversation
-            .as_ref()
-            .map(active_turn_messages)
-            .unwrap_or(&[]);
-
-        let mut answered = HashSet::new();
-        let mut responses = HashSet::new();
-        let mut requests = Vec::new();
-
-        for message in messages {
-            for content in &message.content {
-                match content {
-                    MessageContent::ToolResponse(response) => {
-                        answered.insert(response.id.clone());
-                    }
-                    MessageContent::ActionRequired(action) => match &action.data {
-                        ActionRequiredData::ToolConfirmation {
-                            id,
-                            tool_name,
-                            arguments,
-                            prompt,
-                        } => requests.push((
-                            id.clone(),
-                            tool_name.clone(),
-                            arguments.clone(),
-                            prompt.clone(),
-                        )),
-                        ActionRequiredData::ToolConfirmationResponse { id, .. } => {
-                            responses.insert(id.clone());
-                        }
-                        _ => {}
-                    },
-                    _ => {}
-                }
-            }
-        }
-
-        for (id, tool_name, arguments, prompt) in requests {
-            if answered.contains(&id) || responses.contains(&id) {
-                continue;
-            }
+        let acp_session_id = SessionId::new(session_id.to_string());
+        for request in requests {
             self.handle_tool_permission_request(
                 cx,
-                agent,
-                &session_id,
-                id,
-                tool_name,
-                arguments,
-                prompt,
+                &acp_session_id,
+                PendingToolPermission {
+                    request_id: request.id.clone(),
+                    tool_name: request.tool_name.clone(),
+                    arguments: request.arguments.clone(),
+                    prompt: request.prompt.clone(),
+                },
+                SessionAgentTarget {
+                    agent: agent.clone(),
+                    session_id: session_id.to_string(),
+                    cancel_token: cancel_token.clone(),
+                },
             )?;
         }
 
         Ok(())
     }
 
+    async fn start_resumed_state_machine_turn(
+        self: &Arc<Self>,
+        cx: &ConnectionTo<Client>,
+        agent: &Arc<Agent>,
+        session_id: &str,
+        requests: &[ToolConfirmationRequest],
+    ) -> Result<(), agent_client_protocol::Error> {
+        let run_id = format!("resume_{}", Uuid::new_v4());
+        let cancel_token = CancellationToken::new();
+        self.start_active_run(
+            session_id,
+            run_id.clone(),
+            cancel_token.clone(),
+            agent.clone(),
+        )
+        .await?;
+
+        let acp_session_id = SessionId::new(session_id.to_string());
+        if let Err(error) = Self::send_active_run_update(cx, &acp_session_id, Some(&run_id)) {
+            self.clear_active_run(session_id, &run_id).await;
+            return Err(error);
+        }
+
+        let session_config = SessionConfig {
+            id: session_id.to_string(),
+            schedule_id: None,
+            max_turns: None,
+            retry_config: None,
+        };
+        let stream = match agent
+            .resume_state_machine_turn(session_config, cancel_token.clone())
+            .await
+        {
+            Ok(Some(stream)) => stream,
+            Ok(None) => {
+                self.clear_active_run(session_id, &run_id).await;
+                Self::send_active_run_update(cx, &acp_session_id, None)?;
+                return Ok(());
+            }
+            Err(error) => {
+                self.clear_active_run(session_id, &run_id).await;
+                let _ = Self::send_active_run_update(cx, &acp_session_id, None);
+                return Err(agent_client_protocol::Error::internal_error().data(format!(
+                    "Failed to resume pending tool confirmation: {error}"
+                )));
+            }
+        };
+
+        let server = Arc::clone(self);
+        let task_cx = cx.clone();
+        let task_agent = agent.clone();
+        let task_session_id = session_id.to_string();
+        let task_run_id = run_id.clone();
+        let task_cancel_token = cancel_token.clone();
+        let task_acp_session_id = acp_session_id.clone();
+        if let Err(error) = cx.spawn(async move {
+            let _run_guard = ActiveRunDropGuard {
+                registry: server.active_prompt_runs.clone(),
+                session_id: task_session_id.clone(),
+                run_id: task_run_id.clone(),
+                cancel_token: task_cancel_token.clone(),
+            };
+            let result = server
+                .forward_agent_stream(
+                    &task_cx,
+                    &task_acp_session_id,
+                    &task_session_id,
+                    &task_agent,
+                    &task_cancel_token,
+                    stream,
+                )
+                .await;
+            if result.is_ok() {
+                if let Err(error) = server
+                    .send_session_usage_updates(
+                        &task_cx,
+                        &task_acp_session_id,
+                        &task_session_id,
+                        &task_agent,
+                    )
+                    .await
+                {
+                    warn!(
+                        session_id = task_session_id,
+                        ?error,
+                        "Failed to update usage after resumed ACP turn"
+                    );
+                }
+            }
+            server
+                .clear_active_run(&task_session_id, &task_run_id)
+                .await;
+            if let Err(error) = Self::send_active_run_update(&task_cx, &task_acp_session_id, None) {
+                warn!(
+                    session_id = task_session_id,
+                    ?error,
+                    "Failed to clear resumed ACP run status"
+                );
+            }
+            if let Err(error) = result {
+                warn!(
+                    session_id = task_session_id,
+                    ?error,
+                    "Resumed ACP state-machine turn failed"
+                );
+            }
+            Ok(())
+        }) {
+            cancel_token.cancel();
+            self.clear_active_run(session_id, &run_id).await;
+            let _ = Self::send_active_run_update(cx, &SessionId::new(session_id), None);
+            return Err(error);
+        }
+
+        if let Err(error) = self.resend_pending_tool_permissions(
+            cx,
+            agent,
+            session_id,
+            requests,
+            Some(cancel_token.clone()),
+        ) {
+            cancel_token.cancel();
+            self.clear_active_run(session_id, &run_id).await;
+            let _ = Self::send_active_run_update(cx, &acp_session_id, None);
+            return Err(error);
+        }
+
+        Ok(())
+    }
+
     pub(super) async fn handle_load_session(
-        &self,
+        self: &Arc<Self>,
         cx: &ConnectionTo<Client>,
         args: LoadSessionRequest,
     ) -> Result<LoadSessionResponse, agent_client_protocol::Error> {
@@ -333,8 +419,6 @@ impl GooseAcpAgent {
             .await
             .internal_err_ctx("Failed to get provider while loading ACP session")?;
         resume_saved_provider_session(&provider, session.conversation.as_ref()).await;
-        self.resend_pending_tool_permissions(cx, &agent, &session)?;
-
         session = self
             .session_manager
             .get_session(&session_id_str, false)
@@ -366,6 +450,35 @@ impl GooseAcpAgent {
             );
         }
         response = response.meta(meta);
+
+        let pending_confirmations = session
+            .conversation
+            .as_ref()
+            .map(pending_tool_confirmations)
+            .unwrap_or_default();
+        let should_resume_state_machine = crate::agents::state_machine::enabled()
+            && (!pending_confirmations.is_empty()
+                || session
+                    .conversation
+                    .as_ref()
+                    .is_some_and(has_unapplied_tool_confirmation_response));
+        if should_resume_state_machine {
+            self.start_resumed_state_machine_turn(
+                cx,
+                &agent,
+                &session_id_str,
+                &pending_confirmations,
+            )
+            .await?;
+        } else {
+            self.resend_pending_tool_permissions(
+                cx,
+                &agent,
+                &session_id_str,
+                &pending_confirmations,
+                None,
+            )?;
+        }
 
         self.closed_session_ids.lock().await.remove(&session_id_str);
         Ok(response)
@@ -643,21 +756,13 @@ mod tests {
             approval("current"),
         ]);
 
-        let active = active_turn_messages(&conversation);
-        let approval_ids = active
-            .iter()
-            .flat_map(|message| &message.content)
-            .filter_map(|content| match content {
-                MessageContent::ActionRequired(action) => match &action.data {
-                    ActionRequiredData::ToolConfirmation { id, .. } => Some(id.as_str()),
-                    _ => None,
-                },
-                _ => None,
-            })
+        let approval_ids = pending_tool_confirmations(&conversation)
+            .into_iter()
+            .map(|request| request.id)
             .collect::<Vec<_>>();
         assert_eq!(approval_ids, ["current"]);
 
         let no_kickoff = Conversation::new_unvalidated([approval("orphan")]);
-        assert_eq!(active_turn_messages(&no_kickoff).len(), 1);
+        assert_eq!(pending_tool_confirmations(&no_kickoff).len(), 1);
     }
 }

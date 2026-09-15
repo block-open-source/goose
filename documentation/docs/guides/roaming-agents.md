@@ -35,7 +35,7 @@ or wire p2p agent access into your own application.
 ## The core idea: roaming is an ACP transport
 
 Roaming does exactly one thing: it provides an **authenticated, peer-to-peer
-[ACP](/docs/guides/acp-clients) transport**. The host runs goose's real ACP
+[ACP](/docs/gdk/acp) transport**. The host runs goose's real ACP
 server; the connecting side is an ACP client. That's it.
 
 Everything that feels "session-shaped" is therefore just plain ACP that happens
@@ -163,10 +163,9 @@ goose roam delegate 'goose+roam://…' --session <SESSION_ID> "Now fix the first
 
 `connect` and `delegate` embed goose's own ACP client. `bridge` does the
 opposite: it exposes a remote agent as a **local ACP endpoint**, so any ACP
-client — [Zed](/docs/guides/acp-clients) or another editor — can drive it as if
-it were running locally. It runs no UI and no agent
-of its own; it transparently proxies ACP bytes between the local client and the
-remote agent.
+client — Zed or another editor — can drive it as if it were running locally. It
+runs no UI and no agent of its own; it transparently proxies ACP bytes between
+the local client and the remote agent.
 
 Bridge over stdio (the default — for a client that launches goose as a
 subprocess):

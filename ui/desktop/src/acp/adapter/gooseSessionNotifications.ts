@@ -1,4 +1,4 @@
-import type { GooseSessionNotification_unstable } from '@aaif/goose-sdk';
+import type { GooseSessionNotification_unstable } from '@aaif/goose-acp-client';
 import type { MessageUsage } from '../../types/message';
 import { type AcpChatStateChange, type AdapterState, messagesChange } from './shared';
 

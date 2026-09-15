@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { GooseSessionNotification_unstable } from '@aaif/goose-sdk';
+import type { GooseSessionNotification_unstable } from '@aaif/goose-acp-client';
 import type { SessionNotification } from '@agentclientprotocol/sdk';
 import type { TokenState } from '../types/chat';
 import { ChatState } from '../types/chatState';

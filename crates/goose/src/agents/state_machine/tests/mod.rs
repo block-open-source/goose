@@ -5,6 +5,7 @@ use self::pipeline::MessageKind::{Agent, ToolCall};
 use self::pipeline::{test_pipeline, MAX_TURNS};
 use crate::agents::state_machine;
 use crate::agents::state_machine::ops_retry::NUDGED;
+use crate::agents::state_machine::Emitter;
 
 mod agent_reply;
 mod calculator_extension;
@@ -19,6 +20,85 @@ mod reconstruction_isolation_lifecycle;
 mod steering_lifecycle;
 mod tool_lifecycle;
 
+async fn capture_state_machine_trace_fields(
+    capture_setting: Option<&'static str>,
+) -> Result<serde_json::Map<String, serde_json::Value>> {
+    use goose_test_support::otel::clear_otel_env;
+    use tokio::sync::mpsc;
+    use tokio_util::sync::CancellationToken;
+    use tracing_futures::Instrument;
+
+    use crate::agents::gen_ai_telemetry::{
+        test_support::SpanFieldCapture, CAPTURE_MESSAGE_CONTENT_ENV,
+    };
+    use crate::conversation::message::Message;
+
+    let _env = match capture_setting {
+        Some(value) => clear_otel_env(&[(CAPTURE_MESSAGE_CONTENT_ENV, value)]),
+        None => clear_otel_env(&[]),
+    };
+    let capture = SpanFieldCapture::new("state_machine_security_trace");
+    let _subscriber = capture.clone().set_default();
+    let (pipeline, api) = test_pipeline().await?;
+    api.on("input-super-secret-token")
+        .reply("output-super-secret-token");
+    pipeline
+        .session_manager
+        .add_message(
+            &pipeline.session_id,
+            &Message::user().with_text("input-super-secret-token"),
+        )
+        .await?;
+
+    let cancel = CancellationToken::new();
+    let machine = pipeline.machine(cancel.clone());
+    let (tx, _rx) = mpsc::channel(1024);
+    let emit = Emitter::new(tx, cancel);
+    let span = tracing::info_span!(
+        "state_machine_security_trace",
+        trace_input = tracing::field::Empty,
+        trace_output = tracing::field::Empty,
+        gen_ai.agent.name = tracing::field::Empty,
+        gen_ai.output.messages = tracing::field::Empty,
+    );
+    super::session::run(
+        &machine,
+        pipeline.session_manager.as_ref(),
+        &pipeline.session_id,
+        &emit,
+    )
+    .instrument(span)
+    .await?;
+
+    Ok(capture.fields())
+}
+
+#[tokio::test]
+async fn state_machine_trace_omits_content_without_capture() -> Result<()> {
+    for capture_setting in [None, Some("false")] {
+        let fields = capture_state_machine_trace_fields(capture_setting).await?;
+        let recorded = serde_json::to_string(&fields)?;
+        assert!(!recorded.contains("super-secret-token"));
+        assert!(!fields.contains_key("trace_input"));
+        assert!(!fields.contains_key("trace_output"));
+        assert!(!fields.contains_key("gen_ai.output.messages"));
+        assert_eq!(fields["gen_ai.agent.name"], "goose");
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn state_machine_trace_retains_content_with_capture() -> Result<()> {
+    let fields = capture_state_machine_trace_fields(Some("true")).await?;
+    assert_eq!(fields["trace_input"], "input-super-secret-token");
+    assert_eq!(fields["trace_output"], "output-super-secret-token");
+    assert!(fields["gen_ai.output.messages"]
+        .as_str()
+        .unwrap()
+        .contains("output-super-secret-token"));
+    Ok(())
+}
+
 #[tokio::test]
 async fn bang_shell_requests_the_shell_tool() -> Result<()> {
     let (pipeline, api) = test_pipeline().await?;
@@ -26,6 +106,36 @@ async fn bang_shell_requests_the_shell_tool() -> Result<()> {
     let result = pipeline.run(["!echo hello"]).await?;
     result.assert_message(1, ToolCall, r#"shell({"command":"echo hello"})"#);
     assert_eq!(api.call_count(), 0);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn doctor_refuses_without_developer_before_inference() -> Result<()> {
+    let (pipeline, api) = test_pipeline().await?;
+    let agent = crate::execution::manager::AgentManager::instance()
+        .await?
+        .get_or_create_agent(pipeline.session_id.clone())
+        .await?;
+    agent
+        .extension_manager
+        .remove_extension(crate::agents::platform_extensions::developer::EXTENSION_NAME)
+        .await?;
+
+    let result = pipeline.run(["/doctor"]).await?;
+
+    result.assert_message(
+        -1,
+        Agent,
+        crate::doctor::DEVELOPER_EXTENSION_REQUIRED_MESSAGE,
+    );
+    assert_eq!(api.call_count(), 0);
+    assert!(
+        !agent
+            .extension_manager
+            .is_extension_enabled(crate::agents::platform_extensions::developer::EXTENSION_NAME)
+            .await
+    );
 
     Ok(())
 }

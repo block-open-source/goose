@@ -54,7 +54,7 @@ import {
   acpShareSessionNostr,
   type SessionListItem,
 } from '../../acp/sessions';
-import type { SessionExportFormat } from '@aaif/goose-sdk';
+import type { SessionExportFormat } from '@aaif/goose-acp-client';
 import { acpChatSessionActions } from '../../acp/chatSessionStore';
 import { cancelAcpPermissionRequestsForSession } from '../../acp/permissionRequests';
 import { cancelAcpElicitationRequestsForSession } from '../../acp/elicitationRequests';

@@ -3,8 +3,6 @@ use chrono::DateTime;
 use chrono::Utc;
 use indexmap::IndexMap;
 use serde::Serialize;
-use serde_json::Value;
-use std::collections::HashMap;
 
 use crate::agents::{extension::ExtensionInfo, moim};
 use crate::hints::load_hints::build_gitignore;
@@ -265,12 +263,6 @@ impl PromptManager {
             include_extensions: true,
             goose_mode: None,
         }
-    }
-
-    pub async fn get_recipe_prompt(&self) -> String {
-        let context: HashMap<&str, Value> = HashMap::new();
-        prompt_template::render_template("recipe.md", &context)
-            .unwrap_or_else(|_| "The recipe prompt is busted. Tell the user.".to_string())
     }
 }
 

@@ -9,12 +9,14 @@ activities:
   - Test file operations (create, read, update, delete, undo)
   - Validate shell command execution and error handling
   - Validate Azure AI Foundry provider routing and deployment aliases
+  - Validate the configurable Databricks AI Gateway path across all inference routes
   - Analyze code structure and parsing capabilities
   - Test extension discovery and management
   - Test load tool for knowledge injection and discovery
   - Test delegate tool for task delegation (sync and async)
   - Test multi-turn thinking preservation for providers that reject replayed reasoning_content
   - Validate ACP thinking-effort discovery, forwarding, and provider switching
+  - Validate GDK observability hook lifecycle events and payload opt-in
   - Test error boundaries including nested delegation prevention
   - Generate comprehensive test report
 
@@ -172,6 +174,15 @@ prompt: |
   ### Gondola Provider Validation
   When running from a goose source checkout:
   1. Run `cargo test -p goose test_gondola_provider_registry_wiring` to verify Gondola is registered with the correct name, default model (`deepseek-v4-flash`), and a secret `GONDOLA_API_KEY` config key.
+  If the source checkout or Rust toolchain is unavailable, mark this validation as skipped rather than failed.
+
+  ### Databricks AI Gateway Path Validation
+  When running from a goose source checkout:
+  1. Run `cargo test -p goose-providers databricks_v2::tests::gateway_path` to verify the configurable gateway path.
+  2. Verify that omitting the path keeps the default `ai-gateway` routes byte-identical for the OpenAI Responses, Anthropic Messages, and MLflow chat completions routes.
+  3. Verify a configured path applies to all three routes, and that a full route (`ai-gateway/openai/v1/responses`) is accepted and its base reused, since Kotlin callers configure the full route.
+  4. Verify empty paths and URLs are rejected, as neither can be joined to a route.
+  5. Run `python3 documentation/automation/gdk-api/generate.py --check` to verify the generated GDK API data is current and publishes `gateway_path` as an optional argument defaulting to `None`.
   If the source checkout or Rust toolchain is unavailable, mark this validation as skipped rather than failed.
 
   Log results to: {{ workspace_dir }}/phase1_basic_tools.md
@@ -413,6 +424,23 @@ prompt: |
      managed providers preserve values they support.
 
   Log results to: {{ workspace_dir }}/phase3d_acp_effort.md
+  {% endif %}
+
+  {% if test_phases == "all" or "advanced" in test_phases %}
+  ## 🔭 PHASE 3E: GDK Observability Hook Testing
+
+  **Prerequisites**: Run this phase from a goose source checkout with the Rust toolchain
+  available. Skip this phase and record it as SKIPPED otherwise.
+
+  ### Observability Hook Integration Test
+  1. Run `cargo test -p goose-sdk --features uniffi --lib observability`.
+  2. Verify a registered hook receives `on_request_start`, `on_response_start`, and exactly
+     one `on_request_end` sharing a single `request_id`, with latency and token usage.
+  3. Verify request and response payloads are omitted unless `capture_payloads` is enabled.
+  4. Verify a panicking foreign hook does not fail the request and later events still arrive.
+  5. Verify `clear_observability_hook` stops events for in-flight requests as well as new ones.
+
+  Log results to: {{ workspace_dir }}/phase3e_observability.md
   {% endif %}
 
   {% if test_phases == "all" or "advanced" in test_phases %}

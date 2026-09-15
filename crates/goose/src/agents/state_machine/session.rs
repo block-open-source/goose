@@ -4,10 +4,21 @@ use async_trait::async_trait;
 use crate::agents::state_machine::effects::GooseEffect;
 use crate::agents::state_machine::usage;
 use crate::agents::AgentEvent;
+use crate::conversation::message::{ActionRequiredData, Message, MessageContent};
 use crate::conversation::Conversation;
 use crate::session::{Session, SessionManager};
 use goose_agent::machine::{EffectHandler, EffectUsage, MachineSession, SessionLoader};
 use goose_agent::operation::{ConversationEffect, Emitter, MachineEffect};
+
+fn contains_tool_confirmation_request(message: &Message) -> bool {
+    message.content.iter().any(|content| {
+        matches!(
+            content,
+            MessageContent::ActionRequired(action)
+                if matches!(&action.data, ActionRequiredData::ToolConfirmation { .. })
+        )
+    })
+}
 
 impl MachineSession for Session {
     fn id(&self) -> &str {
@@ -105,6 +116,10 @@ impl EffectHandler<Session, GooseEffect> for SessionManager {
         for effect in effects {
             match effect {
                 GooseEffect::Conversation(ConversationEffect::AppendMessage(message)) => {
+                    if contains_tool_confirmation_request(message) {
+                        // Responses can arrive immediately, so publish only after the persistence pass.
+                        emit.emit(AgentEvent::Message(message.clone())).await;
+                    }
                     if let Some(usage) = message
                         .metadata
                         .usage
@@ -162,16 +177,20 @@ pub(crate) async fn run(
         "gen_ai.agent.name",
         crate::agents::gen_ai_telemetry::agent_name(&entry_session),
     );
-    if let Some(input) = entry_session
-        .conversation()
-        .and_then(|conversation| {
-            crate::agents::state_machine::messages_since_kickoff(conversation).ok()
-        })
-        .and_then(|messages| messages.first())
-        .map(crate::conversation::message::Message::user_visible_content)
-        .map(|message| message.as_concat_text())
-        .filter(|text| !text.is_empty())
-    {
+    let trace_input = if crate::agents::gen_ai_telemetry::capture_message_content() {
+        entry_session
+            .conversation()
+            .and_then(|conversation| {
+                crate::agents::state_machine::messages_since_kickoff(conversation).ok()
+            })
+            .and_then(|messages| messages.first())
+            .map(crate::conversation::message::Message::user_visible_content)
+            .map(|message| message.as_concat_text())
+            .filter(|text| !text.is_empty())
+    } else {
+        None
+    };
+    if let Some(input) = trace_input {
         tracing::Span::current().record("trace_input", input.as_str());
     }
 
@@ -209,8 +228,8 @@ pub(crate) async fn run(
         .unwrap_or_default();
     if !last_assistant_text.is_empty() {
         let span = tracing::Span::current();
-        span.record("trace_output", last_assistant_text.as_str());
         if crate::agents::gen_ai_telemetry::capture_message_content() {
+            span.record("trace_output", last_assistant_text.as_str());
             let output = crate::agents::gen_ai_telemetry::simple_output_json(&last_assistant_text);
             span.record("gen_ai.output.messages", output.as_str());
         }

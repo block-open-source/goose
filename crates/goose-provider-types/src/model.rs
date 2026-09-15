@@ -30,6 +30,7 @@ pub fn is_goose_internal_request_param(key: &str) -> bool {
         key,
         "thinking_effort"
             | "disable_prompt_cache"
+            | "cache_ttl"
             | "emit_clear_thinking"
             | "preserve_thinking_context"
             | "preserve_unsigned_thinking"
@@ -346,6 +347,46 @@ impl ModelConfig {
             .unwrap_or(false)
     }
 
+    /// Set the prompt-cache TTL requested from providers that support one
+    /// (currently the Anthropic message format). Valid values are "5m" and
+    /// "1h"; absent means the provider default (5m).
+    pub fn with_cache_ttl(self, ttl: &str) -> Self {
+        self.with_merged_request_params(HashMap::from([(
+            "cache_ttl".to_string(),
+            Value::String(ttl.to_string()),
+        )]))
+    }
+
+    /// Remove any prompt-cache TTL request parameter. The TTL is
+    /// configuration state, not session state: callers that resume a
+    /// persisted config drop the stored value and re-derive it from the
+    /// current configuration so a clamped run never sticks to the session.
+    pub fn without_cache_ttl(mut self) -> Self {
+        if let Some(params) = self.request_params.as_mut() {
+            params.remove("cache_ttl");
+            if params.is_empty() {
+                self.request_params = None;
+            }
+        }
+        self
+    }
+
+    /// Clamp the prompt-cache TTL back to the provider default (5m).
+    /// Burst-only surfaces (headless runs, subagents, scheduled recipes) call
+    /// this so a user-level 1h opt-in never pays the 2x cache-write premium on
+    /// workloads that finish in one burst and cannot idle.
+    pub fn with_cache_ttl_clamped(self) -> Self {
+        if self.cache_ttl().is_some_and(|ttl| ttl != "5m") {
+            self.with_cache_ttl("5m")
+        } else {
+            self
+        }
+    }
+
+    pub fn cache_ttl(&self) -> Option<String> {
+        self.request_param::<String>("cache_ttl")
+    }
+
     pub fn request_param<T: for<'de> serde::Deserialize<'de>>(
         &self,
         request_key: &str,
@@ -360,6 +401,52 @@ impl ModelConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cache_ttl_round_trips_through_request_params() {
+        let config = ModelConfig::new("claude-sonnet-4-5").with_cache_ttl("1h");
+        assert_eq!(config.cache_ttl().as_deref(), Some("1h"));
+        assert!(ModelConfig::new("claude-sonnet-4-5").cache_ttl().is_none());
+    }
+
+    #[test]
+    fn cache_ttl_clamp_resets_one_hour_to_default() {
+        let config = ModelConfig::new("claude-sonnet-4-5")
+            .with_cache_ttl("1h")
+            .with_cache_ttl_clamped();
+        assert_eq!(config.cache_ttl().as_deref(), Some("5m"));
+    }
+
+    #[test]
+    fn without_cache_ttl_removes_the_param_and_empty_map() {
+        let config = ModelConfig::new("claude-sonnet-4-5")
+            .with_cache_ttl("1h")
+            .without_cache_ttl();
+        assert!(config.cache_ttl().is_none());
+        assert!(config.request_params.is_none());
+    }
+
+    #[test]
+    fn without_cache_ttl_preserves_other_request_params() {
+        let config = ModelConfig::new("claude-sonnet-4-5")
+            .with_merged_request_params(HashMap::from([(
+                "thinking_effort".to_string(),
+                serde_json::json!("high"),
+            )]))
+            .with_cache_ttl("1h")
+            .without_cache_ttl();
+        assert!(config.cache_ttl().is_none());
+        assert_eq!(
+            config.request_param::<String>("thinking_effort").as_deref(),
+            Some("high")
+        );
+    }
+
+    #[test]
+    fn cache_ttl_clamp_leaves_unset_ttl_absent() {
+        let config = ModelConfig::new("claude-sonnet-4-5").with_cache_ttl_clamped();
+        assert!(config.cache_ttl().is_none());
+    }
 
     #[test]
     fn request_headers_never_serialize_into_bodies() {
@@ -766,6 +853,27 @@ mod tests {
             let config = ModelConfig::new("gpt-5.6-sol").with_canonical_limits("chatgpt_codex");
             assert_eq!(config.max_tokens, Some(128_000));
             assert_eq!(config.reasoning, Some(true));
+        }
+
+        #[test]
+        fn resolves_gpt_6_astra_limits_for_databricks_model_service() {
+            let _guard = env_lock::lock_env([
+                ("GOOSE_MAX_TOKENS", None::<&str>),
+                ("GOOSE_CONTEXT_LIMIT", None::<&str>),
+            ]);
+            let config = ModelConfig::new("data_workflow_tools.goose.goose-gpt-6-astra")
+                .with_canonical_limits("databricks_v2");
+
+            let canonical = crate::canonical::maybe_get_canonical_model(
+                "databricks_v2",
+                "data_workflow_tools.goose.goose-gpt-6-astra",
+            )
+            .expect("GPT-6 Astra should have canonical metadata");
+            assert_eq!(canonical.limit.context, 1_050_000);
+            assert_eq!(canonical.limit.output, Some(128_000));
+            assert_eq!(config.max_tokens, Some(128_000));
+            assert_eq!(config.reasoning, Some(true));
+            assert_eq!(config.supports_vision, Some(true));
         }
 
         #[test]

@@ -3,12 +3,19 @@ use futures::future::BoxFuture;
 
 use crate::{
     config::{Config, DeclarativeProviderConfig},
-    providers::{base::ProviderDef, custom_provider_config::ConfigKeyResolver},
+    providers::{
+        base::ProviderDef, command_auth::CommandAuthProvider,
+        custom_provider_config::ConfigKeyResolver,
+    },
+    session_context::{
+        session_id_request_builder, session_id_request_builder_with_header_override,
+    },
 };
 use goose_providers::{
     anthropic::{self, AnthropicProvider, AnthropicProviderBuilder, ANTHROPIC_API_VERSION},
     api_client::{ApiClient, AuthMethod, TlsConfig},
     base::ProviderDescriptor,
+    formats::anthropic::{AnthropicFormatOptions, PrefixMismatchBehavior},
 };
 
 pub struct AnthropicProviderDef;
@@ -48,6 +55,17 @@ async fn from_env(
         .get_param("ANTHROPIC_TIMEOUT")
         .unwrap_or(crate::providers::base::DEFAULT_PROVIDER_TIMEOUT_SECS);
 
+    let mut format_options = AnthropicFormatOptions::native();
+    if let Ok(value) = config.get_param::<String>("ANTHROPIC_PREFIX_MISMATCH_BEHAVIOR") {
+        format_options.prefix_mismatch_behavior =
+            match value.as_str() {
+                "off" => None,
+                value => Some(value.parse::<PrefixMismatchBehavior>().map_err(|e| {
+                    anyhow::anyhow!("invalid ANTHROPIC_PREFIX_MISMATCH_BEHAVIOR: {e}")
+                })?),
+            };
+    }
+
     let auth = AuthMethod::ApiKey {
         header_name: "x-api-key".to_string(),
         key: api_key,
@@ -59,22 +77,33 @@ async fn from_env(
         std::time::Duration::from_secs(timeout_secs),
         tls_config,
     )?
-    .with_request_builder(crate::session_context::session_id_request_builder())
+    .with_request_builder(session_id_request_builder())
     .with_header("anthropic-version", ANTHROPIC_API_VERSION)?;
 
-    Ok(AnthropicProviderBuilder::new(api_client).build())
+    Ok(AnthropicProviderBuilder::new(api_client)
+        .format_options(format_options)
+        .build())
 }
 
 pub fn from_custom_config(
     config: DeclarativeProviderConfig,
     tls_config: Option<TlsConfig>,
 ) -> Result<AnthropicProvider> {
+    let auth_override = config.auth.clone();
+    let request_builder = session_id_request_builder_with_header_override(
+        config.session_id_header_override.as_deref(),
+    )?;
     anthropic::from_declarative_config(config, tls_config, ConfigKeyResolver::new(Config::global()))
         .map(|builder| {
             builder
                 .map_api_client(|api_client| {
-                    api_client
-                        .with_request_builder(crate::session_context::session_id_request_builder())
+                    let api_client = api_client.with_request_builder(request_builder);
+                    match auth_override {
+                        Some(auth_config) => api_client.with_auth(AuthMethod::Custom(Box::new(
+                            CommandAuthProvider::new(&auth_config, "x-api-key", ""),
+                        ))),
+                        None => api_client,
+                    }
                 })
                 .build()
         })
@@ -123,17 +152,19 @@ mod tests {
             base_url: "http://localhost:1".to_string(),
             models,
             headers: None,
+            session_id_header_override: None,
             timeout_seconds: None,
             supports_streaming: Some(true),
             requires_auth: false,
             catalog_provider_id: None,
             base_path: None,
             env_vars: None,
+            auth: None,
             dynamic_models,
             skip_canonical_filtering: false,
             model_doc_link: None,
             setup_steps: vec![],
-            fast_model: None,
+            toolshim: false,
             preserves_thinking: false,
             emit_clear_thinking: false,
             setup: None,

@@ -19,19 +19,19 @@ import VideoCarousel from '@site/src/components/VideoCarousel';
   <h2 className={styles.categoryTitle}>📚 Documentation & Guides</h2>
   <div className={styles.cardGrid}>
     <Card 
-      title="Planner + Execution Model Setup"
-      description="Use a dedicated planner model for strategic reasoning and a separate default model for execution."
-      link="/docs/guides/context-engineering/creating-plans"
+      title="Switching Models Mid-Session"
+      description="Use the /model command to change models without losing your session, keeping the same provider or switching to another."
+      link="/docs/guides/goose-cli-commands#slash-commands"
     />
     <Card 
-      title="Creating Plans Before Working"
-      description="Manual planning mode that optionally uses a dedicated model to break complex projects into detailed, actionable steps."
-      link="/docs/guides/context-engineering/creating-plans"
+      title="Subagents"
+      description="Delegate focused tasks to isolated goose instances, each able to run its own provider and model."
+      link="/docs/guides/context-engineering/subagents"
     />
     <Card 
-      title="Planning Complex Tasks"
-      description="Uses the Plan feature to transform a complex devcontainer setup into a systematic, executable roadmap."
-      link="/docs/tutorials/plan-feature-devcontainer-setup"
+      title="Context Engineering"
+      description="Shape what goose keeps in context across a session, including compaction and persistent instructions."
+      link="/docs/guides/context-engineering"
     />
   </div>
 </div>

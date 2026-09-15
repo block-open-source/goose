@@ -8,6 +8,8 @@ on:
       - synchronize
     paths:
       - 'documentation/**'
+      - 'crates/goose/acp-schema.json'
+      - 'crates/goose/acp-meta.json'
 
 concurrency:
   group: docs-preview-${{ github.event.pull_request.number }}
@@ -35,6 +37,9 @@ jobs:
           cache: npm
           cache-dependency-path: documentation/package-lock.json
 
+      - name: Generate ACP reference
+        run: node documentation/scripts/generate-acp-docs.js
+
       - name: Install dependencies and build docs
         working-directory: ./documentation
         env:
@@ -44,6 +49,7 @@ jobs:
           TARGET_PATH: /
         run: |
           npm ci
+          npm test
           npm run build
 
       - name: Verify docs map was generated

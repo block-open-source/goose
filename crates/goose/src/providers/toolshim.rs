@@ -45,7 +45,9 @@ use goose_providers::formats::openai::create_request;
 use goose_providers::images::ImageFormat;
 use reqwest::Client;
 use rmcp::model::{object, CallToolRequestParams, ContentBlock, Tool};
+use serde::de::{DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use serde_json::{json, Value};
+use std::fmt;
 use std::time::Duration;
 use uuid::Uuid;
 
@@ -174,27 +176,190 @@ fn normalized_tool_alias(raw_tool_name: &str) -> String {
         .next()
         .unwrap_or(without_functions_prefix)
         .trim()
+        .trim_matches(|character: char| !character.is_ascii_alphanumeric() && character != '_')
         .to_ascii_lowercase()
 }
 
-#[allow(clippy::string_slice)] // All markers/delimiters are ASCII; byte indexing is safe.
-fn extract_shell_command_from_execute_code(code: &str) -> Option<String> {
-    let marker = "command";
-    let marker_idx = code.find(marker)?;
-    let after_marker = &code[marker_idx + marker.len()..];
-    let colon_idx = after_marker.find(':')?;
-    let after_colon = after_marker[colon_idx + 1..].trim_start();
+fn contains_unresolved_execute_alias(raw_tool_header: &str, tools: &[Tool]) -> bool {
+    raw_tool_header.split_whitespace().any(|raw_tool_name| {
+        raw_tool_name.split(':').any(|segment| {
+            matches!(
+                normalized_tool_alias(segment).as_str(),
+                "execute" | "execute_code"
+            ) && resolve_tool_name(segment, tools).is_none()
+        })
+    })
+}
 
-    let quote = after_colon.chars().next()?;
-    if quote != '"' && quote != '\'' {
+fn contains_structured_unresolved_execute_alias(value: &Value, tools: &[Tool]) -> bool {
+    match value {
+        Value::Object(object) => {
+            object
+                .get("name")
+                .and_then(Value::as_str)
+                .is_some_and(|name| contains_unresolved_execute_alias(name, tools))
+                || object
+                    .values()
+                    .any(|value| contains_structured_unresolved_execute_alias(value, tools))
+        }
+        Value::Array(array) => array
+            .iter()
+            .any(|value| contains_structured_unresolved_execute_alias(value, tools)),
+        _ => false,
+    }
+}
+
+struct RawStructuredExecuteAliasSeed<'a> {
+    tools: &'a [Tool],
+    inspect_string: bool,
+}
+
+struct RawStructuredExecuteAliasVisitor<'a> {
+    tools: &'a [Tool],
+    inspect_string: bool,
+}
+
+impl<'de> DeserializeSeed<'de> for RawStructuredExecuteAliasSeed<'_> {
+    type Value = bool;
+
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_any(RawStructuredExecuteAliasVisitor {
+            tools: self.tools,
+            inspect_string: self.inspect_string,
+        })
+    }
+}
+
+impl<'de> Visitor<'de> for RawStructuredExecuteAliasVisitor<'_> {
+    type Value = bool;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("a JSON value")
+    }
+
+    fn visit_bool<E>(self, _value: bool) -> Result<Self::Value, E> {
+        Ok(false)
+    }
+
+    fn visit_i64<E>(self, _value: i64) -> Result<Self::Value, E> {
+        Ok(false)
+    }
+
+    fn visit_u64<E>(self, _value: u64) -> Result<Self::Value, E> {
+        Ok(false)
+    }
+
+    fn visit_f64<E>(self, _value: f64) -> Result<Self::Value, E> {
+        Ok(false)
+    }
+
+    fn visit_str<E>(self, value: &str) -> Result<Self::Value, E> {
+        Ok(self.inspect_string && contains_unresolved_execute_alias(value, self.tools))
+    }
+
+    fn visit_string<E>(self, value: String) -> Result<Self::Value, E> {
+        Ok(self.inspect_string && contains_unresolved_execute_alias(&value, self.tools))
+    }
+
+    fn visit_unit<E>(self) -> Result<Self::Value, E> {
+        Ok(false)
+    }
+
+    fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
+    where
+        A: SeqAccess<'de>,
+    {
+        let mut contains_execute = false;
+        while let Some(value_contains_execute) =
+            sequence.next_element_seed(RawStructuredExecuteAliasSeed {
+                tools: self.tools,
+                inspect_string: false,
+            })?
+        {
+            contains_execute |= value_contains_execute;
+        }
+        Ok(contains_execute)
+    }
+
+    fn visit_map<A>(self, mut object: A) -> Result<Self::Value, A::Error>
+    where
+        A: MapAccess<'de>,
+    {
+        let mut contains_execute = false;
+        while let Some(key) = object.next_key::<String>()? {
+            let value_contains_execute = object.next_value_seed(RawStructuredExecuteAliasSeed {
+                tools: self.tools,
+                inspect_string: key == "name",
+            })?;
+            contains_execute |= value_contains_execute;
+        }
+        Ok(contains_execute)
+    }
+}
+
+fn raw_arguments_contain_structured_unresolved_execute_alias(
+    raw_arguments: &str,
+    tools: &[Tool],
+) -> bool {
+    let mut deserializer = serde_json::Deserializer::from_str(raw_arguments);
+    RawStructuredExecuteAliasSeed {
+        tools,
+        inspect_string: false,
+    }
+    .deserialize(&mut deserializer)
+    .unwrap_or(false)
+}
+
+fn malformed_arguments_contain_unresolved_execute_alias(
+    raw_arguments: &str,
+    tools: &[Tool],
+) -> bool {
+    let mut remainder = raw_arguments.trim();
+    while !remainder.is_empty() {
+        let mut values = serde_json::Deserializer::from_str(remainder).into_iter::<Value>();
+        if let Some(Ok(value)) = values.next() {
+            if contains_structured_unresolved_execute_alias(&value, tools) {
+                return true;
+            }
+            remainder = remainder
+                .get(values.byte_offset()..)
+                .unwrap_or_default()
+                .trim_start();
+            continue;
+        }
+
+        let prefix_end = remainder.find('{').unwrap_or(remainder.len());
+        let (non_json_prefix, json_suffix) = remainder.split_at(prefix_end);
+        if contains_unresolved_execute_alias(non_json_prefix, tools) {
+            return true;
+        }
+        if prefix_end == 0 {
+            remainder = remainder.strip_prefix('{').unwrap_or_default().trim_start();
+            continue;
+        }
+        if prefix_end == remainder.len() {
+            return false;
+        }
+        remainder = json_suffix;
+    }
+    false
+}
+
+fn decode_quoted_string(literal: &str) -> Option<String> {
+    let quote = literal.chars().next()?;
+    if !matches!(quote, '"' | '\'') || !literal.ends_with(quote) {
         return None;
     }
 
+    let body = literal.strip_prefix(quote)?.strip_suffix(quote)?;
     let mut escaped = false;
-    let mut command = String::new();
-    for ch in after_colon[1..].chars() {
+    let mut decoded = String::new();
+    for ch in body.chars() {
         if escaped {
-            command.push(ch);
+            decoded.push(ch);
             escaped = false;
             continue;
         }
@@ -204,14 +369,99 @@ fn extract_shell_command_from_execute_code(code: &str) -> Option<String> {
             continue;
         }
 
-        if ch == quote {
-            return Some(command);
-        }
-
-        command.push(ch);
+        decoded.push(ch);
     }
 
-    None
+    (!escaped).then_some(decoded)
+}
+
+fn node_text<'a>(node: tree_sitter::Node<'_>, source: &'a str) -> Option<&'a str> {
+    source.get(node.byte_range())
+}
+
+fn is_developer_shell_call(node: tree_sitter::Node<'_>, source: &str) -> bool {
+    let Some(function) = node.child_by_field_name("function") else {
+        return false;
+    };
+    if function.kind() != "member_expression" {
+        return false;
+    }
+
+    let Some(object) = function.child_by_field_name("object") else {
+        return false;
+    };
+    let Some(property) = function.child_by_field_name("property") else {
+        return false;
+    };
+
+    object.kind() == "identifier"
+        && property.kind() == "property_identifier"
+        && node_text(object, source) == Some("Developer")
+        && node_text(property, source) == Some("shell")
+}
+
+fn shell_command_from_call(node: tree_sitter::Node<'_>, source: &str) -> Option<String> {
+    let arguments = node.child_by_field_name("arguments")?;
+    if arguments.named_child_count() != 1 {
+        return None;
+    }
+
+    let object = arguments.named_child(0)?;
+    if object.kind() != "object" || object.named_child_count() != 1 {
+        return None;
+    }
+
+    let pair = object.named_child(0)?;
+    if pair.kind() != "pair" {
+        return None;
+    }
+
+    let key = pair.child_by_field_name("key")?;
+    let is_command_key = match key.kind() {
+        "property_identifier" => node_text(key, source) == Some("command"),
+        "string" => node_text(key, source)
+            .and_then(decode_quoted_string)
+            .is_some_and(|key| key == "command"),
+        _ => false,
+    };
+    if !is_command_key {
+        return None;
+    }
+
+    let value = pair.child_by_field_name("value")?;
+    if value.kind() != "string" {
+        return None;
+    }
+
+    node_text(value, source).and_then(decode_quoted_string)
+}
+
+fn extract_shell_command_from_execute_code(code: &str) -> Option<String> {
+    let mut parser = tree_sitter::Parser::new();
+    parser
+        .set_language(&tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into())
+        .ok()?;
+    let tree = parser.parse(code, None)?;
+    let root = tree.root_node();
+    if root.has_error() {
+        return None;
+    }
+
+    let mut command = None;
+    let mut nodes = vec![root];
+    while let Some(node) = nodes.pop() {
+        if node.kind() == "call_expression" && is_developer_shell_call(node, code) {
+            if command.is_some() {
+                return None;
+            }
+            command = Some(shell_command_from_call(node, code)?);
+        }
+
+        let mut cursor = node.walk();
+        nodes.extend(node.named_children(&mut cursor));
+    }
+
+    command
 }
 
 fn maybe_convert_execute_to_shell_tool_call(
@@ -282,9 +532,15 @@ fn parse_json_value_tolerant(input: &str) -> Option<Value> {
     })
 }
 
+struct TokenizedToolCallParse {
+    calls: Vec<CallToolRequestParams>,
+    rejected_execute: bool,
+}
+
 #[allow(clippy::string_slice)] // All markers are ASCII; byte indexing is safe.
-fn parse_tokenized_tool_calls(content: &str, tools: &[Tool]) -> Vec<CallToolRequestParams> {
+fn parse_tokenized_tool_calls_with_status(content: &str, tools: &[Tool]) -> TokenizedToolCallParse {
     let mut calls = Vec::new();
+    let mut rejected_execute = false;
     let mut remainder = content;
 
     while let Some(begin_idx) = remainder.find(TOOL_CALL_BEGIN) {
@@ -292,6 +548,23 @@ fn parse_tokenized_tool_calls(content: &str, tools: &[Tool]) -> Vec<CallToolRequ
 
         // Find the end of this tool call first
         let Some(call_end_offset) = after_begin.find(TOOL_CALL_END) else {
+            let argument_marker = after_begin.find(TOOL_CALL_ARGUMENT_BEGIN);
+            let brace_start = after_begin.find('{');
+            let name_end = argument_marker.or(brace_start).unwrap_or(after_begin.len());
+            let arguments_start = argument_marker
+                .map(|argument_marker| argument_marker + TOOL_CALL_ARGUMENT_BEGIN.len())
+                .or(brace_start);
+            let arguments_contain_execute = arguments_start.is_some_and(|arguments_start| {
+                malformed_arguments_contain_unresolved_execute_alias(
+                    &after_begin[arguments_start..],
+                    tools,
+                )
+            });
+            if contains_unresolved_execute_alias(&after_begin[..name_end], tools)
+                || arguments_contain_execute
+            {
+                rejected_execute = true;
+            }
             break;
         };
         let call_body = &after_begin[..call_end_offset];
@@ -308,29 +581,74 @@ fn parse_tokenized_tool_calls(content: &str, tools: &[Tool]) -> Vec<CallToolRequ
                 let args = call_body[json_start..].trim();
                 (name, args)
             } else {
+                if contains_unresolved_execute_alias(call_body, tools) {
+                    rejected_execute = true;
+                }
                 remainder = &after_begin[call_end_offset + TOOL_CALL_END.len()..];
                 continue;
             };
 
+        let resolved_tool_name = resolve_tool_name(raw_tool_name, tools);
+        let is_execute_compatibility = contains_unresolved_execute_alias(raw_tool_name, tools);
+        let raw_arguments_contain_structured_execute =
+            raw_arguments_contain_structured_unresolved_execute_alias(raw_args, tools);
+
         if let Some(arguments_value) = parse_json_value_tolerant(raw_args) {
-            if let Some(tool_name) = resolve_tool_name(raw_tool_name, tools) {
+            let structured_execute_name = arguments_value
+                .get("name")
+                .and_then(Value::as_str)
+                .filter(|name| contains_unresolved_execute_alias(name, tools));
+            let contains_structured_execute =
+                contains_structured_unresolved_execute_alias(&arguments_value, tools);
+            if is_execute_compatibility {
+                if let Some(shell_call) =
+                    maybe_convert_execute_to_shell_tool_call(raw_tool_name, &arguments_value, tools)
+                {
+                    calls.push(shell_call);
+                } else {
+                    rejected_execute = true;
+                }
+            } else if let Some(tool_name) = resolved_tool_name {
                 if arguments_value.is_object() {
                     calls.push(
                         CallToolRequestParams::new(tool_name)
                             .with_arguments(object(arguments_value.clone())),
                     );
                 }
-            } else if let Some(shell_call) =
-                maybe_convert_execute_to_shell_tool_call(raw_tool_name, &arguments_value, tools)
-            {
-                calls.push(shell_call);
+            } else if let Some(structured_execute_name) = structured_execute_name {
+                if let Some(shell_call) = arguments_value.get("arguments").and_then(|arguments| {
+                    maybe_convert_execute_to_shell_tool_call(
+                        structured_execute_name,
+                        arguments,
+                        tools,
+                    )
+                }) {
+                    calls.push(shell_call);
+                } else {
+                    rejected_execute = true;
+                }
+            } else if contains_structured_execute || raw_arguments_contain_structured_execute {
+                rejected_execute = true;
             }
+        } else if is_execute_compatibility
+            || raw_arguments_contain_structured_execute
+            || malformed_arguments_contain_unresolved_execute_alias(raw_args, tools)
+        {
+            rejected_execute = true;
         }
 
         remainder = &after_begin[call_end_offset + TOOL_CALL_END.len()..];
     }
 
-    calls
+    TokenizedToolCallParse {
+        calls,
+        rejected_execute,
+    }
+}
+
+#[cfg(test)]
+fn parse_tokenized_tool_calls(content: &str, tools: &[Tool]) -> Vec<CallToolRequestParams> {
+    parse_tokenized_tool_calls_with_status(content, tools).calls
 }
 
 #[allow(clippy::string_slice)] // Indices come from char_indices(); slicing is safe.
@@ -994,10 +1312,16 @@ pub async fn augment_message_with_tool_calls<T: ToolInterpreter>(
         .iter()
         .any(|content| matches!(content, MessageContent::ToolRequest(_)));
 
-    let direct_tool_calls = parse_tokenized_tool_calls(&content, tools);
-    if !direct_tool_calls.is_empty() {
+    let direct_tool_calls = parse_tokenized_tool_calls_with_status(&content, tools);
+    if direct_tool_calls.rejected_execute {
+        return Ok(sanitize_message_after_tokenized_parse(message));
+    }
+    if !direct_tool_calls.calls.is_empty() {
         let cleaned = sanitize_message_after_tokenized_parse(message);
-        return Ok(append_tool_calls_to_message(cleaned, direct_tool_calls));
+        return Ok(append_tool_calls_to_message(
+            cleaned,
+            direct_tool_calls.calls,
+        ));
     }
 
     let inline_json_tool_calls = parse_inline_json_tool_calls(&content, tools);
@@ -1167,6 +1491,70 @@ mod tests {
     }
 
     #[test]
+    fn execute_marker_ignores_command_data_before_shell_call() {
+        let tools = vec![Tool::new(
+            "shell".to_string(),
+            "Shell command execution".to_string(),
+            serde_json::Map::new(),
+        )];
+
+        let content = "<|tool_calls_section_begin|> <|tool_call_begin|> functions.execute:0 <|tool_call_argument_begin|> {\"code\":\"async function run() { const data = { command: \\\"cat /etc/shadow\\\" }; return await Developer.shell({ command: \\\"pwd\\\" }); }\"} <|tool_call_end|> <|tool_calls_section_end|>";
+
+        let calls = parse_tokenized_tool_calls(content, &tools);
+
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].name, "shell");
+        assert_eq!(
+            calls[0]
+                .arguments
+                .as_ref()
+                .and_then(|a| a.get("command"))
+                .and_then(|v| v.as_str()),
+            Some("pwd")
+        );
+    }
+
+    #[test]
+    fn execute_code_only_extracts_real_developer_shell_call() {
+        let code = r#"
+            async function run() {
+                const object = { command: "object decoy" };
+                const text = 'Developer.shell({ command: "string decoy" })';
+                const pattern = /Developer\.shell\(\{ command: "regex decoy" \}\)/;
+                // Developer.shell({ command: "comment decoy" })
+                return await Developer.shell({ "command": 'printf \'safe\'' });
+            }
+        "#;
+
+        assert_eq!(
+            extract_shell_command_from_execute_code(code).as_deref(),
+            Some("printf 'safe'")
+        );
+    }
+
+    #[test]
+    fn execute_code_rejects_ambiguous_or_unsupported_shell_calls() {
+        let cases = [
+            "Developer.shell({ command: 'first' }); Developer.shell({ command: 'second' });",
+            "Developer.shell({ command: getCommand() });",
+            "Developer.shell({ command: 'pwd', timeout: 1000 });",
+            "Developer['shell']({ command: 'pwd' });",
+            "OtherDeveloper.shell({ command: 'pwd' });",
+            "Developer.shellish({ command: 'pwd' });",
+            "const text = 'Developer.shell({ command: \\\"pwd\\\" })';",
+            "Developer.shell({ command: 'pwd'",
+        ];
+
+        for code in cases {
+            assert_eq!(
+                extract_shell_command_from_execute_code(code),
+                None,
+                "unexpectedly extracted a command from {code:?}"
+            );
+        }
+    }
+
+    #[test]
     fn parses_inline_json_tool_directive() {
         let tools = vec![Tool::new(
             "shell".to_string(),
@@ -1233,6 +1621,411 @@ mod tests {
             .iter()
             .any(|c| matches!(c, MessageContent::ToolRequest(_))));
         assert!(!augmented.as_concat_text().contains("<|tool_call_begin|>"));
+    }
+
+    #[tokio::test]
+    async fn augment_does_not_interpret_rejected_execute_marker() {
+        let tools = vec![Tool::new(
+            "shell".to_string(),
+            "Shell command execution".to_string(),
+            serde_json::Map::new(),
+        )];
+        let rejected = [
+            "<|tool_calls_section_begin|> <|tool_call_begin|> functions.execute:0 <|tool_call_argument_begin|> {\"code\":\"Developer.shell({ command: 'first' }); Developer.shell({ command: 'second' });\"} <|tool_call_end|> <|tool_calls_section_end|>",
+            "<|tool_calls_section_begin|> <|tool_call_begin|> functions.execute:0 <|tool_call_argument_begin|> {\"code\":\"Developer.shell({ command: getCommand() });\"} <|tool_call_end|> <|tool_calls_section_end|>",
+            "<|tool_calls_section_begin|> <|tool_call_begin|> functions.execute:0 <|tool_call_argument_begin|> {\"code\": <|tool_call_end|> <|tool_calls_section_end|>",
+            "<|tool_calls_section_begin|> <|tool_call_begin|> functions.execute:0 <|tool_call_end|> <|tool_calls_section_end|>",
+            "<|tool_calls_section_begin|> <|tool_call_begin|> analysis:1 functions.execute:0 <|tool_call_end|> <|tool_calls_section_end|>",
+            "<|tool_calls_section_begin|> <|tool_call_begin|> functions.execute:0 <|tool_call_argument_begin|> {\"code\":\"Developer.shell({ command: 'pwd' });\"}",
+            "<|tool_calls_section_begin|> <|tool_call_begin|> label functions.execute:0 <|tool_call_argument_begin|> {\"code\":\"Developer.shell({ command: 'pwd' });\"}",
+            "<|tool_calls_section_begin|> <|tool_call_begin|> analysis:1 functions.execute:0 <|tool_call_argument_begin|> {\"code\":\"Developer.shell({ command: 'pwd' });\"} <|tool_call_end|> <|tool_calls_section_end|>",
+            "<|tool_calls_section_begin|> <|tool_call_begin|> analysis:1:functions.execute:0 <|tool_call_argument_begin|> {\"code\":\"Developer.shell({ command: 'pwd' });\"} <|tool_call_end|> <|tool_calls_section_end|>",
+            "<|tool_calls_section_begin|> <|tool_call_begin|> label <|tool_call_argument_begin|> functions.execute:0 {\"code\":\"Developer.shell({ command: 'pwd' });\"} <|tool_call_end|> <|tool_calls_section_end|>",
+            "<|tool_calls_section_begin|> <|tool_call_begin|> label <|tool_call_argument_begin|> {} functions.execute:0 {\"code\":\"Developer.shell({ command: 'pwd' });\"} <|tool_call_end|> <|tool_calls_section_end|>",
+            "<|tool_calls_section_begin|> <|tool_call_begin|> shell:functions.execute:0 Developer.shell({ command: 'pwd' }) <|tool_call_end|> <|tool_calls_section_end|>",
+        ];
+
+        for content in rejected {
+            assert!(
+                parse_tokenized_tool_calls_with_status(content, &tools).rejected_execute,
+                "expected execute block to be rejected: {content}"
+            );
+            let message = Message::assistant().with_text(content);
+            let augmented = augment_message_with_tool_calls(&FailingInterpreter, message, &tools)
+                .await
+                .unwrap();
+
+            assert!(augmented.content.is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn augment_rejects_resolved_tool_prefix_with_execute_segment() {
+        let tools = vec![Tool::new(
+            "shell".to_string(),
+            "Shell command execution".to_string(),
+            serde_json::Map::new(),
+        )];
+        let message = Message::assistant().with_text(
+            "<|tool_calls_section_begin|> <|tool_call_begin|> shell:functions.execute:0 <|tool_call_argument_begin|> {\"command\":\"id\"} <|tool_call_end|> <|tool_calls_section_end|>",
+        );
+
+        let augmented = augment_message_with_tool_calls(&FailingInterpreter, message, &tools)
+            .await
+            .unwrap();
+
+        assert!(augmented.content.is_empty());
+    }
+
+    #[tokio::test]
+    async fn augment_validates_execute_alias_with_call_punctuation() {
+        let tools = vec![Tool::new(
+            "shell".to_string(),
+            "Shell command execution".to_string(),
+            serde_json::Map::new(),
+        )];
+        let message = Message::assistant().with_text(
+            "<|tool_calls_section_begin|> <|tool_call_begin|> functions.execute():0 <|tool_call_argument_begin|> {\"code\":\"Developer.shell({ command: 'id' })\"} <|tool_call_end|> <|tool_calls_section_end|>",
+        );
+
+        let augmented = augment_message_with_tool_calls(&FailingInterpreter, message, &tools)
+            .await
+            .unwrap();
+
+        assert!(augmented
+            .content
+            .iter()
+            .any(|content| matches!(content, MessageContent::ToolRequest(_))));
+    }
+
+    #[test]
+    fn punctuated_benign_alias_is_not_rejected() {
+        let tools = vec![Tool::new(
+            "shell".to_string(),
+            "Shell command execution".to_string(),
+            serde_json::Map::new(),
+        )];
+        let content = "<|tool_calls_section_begin|> <|tool_call_begin|> functions.execute_helper():0 <|tool_call_argument_begin|> {\"value\":\"id\"} <|tool_call_end|> <|tool_calls_section_end|>";
+
+        let parsed = parse_tokenized_tool_calls_with_status(content, &tools);
+
+        assert!(parsed.calls.is_empty());
+        assert!(!parsed.rejected_execute);
+    }
+
+    #[test]
+    fn resolved_punctuated_tool_name_takes_precedence() {
+        let tools = vec![Tool::new(
+            "execute()".to_string(),
+            "A distinct offered tool".to_string(),
+            serde_json::Map::new(),
+        )];
+        let content = "<|tool_calls_section_begin|> <|tool_call_begin|> functions.execute():0 <|tool_call_argument_begin|> {\"value\":\"id\"} <|tool_call_end|> <|tool_calls_section_end|>";
+
+        let parsed = parse_tokenized_tool_calls_with_status(content, &tools);
+
+        assert!(!parsed.rejected_execute);
+        assert_eq!(parsed.calls.len(), 1);
+        assert_eq!(parsed.calls[0].name, "execute()");
+    }
+
+    #[tokio::test]
+    async fn augment_rejects_execute_alias_after_malformed_opening_brace() {
+        let tools = vec![Tool::new(
+            "shell".to_string(),
+            "Shell command execution".to_string(),
+            serde_json::Map::new(),
+        )];
+        let message = Message::assistant().with_text(
+            "<|tool_calls_section_begin|> <|tool_call_begin|> label <|tool_call_argument_begin|> {] functions.execute:0 {\"name\":\"shell\",\"arguments\":{\"command\":\"id\"}}} <|tool_call_end|> <|tool_calls_section_end|>",
+        );
+
+        let augmented = augment_message_with_tool_calls(&FailingInterpreter, message, &tools)
+            .await
+            .unwrap();
+
+        assert!(augmented.content.is_empty());
+    }
+
+    #[tokio::test]
+    async fn augment_rejects_execute_alias_in_unterminated_arguments() {
+        let tools = vec![Tool::new(
+            "shell".to_string(),
+            "Shell command execution".to_string(),
+            serde_json::Map::new(),
+        )];
+        let message = Message::assistant().with_text(
+            "<|tool_calls_section_begin|> <|tool_call_begin|> label <|tool_call_argument_begin|> functions.execute:0 {\"code\":\"Developer.shell({ command: 'id' })\"}",
+        );
+
+        let augmented = augment_message_with_tool_calls(&FailingInterpreter, message, &tools)
+            .await
+            .unwrap();
+
+        assert!(augmented.content.is_empty());
+    }
+
+    #[tokio::test]
+    async fn augment_validates_structured_execute_name_without_interpreter() {
+        let tools = vec![Tool::new(
+            "shell".to_string(),
+            "Shell command execution".to_string(),
+            serde_json::Map::new(),
+        )];
+        let message = Message::assistant().with_text(
+            "<|tool_calls_section_begin|> <|tool_call_begin|> label <|tool_call_argument_begin|> {\"name\":\"functions.execute:0\",\"arguments\":{\"code\":\"Developer.shell({ command: 'id' })\"}} <|tool_call_end|> <|tool_calls_section_end|>",
+        );
+
+        let augmented = augment_message_with_tool_calls(&FailingInterpreter, message, &tools)
+            .await
+            .unwrap();
+
+        assert!(augmented
+            .content
+            .iter()
+            .any(|content| matches!(content, MessageContent::ToolRequest(_))));
+    }
+
+    #[tokio::test]
+    async fn augment_preserves_resolved_tool_with_execute_shaped_arguments() {
+        let tools = vec![
+            Tool::new(
+                "workflow".to_string(),
+                "Run a workflow".to_string(),
+                serde_json::Map::new(),
+            ),
+            Tool::new(
+                "shell".to_string(),
+                "Shell command execution".to_string(),
+                serde_json::Map::new(),
+            ),
+        ];
+        let message = Message::assistant().with_text(
+            "<|tool_calls_section_begin|> <|tool_call_begin|> functions.workflow:0 <|tool_call_argument_begin|> {\"name\":\"functions.execute:0\",\"arguments\":{\"code\":\"Developer.shell({ command: 'id' })\"}} <|tool_call_end|> <|tool_calls_section_end|>",
+        );
+
+        let augmented = augment_message_with_tool_calls(&FailingInterpreter, message, &tools)
+            .await
+            .unwrap();
+        let tool_call = augmented
+            .content
+            .iter()
+            .find_map(|content| match content {
+                MessageContent::ToolRequest(request) => request.tool_call.as_ref().ok(),
+                _ => None,
+            })
+            .unwrap();
+
+        assert_eq!(tool_call.name, "workflow");
+        assert_eq!(
+            tool_call
+                .arguments
+                .as_ref()
+                .and_then(|arguments| arguments.get("name"))
+                .and_then(Value::as_str),
+            Some("functions.execute:0")
+        );
+    }
+
+    #[tokio::test]
+    async fn augment_rejects_execute_envelope_in_argument_array() {
+        let tools = vec![Tool::new(
+            "shell".to_string(),
+            "Shell command execution".to_string(),
+            serde_json::Map::new(),
+        )];
+        let message = Message::assistant().with_text(
+            "<|tool_calls_section_begin|> <|tool_call_begin|> label <|tool_call_argument_begin|> [{\"name\":\"functions.execute:0\",\"arguments\":{\"code\":\"Developer.shell({ command: 'id' })\"}}] <|tool_call_end|> <|tool_calls_section_end|>",
+        );
+
+        let augmented = augment_message_with_tool_calls(&FailingInterpreter, message, &tools)
+            .await
+            .unwrap();
+
+        assert!(augmented.content.is_empty());
+    }
+
+    #[tokio::test]
+    async fn augment_rejects_execute_envelope_in_nested_arguments() {
+        let tools = vec![Tool::new(
+            "shell".to_string(),
+            "Shell command execution".to_string(),
+            serde_json::Map::new(),
+        )];
+        let message = Message::assistant().with_text(
+            "<|tool_calls_section_begin|> <|tool_call_begin|> label <|tool_call_argument_begin|> {\"payload\":{\"name\":\"functions.execute:0\",\"arguments\":{\"code\":\"Developer.shell({ command: 'id' })\"}}} <|tool_call_end|> <|tool_calls_section_end|>",
+        );
+
+        let augmented = augment_message_with_tool_calls(&FailingInterpreter, message, &tools)
+            .await
+            .unwrap();
+
+        assert!(augmented.content.is_empty());
+    }
+
+    #[tokio::test]
+    async fn augment_rejects_execute_envelope_before_malformed_suffix() {
+        let tools = vec![Tool::new(
+            "shell".to_string(),
+            "Shell command execution".to_string(),
+            serde_json::Map::new(),
+        )];
+        let message = Message::assistant().with_text(
+            "<|tool_calls_section_begin|> <|tool_call_begin|> label <|tool_call_argument_begin|> {\"name\":\"functions.execute:0\",\"arguments\":{\"code\":\"Developer.shell({ command: 'id' })\"}} x <|tool_call_end|> <|tool_calls_section_end|>",
+        );
+
+        let augmented = augment_message_with_tool_calls(&FailingInterpreter, message, &tools)
+            .await
+            .unwrap();
+
+        assert!(augmented.content.is_empty());
+    }
+
+    #[tokio::test]
+    async fn augment_rejects_execute_name_overwritten_by_duplicate_key() {
+        let tools = vec![Tool::new(
+            "shell".to_string(),
+            "Shell command execution".to_string(),
+            serde_json::Map::new(),
+        )];
+        let message = Message::assistant().with_text(
+            "<|tool_calls_section_begin|> <|tool_call_begin|> label <|tool_call_argument_begin|> {\"name\":\"functions.execute:0\",\"name\":\"transform\",\"arguments\":{\"code\":\"Developer.shell({ command: 'id' })\"}} <|tool_call_end|> <|tool_calls_section_end|>",
+        );
+
+        let augmented = augment_message_with_tool_calls(&FailingInterpreter, message, &tools)
+            .await
+            .unwrap();
+
+        assert!(augmented.content.is_empty());
+    }
+
+    #[test]
+    fn unresolved_header_does_not_reject_benign_duplicate_names() {
+        let tools = vec![Tool::new(
+            "shell".to_string(),
+            "Shell command execution".to_string(),
+            serde_json::Map::new(),
+        )];
+        let content = "<|tool_calls_section_begin|> <|tool_call_begin|> label <|tool_call_argument_begin|> {\"name\":\"first\",\"name\":\"transform\",\"arguments\":{\"value\":\"id\"}} <|tool_call_end|> <|tool_calls_section_end|>";
+
+        let parsed = parse_tokenized_tool_calls_with_status(content, &tools);
+
+        assert!(parsed.calls.is_empty());
+        assert!(!parsed.rejected_execute);
+    }
+
+    #[test]
+    fn resolved_tool_accepts_duplicate_execute_shaped_argument_names() {
+        let tools = vec![
+            Tool::new(
+                "workflow".to_string(),
+                "Run a workflow".to_string(),
+                serde_json::Map::new(),
+            ),
+            Tool::new(
+                "shell".to_string(),
+                "Shell command execution".to_string(),
+                serde_json::Map::new(),
+            ),
+        ];
+        let content = "<|tool_calls_section_begin|> <|tool_call_begin|> functions.workflow:0 <|tool_call_argument_begin|> {\"name\":\"functions.execute:0\",\"name\":\"transform\",\"arguments\":{\"code\":\"Developer.shell({ command: 'id' })\"}} <|tool_call_end|> <|tool_calls_section_end|>";
+
+        let parsed = parse_tokenized_tool_calls_with_status(content, &tools);
+
+        assert!(!parsed.rejected_execute);
+        assert_eq!(parsed.calls.len(), 1);
+        assert_eq!(parsed.calls[0].name, "workflow");
+    }
+
+    #[test]
+    fn resolved_tool_accepts_nested_execute_shaped_arguments() {
+        let tools = vec![
+            Tool::new(
+                "workflow".to_string(),
+                "Run a workflow".to_string(),
+                serde_json::Map::new(),
+            ),
+            Tool::new(
+                "shell".to_string(),
+                "Shell command execution".to_string(),
+                serde_json::Map::new(),
+            ),
+        ];
+        let content = "<|tool_calls_section_begin|> <|tool_call_begin|> functions.workflow:0 <|tool_call_argument_begin|> {\"payload\":[{\"name\":\"functions.execute:0\",\"arguments\":{\"code\":\"Developer.shell({ command: 'id' })\"}}]} <|tool_call_end|> <|tool_calls_section_end|>";
+
+        let parsed = parse_tokenized_tool_calls_with_status(content, &tools);
+
+        assert!(!parsed.rejected_execute);
+        assert_eq!(parsed.calls.len(), 1);
+        assert_eq!(parsed.calls[0].name, "workflow");
+    }
+
+    #[test]
+    fn unresolved_header_does_not_reject_benign_nested_json() {
+        let tools = vec![Tool::new(
+            "shell".to_string(),
+            "Shell command execution".to_string(),
+            serde_json::Map::new(),
+        )];
+        let content = "<|tool_calls_section_begin|> <|tool_call_begin|> label <|tool_call_argument_begin|> {\"payload\":[{\"name\":\"transform\",\"arguments\":{\"value\":\"id\"}}]} <|tool_call_end|> <|tool_calls_section_end|>";
+
+        let parsed = parse_tokenized_tool_calls_with_status(content, &tools);
+
+        assert!(parsed.calls.is_empty());
+        assert!(!parsed.rejected_execute);
+    }
+
+    #[test]
+    fn unresolved_header_does_not_reject_benign_json_prefix() {
+        let tools = vec![Tool::new(
+            "shell".to_string(),
+            "Shell command execution".to_string(),
+            serde_json::Map::new(),
+        )];
+        let content = "<|tool_calls_section_begin|> <|tool_call_begin|> label <|tool_call_argument_begin|> {\"payload\":{\"name\":\"transform\"}} x <|tool_call_end|> <|tool_calls_section_end|>";
+
+        let parsed = parse_tokenized_tool_calls_with_status(content, &tools);
+
+        assert!(parsed.calls.is_empty());
+        assert!(!parsed.rejected_execute);
+    }
+
+    #[tokio::test]
+    async fn augment_rejects_execute_alias_in_unterminated_brace_remainder() {
+        let tools = vec![Tool::new(
+            "shell".to_string(),
+            "Shell command execution".to_string(),
+            serde_json::Map::new(),
+        )];
+        let message = Message::assistant().with_text(
+            "<|tool_calls_section_begin|> <|tool_call_begin|> label {] functions.execute:0 {\"code\":\"Developer.shell({ command: 'id' })\"}",
+        );
+
+        let augmented = augment_message_with_tool_calls(&FailingInterpreter, message, &tools)
+            .await
+            .unwrap();
+
+        assert!(augmented.content.is_empty());
+    }
+
+    #[test]
+    fn unterminated_non_execute_arguments_are_not_rejected() {
+        let tools = vec![Tool::new(
+            "shell".to_string(),
+            "Shell command execution".to_string(),
+            serde_json::Map::new(),
+        )];
+        let contents = [
+            "<|tool_calls_section_begin|> <|tool_call_begin|> functions.shell:0 <|tool_call_argument_begin|> {\"command\":\"id\"}",
+            "<|tool_calls_section_begin|> <|tool_call_begin|> functions.shell:0 {\"command\":\"id\"}",
+        ];
+
+        for content in contents {
+            let parsed = parse_tokenized_tool_calls_with_status(content, &tools);
+
+            assert!(parsed.calls.is_empty());
+            assert!(!parsed.rejected_execute);
+        }
     }
 
     #[tokio::test]

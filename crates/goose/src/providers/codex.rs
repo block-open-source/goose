@@ -687,6 +687,10 @@ impl Provider for CodexProvider {
         &self.name
     }
 
+    fn uses_local_session_naming(&self) -> bool {
+        true
+    }
+
     async fn stream(
         &self,
         model_config: &ModelConfig,
@@ -695,17 +699,6 @@ impl Provider for CodexProvider {
         tools: &[Tool],
     ) -> Result<MessageStream, ProviderError> {
         let session_id = crate::session_context::current_session_id().unwrap_or_default();
-        if super::cli_common::is_session_description_request(system) {
-            let (message, provider_usage) = super::cli_common::generate_simple_session_description(
-                &model_config.model_name,
-                messages,
-            )?;
-            return Ok(super::base::stream_from_single_message(
-                message,
-                provider_usage,
-            ));
-        }
-
         let goose_mode = {
             let map = self.mode_by_session.read().await;
             map.get(&session_id).copied().unwrap_or_default()
@@ -763,7 +756,27 @@ mod tests {
     use goose_providers::base::ProviderDescriptor as _;
     use goose_test_support::TEST_IMAGE_B64;
     use std::collections::HashMap;
+    #[cfg(unix)]
+    use std::fs;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
     use test_case::test_case;
+
+    #[cfg(unix)]
+    fn recording_cli(directory: &Path) -> PathBuf {
+        let command = directory.join("codex-recording-shim");
+        fs::write(
+            &command,
+            r#"#!/bin/sh
+record_dir=${0%/*}
+cat > "$record_dir/stdin"
+printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"provider response"}}'
+"#,
+        )
+        .unwrap();
+        fs::set_permissions(&command, fs::Permissions::from_mode(0o755)).unwrap();
+        command
+    }
 
     #[test]
     fn test_codex_metadata() {
@@ -1248,6 +1261,47 @@ mod tests {
         } else {
             panic!("Expected text content");
         }
+    }
+
+    #[test]
+    fn session_naming_is_local() {
+        let provider = CodexProvider {
+            command: PathBuf::from("codex"),
+            name: "codex".to_string(),
+            skip_git_check: false,
+            mcp_config_overrides: Vec::new(),
+            mode_by_session: tokio::sync::RwLock::new(HashMap::new()),
+        };
+
+        assert!(provider.uses_local_session_naming());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn former_session_title_phrase_reaches_cli() {
+        let directory = tempfile::tempdir().unwrap();
+        let provider = CodexProvider {
+            command: recording_cli(directory.path()),
+            name: "codex".to_string(),
+            skip_git_check: false,
+            mcp_config_overrides: Vec::new(),
+            mode_by_session: tokio::sync::RwLock::new(HashMap::new()),
+        };
+
+        let (message, _) = provider
+            .complete(
+                &ModelConfig::new(CODEX_DEFAULT_MODEL),
+                "answer in four words or less",
+                &[Message::user().with_text("ordinary request")],
+                &[],
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(message.as_concat_text(), "provider response");
+        assert!(fs::read_to_string(directory.path().join("stdin"))
+            .unwrap()
+            .contains("answer in four words or less"));
     }
 
     #[test]

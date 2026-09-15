@@ -198,8 +198,6 @@ impl goose::providers::base::ProviderDescriptor for MockCompactionProvider {
             model_doc_link: "".to_string(),
             config_keys: vec![],
             setup_steps: vec![],
-            model_selection_hint: None,
-            fast_model: None,
             setup: None,
             deprecated: None,
         }
@@ -539,7 +537,14 @@ async fn test_auto_compaction_during_reply() -> Result<()> {
         retry_config: None,
     };
 
-    let reply_stream = agent.reply(user_message, session_config, None).await?;
+    let reply_stream = agent
+        .reply(
+            user_message,
+            session_config,
+            goose::agents::state_machine::enabled(),
+            None,
+        )
+        .await?;
     tokio::pin!(reply_stream);
 
     // Track compaction and context size changes
@@ -696,6 +701,7 @@ async fn test_context_limit_recovery_compaction() -> Result<()> {
         .reply(
             Message::user().with_text("Tell me more"),
             session_config,
+            goose::agents::state_machine::enabled(),
             None,
         )
         .await?;

@@ -617,6 +617,9 @@
   "customProviderForm.add": {
     "defaultMessage": "Tambah"
   },
+  "customProviderForm.alwaysUseToolshim": {
+    "defaultMessage": "Selalu gunakan Toolshim untuk penyedia ini"
+  },
   "customProviderForm.anthropicCompatible": {
     "defaultMessage": "Kompatibel dengan Anthropic"
   },
@@ -926,8 +929,6 @@
   "dirSwitcher.enterPathInvalid": {
     "defaultMessage": "Working directory must be an absolute path"
   },
-
-
   "dirSwitcher.failedToUpdateWorkingDir": {
     "defaultMessage": "Gagal memperbarui direktori kerja"
   },
@@ -1757,13 +1758,10 @@
     "defaultMessage": "Hapus model ini? Anda dapat mengunduhnya kembali nanti."
   },
   "localInferenceSettings.description": {
-    "defaultMessage": "Unduh dan kelola model LLM lokal untuk inferensi tanpa kunci API. Cari model GGUF atau MLX di HuggingFace, atau gunakan pilihan unggulan di bawah."
+    "defaultMessage": "Unduh dan kelola model LLM lokal untuk inferensi tanpa kunci API. Cari model GGUF atau MLX di Hugging Face."
   },
   "localInferenceSettings.dismiss": {
     "defaultMessage": "Tutup"
-  },
-  "localInferenceSettings.download": {
-    "defaultMessage": "Unduh"
   },
   "localInferenceSettings.downloadCancelled": {
     "defaultMessage": "Unduhan dibatalkan"
@@ -1782,9 +1780,6 @@
   },
   "localInferenceSettings.evictFromMemory": {
     "defaultMessage": "Evict from memory"
-  },
-  "localInferenceSettings.featuredModels": {
-    "defaultMessage": "Model Unggulan"
   },
   "localInferenceSettings.huggingFaceSignInNote": {
     "defaultMessage": "Masuk untuk meningkatkan batas laju saat mencari dan mengunduh model, serta untuk mengakses repositori Hugging Face yang privat atau terbatas."
@@ -1809,12 +1804,6 @@
   },
   "localInferenceSettings.retry": {
     "defaultMessage": "Coba Lagi"
-  },
-  "localInferenceSettings.showAllFeatured": {
-    "defaultMessage": "Tampilkan semua unggulan ({count} lainnya)"
-  },
-  "localInferenceSettings.showRecommendedOnly": {
-    "defaultMessage": "Tampilkan yang direkomendasikan saja"
   },
   "localInferenceSettings.title": {
     "defaultMessage": "Model Inferensi Lokal"
@@ -3170,7 +3159,7 @@
     "defaultMessage": "Tidak ada resep tersimpan"
   },
   "recipesView.noSavedRecipesDescription": {
-    "defaultMessage": "Resep yang disimpan dari obrolan akan muncul di sini."
+    "defaultMessage": "Resep yang disimpan akan muncul di sini."
   },
   "recipesView.openInNewWindow": {
     "defaultMessage": "Buka di jendela baru"
@@ -3707,7 +3696,7 @@
     "defaultMessage": "JSON sesi disalin"
   },
   "sessionActionsHeader.copiedModelInteractions": {
-    "defaultMessage": "Recent model interactions copied"
+    "defaultMessage": "Interaksi model terbaru disalin"
   },
   "sessionActionsHeader.copiedText": {
     "defaultMessage": "Teks disalin"
@@ -3740,10 +3729,10 @@
     "defaultMessage": "Memuat JSON..."
   },
   "sessionActionsHeader.modelInteractionsFailed": {
-    "defaultMessage": "Failed to load model interactions: {error}"
+    "defaultMessage": "Gagal memuat interaksi model: {error}"
   },
   "sessionActionsHeader.modelInteractionsTitle": {
-    "defaultMessage": "Recent model interactions"
+    "defaultMessage": "Interaksi model terbaru"
   },
   "sessionActionsHeader.renameFailed": {
     "defaultMessage": "Gagal mengganti nama sesi: {error}"
@@ -3770,7 +3759,7 @@
     "defaultMessage": "Lihat JSON sesi"
   },
   "sessionActionsHeader.viewModelInteractions": {
-    "defaultMessage": "View recent model interactions"
+    "defaultMessage": "Lihat interaksi model terbaru"
   },
   "sessionIndicators.error": {
     "defaultMessage": "Sesi mengalami kesalahan"
@@ -4680,5 +4669,11 @@
   },
   "providerConfigurationModal.deviceCodeVisit": {
     "defaultMessage": "Kunjungi"
+  },
+  "settings.legacyAgentLoop.description": {
+    "defaultMessage": "Fall back to the classic agent loop if the new one causes issues"
+  },
+  "settings.legacyAgentLoop.title": {
+    "defaultMessage": "Use Legacy Agent Loop"
   }
 }

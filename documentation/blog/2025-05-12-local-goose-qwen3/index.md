@@ -5,6 +5,10 @@ authors:
     - mic
 ---
 
+:::warning Outdated
+The goose `/plan` mode mentioned under Advanced tips has since been removed, along with the separate planner model settings. Everything else in this post still applies.
+:::
+
 ![local AI agent](goose-qwen-local.png)
 
 

@@ -6,7 +6,13 @@ use url::Url;
 
 use crate::{
     config::{declarative_providers::DeclarativeProviderConfig, Config},
-    providers::{base::ProviderDef, custom_provider_config::ConfigKeyResolver},
+    providers::{
+        base::ProviderDef, command_auth::CommandAuthProvider,
+        custom_provider_config::ConfigKeyResolver,
+    },
+    session_context::{
+        session_id_request_builder, session_id_request_builder_with_header_override,
+    },
 };
 use goose_providers::{
     api_client::{ApiClient, AuthMethod},
@@ -84,7 +90,7 @@ pub async fn from_env(
         timeout,
         tls_config,
     )?
-    .with_request_builder(crate::session_context::session_id_request_builder());
+    .with_request_builder(session_id_request_builder());
 
     Ok(OllamaProviderBuilder::new(api_client)
         .name(OLLAMA_PROVIDER_NAME)
@@ -96,12 +102,21 @@ pub fn from_custom_config(
     config: DeclarativeProviderConfig,
     tls_config: Option<crate::providers::api_client::TlsConfig>,
 ) -> Result<OllamaProvider> {
+    let auth_override = config.auth.clone();
+    let request_builder = session_id_request_builder_with_header_override(
+        config.session_id_header_override.as_deref(),
+    )?;
     ollama::from_declarative_config(config, tls_config, ConfigKeyResolver::new(Config::global()))
         .map(|builder| {
             builder
                 .map_api_client(|api_client| {
-                    api_client
-                        .with_request_builder(crate::session_context::session_id_request_builder())
+                    let api_client = api_client.with_request_builder(request_builder);
+                    match auth_override {
+                        Some(auth_config) => api_client.with_auth(AuthMethod::Custom(Box::new(
+                            CommandAuthProvider::new(&auth_config, "Authorization", "Bearer "),
+                        ))),
+                        None => api_client,
+                    }
                 })
                 .options(options_from_config())
                 .build()

@@ -144,7 +144,10 @@ pub struct CreateCustomProviderParams {
     pub requires_auth: bool,
     pub catalog_provider_id: Option<String>,
     pub base_path: Option<String>,
+    pub toolshim: bool,
     pub preserves_thinking: Option<bool>,
+    /// Alternative to `api_key`; mutually exclusive with it.
+    pub auth: Option<AuthConfig>,
 }
 
 #[derive(Debug, Clone)]
@@ -160,7 +163,10 @@ pub struct UpdateCustomProviderParams {
     pub requires_auth: bool,
     pub catalog_provider_id: Option<String>,
     pub base_path: Option<String>,
+    pub toolshim: bool,
     pub preserves_thinking: Option<bool>,
+    /// Alternative to `api_key`; mutually exclusive with it.
+    pub auth: Option<AuthConfig>,
 }
 
 pub fn create_custom_provider(
@@ -169,7 +175,18 @@ pub fn create_custom_provider(
     let id = generate_id(&params.display_name);
     validate_provider_id(&id)?;
 
-    let api_key_env = if params.requires_auth {
+    if params.auth.is_some()
+        && params
+            .api_key
+            .as_deref()
+            .is_some_and(|key| !key.trim().is_empty())
+    {
+        anyhow::bail!("cannot set both apiKey and auth.command");
+    }
+
+    let api_key_env = if params.auth.is_some() {
+        String::new()
+    } else if params.requires_auth {
         let api_key = params
             .api_key
             .as_deref()
@@ -199,17 +216,19 @@ pub fn create_custom_provider(
         base_url: params.api_url,
         models: model_infos,
         headers: params.headers,
+        session_id_header_override: None,
         timeout_seconds: None,
         supports_streaming: params.supports_streaming,
         requires_auth: params.requires_auth,
         catalog_provider_id: params.catalog_provider_id,
         base_path: params.base_path,
         env_vars: None,
+        auth: params.auth,
         dynamic_models: None,
         skip_canonical_filtering: false,
         model_doc_link: None,
         setup_steps: vec![],
-        fast_model: None,
+        toolshim: params.toolshim,
         preserves_thinking,
         emit_clear_thinking: false,
         setup: None,
@@ -230,8 +249,22 @@ pub fn update_custom_provider(params: UpdateCustomProviderParams) -> Result<()> 
     let existing_config = loaded_provider.config;
     let editable = loaded_provider.is_editable;
 
+    if params.auth.is_some()
+        && params
+            .api_key
+            .as_deref()
+            .is_some_and(|key| !key.trim().is_empty())
+    {
+        anyhow::bail!("cannot set both apiKey and auth.command");
+    }
+
     let config = Config::global();
-    let api_key_env = if params.requires_auth {
+    let api_key_env = if params.auth.is_some() {
+        if existing_config.api_key_env == generate_api_key_name(&params.id) {
+            config.delete_secret(&existing_config.api_key_env)?;
+        }
+        String::new()
+    } else if params.requires_auth {
         let api_key_name = if existing_config.api_key_env.is_empty() {
             generate_api_key_name(&params.id)
         } else {
@@ -303,17 +336,19 @@ pub fn update_custom_provider(params: UpdateCustomProviderParams) -> Result<()> 
                 Some(h) => Some(h),
                 None => existing_config.headers,
             },
+            session_id_header_override: existing_config.session_id_header_override,
             timeout_seconds: existing_config.timeout_seconds,
             supports_streaming: params.supports_streaming,
             requires_auth: params.requires_auth,
             catalog_provider_id: params.catalog_provider_id,
             base_path: params.base_path,
             env_vars: existing_config.env_vars,
+            auth: params.auth,
             dynamic_models: existing_config.dynamic_models,
             skip_canonical_filtering: existing_config.skip_canonical_filtering,
             model_doc_link: existing_config.model_doc_link,
             setup_steps: existing_config.setup_steps,
-            fast_model: existing_config.fast_model.clone(),
+            toolshim: params.toolshim,
             preserves_thinking,
             emit_clear_thinking: existing_config.emit_clear_thinking,
             setup: existing_config.setup,
@@ -539,6 +574,10 @@ fn huggingface_declarative_inventory_configured_from_sources(
     provider_secret_configured: impl FnOnce(&str) -> bool,
     global_huggingface_configured: impl FnOnce() -> bool,
 ) -> bool {
+    if config.auth.is_some() {
+        return true;
+    }
+
     if !config.requires_auth {
         return true;
     }
@@ -575,21 +614,59 @@ mod tests {
                 request_params: None,
             }],
             headers: None,
+            session_id_header_override: None,
             timeout_seconds: None,
             supports_streaming: Some(true),
             requires_auth: true,
             catalog_provider_id: Some("huggingface".to_string()),
             base_path: None,
             env_vars: None,
+            auth: None,
             dynamic_models: Some(false),
             skip_canonical_filtering: false,
             model_doc_link: None,
             setup_steps: Vec::new(),
-            fast_model: None,
+            toolshim: false,
             preserves_thinking: true,
             emit_clear_thinking: false,
             setup: None,
         }
+    }
+
+    #[test]
+    fn toolshim_changes_declarative_inventory_identity() {
+        let _guard = env_lock::lock_env([("GOOSE_TOOLSHIM", None::<&str>)]);
+        let mut config = test_huggingface_config();
+
+        let native = declarative_inventory_identity(&config)
+            .unwrap()
+            .into_identity()
+            .unwrap();
+        config.toolshim = true;
+        let toolshim = declarative_inventory_identity(&config)
+            .unwrap()
+            .into_identity()
+            .unwrap();
+
+        assert_ne!(native.inventory_key, toolshim.inventory_key);
+    }
+
+    #[test]
+    fn session_id_header_override_changes_declarative_inventory_identity() {
+        let _guard = env_lock::lock_env([("GOOSE_TOOLSHIM", None::<&str>)]);
+        let mut config = test_huggingface_config();
+
+        let default = declarative_inventory_identity(&config)
+            .unwrap()
+            .into_identity()
+            .unwrap();
+        config.session_id_header_override = Some("x-custom-session".to_string());
+        let overridden = declarative_inventory_identity(&config)
+            .unwrap()
+            .into_identity()
+            .unwrap();
+
+        assert_ne!(default.inventory_key, overridden.inventory_key);
     }
 
     #[test]
@@ -612,6 +689,24 @@ mod tests {
         assert!(huggingface_declarative_inventory_configured_from_sources(
             &config,
             |key| key == "CUSTOM_HF_TOKEN",
+            || false,
+        ));
+    }
+
+    #[test]
+    fn huggingface_inventory_accepts_command_auth() {
+        let mut config = test_huggingface_config();
+        config.auth = Some(AuthConfig {
+            command: "get-token".to_string(),
+            args: vec![],
+            refresh_interval: 3600,
+            timeout_seconds: None,
+            cwd: None,
+        });
+
+        assert!(huggingface_declarative_inventory_configured_from_sources(
+            &config,
+            |_| false,
             || false,
         ));
     }
@@ -719,7 +814,9 @@ mod tests {
             requires_auth: false,
             catalog_provider_id: None,
             base_path: None,
+            toolshim: false,
             preserves_thinking: None,
+            auth: None,
         })
         .unwrap();
 
@@ -735,7 +832,9 @@ mod tests {
             requires_auth: false,
             catalog_provider_id: None,
             base_path: None,
+            toolshim: false,
             preserves_thinking: None,
+            auth: None,
         })
         .unwrap();
 
@@ -851,7 +950,9 @@ mod tests {
             requires_auth: false,
             catalog_provider_id: None,
             base_path: None,
+            toolshim: false,
             preserves_thinking: None,
+            auth: None,
         })
         .unwrap();
 

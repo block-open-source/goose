@@ -413,7 +413,7 @@ export default function GdkApiReference() {
     <SelectionSearchContext.Provider value={selectionSearch(selection, location.search)}>
       <div>
         <div className={styles.toolbar}>
-          <div className={styles.tabs} role="tablist" aria-label="GDK language">
+          <div className={styles.tabs} role="tablist" aria-label="SDK language">
             {LANGUAGES.map((entry) => (
               <button
                 key={entry.id}
@@ -433,7 +433,7 @@ export default function GdkApiReference() {
             <select
               value={docVersion}
               onChange={(event) => select({ docVersion: event.target.value })}
-              aria-label="GDK version"
+              aria-label="SDK version"
             >
               {VERSIONS.map((entry) => (
                 <option key={entry.docVersion} value={entry.docVersion}>

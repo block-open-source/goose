@@ -36,7 +36,7 @@ impl GooseAcpAgent {
                 Ok(value) => value,
                 Err(crate::config::ConfigError::NotFound(_)) => serde_json::Value::Null,
                 Err(e) => {
-                    return Err(agent_client_protocol::Error::internal_error().data(e.to_string()))
+                    return Err(agent_client_protocol::Error::internal_error().data(e.to_string()));
                 }
             };
             values.push(PreferenceValue { key, value });
@@ -88,7 +88,7 @@ impl GooseAcpAgent {
             Ok(value) => value,
             Err(crate::config::ConfigError::NotFound(_)) => serde_json::Value::Null,
             Err(e) => {
-                return Err(agent_client_protocol::Error::internal_error().data(e.to_string()))
+                return Err(agent_client_protocol::Error::internal_error().data(e.to_string()));
             }
         };
         Ok(ConfigReadResponse { value })
@@ -207,12 +207,12 @@ impl GooseAcpAgent {
         // from the provider's (often non-exhaustive) inventory must still be
         // accepted as the default here. Local inference is the exception: its
         // models cannot be fetched on demand, so they are validated against the
-        // inventory or the on-disk registry.
+        // inventory, the Hugging Face cache, or an explicit local path.
         if provider_id == "local" {
             if let Some(model_id) = model_id.as_deref() {
                 let model_exists = entry.default_model == model_id
                     || entry.models.iter().any(|model| model.id == model_id)
-                    || local_inference_model_exists(model_id)?;
+                    || local_inference_model_exists(model_id).await?;
                 if !model_exists {
                     return Err(agent_client_protocol::Error::invalid_params().data(format!(
                         "Model '{model_id}' is not available for provider '{provider_id}'"
@@ -251,10 +251,13 @@ impl GooseAcpAgent {
     }
 }
 
-fn local_inference_model_exists(model_id: &str) -> Result<bool, agent_client_protocol::Error> {
+async fn local_inference_model_exists(
+    model_id: &str,
+) -> Result<bool, agent_client_protocol::Error> {
     #[cfg(feature = "local-inference")]
     {
         crate::providers::local_inference::management::model_exists(model_id)
+            .await
             .internal_err_ctx("Failed to read local inference models")
     }
 

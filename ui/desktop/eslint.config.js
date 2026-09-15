@@ -91,6 +91,7 @@ module.exports = [
         ReadableStreamDefaultController: 'readonly',
         WritableStream: 'readonly',
         AbortController: 'readonly',
+        AbortSignal: 'readonly',
         RequestCredentials: 'readonly',
         HeadersInit: 'readonly',
         KeyboardEvent: 'readonly',

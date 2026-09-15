@@ -220,6 +220,13 @@ fn message_part_json(content: &MessageContent) -> Value {
             "mime_type": image.mime_type,
             "content": image.data,
         }),
+        MessageContent::Document(document) => json!({
+            "type": "blob",
+            "modality": "document",
+            "mime_type": document.mime_type,
+            "name": document.name,
+            "content": document.data,
+        }),
         MessageContent::ToolRequest(request) => tool_call_part(&request.id, &request.tool_call),
         MessageContent::ToolResponse(response) => json!({
             "type": "tool_call_response",

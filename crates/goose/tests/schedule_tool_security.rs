@@ -4,9 +4,12 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use goose::agents::ScheduleTool;
+use goose::config::GooseMode;
+use goose::conversation::message::{Message, MessageContent};
 use goose::scheduler::{ScheduledJob, SchedulerError, ValidatedScheduleRecipe};
 use goose::scheduler_trait::SchedulerTrait;
-use goose::session::{Session, SessionManager};
+use goose::session::{Session, SessionManager, SessionType};
+use rmcp::model::{Annotations, ContentBlock, Role, TextContent};
 use tempfile::TempDir;
 
 struct MockScheduler {
@@ -122,6 +125,87 @@ async fn create_schedule(schedule_tool: &ScheduleTool, recipe_path: &Path) -> Re
 }
 
 #[tokio::test]
+async fn session_content_only_serializes_agent_visible_conversation() {
+    let temp_dir = TempDir::new().unwrap();
+    let scheduler = Arc::new(MockScheduler::new());
+    let working_dir = temp_dir.path().join("project");
+    let session_manager = Arc::new(SessionManager::new(temp_dir.path().join("data")));
+    let tool = ScheduleTool::new(scheduler, session_manager.clone());
+    let session = session_manager
+        .create_session(
+            working_dir.clone(),
+            "Project session".to_string(),
+            SessionType::Scheduled,
+            GooseMode::Auto,
+        )
+        .await
+        .unwrap();
+    let user_only = |text: &str| {
+        MessageContent::Text(
+            TextContent::new(text)
+                .with_annotations(Annotations::default().with_audience(vec![Role::User])),
+        )
+    };
+
+    session_manager
+        .add_message(
+            &session.id,
+            &Message::user()
+                .with_text("hidden-message-secret")
+                .user_only(),
+        )
+        .await
+        .unwrap();
+    session_manager
+        .add_message(
+            &session.id,
+            &Message::assistant()
+                .with_content(user_only("hidden-content-secret"))
+                .with_text("shared-content"),
+        )
+        .await
+        .unwrap();
+    session_manager
+        .add_message(&session.id, &Message::user().with_text("visible-message"))
+        .await
+        .unwrap();
+
+    let result = tool
+        .execute(serde_json::json!({
+            "action": "session_content",
+            "session_id": session.id,
+        }))
+        .await
+        .unwrap();
+    let ContentBlock::Text(content) = &result[0] else {
+        panic!("expected text content");
+    };
+    assert_eq!(
+        content
+            .annotations
+            .as_ref()
+            .and_then(|annotations| annotations.audience.as_deref()),
+        Some(&[Role::Assistant][..])
+    );
+    let (_, session_json) = content.text.split_once("\nSession:\n").unwrap();
+    let serialized: serde_json::Value = serde_json::from_str(session_json).unwrap();
+
+    assert_eq!(serialized["id"], session.id);
+    assert_eq!(
+        serialized["working_dir"],
+        working_dir.to_string_lossy().as_ref()
+    );
+    assert_eq!(serialized["name"], "Project session");
+    assert_eq!(serialized["session_type"], "scheduled");
+    assert_eq!(serialized["goose_mode"], "auto");
+    assert_eq!(serialized["message_count"], 3);
+    assert!(!content.text.contains("hidden-message-secret"));
+    assert!(!content.text.contains("hidden-content-secret"));
+    assert!(content.text.contains("shared-content"));
+    assert!(content.text.contains("visible-message"));
+}
+
+#[tokio::test]
 async fn parse_errors_do_not_reflect_recipe_contents() {
     let temp_dir = TempDir::new().unwrap();
     let scheduler = Arc::new(MockScheduler::new());
@@ -140,6 +224,41 @@ async fn parse_errors_do_not_reflect_recipe_contents() {
     }
 
     assert!(scheduler.jobs.lock().await.is_empty());
+}
+
+#[tokio::test]
+async fn reports_actionable_schema_errors_without_reflecting_values() {
+    let temp_dir = TempDir::new().unwrap();
+    let scheduler = Arc::new(MockScheduler::new());
+    let tool = schedule_tool(&temp_dir, scheduler.clone());
+    let cases = [
+        (
+            "missing-title.yaml",
+            "description: Missing title\nprompt: Run safely\n".to_string(),
+            "Invalid recipe: missing field `title`",
+            "Missing title",
+        ),
+        (
+            "invalid-input-type.yaml",
+            "title: Test\ndescription: hi\nprompt: Run {{ item }}\nparameters:\n  - key: item\n    input_type: yaml-secret-242\n    requirement: required\n    description: hi\n"
+                .to_string(),
+            "Invalid recipe: parameters[0].input_type is invalid",
+            "yaml-secret-242",
+        ),
+    ];
+
+    for (name, content, expected, secret) in cases {
+        let path = temp_dir.path().join(name);
+        std::fs::write(&path, content).unwrap();
+
+        let message = create_schedule(&tool, &path).await.unwrap_err();
+
+        assert_eq!(message, expected);
+        assert!(!message.contains(secret));
+    }
+
+    assert!(scheduler.jobs.lock().await.is_empty());
+    assert!(scheduler.validated_recipes.lock().await.is_empty());
 }
 
 #[tokio::test]

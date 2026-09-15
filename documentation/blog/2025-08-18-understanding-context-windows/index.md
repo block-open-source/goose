@@ -89,7 +89,7 @@ Keep individual sessions focused on specific tasks. When you complete a task or 
 
 **7. Planner model + focused execution**
 
-Use a dedicated [planner model](/docs/guides/context-engineering/creating-plans) for complex reasoning and keep your default model focused on execution. This gives you control over cost and quality while keeping model behavior explicit and predictable.
+Use a strong [reasoning model](/docs/guides/multi-model/) for complex work and keep your default model focused on execution. This gives you control over cost and quality while keeping model behavior explicit and predictable.
 
 ---
 

@@ -77,8 +77,14 @@ impl SnowflakeProvider {
             host
         };
 
+        let parsed_url = url::Url::parse(&base_url)?;
+        if parsed_url.scheme() != "https" {
+            anyhow::bail!("Snowflake host must use HTTPS");
+        }
+
         let auth = AuthMethod::BearerToken(token);
-        let mut api_client = ApiClient::new_with_tls(base_url, auth, tls_config)?;
+        let mut api_client =
+            ApiClient::new_with_tls(base_url, auth, tls_config)?.with_https_only()?;
         if let Some(request_builder) = request_builder {
             api_client = api_client.with_request_builder(request_builder);
         }
@@ -351,5 +357,41 @@ impl Provider for SnowflakeProvider {
             message,
             provider_usage,
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn create_provider(host: &str) -> Result<SnowflakeProvider> {
+        SnowflakeProvider::new(host.to_string(), "token".to_string(), None, None)
+    }
+
+    #[test]
+    fn rejects_http_host() {
+        let error = create_provider("http://account.snowflakecomputing.com").unwrap_err();
+
+        assert!(error.to_string().contains("HTTPS"));
+    }
+
+    #[test]
+    fn accepts_https_host() {
+        let provider = create_provider("https://account.snowflakecomputing.com").unwrap();
+
+        assert_eq!(
+            provider.api_client.host(),
+            "https://account.snowflakecomputing.com"
+        );
+    }
+
+    #[test]
+    fn normalizes_schemeless_host_to_https() {
+        let provider = create_provider("account").unwrap();
+
+        assert_eq!(
+            provider.api_client.host(),
+            "https://account.snowflakecomputing.com"
+        );
     }
 }

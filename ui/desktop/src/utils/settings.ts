@@ -55,6 +55,7 @@ export interface Settings {
   showPricing: boolean;
   seenAnnouncementIds: string[];
   recentModels: RecentModel[];
+  useLegacyAgentLoop: boolean;
 }
 
 export type SettingKey = keyof Settings;
@@ -96,6 +97,7 @@ export const defaultSettings: Settings = {
   showPricing: true,
   seenAnnouncementIds: [],
   recentModels: [],
+  useLegacyAgentLoop: false,
 };
 
 export function getKeyboardShortcuts(settings: Settings): KeyboardShortcuts {

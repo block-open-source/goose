@@ -521,7 +521,6 @@ mod tests {
             configured: true,
             available: true,
             provider_type: crate::providers::base::ProviderType::Builtin,
-            category: crate::providers::catalog::ProviderSetupCategory::Model,
             acp: false,
             visible_in_setup: true,
             deprecated: false,
@@ -544,7 +543,6 @@ mod tests {
             last_updated_at: None,
             last_refresh_attempt_at: None,
             last_refresh_error: None,
-            model_selection_hint: None,
         };
         build_model_state("unused", &inventory)
     }

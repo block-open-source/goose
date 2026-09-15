@@ -70,7 +70,7 @@ pub fn record(log_file_path: &String, cmd: &String, cmd_args: &[String]) -> io::
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .inspect_err(|e| eprintln!("Failed to execute command '{}': {}", &cmd, e))?;
+        .inspect_err(|e| eprintln!("Failed to execute command '{}': {}", cmd, e))?;
 
     let child_stdin = child.stdin.take().unwrap();
     let child_stdout = child.stdout.take().unwrap();

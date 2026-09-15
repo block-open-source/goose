@@ -85,7 +85,7 @@ When you run a recipe using a slash command, the recipe's instructions and promp
 - Slash commands accept only one [parameter](/docs/guides/recipes/recipe-reference#parameters). Any additional parameters in the recipe must have default values.
 - Command names are case-insensitive (`/Bug` and `/bug` are treated as the same command).
 - Command names must be unique and contain no spaces.
-- You cannot use names that conflict with [built-in CLI slash commands](/docs/guides/goose-cli-commands#slash-commands) like `/recipe`, `/compact`, or `/help`.
+- You cannot use names that conflict with [built-in CLI slash commands](/docs/guides/goose-cli-commands#slash-commands) like `/compact` or `/help`.
 - If the recipe file is missing or invalid, the command will be treated as regular text sent to the model.
 
 ## Additional Resources

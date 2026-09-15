@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import type { ScheduledJobDto } from '@aaif/goose-sdk';
+import type { ScheduledJobDto } from '@aaif/goose-acp-client';
 import { errorMessage } from '../../utils/conversionUtils';
 import { defineMessages, useIntl } from '../../i18n';
 import {

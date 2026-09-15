@@ -76,7 +76,6 @@ static DATABRICKS_ENDPOINT_INFO_CACHE: LazyLock<
     Mutex<std::collections::HashMap<String, CachedDatabricksEndpointInfo>>,
 > = LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
 pub const DATABRICKS_DEFAULT_MODEL: &str = "databricks-claude-sonnet-4";
-pub const DATABRICKS_DEFAULT_FAST_MODEL: &str = "databricks-claude-haiku-4-5";
 pub const DATABRICKS_KNOWN_MODELS: &[&str] = &[
     "databricks-claude-sonnet-4-5",
     "databricks-meta-llama-3-3-70b-instruct",
@@ -532,7 +531,6 @@ impl crate::base::ProviderDescriptor for DatabricksProvider {
                 ConfigKey::new("DATABRICKS_TOKEN", false, true, None, true),
             ],
         )
-        .with_fast_model(DATABRICKS_DEFAULT_FAST_MODEL)
     }
 }
 

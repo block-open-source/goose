@@ -18,8 +18,7 @@ use tokio::process::Command;
 use tokio::sync::oneshot;
 
 use super::base::{
-    stream_from_single_message, ConfigKey, MessageStream, PermissionRouting, Provider, ProviderDef,
-    ProviderMetadata,
+    ConfigKey, MessageStream, PermissionRouting, Provider, ProviderDef, ProviderMetadata,
 };
 use super::utils::filter_extensions_from_system_prompt;
 use crate::config::paths::Paths;
@@ -751,14 +750,6 @@ impl Provider for ClaudeCodeProvider {
         _tools: &[Tool],
     ) -> Result<MessageStream, ProviderError> {
         let session_id = crate::session_context::current_session_id().unwrap_or_default();
-        if super::cli_common::is_session_description_request(system) {
-            let (message, usage) = super::cli_common::generate_simple_session_description(
-                &model_config.model_name,
-                messages,
-            )?;
-            return Ok(stream_from_single_message(message, usage));
-        }
-
         let filtered_system = filter_extensions_from_system_prompt(system);
         let process_arc = Arc::clone(
             self.get_or_init_process(model_config, &filtered_system)
@@ -1466,6 +1457,43 @@ mod tests {
             .with_canonical_limits(CLAUDE_CODE_PROVIDER_NAME);
         let stream = provider.stream(&model, "", &messages, &[]).await.unwrap();
         (provider, stream, stdin_reader)
+    }
+
+    #[tokio::test]
+    async fn former_session_title_phrase_reaches_cli() {
+        use futures::StreamExt;
+
+        let canned_stdout = [
+            r#"{"type":"control_response","response":{"subtype":"success","request_id":"req_0"}}"#,
+            r#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"provider response"}}}"#,
+            r#"{"type":"result","result":"provider response","usage":{}}"#,
+        ]
+        .join("\n");
+        let (process, _stdin_reader) = make_test_process(&canned_stdout);
+        let provider = make_provider();
+        provider
+            .cli_process
+            .set(Arc::new(tokio::sync::Mutex::new(process)))
+            .unwrap();
+        let model = ModelConfig::new(CLAUDE_CODE_DEFAULT_MODEL)
+            .with_canonical_limits(CLAUDE_CODE_PROVIDER_NAME);
+        let mut stream = provider
+            .stream(
+                &model,
+                "answer in four words or less",
+                &[Message::user().with_text("ordinary request")],
+                &[],
+            )
+            .await
+            .unwrap();
+        let mut response = String::new();
+        while let Some(item) = stream.next().await {
+            if let Some(message) = item.unwrap().0 {
+                response.push_str(&message.as_concat_text());
+            }
+        }
+
+        assert_eq!(response, "provider response");
     }
 
     async fn capture_stdin(

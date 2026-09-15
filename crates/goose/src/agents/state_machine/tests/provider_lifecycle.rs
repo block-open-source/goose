@@ -36,15 +36,38 @@ async fn provider_lifecycle() -> Result<()> {
                 .with_image(image_data, "image/png"),
         )
         .await?;
-    result.assert_message(2, Agent, "The image is suitable. I will add one.");
     result.assert_message(
-        3,
+        2,
         Thinking,
         "I should inspect the image before calculating.",
     );
+    result.assert_message(3, Agent, "The image is suitable. I will add one.");
     result.assert_message(4, ToolCall, ADD);
     result.assert_message(5, ToolResponse, "result: 1");
     result.assert_message(-1, Agent, "The total is 1.");
+    let tool_turn = result
+        .conversation()
+        .messages()
+        .iter()
+        .find(|message| {
+            message
+                .content
+                .iter()
+                .any(|content| matches!(content, MessageContent::ToolRequest(_)))
+        })
+        .expect("tool-call assistant message");
+    assert!(
+        matches!(
+            tool_turn.content.as_slice(),
+            [
+                MessageContent::Thinking(_),
+                MessageContent::Text(_),
+                MessageContent::ToolRequest(_)
+            ]
+        ),
+        "thinking, text, and the tool call must stay one message in model order: {:#?}",
+        tool_turn.content
+    );
     assert!(result
         .conversation()
         .messages()

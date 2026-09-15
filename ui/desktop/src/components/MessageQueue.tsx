@@ -2,6 +2,7 @@ import React, { useRef, useState } from 'react';
 import { X, Clock, Send, GripVertical, Zap, Sparkles, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from './ui/button';
 import { ImageData } from '../types/message';
+import { getTextDirection } from '../utils/textDirection';
 import { defineMessages, useIntl } from '../i18n';
 
 const i18n = defineMessages({
@@ -225,7 +226,11 @@ export const MessageQueue: React.FC<MessageQueueProps> = ({
 
             {/* Next message preview */}
             <div className="flex-1 min-w-0">
-              <p className="text-sm text-muted-foreground truncate" title={nextMessage.content}>
+              <p
+                dir={getTextDirection(nextMessage.content) ?? undefined}
+                className="text-sm text-muted-foreground truncate"
+                title={nextMessage.content}
+              >
                 {nextMessage.content.length > 40
                   ? `${nextMessage.content.substring(0, 40)}...`
                   : nextMessage.content}
@@ -418,6 +423,7 @@ export const MessageQueue: React.FC<MessageQueueProps> = ({
                         value={editContent}
                         onChange={(e) => setEditContent(e.target.value)}
                         disabled={isSending}
+                        dir={getTextDirection(editContent) ?? undefined}
                         className="w-full text-sm bg-background border border-border rounded-md px-2 py-1 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                         rows={Math.min(Math.ceil(editContent.length / 60), 4)}
                         autoFocus
@@ -464,6 +470,7 @@ export const MessageQueue: React.FC<MessageQueueProps> = ({
                     </div>
                   ) : (
                     <p
+                      dir={getTextDirection(message.content) ?? undefined}
                       className={`text-sm text-foreground leading-relaxed rounded px-1 py-0.5 transition-colors ${
                         isSending ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-muted/30'
                       }`}

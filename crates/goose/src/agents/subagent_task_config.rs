@@ -41,7 +41,7 @@ impl TaskConfig {
     ) -> Self {
         Self {
             provider,
-            model_config,
+            model_config: model_config.with_cache_ttl_clamped(),
             parent_session_id: parent_session_id.to_owned(),
             parent_working_dir: parent_working_dir.to_owned(),
             extensions,

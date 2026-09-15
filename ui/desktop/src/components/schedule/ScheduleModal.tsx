@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, FormEvent, useCallback, useRef } from 'react';
-import type { ScheduledJobDto } from '@aaif/goose-sdk';
+import type { ScheduledJobDto } from '@aaif/goose-acp-client';
 import { Card } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';

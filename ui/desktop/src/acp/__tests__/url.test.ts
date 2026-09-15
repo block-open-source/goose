@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   acpHttpUrlFromHttpBase,
-  acpWebSocketUrlFromHttpBase,
   httpBaseFromAcpWebSocketUrl,
   isLoopbackAcpWebSocketUrl,
   normalizeAcpHttpBaseUrl,
@@ -108,26 +107,6 @@ describe('HTTP endpoint URLs from ACP HTTP base URLs', () => {
     expect(acpHttpUrlFromHttpBase('https://example.com/')).toBe('https://example.com/acp');
     expect(acpHttpUrlFromHttpBase('https://example.com/goose/')).toBe(
       'https://example.com/goose/acp'
-    );
-  });
-
-  it('adds ACP query tokens when provided', () => {
-    expect(acpHttpUrlFromHttpBase('https://example.com/goose', 'test secret')).toBe(
-      'https://example.com/goose/acp?token=test+secret'
-    );
-  });
-});
-
-describe('acpWebSocketUrlFromHttpBase', () => {
-  it('derives WSS ACP URLs from HTTPS base URLs', () => {
-    expect(acpWebSocketUrlFromHttpBase('https://example.com/goose', 'secret')).toBe(
-      'wss://example.com/goose/acp?token=secret'
-    );
-  });
-
-  it('derives WS ACP URLs from HTTP base URLs', () => {
-    expect(acpWebSocketUrlFromHttpBase('http://127.0.0.1:1234', 'secret')).toBe(
-      'ws://127.0.0.1:1234/acp?token=secret'
     );
   });
 });

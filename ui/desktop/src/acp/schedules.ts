@@ -5,7 +5,7 @@ import type {
   RunScheduleNowResponse_unstable,
   ScheduledJobDto,
   SessionInfo,
-} from '@aaif/goose-sdk';
+} from '@aaif/goose-acp-client';
 import { getAcpClient } from './acpConnection';
 
 let inFlightListSchedules: Promise<ScheduledJobDto[]> | null = null;

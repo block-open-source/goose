@@ -1,16 +1,20 @@
 pub mod config_resolver;
+#[cfg(feature = "hf-hub")]
 pub use goose_download_manager as download_manager;
+#[cfg(feature = "hf-hub")]
 pub mod huggingface_auth;
 pub mod paths;
 pub mod prompt_template;
 pub mod provider_utils;
 
 mod backend;
+#[cfg(feature = "hf-hub")]
 pub mod hf_models;
 mod llamacpp;
-pub mod local_model_registry;
+#[cfg(feature = "hf-hub")]
 pub mod management;
 mod mlx;
+pub mod model;
 pub(crate) mod multimodal;
 #[cfg(feature = "mlx")]
 mod native_tool_parsing;
@@ -18,7 +22,7 @@ pub(crate) mod thinking_output;
 mod tool_emulation;
 mod tool_parsing;
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use async_stream::try_stream;
 use async_trait::async_trait;
 use backend::{BackendLoadedModel, LocalInferenceBackend};
@@ -32,12 +36,12 @@ use goose_provider_types::images::ImageFormat;
 use goose_provider_types::model::ModelConfig;
 use goose_provider_types::request_log::{start_log, LoggerHandleExt, RequestLogHandle};
 use llamacpp::{LlamaCppBackend, LLAMACPP_BACKEND_ID};
-use local_model_registry::ChatTemplate;
 use mlx::{MlxBackend, MLX_BACKEND_ID};
+use model::ChatTemplate;
 use rmcp::model::Tool;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex as StdMutex, Weak};
 use tokio::sync::{Mutex, Notify};
 use uuid::Uuid;
@@ -52,7 +56,10 @@ struct ModelSlot {
 enum ModelSlotState {
     Empty,
     Loading,
-    Loaded(Box<dyn BackendLoadedModel>),
+    Loaded {
+        model: Box<dyn BackendLoadedModel>,
+        resolved: Box<ResolvedModelPaths>,
+    },
 }
 
 impl ModelSlot {
@@ -151,11 +158,6 @@ impl InferenceRuntime {
             .clone()
     }
 
-    fn model_slot(&self, key: &ModelCacheKey) -> Option<ModelSlotHandle> {
-        let map = self.models.lock().expect("model cache lock poisoned");
-        map.get(key).cloned()
-    }
-
     fn other_model_slots(&self, keep_key: &ModelCacheKey) -> Vec<ModelSlotHandle> {
         let map = self.models.lock().expect("model cache lock poisoned");
         map.iter()
@@ -163,28 +165,31 @@ impl InferenceRuntime {
             .map(|(_, slot)| slot.clone())
             .collect()
     }
+
+    async fn loaded_model_paths(
+        &self,
+        model_id: &str,
+        chat_template: &ChatTemplate,
+    ) -> Option<ResolvedModelPaths> {
+        let slots = {
+            let map = self.models.lock().expect("model cache lock poisoned");
+            map.iter()
+                .filter(|(key, _)| key.model_id == model_id && &key.chat_template == chat_template)
+                .map(|(_, slot)| slot.clone())
+                .collect::<Vec<_>>()
+        };
+        for slot in slots {
+            let state = slot.state.lock().await;
+            if let ModelSlotState::Loaded { resolved, .. } = &*state {
+                return Some(resolved.as_ref().clone());
+            }
+        }
+        None
+    }
 }
 
 pub async fn is_model_loaded(model_name: &str) -> Result<bool, ProviderError> {
-    let resolved = match resolve_model_path(model_name) {
-        Some(resolved) => resolved,
-        None => return Ok(false),
-    };
-    let runtime = InferenceRuntime::get_or_init().map_err(|error| {
-        ProviderError::ExecutionError(format!("Failed to initialize local inference: {error}"))
-    })?;
-    let backend = runtime.backend_for_model(&resolved)?;
-    let key = ModelCacheKey::new(
-        backend.id(),
-        model_name.to_string(),
-        resolved.settings.chat_template,
-    );
-    let Some(slot) = runtime.model_slot(&key) else {
-        return Ok(false);
-    };
-
-    let state = slot.state.lock().await;
-    Ok(matches!(*state, ModelSlotState::Loaded(_)))
+    Ok(loaded_model_ids().await?.contains(model_name))
 }
 
 pub async fn loaded_model_ids() -> Result<HashSet<String>, ProviderError> {
@@ -201,7 +206,7 @@ pub async fn loaded_model_ids() -> Result<HashSet<String>, ProviderError> {
     let mut loaded = HashSet::new();
     for (model_id, slot) in slots {
         if let Ok(state) = slot.state.try_lock() {
-            if matches!(*state, ModelSlotState::Loaded(_)) {
+            if matches!(*state, ModelSlotState::Loaded { .. }) {
                 loaded.insert(model_id);
             }
         } else {
@@ -226,7 +231,7 @@ pub async fn evict_model(model_name: &str) -> Result<bool, ProviderError> {
     let mut evicted = false;
     for slot in slots {
         let mut state = slot.state.lock().await;
-        if matches!(*state, ModelSlotState::Loaded(_)) {
+        if matches!(*state, ModelSlotState::Loaded { .. }) {
             *state = ModelSlotState::Empty;
             evicted = true;
             slot.notify.notify_waiters();
@@ -236,7 +241,6 @@ pub async fn evict_model(model_name: &str) -> Result<bool, ProviderError> {
 }
 
 const PROVIDER_NAME: &str = "local";
-const DEFAULT_MODEL: &str = "bartowski/Llama-3.2-1B-Instruct-GGUF:Q4_K_M";
 
 pub const LOCAL_LLM_MODEL_CONFIG_KEY: &str = "LOCAL_LLM_MODEL";
 
@@ -244,100 +248,228 @@ pub const LOCAL_LLM_MODEL_CONFIG_KEY: &str = "LOCAL_LLM_MODEL";
 pub(crate) struct ResolvedModelPaths {
     pub model_path: PathBuf,
     pub context_limit: usize,
-    pub settings: crate::local_model_registry::ModelSettings,
+    pub settings: crate::model::ModelSettings,
     pub mmproj_path: Option<PathBuf>,
     pub backend_id: Option<String>,
     pub draft_model_path: Option<PathBuf>,
 }
 
-fn resolve_model_local_path(model_id: &str) -> Option<PathBuf> {
-    use crate::local_model_registry::get_registry;
-
-    get_registry()
-        .lock()
-        .ok()?
-        .get_model(model_id)
-        .map(|entry| entry.local_path.clone())
+struct ExplicitModelPath {
+    model_path: PathBuf,
+    backend_id: &'static str,
 }
 
-pub fn local_context_limit(model_id: &str) -> Option<usize> {
-    resolve_model_path(model_id)
-        .map(|resolved| resolved.context_limit)
-        .filter(|limit| *limit > 0)
+fn has_extension(path: &Path, extension: &str) -> bool {
+    path.extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|value| value.eq_ignore_ascii_case(extension))
 }
 
-/// Resolve model path, context limit, settings, and mmproj path for a model ID from the registry.
-fn resolve_model_path(model_id: &str) -> Option<ResolvedModelPaths> {
-    use crate::local_model_registry::{default_settings_for_model, get_registry};
+fn is_mlx_model_directory(path: &Path) -> Result<bool> {
+    if !path.join("config.json").is_file() || !path.join("tokenizer.json").is_file() {
+        return Ok(false);
+    }
 
-    if let Ok(registry) = get_registry().lock() {
-        if let Some(entry) = registry.get_model(model_id) {
-            let ctx = entry.settings.context_size.unwrap_or(0) as usize;
-            let mut settings = entry.settings.clone();
-            let defaults = default_settings_for_model(model_id);
-            settings.vision_capable = defaults.vision_capable;
-            settings.mmproj_size_bytes = entry.mmproj_size_bytes;
-            let mmproj_path = entry.mmproj_path.as_ref().filter(|p| p.exists()).cloned();
-            let backend_id = entry
-                .backend_id
-                .clone()
-                .or_else(|| settings.backend_id.clone());
-            let draft_model = settings
-                .draft_model
-                .clone()
-                .or_else(|| {
-                    config_resolver::string_param("GOOSE_LOCAL_DRAFT_MODEL")
-                        .ok()
-                        .flatten()
-                })
-                .filter(|draft_model| draft_model != model_id);
-            let draft_model_path = draft_model.as_deref().and_then(resolve_model_local_path);
-            return Some(ResolvedModelPaths {
-                model_path: entry.local_path.clone(),
-                context_limit: ctx,
-                settings,
-                mmproj_path,
-                backend_id,
-                draft_model_path,
-            });
+    for entry in std::fs::read_dir(path)? {
+        if has_extension(&entry?.path(), "safetensors") {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn explicit_model_path(model_id: &str) -> Result<Option<ExplicitModelPath>> {
+    if model_id.is_empty() {
+        return Ok(None);
+    }
+
+    let path = PathBuf::from(model_id);
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    if path.is_file() && has_extension(&path, "gguf") {
+        return Ok(Some(ExplicitModelPath {
+            model_path: path,
+            backend_id: LLAMACPP_BACKEND_ID,
+        }));
+    }
+
+    let mlx_directory = if path.is_dir() {
+        Some(path.as_path())
+    } else if path.is_file() && has_extension(&path, "safetensors") {
+        path.parent()
+    } else {
+        None
+    };
+    if let Some(directory) = mlx_directory {
+        if is_mlx_model_directory(directory)? {
+            mlx::validate_model_directory(directory)
+                .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+            return Ok(Some(ExplicitModelPath {
+                model_path: directory.to_path_buf(),
+                backend_id: MLX_BACKEND_ID,
+            }));
         }
     }
 
-    None
+    bail!(
+        "Unsupported local model path '{}': expected a GGUF file or an MLX directory containing config.json, tokenizer.json, and SafeTensors weights",
+        path.display()
+    )
+}
+
+async fn resolve_draft_model_path(model_id: &str) -> Result<Option<PathBuf>> {
+    if let Some(explicit) = explicit_model_path(model_id)? {
+        return Ok(Some(explicit.model_path));
+    }
+
+    #[cfg(feature = "hf-hub")]
+    let model_path = hf_models::cached_local_model(model_id)
+        .await?
+        .map(|model| model.model_path);
+
+    #[cfg(not(feature = "hf-hub"))]
+    let model_path = None;
+
+    Ok(model_path)
+}
+
+pub fn local_context_limit(model_id: &str) -> Option<usize> {
+    config_resolver::model_settings(model_id)
+        .ok()
+        .and_then(|settings| settings.context_size)
+        .map(|limit| limit as usize)
+        .filter(|limit| *limit > 0)
+}
+
+fn configured_draft_model(
+    model_id: &str,
+    settings: &crate::model::ModelSettings,
+) -> Option<String> {
+    settings
+        .draft_model
+        .clone()
+        .or_else(|| {
+            config_resolver::string_param("GOOSE_LOCAL_DRAFT_MODEL")
+                .ok()
+                .flatten()
+        })
+        .filter(|draft_model| draft_model != model_id)
+}
+
+async fn resolve_loaded_model_path(model_id: &str) -> Result<Option<ResolvedModelPaths>> {
+    let Some(runtime) = current_runtime() else {
+        return Ok(None);
+    };
+    let mut settings = config_resolver::model_settings(model_id)?;
+    let Some(mut resolved) = runtime
+        .loaded_model_paths(model_id, &settings.chat_template)
+        .await
+    else {
+        return Ok(None);
+    };
+
+    let draft_model = configured_draft_model(model_id, &settings);
+    if draft_model != resolved.settings.draft_model {
+        resolved.draft_model_path = if let Some(draft_model) = &draft_model {
+            resolve_draft_model_path(draft_model).await?
+        } else {
+            None
+        };
+    }
+    settings.draft_model = draft_model;
+    settings.vision_capable = resolved.mmproj_path.is_some();
+    settings.mmproj_size_bytes = resolved.settings.mmproj_size_bytes;
+    resolved.context_limit = settings.context_size.unwrap_or(0) as usize;
+    resolved.settings = settings;
+    Ok(Some(resolved))
+}
+
+async fn resolve_model_path(model_id: &str) -> Result<Option<ResolvedModelPaths>> {
+    if let Some(explicit) = explicit_model_path(model_id)? {
+        let mut settings = config_resolver::model_settings(model_id)?;
+        settings.vision_capable = false;
+        settings.mmproj_size_bytes = 0;
+        let draft_model = configured_draft_model(model_id, &settings);
+        let draft_model_path = if let Some(draft_model) = &draft_model {
+            resolve_draft_model_path(draft_model).await?
+        } else {
+            None
+        };
+        settings.draft_model = draft_model;
+
+        return Ok(Some(ResolvedModelPaths {
+            model_path: explicit.model_path,
+            context_limit: settings.context_size.unwrap_or(0) as usize,
+            settings,
+            mmproj_path: None,
+            backend_id: Some(explicit.backend_id.to_string()),
+            draft_model_path,
+        }));
+    }
+
+    if let Some(resolved) = resolve_loaded_model_path(model_id).await? {
+        return Ok(Some(resolved));
+    }
+
+    #[cfg(feature = "hf-hub")]
+    let resolved = {
+        let cached_models = hf_models::cached_local_models().await?;
+        let Some(cached) = cached_models.iter().find(|model| model.id == model_id) else {
+            return Ok(None);
+        };
+        let mut settings = config_resolver::model_settings(model_id)?;
+        settings.vision_capable = cached.mmproj_path.is_some();
+        settings.mmproj_size_bytes = cached.mmproj_size_bytes;
+        let draft_model = configured_draft_model(model_id, &settings);
+        let draft_model_path = if let Some(draft_model) = &draft_model {
+            if let Some(explicit_draft) = explicit_model_path(draft_model)? {
+                Some(explicit_draft.model_path)
+            } else {
+                cached_models
+                    .iter()
+                    .find(|model| model.id == draft_model.as_str())
+                    .map(|model| model.model_path.clone())
+            }
+        } else {
+            None
+        };
+        settings.draft_model = draft_model;
+
+        Some(ResolvedModelPaths {
+            model_path: cached.model_path.clone(),
+            context_limit: settings.context_size.unwrap_or(0) as usize,
+            settings,
+            mmproj_path: cached.mmproj_path.clone(),
+            backend_id: Some(cached.backend_id.clone()),
+            draft_model_path,
+        })
+    };
+
+    #[cfg(not(feature = "hf-hub"))]
+    let resolved = None;
+
+    Ok(resolved)
 }
 
 pub fn available_inference_memory_bytes(runtime: &InferenceRuntime) -> u64 {
     runtime.default_backend().available_memory_bytes()
 }
 
-pub fn recommend_local_model(runtime: &InferenceRuntime) -> String {
-    use local_model_registry::{get_registry, is_featured_model, FEATURED_MODELS};
-
+#[cfg(feature = "hf-hub")]
+pub fn recommend_local_model(
+    runtime: &InferenceRuntime,
+    models: &[hf_models::CachedLocalModel],
+) -> Option<String> {
     let available_memory = available_inference_memory_bytes(runtime);
-
-    if let Ok(registry) = get_registry().lock() {
-        let mut models: Vec<_> = registry
-            .list_models()
-            .iter()
-            .filter(|m| is_featured_model(&m.id) && m.file_size() > 0)
-            .collect();
-        models.sort_by_key(|model| std::cmp::Reverse(model.file_size()));
-
-        // Return largest that fits in available memory
-        for model in &models {
-            if available_memory >= model.file_size() {
-                return model.id.clone();
-            }
-        }
-
-        // If nothing fits, return smallest
-        if let Some(smallest) = models.last() {
-            return smallest.id.clone();
-        }
-    }
-
-    // Fallback to first featured model
-    FEATURED_MODELS[0].spec.to_string()
+    let mut models: Vec<_> = models.iter().filter(|model| model.size_bytes > 0).collect();
+    models.sort_by_key(|model| std::cmp::Reverse(model.size_bytes));
+    models
+        .iter()
+        .find(|model| available_memory >= model.size_bytes)
+        .or_else(|| models.last())
+        .map(|model| model.id.clone())
 }
 
 fn build_openai_messages_json(
@@ -590,28 +722,12 @@ impl ProviderDescriptor for LocalInferenceProvider {
     where
         Self: Sized,
     {
-        use crate::local_model_registry::{get_registry, FEATURED_MODELS};
-
-        let mut known_models: Vec<&str> = FEATURED_MODELS.iter().map(|m| m.spec).collect();
-
-        // Add any registry models not already in the featured list
-        let mut dynamic_models = Vec::new();
-        if let Ok(registry) = get_registry().lock() {
-            for entry in registry.list_models() {
-                if !known_models.contains(&entry.id.as_str()) {
-                    dynamic_models.push(entry.id.clone());
-                }
-            }
-        }
-        let dynamic_refs: Vec<&str> = dynamic_models.iter().map(|s| s.as_str()).collect();
-        known_models.extend(dynamic_refs);
-
         ProviderMetadata::new(
             PROVIDER_NAME,
             "Local Inference",
-            "Local inference using quantized GGUF models (llama.cpp)",
-            DEFAULT_MODEL,
-            known_models,
+            "Local inference using GGUF (llama.cpp) and MLX models",
+            "",
+            vec![],
             "https://github.com/utilityai/llama-cpp-rs",
             vec![],
         )
@@ -627,23 +743,27 @@ impl Provider for LocalInferenceProvider {
     async fn get_context_limit(&self, model: &str, override_limit: Option<usize>) -> usize {
         goose_provider_types::context_limit::ContextLimitResolver::new(&self.name)
             .resolve(model, override_limit, || async {
-                Ok(resolve_model_path(model).map(|resolved| resolved.context_limit))
+                Ok(resolve_model_path(model)
+                    .await
+                    .map_err(|error| ProviderError::ExecutionError(error.to_string()))?
+                    .map(|resolved| resolved.context_limit))
             })
             .await
     }
 
     async fn fetch_supported_models(&self) -> Result<Vec<String>, ProviderError> {
-        use crate::local_model_registry::get_registry;
+        #[cfg(feature = "hf-hub")]
+        let models = hf_models::cached_local_models()
+            .await
+            .map_err(|error| ProviderError::ExecutionError(error.to_string()))?
+            .into_iter()
+            .map(|model| model.id)
+            .collect();
 
-        let mut all_models: Vec<String> = Vec::new();
+        #[cfg(not(feature = "hf-hub"))]
+        let models = Vec::new();
 
-        if let Ok(registry) = get_registry().lock() {
-            for entry in registry.list_models() {
-                all_models.push(entry.id.clone());
-            }
-        }
-
-        Ok(all_models)
+        Ok(models)
     }
 
     async fn stream(
@@ -653,9 +773,22 @@ impl Provider for LocalInferenceProvider {
         messages: &[Message],
         tools: &[Tool],
     ) -> Result<MessageStream, ProviderError> {
-        let resolved = resolve_model_path(&model_config.model_name).ok_or_else(|| {
-            ProviderError::ExecutionError(format!("Model not found: {}", model_config.model_name))
-        })?;
+        let resolved = resolve_model_path(&model_config.model_name)
+            .await
+            .map_err(|error| ProviderError::ExecutionError(error.to_string()))?
+            .ok_or_else(|| {
+                #[cfg(feature = "hf-hub")]
+                let message = format!(
+                    "Model not found in the Hugging Face cache or at the specified path: {}",
+                    model_config.model_name
+                );
+                #[cfg(not(feature = "hf-hub"))]
+                let message = format!(
+                    "Model not found at the specified path: {}",
+                    model_config.model_name
+                );
+                ProviderError::ExecutionError(message)
+            })?;
         let backend = self.runtime.backend_for_model(&resolved)?;
         let model_context_limit = resolved.context_limit;
 
@@ -721,7 +854,7 @@ impl Provider for LocalInferenceProvider {
             loop {
                 let state = model_slot.state.lock().await;
                 match &*state {
-                    ModelSlotState::Loaded(_) => break,
+                    ModelSlotState::Loaded { .. } => break,
                     ModelSlotState::Loading => {
                         let notified = model_slot.notify.notified();
                         drop(state);
@@ -733,7 +866,7 @@ impl Provider for LocalInferenceProvider {
                         let cold_load_guard = runtime.cold_load_lock.lock().await;
                         let mut state = model_slot.state.lock().await;
                         match &*state {
-                            ModelSlotState::Loaded(_) => break,
+                            ModelSlotState::Loaded { .. } => break,
                             ModelSlotState::Loading => {
                                 let notified = model_slot.notify.notified();
                                 drop(state);
@@ -760,7 +893,7 @@ impl Provider for LocalInferenceProvider {
                         let other_model_slots = runtime.other_model_slots(&cache_key);
                         for slot in other_model_slots {
                             let mut other = slot.state.lock().await;
-                            if matches!(*other, ModelSlotState::Loaded(_)) {
+                            if matches!(*other, ModelSlotState::Loaded { .. }) {
                                 tracing::info!("Unloading previous model to free memory");
                                 *other = ModelSlotState::Empty;
                             }
@@ -819,7 +952,10 @@ impl Provider for LocalInferenceProvider {
                         );
 
                         let mut state = model_slot.state.lock().await;
-                        *state = ModelSlotState::Loaded(loaded);
+                        *state = ModelSlotState::Loaded {
+                            model: loaded,
+                            resolved: Box::new(resolved_model.clone()),
+                        };
                         model_slot.notify.notify_waiters();
                         drop(cold_load_guard);
                         break;
@@ -845,7 +981,7 @@ impl Provider for LocalInferenceProvider {
 
                 let mut model_guard = model_arc.state.blocking_lock();
                 let loaded = match &mut *model_guard {
-                    ModelSlotState::Loaded(loaded) => loaded.as_mut(),
+                    ModelSlotState::Loaded { model, .. } => model.as_mut(),
                     ModelSlotState::Empty | ModelSlotState::Loading => {
                         send_err!(ProviderError::ExecutionError(
                             "Model not loaded".to_string()

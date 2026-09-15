@@ -6,6 +6,7 @@ use futures::Stream;
 use futures::{future, FutureExt};
 use oauth2::TokenResponse;
 use once_cell::sync::Lazy;
+use rmcp::model::ProtocolVersion;
 use rmcp::service::{ClientInitializeError, ServiceError};
 use rmcp::transport::streamable_http_client::{
     StreamableHttpClientTransportConfig, StreamableHttpError,
@@ -40,6 +41,7 @@ use crate::agents::extension_malware_check;
 use crate::agents::mcp_client::{
     GooseMcpClientCapabilities, GooseMcpHostInfo, McpClient, McpClientTrait,
 };
+use crate::agents::reply_parts::is_tool_visible_to_app;
 use crate::builtin_extension::get_builtin_extension;
 use crate::config::extensions::name_to_key;
 use crate::config::search_path::SearchPaths;
@@ -280,6 +282,11 @@ pub fn get_tool_owner(tool: &Tool) -> Option<String> {
         .and_then(|m| m.0.get(TOOL_EXTENSION_META_KEY))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
+}
+
+pub(crate) fn is_tool_owned_by_extension(tool: &Tool, extension_name: &str) -> bool {
+    let expected_owner = name_to_key(extension_name);
+    get_tool_owner(tool).is_some_and(|owner| name_to_key(&owner) == expected_owner)
 }
 
 /// `tools` pairs each advertised public tool name with its owning extension's
@@ -771,6 +778,21 @@ async fn presented_access_token(name: &str) -> Option<String> {
         .map(|token| token.access_token().secret().to_string())
 }
 
+fn should_retry_legacy_after_empty_discover(
+    result: &Result<McpClient, ClientInitializeError>,
+    capabilities: &GooseMcpClientCapabilities,
+) -> bool {
+    capabilities.protocol_version.is_none()
+        && result.as_ref().is_err_and(|error| {
+            error.to_string().contains("empty sse stream")
+                || matches!(
+                    error,
+                    ClientInitializeError::ConnectionClosed(context)
+                        if context == "discover response"
+                )
+        })
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn connect_with_auth(
     auth_manager: rmcp::transport::AuthorizationManager,
@@ -806,20 +828,42 @@ async fn connect_with_auth(
         .map_err(|_| ExtensionError::ConfigError("could not construct http client".to_string()))?;
     let auth_client = AuthClient::new(auth_http_client, auth_manager);
     let transport = StreamableHttpClientTransport::with_client(
-        auth_client,
+        auth_client.clone(),
         StreamableHttpClientTransportConfig::with_uri(uri),
     );
-    Ok(McpClient::connect(
+    let mut result = McpClient::connect(
         transport,
         timeout,
-        provider,
-        client_name,
-        capabilities,
+        provider.clone(),
+        client_name.clone(),
+        capabilities.clone(),
         roots_dir.to_path_buf(),
-        action_required,
-        extension_manager,
+        action_required.clone(),
+        extension_manager.clone(),
     )
-    .await?)
+    .await;
+
+    if should_retry_legacy_after_empty_discover(&result, &capabilities) {
+        let transport = StreamableHttpClientTransport::with_client(
+            auth_client,
+            StreamableHttpClientTransportConfig::with_uri(uri),
+        );
+        let mut legacy_capabilities = capabilities;
+        legacy_capabilities.protocol_version = Some(ProtocolVersion::V_2025_11_25);
+        result = McpClient::connect(
+            transport,
+            timeout,
+            provider,
+            client_name,
+            legacy_capabilities,
+            roots_dir.to_path_buf(),
+            action_required,
+            extension_manager,
+        )
+        .await;
+    }
+
+    Ok(result?)
 }
 
 /// Connection parameters needed to re-establish an authorized streamable HTTP
@@ -1188,7 +1232,7 @@ async fn create_streamable_http_client(
         .map_err(|_| ExtensionError::ConfigError("could not construct http client".to_string()))?;
 
     let transport = StreamableHttpClientTransport::with_client(
-        http_client,
+        http_client.clone(),
         StreamableHttpClientTransportConfig::with_uri(uri),
     );
 
@@ -1264,7 +1308,7 @@ async fn create_streamable_http_client(
         }
     }
 
-    let client_res = McpClient::connect(
+    let mut client_res = McpClient::connect(
         transport,
         timeout_duration,
         provider.clone(),
@@ -1275,6 +1319,28 @@ async fn create_streamable_http_client(
         extension_manager.clone(),
     )
     .await;
+
+    // TODO: Remove these compatibility retries, including the authenticated path in
+    // connect_with_auth, once rmcp handles empty discovery SSE responses upstream.
+    if should_retry_legacy_after_empty_discover(&client_res, &capabilities) {
+        let transport = StreamableHttpClientTransport::with_client(
+            http_client,
+            StreamableHttpClientTransportConfig::with_uri(uri),
+        );
+        let mut legacy_capabilities = capabilities.clone();
+        legacy_capabilities.protocol_version = Some(ProtocolVersion::V_2025_11_25);
+        client_res = McpClient::connect(
+            transport,
+            timeout_duration,
+            provider.clone(),
+            client_name.clone(),
+            legacy_capabilities,
+            roots_dir.to_path_buf(),
+            action_required.clone(),
+            extension_manager.clone(),
+        )
+        .await;
+    }
 
     if should_attempt_oauth_fallback(&client_res) {
         let challenge = auth_challenge_from_result(&client_res);
@@ -1360,22 +1426,42 @@ async fn create_unix_socket_http_client(
         custom_headers.insert(header_name, header_value);
     }
 
-    let config = StreamableHttpClientTransportConfig::with_uri(uri).custom_headers(custom_headers);
-    let transport = StreamableHttpClientTransport::with_client(unix_client, config);
+    let config =
+        StreamableHttpClientTransportConfig::with_uri(uri).custom_headers(custom_headers.clone());
+    let transport = StreamableHttpClientTransport::with_client(unix_client.clone(), config);
 
     let timeout_duration = Duration::from_secs(resolve_timeout(timeout));
 
-    let client_res = McpClient::connect(
+    let mut client_res = McpClient::connect(
         transport,
         timeout_duration,
         provider.clone(),
         client_name.clone(),
         capabilities.clone(),
         roots_dir.to_path_buf(),
-        action_required,
-        extension_manager,
+        action_required.clone(),
+        extension_manager.clone(),
     )
     .await;
+
+    if should_retry_legacy_after_empty_discover(&client_res, &capabilities) {
+        let config =
+            StreamableHttpClientTransportConfig::with_uri(uri).custom_headers(custom_headers);
+        let transport = StreamableHttpClientTransport::with_client(unix_client, config);
+        let mut legacy_capabilities = capabilities;
+        legacy_capabilities.protocol_version = Some(ProtocolVersion::V_2025_11_25);
+        client_res = McpClient::connect(
+            transport,
+            timeout_duration,
+            provider.clone(),
+            client_name.clone(),
+            legacy_capabilities,
+            roots_dir.to_path_buf(),
+            action_required,
+            extension_manager,
+        )
+        .await;
+    }
 
     if should_attempt_oauth_fallback(&client_res) {
         tracing::warn!(
@@ -2229,10 +2315,22 @@ impl ExtensionManager {
         }
     }
 
+    #[cfg(test)]
     async fn resolve_tool(
         &self,
         session_id: &str,
         tool_name: &str,
+    ) -> Result<ResolvedTool, ErrorData> {
+        self.resolve_tool_with_constraints(session_id, tool_name, None, false)
+            .await
+    }
+
+    async fn resolve_tool_with_constraints(
+        &self,
+        session_id: &str,
+        tool_name: &str,
+        expected_extension_name: Option<&str>,
+        require_app_visibility: bool,
     ) -> Result<ResolvedTool, ErrorData> {
         let tools = self.get_all_tools_cached(session_id).await.map_err(|e| {
             ErrorData::new(
@@ -2256,6 +2354,24 @@ impl ExtensionManager {
                         )
                     })?;
 
+                if expected_extension_name
+                    .is_some_and(|expected| name_to_key(expected) != name_to_key(&owner))
+                {
+                    return Err(ErrorData::new(
+                        ErrorCode::RESOURCE_NOT_FOUND,
+                        format!("Tool '{}' not found for extension", tool_name),
+                        None,
+                    ));
+                }
+
+                if require_app_visibility && !is_tool_visible_to_app(tool) {
+                    return Err(ErrorData::new(
+                        ErrorCode::INVALID_PARAMS,
+                        "Tool is not visible to app clients",
+                        None,
+                    ));
+                }
+
                 let actual_tool_name = name
                     .strip_prefix(&format!("{owner}__"))
                     .unwrap_or(&name)
@@ -2276,19 +2392,6 @@ impl ExtensionManager {
                     tool_meta: get_tool_meta_value(tool),
                     resource_uri: get_tool_resource_uri(tool),
                 });
-            }
-
-            if let Some((prefix, actual)) = name.split_once("__") {
-                let owner = name_to_key(prefix);
-                if let Some(client) = self.get_server_client(&owner).await {
-                    return Ok(ResolvedTool {
-                        extension_name: owner,
-                        actual_tool_name: actual.to_string(),
-                        client,
-                        tool_meta: None,
-                        resource_uri: None,
-                    });
-                }
             }
 
             if !recovery_attempted {
@@ -2330,8 +2433,44 @@ impl ExtensionManager {
         tool_call: CallToolRequestParams,
         cancellation_token: CancellationToken,
     ) -> std::result::Result<ToolCallResult, ErrorData> {
+        self.dispatch_tool_call_inner(ctx, tool_call, None, false, cancellation_token)
+            .await
+    }
+
+    pub async fn dispatch_app_tool_call(
+        &self,
+        ctx: &super::tool_execution::ToolCallContext,
+        tool_call: CallToolRequestParams,
+        extension_name: &str,
+        cancellation_token: CancellationToken,
+    ) -> std::result::Result<ToolCallResult, ErrorData> {
+        self.dispatch_tool_call_inner(
+            ctx,
+            tool_call,
+            Some(extension_name),
+            true,
+            cancellation_token,
+        )
+        .await
+    }
+
+    async fn dispatch_tool_call_inner(
+        &self,
+        ctx: &super::tool_execution::ToolCallContext,
+        tool_call: CallToolRequestParams,
+        expected_extension_name: Option<&str>,
+        require_app_visibility: bool,
+        cancellation_token: CancellationToken,
+    ) -> std::result::Result<ToolCallResult, ErrorData> {
         let tool_name_str = tool_call.name.to_string();
-        let resolved = self.resolve_tool(&ctx.session_id, &tool_name_str).await?;
+        let resolved = self
+            .resolve_tool_with_constraints(
+                &ctx.session_id,
+                &tool_name_str,
+                expected_extension_name,
+                require_app_visibility,
+            )
+            .await?;
 
         if let Some(extension) = self.extensions.lock().await.get(&resolved.extension_name) {
             if !extension
@@ -2951,9 +3090,8 @@ mod tests {
             _cancellation_token: CancellationToken,
         ) -> Result<CallToolResult, Error> {
             match name {
-                "tool" | "test__tool" | "available_tool" | "hidden_tool" | "render_chart" => {
-                    Ok(CallToolResult::success(vec![]))
-                }
+                "tool" | "test__tool" | "available_tool" | "hidden_tool" | "render_chart"
+                | "unadvertised_tool" => Ok(CallToolResult::success(vec![])),
                 _ => Err(Error::TransportClosed),
             }
         }
@@ -3534,6 +3672,84 @@ mod tests {
         assert!(!tool_names.iter().any(|n| n.starts_with("ext_b__")));
     }
 
+    #[test]
+    fn test_tool_owner_binding_uses_metadata_not_flattened_name() {
+        let tool = |name: &str, owner: &str| {
+            let mut tool = Tool::new(
+                name.to_string(),
+                "test tool".to_string(),
+                Arc::new(serde_json::Map::new()),
+            );
+            tool.meta = Some(MetaObject(
+                serde_json::json!({ TOOL_EXTENSION_META_KEY: owner })
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+            ));
+            tool
+        };
+
+        let own_tool = tool("ext_a__own", "ext_a");
+        let sibling_tool = tool("ext_a__ext_b__secret", "ext_a__ext_b");
+
+        assert!(is_tool_owned_by_extension(&own_tool, "ext_a"));
+        assert!(!is_tool_owned_by_extension(&sibling_tool, "ext_a"));
+    }
+
+    #[tokio::test]
+    async fn app_dispatch_revalidates_owner_after_tools_cache_changes() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let extension_manager =
+            ExtensionManager::new_without_provider(temp_dir.path().to_path_buf());
+        extension_manager
+            .add_mock_extension("ext_a__ext_b".to_string(), Arc::new(MockClient {}))
+            .await;
+
+        let app_tool = |owner: &str| {
+            let mut tool = Tool::new(
+                "ext_a__ext_b__secret".to_string(),
+                "test tool".to_string(),
+                Arc::new(serde_json::Map::new()),
+            );
+            tool.meta = Some(MetaObject(
+                serde_json::json!({
+                    TOOL_EXTENSION_META_KEY: owner,
+                    "ui": { "resourceUri": "ui://test/app" }
+                })
+                .as_object()
+                .unwrap()
+                .clone(),
+            ));
+            tool
+        };
+
+        *extension_manager.tools_cache.lock().await = Some(Arc::new(vec![app_tool("ext_a")]));
+        let initially_visible = extension_manager
+            .get_prefixed_tools("session", Some("ext_a".to_string()))
+            .await
+            .unwrap();
+        assert_eq!(initially_visible.len(), 1);
+
+        // Model tools/list_changed replacing the validated tool with a sibling
+        // owner's colliding flattened name before the actual dispatch.
+        *extension_manager.tools_cache.lock().await =
+            Some(Arc::new(vec![app_tool("ext_a__ext_b")]));
+        let ctx = ToolCallContext::new("session".to_string(), None, None);
+        let result = extension_manager
+            .dispatch_app_tool_call(
+                &ctx,
+                CallToolRequestParams::new("ext_a__ext_b__secret".to_string()),
+                "ext_a",
+                CancellationToken::default(),
+            )
+            .await;
+
+        let Err(error) = result else {
+            panic!("app dispatch accepted a sibling owner's colliding tool name");
+        };
+        assert_eq!(error.code, ErrorCode::RESOURCE_NOT_FOUND);
+    }
+
     #[tokio::test]
     async fn test_resolve_tool_error_includes_available_tools() {
         let temp_dir = tempfile::tempdir().unwrap();
@@ -3743,6 +3959,29 @@ mod tests {
             .expect("unprefixed extension namespace mangling should resolve");
         assert_eq!(resolved.actual_tool_name, "tool");
         assert_eq!(resolved.extension_name, "developer");
+    }
+
+    #[tokio::test]
+    async fn test_dispatch_rejects_unadvertised_tool_implemented_by_extension() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let extension_manager =
+            ExtensionManager::new_without_provider(temp_dir.path().to_path_buf());
+        extension_manager
+            .add_mock_extension("test_client".to_string(), Arc::new(MockClient {}))
+            .await;
+
+        let ctx = ToolCallContext::new("test-session-id".to_string(), None, None);
+        let tool_call = CallToolRequestParams::new("test_client__unadvertised_tool".to_string());
+
+        let err = match extension_manager
+            .dispatch_tool_call(&ctx, tool_call, CancellationToken::default())
+            .await
+        {
+            Ok(_) => panic!("an unadvertised tool must not be dispatched"),
+            Err(err) => err,
+        };
+
+        assert_eq!(err.code, ErrorCode::RESOURCE_NOT_FOUND);
     }
 
     #[test]

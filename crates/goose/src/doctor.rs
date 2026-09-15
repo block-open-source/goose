@@ -11,12 +11,20 @@ use crate::session::{
 };
 use goose_providers::errors::ProviderError;
 
+pub(crate) const DEVELOPER_EXTENSION_REQUIRED_MESSAGE: &str = "**Goose Doctor**\n\n\
+`/doctor` requires the Developer extension, but it is disabled for this session.\n\n\
+Enable it for this session and run `/doctor` again:\n\
+- CLI: `/builtin developer`\n\
+- Desktop: select **Developer** in the session extension selector.";
+
 pub async fn run(agent: &crate::agents::Agent, session_id: &str) -> anyhow::Result<Message> {
+    if let Some(message) = require_developer_extension(agent).await {
+        return Ok(message);
+    }
+
     if let Some(msg) = ensure_working_provider(agent, session_id).await? {
         return Ok(msg);
     }
-
-    ensure_developer_extension(agent, session_id).await;
 
     let info = SystemInfo::collect();
     let extensions = agent.list_extensions().await;
@@ -54,6 +62,24 @@ pub async fn run(agent: &crate::agents::Agent, session_id: &str) -> anyhow::Resu
     );
 
     Ok(Message::user().with_text(prompt))
+}
+
+async fn require_developer_extension(agent: &crate::agents::Agent) -> Option<Message> {
+    let has_developer = agent
+        .extension_manager
+        .get_extension_configs()
+        .await
+        .iter()
+        .any(is_developer_platform_config);
+
+    (!has_developer).then(|| Message::assistant().with_text(DEVELOPER_EXTENSION_REQUIRED_MESSAGE))
+}
+
+fn is_developer_platform_config(config: &ExtensionConfig) -> bool {
+    matches!(
+        config,
+        ExtensionConfig::Builtin { .. } | ExtensionConfig::Platform { .. }
+    ) && config.key() == developer::EXTENSION_NAME
 }
 
 async fn ensure_working_provider(
@@ -113,26 +139,6 @@ async fn ensure_working_provider(
          No working provider found. Run `goose configure` to set one up.",
         preamble,
     ))))
-}
-
-async fn ensure_developer_extension(agent: &crate::agents::Agent, session_id: &str) {
-    if agent
-        .extension_manager
-        .is_extension_enabled(developer::EXTENSION_NAME)
-        .await
-    {
-        return;
-    }
-    let config = ExtensionConfig::Platform {
-        name: developer::EXTENSION_NAME.to_string(),
-        description: "Write and edit files, and execute shell commands".to_string(),
-        display_name: Some("Developer".to_string()),
-        bundled: None,
-        available_tools: vec![],
-    };
-    if let Err(e) = agent.add_extension(config, session_id).await {
-        tracing::warn!("Doctor: failed to load developer extension: {}", e);
-    }
 }
 
 async fn save_and_set(
@@ -270,5 +276,45 @@ fn describe_error(e: &ProviderError) -> String {
             "Provider server error — the service may be temporarily down.".to_string()
         }
         other => format!("{}", other),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn developer_requirement_accepts_enabled_extension() {
+        let agent = crate::agents::Agent::new();
+        agent
+            .extension_manager
+            .add_extension(
+                ExtensionConfig::Platform {
+                    name: developer::EXTENSION_NAME.to_string(),
+                    description: "Developer tools".to_string(),
+                    display_name: Some("Developer".to_string()),
+                    bundled: None,
+                    available_tools: vec![],
+                },
+                None,
+                None,
+                Some("doctor-enabled-test"),
+            )
+            .await
+            .expect("developer extension should load");
+
+        assert!(require_developer_extension(&agent).await.is_none());
+    }
+
+    #[test]
+    fn custom_extension_named_developer_does_not_satisfy_requirement() {
+        let config = ExtensionConfig::stdio(
+            developer::EXTENSION_NAME,
+            "custom-developer",
+            "Unrelated custom extension",
+            30_u64,
+        );
+
+        assert!(!is_developer_platform_config(&config));
     }
 }

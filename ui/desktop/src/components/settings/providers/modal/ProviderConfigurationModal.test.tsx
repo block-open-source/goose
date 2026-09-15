@@ -31,7 +31,6 @@ const oauthProvider: ProviderDetails = {
   visible_in_setup: true,
   deprecated: false,
   provider_type: 'Builtin',
-  setup_category: 'model',
   uses_acp: false,
   metadata: {
     name: 'github_copilot',
@@ -65,7 +64,6 @@ describe('ProviderConfigurationModal', () => {
     const acpProvider: ProviderDetails = {
       ...oauthProvider,
       name: 'claude-acp',
-      setup_category: 'agent',
       uses_acp: true,
       metadata: {
         ...oauthProvider.metadata,
@@ -122,7 +120,6 @@ describe('ProviderConfigurationModal', () => {
       ...oauthProvider,
       name: 'codex-acp',
       is_configured: false,
-      setup_category: 'agent',
       uses_acp: true,
       metadata: {
         ...oauthProvider.metadata,

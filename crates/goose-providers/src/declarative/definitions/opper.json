@@ -21,7 +21,6 @@
   ],
   "dynamic_models": true,
   "supports_streaming": true,
-  "fast_model": "anthropic/claude-haiku-4-5",
   "model_doc_link": "https://opper.ai/models",
   "setup_steps": [
     "Sign up at https://opper.ai",

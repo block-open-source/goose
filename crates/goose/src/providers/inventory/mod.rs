@@ -8,7 +8,6 @@ pub use resolver::{
 
 use super::base::{ConfigKey, ModelInfo, Provider, ProviderType};
 use super::canonical::{map_provider_name, map_to_canonical_model, CanonicalModelRegistry};
-use super::catalog::ProviderSetupCategory;
 use crate::config::declarative_providers::{DeclarativeProviderConfig, ProviderEngine};
 use crate::config::Config;
 use crate::session::session_manager::SessionStorage;
@@ -36,7 +35,6 @@ pub struct ProviderInventoryEntry {
     pub configured: bool,
     pub available: bool,
     pub provider_type: ProviderType,
-    pub category: ProviderSetupCategory,
     pub acp: bool,
     pub visible_in_setup: bool,
     pub deprecated: bool,
@@ -49,7 +47,6 @@ pub struct ProviderInventoryEntry {
     pub last_updated_at: Option<DateTime<Utc>>,
     pub last_refresh_attempt_at: Option<DateTime<Utc>>,
     pub last_refresh_error: Option<String>,
-    pub model_selection_hint: Option<String>,
 }
 
 /// Families whose latest model should be surfaced in the compact picker.
@@ -165,6 +162,7 @@ pub struct RefreshSkip {
 pub(crate) struct RefreshJob {
     pub provider_id: String,
     pub identity: InventoryIdentity,
+    pub toolshim: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -267,7 +265,6 @@ struct ProviderDescriptor {
     configured: bool,
     available: bool,
     provider_type: ProviderType,
-    category: ProviderSetupCategory,
     acp: bool,
     visible_in_setup: bool,
     deprecated: bool,
@@ -275,8 +272,8 @@ struct ProviderDescriptor {
     config_keys: Vec<ConfigKey>,
     setup_steps: Vec<String>,
     supports_refresh: bool,
+    toolshim: bool,
     static_models: Vec<ModelInfo>,
-    model_selection_hint: Option<String>,
 }
 
 impl ProviderInventoryService {
@@ -315,7 +312,6 @@ impl ProviderInventoryService {
             configured: descriptor.configured,
             available: descriptor.available,
             provider_type: descriptor.provider_type,
-            category: descriptor.category,
             acp: descriptor.acp,
             visible_in_setup: descriptor.visible_in_setup,
             deprecated: descriptor.deprecated,
@@ -332,7 +328,6 @@ impl ProviderInventoryService {
                 .as_ref()
                 .and_then(|snapshot| snapshot.last_refresh_attempt_at),
             last_refresh_error: snapshot.and_then(|snapshot| snapshot.last_refresh_error),
-            model_selection_hint: descriptor.model_selection_hint,
         }))
     }
 
@@ -442,6 +437,7 @@ impl ProviderInventoryService {
             plan.started.push(RefreshJob {
                 provider_id: descriptor.provider_id,
                 identity: descriptor.identity,
+                toolshim: descriptor.toolshim,
             });
         }
 
@@ -628,16 +624,15 @@ impl ProviderInventoryService {
                     .find(|job| job.provider_id == provider_id);
                 if let Some(refresh_job) = refresh_job {
                     let mut refresh_guard = self.refresh_guard(&refresh_job.identity);
+                    let toolshim = refresh_job.toolshim;
                     let fetch_result: Result<Vec<String>> =
                         match ensure_refresh_identity_current(&provider_id, &refresh_job.identity)
                             .await
                         {
                             Ok(()) => {
-                                match AssertUnwindSafe(provider.fetch_recommended_models(
-                                    crate::model_config::global_toolshim(),
-                                ))
-                                .catch_unwind()
-                                .await
+                                match AssertUnwindSafe(provider.fetch_recommended_models(toolshim))
+                                    .catch_unwind()
+                                    .await
                                 {
                                     Ok(Ok(models)) => Ok(models),
                                     Ok(Err(error)) => Err(anyhow::anyhow!(error.to_string())),
@@ -738,11 +733,6 @@ impl ProviderInventoryService {
             },
             available: entry.inventory_configured(),
             provider_type: entry.provider_type(),
-            category: metadata
-                .setup
-                .as_ref()
-                .map(|setup| setup.category)
-                .unwrap_or(ProviderSetupCategory::Model),
             acp: metadata.setup.as_ref().is_some_and(|setup| setup.acp),
             visible_in_setup: metadata.deprecated.is_none(),
             deprecated: metadata.deprecated.is_some(),
@@ -753,8 +743,8 @@ impl ProviderInventoryService {
             config_keys: metadata.config_keys.clone(),
             setup_steps: metadata.setup_steps.clone(),
             supports_refresh: entry.supports_inventory_refresh(),
+            toolshim: entry.toolshim_enabled(crate::model_config::global_toolshim()),
             static_models: metadata.known_models,
-            model_selection_hint: metadata.model_selection_hint,
         }))
     }
 
@@ -968,6 +958,10 @@ pub fn declarative_inventory_identity(
         "skip_canonical_filtering".to_string(),
         config.skip_canonical_filtering.to_string(),
     );
+    identity.public_inputs.insert(
+        "toolshim".to_string(),
+        (config.toolshim || crate::model_config::global_toolshim()).to_string(),
+    );
     if !config.models.is_empty() {
         identity.public_inputs.insert(
             "models".to_string(),
@@ -985,11 +979,30 @@ pub fn declarative_inventory_identity(
             .public_inputs
             .insert("headers".to_string(), serialize_string_map(headers)?);
     }
+    if let Some(header_name) = &config.session_id_header_override {
+        identity.public_inputs.insert(
+            "session_id_header_override".to_string(),
+            header_name.clone(),
+        );
+    }
     if !config.api_key_env.is_empty() {
         if let Some(value) = config_secret_value(global, &config.api_key_env) {
             identity
                 .secret_inputs
                 .insert(config.api_key_env.clone(), value);
+        }
+    }
+    if let Some(auth) = &config.auth {
+        identity
+            .secret_inputs
+            .insert("auth_command".to_string(), auth.command.clone());
+        identity
+            .secret_inputs
+            .insert("auth_args".to_string(), serde_json::to_string(&auth.args)?);
+        if let Some(cwd) = &auth.cwd {
+            identity
+                .secret_inputs
+                .insert("auth_cwd".to_string(), cwd.clone());
         }
     }
 

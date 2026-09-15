@@ -1,0 +1,79 @@
+name: Prepare GDK release
+
+on:
+  push:
+    branches:
+      - main
+      - gdk-release-plz # Temporary: remove after validating this workflow
+    paths:
+      # BEGIN GDK CRATE PATHS
+      - "crates/goose-provider-types/**"
+      - "crates/goose-sdk-types/**"
+      - "crates/goose-download-manager/**"
+      - "crates/goose-local-inference/**"
+      - "crates/goose-providers/**"
+      - "crates/goose-agent/**"
+      - "crates/goose-context-management/**"
+      - "crates/goose-sdk/**"
+      # END GDK CRATE PATHS
+      - "release-plz.toml"
+      - "Cargo.lock"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gdk-release-pr
+  cancel-in-progress: false
+
+jobs:
+  release-pr:
+    name: Create or update GDK release PR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Activate Hermit
+        uses: cashapp/activate-hermit@cea9af7913204a965fd488637a8d1811bba2e616 # v1
+
+      - name: Create or update release PR
+        id: release-plz
+        uses: release-plz/action@503fe65046e8810d4844f6b3aa12ab599a3549d7 # v0.5.134
+        with:
+          command: release-pr
+          config: release-plz.toml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Synchronize GDK release artifacts
+        if: steps.release-plz.outputs.prs_created == 'true'
+        env:
+          RELEASE_PR: ${{ steps.release-plz.outputs.pr }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          branch=$(jq -r '.head_branch' <<< "$RELEASE_PR")
+          git fetch origin "$branch"
+          git switch "$branch"
+          just --justfile crates/goose-sdk/justfile sync-release-artifacts
+          if git diff --quiet; then
+            exit 0
+          fi
+          git add \
+            crates/goose-sdk/python/pyproject.toml \
+            documentation/src/data/gdk-api.json
+          git commit -m "chore: synchronize GDK release artifacts"
+          git push origin HEAD:"$branch"
+
+      - name: Validate package versions
+        if: steps.release-plz.outputs.prs_created == 'true'
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 | jq -r \
+            '.packages[] | select(.name == "goose-sdk") | .version')
+          just --justfile crates/goose-sdk/justfile check-version "$version"

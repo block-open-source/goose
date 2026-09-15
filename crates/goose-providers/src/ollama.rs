@@ -307,6 +307,8 @@ pub fn from_declarative_config(
             .map_err(|_| anyhow::anyhow!("Failed to set default port"))?;
     }
 
+    config.validate_auth()?;
+
     let api_key = if config.api_key_env.is_empty() {
         None
     } else {
@@ -575,17 +577,19 @@ mod tests {
             base_url: base_url.to_string(),
             models,
             headers: None,
+            session_id_header_override: None,
             timeout_seconds: None,
             supports_streaming: None,
             requires_auth: false,
             catalog_provider_id: None,
             base_path: None,
             env_vars: None,
+            auth: None,
             dynamic_models,
             skip_canonical_filtering: false,
             model_doc_link: None,
             setup_steps: vec![],
-            fast_model: None,
+            toolshim: false,
             preserves_thinking: false,
             emit_clear_thinking: false,
             setup: None,

@@ -57,7 +57,14 @@ async fn main() -> anyhow::Result<()> {
     let user_message = Message::user()
         .with_text("can you summarize the readme.md in this dir using just a haiku?");
 
-    let mut stream = agent.reply(user_message, session_config, None).await?;
+    let mut stream = agent
+        .reply(
+            user_message,
+            session_config,
+            goose::agents::state_machine::enabled(),
+            None,
+        )
+        .await?;
 
     while let Some(Ok(AgentEvent::Message(message))) = stream.next().await {
         println!("{}", serde_json::to_string_pretty(&message)?);

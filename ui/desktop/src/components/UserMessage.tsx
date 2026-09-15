@@ -9,6 +9,7 @@ import {
 } from '../types/message';
 import MessageCopyLink from './MessageCopyLink';
 import { formatMessageTimestamp } from '../utils/timeUtils';
+import { getTextDirection } from '../utils/textDirection';
 import Close from './icons/Close';
 import Edit from './icons/Edit';
 import { Button } from './ui/button';
@@ -106,6 +107,8 @@ function UserMessage({ message, onMessageUpdate }: UserMessageProps) {
 
   const { textContent, imagePaths } = getTextAndImageContent(message);
   const timestamp = formatMessageTimestamp(message.created);
+  const messageDir = getTextDirection(textContent) ?? undefined;
+  const editDir = getTextDirection(editContent) ?? undefined;
 
   const messageImages: ImageData[] = imageDataFromMessage(message);
 
@@ -234,6 +237,7 @@ function UserMessage({ message, onMessageUpdate }: UserMessageProps) {
           <div className="w-full max-w-4xl mx-auto text-text-primary rounded-xl border border-border-primary shadow-lg py-4 px-4 my-2 transition-all duration-200 ease-in-out">
             <textarea
               ref={textareaRef}
+              dir={editDir}
               value={editContent}
               onChange={handleContentChange}
               onKeyDown={handleKeyDown}
@@ -323,7 +327,10 @@ function UserMessage({ message, onMessageUpdate }: UserMessageProps) {
             <div className="flex-col max-w-[85%] w-fit">
               <div className="flex flex-col group">
                 {textContent.trim() && (
-                  <div className="user-message-bubble flex bg-text-primary text-background-primary rounded-xl py-2.5 px-4">
+                  <div
+                    className="user-message-bubble flex bg-text-primary text-background-primary rounded-xl py-2.5 px-4"
+                    dir={messageDir}
+                  >
                     <div ref={contentRef}>
                       <MarkdownContent
                         content={textContent}

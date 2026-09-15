@@ -617,6 +617,9 @@
   "customProviderForm.add": {
     "defaultMessage": "追加"
   },
+  "customProviderForm.alwaysUseToolshim": {
+    "defaultMessage": "このプロバイダーでは常にToolshimを使用する"
+  },
   "customProviderForm.anthropicCompatible": {
     "defaultMessage": "Anthropic互換"
   },
@@ -926,8 +929,6 @@
   "dirSwitcher.enterPathInvalid": {
     "defaultMessage": "Working directory must be an absolute path"
   },
-
-
   "dirSwitcher.failedToUpdateWorkingDir": {
     "defaultMessage": "作業ディレクトリの更新に失敗しました"
   },
@@ -1757,13 +1758,10 @@
     "defaultMessage": "このモデルを削除しますか？後で再ダウンロードできます。"
   },
   "localInferenceSettings.description": {
-    "defaultMessage": "APIキーなしで推論できるローカルLLMモデルをダウンロード・管理します。Hugging Faceで任意のGGUFモデルを検索するか、以下の注目モデルを使用できます。"
+    "defaultMessage": "APIキーなしで推論できるローカルLLMモデルをダウンロード・管理します。Hugging FaceでGGUFまたはMLXモデルを検索できます。"
   },
   "localInferenceSettings.dismiss": {
     "defaultMessage": "閉じる"
-  },
-  "localInferenceSettings.download": {
-    "defaultMessage": "ダウンロード"
   },
   "localInferenceSettings.downloadCancelled": {
     "defaultMessage": "ダウンロードがキャンセルされました"
@@ -1782,9 +1780,6 @@
   },
   "localInferenceSettings.evictFromMemory": {
     "defaultMessage": "Evict from memory"
-  },
-  "localInferenceSettings.featuredModels": {
-    "defaultMessage": "注目モデル"
   },
   "localInferenceSettings.huggingFaceSignInNote": {
     "defaultMessage": "モデルの検索・ダウンロード時のレート制限を緩和し、非公開またはゲート付きHugging Faceリポジトリにアクセスするにはサインインしてください。"
@@ -1809,12 +1804,6 @@
   },
   "localInferenceSettings.retry": {
     "defaultMessage": "再試行"
-  },
-  "localInferenceSettings.showAllFeatured": {
-    "defaultMessage": "注目モデルをすべて表示（あと{count}件）"
-  },
-  "localInferenceSettings.showRecommendedOnly": {
-    "defaultMessage": "おすすめのみ表示"
   },
   "localInferenceSettings.title": {
     "defaultMessage": "ローカル推論モデル"
@@ -3170,7 +3159,7 @@
     "defaultMessage": "保存済みのレシピはありません"
   },
   "recipesView.noSavedRecipesDescription": {
-    "defaultMessage": "チャットから保存したレシピがここに表示されます。"
+    "defaultMessage": "保存したレシピがここに表示されます。"
   },
   "recipesView.openInNewWindow": {
     "defaultMessage": "新しいウィンドウで開く"
@@ -3707,7 +3696,7 @@
     "defaultMessage": "セッションJSONをコピーしました"
   },
   "sessionActionsHeader.copiedModelInteractions": {
-    "defaultMessage": "Recent model interactions copied"
+    "defaultMessage": "最近のモデルのやり取りをコピーしました"
   },
   "sessionActionsHeader.copiedText": {
     "defaultMessage": "テキストをコピーしました"
@@ -3740,10 +3729,10 @@
     "defaultMessage": "JSONを読み込み中..."
   },
   "sessionActionsHeader.modelInteractionsFailed": {
-    "defaultMessage": "Failed to load model interactions: {error}"
+    "defaultMessage": "モデルのやり取りを読み込めませんでした: {error}"
   },
   "sessionActionsHeader.modelInteractionsTitle": {
-    "defaultMessage": "Recent model interactions"
+    "defaultMessage": "最近のモデルのやり取り"
   },
   "sessionActionsHeader.renameFailed": {
     "defaultMessage": "セッションの名前を変更できませんでした: {error}"
@@ -3770,7 +3759,7 @@
     "defaultMessage": "セッションJSONを表示"
   },
   "sessionActionsHeader.viewModelInteractions": {
-    "defaultMessage": "View recent model interactions"
+    "defaultMessage": "最近のモデルのやり取りを表示"
   },
   "sessionIndicators.error": {
     "defaultMessage": "セッションでエラーが発生しました"
@@ -4680,5 +4669,11 @@
   },
   "providerConfigurationModal.deviceCodeVisit": {
     "defaultMessage": "次のURLにアクセスし、"
+  },
+  "settings.legacyAgentLoop.description": {
+    "defaultMessage": "Fall back to the classic agent loop if the new one causes issues"
+  },
+  "settings.legacyAgentLoop.title": {
+    "defaultMessage": "Use Legacy Agent Loop"
   }
 }

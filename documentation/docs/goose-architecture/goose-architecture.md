@@ -35,7 +35,7 @@ goose supports the [Agent Client Protocol (ACP)](https://agentclientprotocol.com
 
 ### goose as an ACP Server
 
-`goose acp` starts goose as an ACP server over stdio, letting editors like JetBrains and Zed connect to it directly. See [Using goose in ACP Clients](/docs/guides/acp-clients).
+`goose acp` starts goose as an ACP server over stdio, letting editors like JetBrains and Zed connect to it directly. See [Using goose in ACP Clients](/docs/gdk/acp).
 
 ### ACP Agents as Providers
 
@@ -72,5 +72,4 @@ While goose is free and open source, there is typically a cost associated with L
 * goose includes everything versus a semantic search
 * goose uses algorithms to delete old or irrelevant content
 * goose will use find and replace instead of rewriting large files, use ripgrep to skip system files, and summarize verbose command outputs 
-
 

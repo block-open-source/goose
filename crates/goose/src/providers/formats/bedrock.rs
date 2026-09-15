@@ -23,6 +23,7 @@ use crate::providers::formats::anthropic::{
 };
 use crate::utils::{sanitize_unicode_tags, strip_unicode_tags};
 use goose_providers::conversation::token_usage::Usage;
+use goose_providers::documents::{unsupported_document_text, UNSUPPORTED_PROVIDER_REASON};
 use goose_providers::model::ModelConfig;
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -204,6 +205,9 @@ pub fn to_bedrock_message_content(content: &MessageContent) -> Result<bedrock::C
         MessageContent::Image(image) => {
             bedrock::ContentBlock::Image(to_bedrock_image(&image.data, &image.mime_type)?)
         }
+        MessageContent::Document(document) => bedrock::ContentBlock::Text(
+            unsupported_document_text(document, UNSUPPORTED_PROVIDER_REASON),
+        ),
         MessageContent::Thinking(thinking) => {
             let mut builder = bedrock::ReasoningTextBlock::builder().text(&thinking.thinking);
             if !thinking.signature.is_empty() {

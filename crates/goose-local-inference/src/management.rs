@@ -1,21 +1,14 @@
 use super::hf_models::{
-    self, register_resolved_model, resolve_local_model_selection, resolve_local_model_spec,
-    resolve_model_spec, HfGgufFile, HfModelInfo, HfModelVariant,
+    self, model_id_from_repo, resolve_local_model_selection, resolve_local_model_spec,
+    CachedLocalModel, HfModelInfo, HfModelVariant,
 };
-use super::local_model_registry::{
-    default_settings_for_model, featured_mmproj_spec, get_registry, model_id_from_repo,
-    ChatTemplate, LocalModelEntry, LocalModelStorage, ModelDownloadStatus, ModelSettings,
-    SamplingConfig, ToolCallingMode, FEATURED_MODELS,
-};
+use super::model::{ChatTemplate, ModelSettings, SamplingConfig, ToolCallingMode};
 use super::{
     available_inference_memory_bytes, builtin_chat_template_names, recommend_local_model,
     InferenceRuntime,
 };
 use crate::download_manager::{get_download_manager, DownloadProgress, DownloadStatus};
-use crate::huggingface_auth;
-use crate::paths::Paths;
 use anyhow::{anyhow, Result};
-use futures::future::join_all;
 use goose_sdk_types::custom_requests::{
     LocalInferenceBuiltinChatTemplatesListResponse, LocalInferenceChatTemplate,
     LocalInferenceDownloadProgressDto, LocalInferenceDownloadState, LocalInferenceHfGgufFileDto,
@@ -26,11 +19,13 @@ use goose_sdk_types::custom_requests::{
     LocalInferenceModelSettingsReadResponse, LocalInferenceModelSettingsUpdateResponse,
     LocalInferenceModelsListResponse, LocalInferenceSamplingConfig, LocalInferenceToolCallingMode,
 };
-use std::collections::HashSet;
-use std::path::PathBuf;
-use std::sync::{Arc, OnceLock};
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex, OnceLock};
+use tokio::sync::watch;
 
 static MANAGEMENT_RUNTIME: OnceLock<Arc<InferenceRuntime>> = OnceLock::new();
+static DOWNLOAD_CANCELLATIONS: OnceLock<Mutex<HashMap<String, Arc<watch::Sender<bool>>>>> =
+    OnceLock::new();
 
 #[derive(Clone)]
 struct LocalModelSelection {
@@ -40,32 +35,38 @@ struct LocalModelSelection {
 }
 
 pub async fn list_models() -> Result<LocalInferenceModelsListResponse> {
-    ensure_featured_models_current().await?;
-
     let runtime = management_runtime()?;
-    let recommended_id = recommend_local_model(&runtime);
+    let mut active_downloads: HashMap<_, _> = get_download_manager()
+        .list_progress()
+        .into_iter()
+        .filter(|progress| progress.status == DownloadStatus::Downloading)
+        .filter_map(|progress| {
+            let model_id = progress.model_id.strip_suffix("-model")?.to_string();
+            Some((model_id, progress))
+        })
+        .collect();
+    let cached_models = hf_models::cached_local_models().await?;
+    let recommended_id = recommend_local_model(&runtime, &cached_models);
 
     let loaded_model_ids = crate::loaded_model_ids()
         .await
         .map_err(|error| anyhow!(error.to_string()))?;
-    let registry = get_registry()
-        .lock()
-        .map_err(|_| anyhow!("Failed to acquire registry lock"))?;
-    let mut models: Vec<LocalInferenceModelDto> = registry
-        .list_models()
+    let mut models: Vec<LocalInferenceModelDto> = cached_models
         .iter()
-        .map(|entry| local_model_to_dto(entry, &recommended_id, &loaded_model_ids))
+        .map(|model| {
+            let mut dto = local_model_to_dto(model, recommended_id.as_deref(), &loaded_model_ids);
+            if let Some(progress) = active_downloads.remove(&model.id) {
+                dto.status = active_download_status(&progress);
+            }
+            dto
+        })
         .collect();
-
-    models.sort_by(|a, b| {
-        let a_downloaded = a.status.state == LocalInferenceDownloadState::Downloaded;
-        let b_downloaded = b.status.state == LocalInferenceDownloadState::Downloaded;
-        match (b_downloaded, a_downloaded) {
-            (true, false) => std::cmp::Ordering::Greater,
-            (false, true) => std::cmp::Ordering::Less,
-            _ => a.id.cmp(&b.id),
-        }
-    });
+    models.extend(
+        active_downloads
+            .into_iter()
+            .map(|(model_id, progress)| active_download_to_dto(model_id, &progress)),
+    );
+    models.sort_by(|a, b| a.id.cmp(&b.id));
 
     Ok(LocalInferenceModelsListResponse { models })
 }
@@ -105,20 +106,17 @@ pub async fn huggingface_repo_variants(
         .collect();
     let recommended_index = hf_models::recommend_variant(&gguf_variants, available_memory);
 
-    let (downloaded_quants, downloaded_variants) = {
-        let registry = get_registry()
-            .lock()
-            .map_err(|_| anyhow!("Failed to acquire registry lock"))?;
-        let models: Vec<_> = registry
-            .list_models()
-            .iter()
-            .filter(|m| m.repo_id == repo_id && m.is_downloaded())
-            .collect();
-        (
-            models.iter().map(|m| m.quantization.clone()).collect(),
-            models.iter().map(|m| m.id.clone()).collect(),
-        )
-    };
+    let cached_models = hf_models::cached_local_models().await?;
+    let downloaded: Vec<_> = cached_models
+        .iter()
+        .filter(|model| model.repo_id == repo_id)
+        .collect();
+    let downloaded_quants = downloaded
+        .iter()
+        .filter(|model| model.backend_id == "llamacpp")
+        .map(|model| model.quantization.clone())
+        .collect();
+    let downloaded_variants = downloaded.iter().map(|model| model.id.clone()).collect();
 
     Ok(LocalInferenceHuggingFaceRepoVariantsResponse {
         variants: variants.into_iter().map(hf_model_variant_to_dto).collect(),
@@ -136,7 +134,7 @@ pub async fn download_model(
     let model_id = local_model_id_from_request(&req, selection.as_ref()).await?;
     let download_id = format!("{}-model", model_id);
     let download_reserved = get_download_manager().reserve_download(DownloadProgress {
-        model_id: download_id,
+        model_id: download_id.clone(),
         status: DownloadStatus::Downloading,
         bytes_downloaded: 0,
         total_bytes: 0,
@@ -150,36 +148,38 @@ pub async fn download_model(
         return Ok(LocalInferenceModelDownloadResponse { model_id });
     }
 
-    if let Err(error) = register_pending_download_model(&model_id, &req, selection.as_ref()) {
-        mark_download_failed(&model_id, &error);
-        return Err(error.context("Failed to register download"));
-    }
-
     let spec = req.spec.clone();
     let selection_for_task = selection.clone();
     let model_id_for_task = model_id.clone();
+    let cancellation = register_download_cancellation(&download_id);
+    let mut cancellation_rx = cancellation.subscribe();
     tokio::spawn(async move {
-        let resolved = if let Some(selection) = selection_for_task {
-            resolve_local_model_selection(
-                &selection.repo_id,
-                &selection.backend_id,
-                selection.variant_id.as_deref(),
-            )
-            .await
-        } else {
-            resolve_local_model_spec(&spec).await
+        let resolve = async {
+            if let Some(selection) = selection_for_task {
+                resolve_local_model_selection(
+                    &selection.repo_id,
+                    &selection.backend_id,
+                    selection.variant_id.as_deref(),
+                )
+                .await
+            } else {
+                resolve_local_model_spec(&spec).await
+            }
         };
-        match resolved {
-            Ok(resolved) => {
-                if !model_download_completed(&model_id_for_task) {
-                    return;
-                }
-                if let Err(error) = register_resolved_model(resolved, &spec) {
+        tokio::pin!(resolve);
+
+        tokio::select! {
+            biased;
+            _ = cancellation_rx.changed() => {}
+            resolved = &mut resolve => {
+                if let Err(error) = resolved {
                     mark_download_failed(&model_id_for_task, error);
                 }
             }
-            Err(error) => mark_download_failed(&model_id_for_task, error),
         }
+
+        unregister_download_cancellation(&download_id, &cancellation);
+        mark_download_task_exited(&model_id_for_task);
     });
 
     Ok(LocalInferenceModelDownloadResponse { model_id })
@@ -192,27 +192,34 @@ pub fn download_progress(model_id: &str) -> Result<Option<LocalInferenceDownload
 }
 
 pub fn cancel_download(model_id: &str) -> Result<()> {
-    let manager = get_download_manager();
-    manager.cancel_download(&format!("{}-model", model_id))?;
-    let _ = manager.cancel_download(&format!("{}-mmproj", model_id));
+    let download_id = format!("{}-model", model_id);
+    get_download_manager().cancel_download(&download_id)?;
+    if let Some(cancellation) = download_cancellations()
+        .lock()
+        .expect("download cancellation lock poisoned")
+        .get(&download_id)
+        .cloned()
+    {
+        cancellation.send_replace(true);
+    }
     Ok(())
 }
 
-pub fn delete_model(model_id: &str) -> Result<()> {
-    let mut registry = get_registry()
-        .lock()
-        .map_err(|_| anyhow!("Failed to acquire registry lock"))?;
-    if registry.get_model(model_id).is_none() {
-        anyhow::bail!("Model not found");
+pub async fn delete_model(model_id: &str) -> Result<()> {
+    if crate::explicit_model_path(model_id)?.is_some() {
+        anyhow::bail!(
+            "Model '{}' was loaded from a user-owned path and cannot be deleted by Goose",
+            model_id
+        );
     }
-    registry.delete_model(model_id)
+    hf_models::delete_cached_local_model(model_id).await
 }
 
-pub fn model_exists(model_id: &str) -> Result<bool> {
-    let registry = get_registry()
-        .lock()
-        .map_err(|_| anyhow!("Failed to acquire registry lock"))?;
-    Ok(registry.get_model(model_id).is_some())
+pub async fn model_exists(model_id: &str) -> Result<bool> {
+    if crate::explicit_model_path(model_id)?.is_some() {
+        return Ok(true);
+    }
+    Ok(hf_models::cached_local_model(model_id).await?.is_some())
 }
 
 pub async fn evict_model(model_id: &str) -> Result<()> {
@@ -223,14 +230,9 @@ pub async fn evict_model(model_id: &str) -> Result<()> {
 }
 
 pub fn get_model_settings(model_id: &str) -> Result<LocalInferenceModelSettingsReadResponse> {
-    let registry = get_registry()
-        .lock()
-        .map_err(|_| anyhow!("Failed to acquire registry lock"))?;
-    let settings = registry
-        .get_model_settings(model_id)
-        .ok_or_else(|| anyhow!("Model not found"))?;
+    let settings = crate::config_resolver::model_settings(model_id)?;
     Ok(LocalInferenceModelSettingsReadResponse {
-        settings: model_settings_to_dto(settings),
+        settings: model_settings_to_dto(&settings),
     })
 }
 
@@ -239,10 +241,7 @@ pub fn update_model_settings(
     settings: LocalInferenceModelSettingsDto,
 ) -> Result<LocalInferenceModelSettingsUpdateResponse> {
     let settings = model_settings_from_dto(settings);
-    let mut registry = get_registry()
-        .lock()
-        .map_err(|_| anyhow!("Failed to acquire registry lock"))?;
-    registry.update_model_settings(model_id, settings.clone())?;
+    crate::config_resolver::write_model_settings(model_id, &settings)?;
     Ok(LocalInferenceModelSettingsUpdateResponse {
         settings: model_settings_to_dto(&settings),
     })
@@ -269,214 +268,67 @@ fn management_runtime() -> Result<Arc<InferenceRuntime>> {
     }
 }
 
-pub async fn ensure_featured_models_current() -> Result<()> {
-    let mut mmproj_downloads_needed: Vec<(String, String, PathBuf)> = Vec::new();
-
-    struct PendingResolve {
-        spec: &'static str,
-        repo_id: String,
-        quantization: String,
-        model_id: String,
-    }
-    let mut to_resolve = Vec::new();
-
-    for featured in FEATURED_MODELS {
-        let (repo_id, quantization) = match hf_models::parse_model_spec(featured.spec) {
-            Ok(parts) => parts,
-            Err(_) => continue,
-        };
-
-        let model_id = model_id_from_repo(&repo_id, &quantization);
-
-        {
-            let registry = get_registry()
-                .lock()
-                .map_err(|_| anyhow!("Failed to acquire registry lock"))?;
-            if let Some(existing) = registry.get_model(&model_id) {
-                let needs_backfill = existing.mmproj_path.is_none() && featured.mmproj.is_some();
-                let needs_size = existing.size_bytes == 0 && !existing.is_downloaded();
-                let needs_download = existing.is_downloaded()
-                    && featured.mmproj.is_some()
-                    && !existing.mmproj_path.as_ref().is_some_and(|p| p.exists());
-
-                if needs_download {
-                    if let Some(mmproj) = featured.mmproj.as_ref() {
-                        let path = mmproj.local_path();
-                        let url = format!(
-                            "https://huggingface.co/{}/resolve/main/{}",
-                            mmproj.repo, mmproj.filename
-                        );
-                        mmproj_downloads_needed.push((model_id.clone(), url, path));
-                    }
-                }
-
-                if !needs_backfill && !needs_size {
-                    continue;
-                }
-            }
-        }
-
-        to_resolve.push(PendingResolve {
-            spec: featured.spec,
-            repo_id,
-            quantization,
-            model_id,
-        });
-    }
-
-    let resolved: Vec<(PendingResolve, HfGgufFile)> =
-        join_all(to_resolve.into_iter().map(|pending| async move {
-            let hf_file = match resolve_model_spec(pending.spec).await {
-                Ok((_repo, file)) => file,
-                Err(_) => {
-                    let filename = format!(
-                        "{}-{}.gguf",
-                        pending.repo_id.split('/').next_back().unwrap_or("model"),
-                        pending.quantization
-                    );
-                    HfGgufFile {
-                        filename: filename.clone(),
-                        size_bytes: 0,
-                        quantization: pending.quantization.to_string(),
-                        download_url: format!(
-                            "https://huggingface.co/{}/resolve/main/{}",
-                            pending.repo_id, filename
-                        ),
-                    }
-                }
-            };
-            (pending, hf_file)
-        }))
-        .await;
-
-    let entries_to_add: Vec<LocalModelEntry> = resolved
-        .into_iter()
-        .map(|(pending, hf_file)| {
-            let local_path = Paths::in_data_dir("models").join(&hf_file.filename);
-            let settings = default_settings_for_model(&pending.model_id);
-            LocalModelEntry {
-                id: pending.model_id,
-                repo_id: pending.repo_id,
-                filename: hf_file.filename,
-                quantization: pending.quantization,
-                local_path,
-                source_url: hf_file.download_url,
-                backend_id: settings.backend_id.clone(),
-                storage: LocalModelStorage::GooseManaged,
-                settings,
-                size_bytes: hf_file.size_bytes,
-                mmproj_path: None,
-                mmproj_source_url: None,
-                mmproj_size_bytes: 0,
-                mmproj_checked: false,
-                shard_files: vec![],
-            }
-        })
-        .collect();
-
-    {
-        let mut registry = get_registry()
-            .lock()
-            .map_err(|_| anyhow!("Failed to acquire registry lock"))?;
-
-        if !entries_to_add.is_empty() {
-            registry.sync_with_featured(entries_to_add);
-        }
-
-        for model in registry.list_models_mut() {
-            model.enrich_with_featured_mmproj();
-            if model.is_downloaded() {
-                if let Some(mmproj) = featured_mmproj_spec(&model.id) {
-                    let path = mmproj.local_path();
-                    if !path.exists() {
-                        let url = format!(
-                            "https://huggingface.co/{}/resolve/main/{}",
-                            mmproj.repo, mmproj.filename
-                        );
-                        mmproj_downloads_needed.push((model.id.clone(), url, path));
-                    }
-                }
-            }
-        }
-        let _ = registry.save();
-    }
-
-    let dm = get_download_manager();
-    let hf_token = huggingface_auth::resolve_token_async().await.ok().flatten();
-    let mut started_paths = std::collections::HashSet::new();
-    for (model_id, url, path) in mmproj_downloads_needed {
-        if !path.exists() && started_paths.insert(path.clone()) {
-            let download_id = format!("{}-mmproj", model_id);
-            let dominated_by_active = dm
-                .get_progress(&download_id)
-                .is_some_and(|p| p.status == DownloadStatus::Downloading);
-            if !dominated_by_active {
-                tracing::info!(model_id = %model_id, "Auto-downloading vision encoder for existing model");
-                if let Err(e) = dm
-                    .download_model_with_bearer_token(
-                        download_id,
-                        url,
-                        path,
-                        hf_token.clone(),
-                        None,
-                    )
-                    .await
-                {
-                    tracing::warn!(model_id = %model_id, error = %e, "Failed to start mmproj download");
-                }
-            }
-        }
-    }
-
-    Ok(())
-}
-
 fn local_model_to_dto(
-    entry: &LocalModelEntry,
-    recommended_id: &str,
+    model: &CachedLocalModel,
+    recommended_id: Option<&str>,
     loaded_model_ids: &HashSet<String>,
 ) -> LocalInferenceModelDto {
-    let vision_capable = entry.settings.vision_capable;
+    let mut settings = crate::config_resolver::model_settings(&model.id).unwrap_or_default();
+    settings.backend_id = Some(model.backend_id.clone());
+    settings.vision_capable = model.mmproj_path.is_some();
+    settings.mmproj_size_bytes = model.mmproj_size_bytes;
     LocalInferenceModelDto {
-        id: entry.id.clone(),
-        repo_id: entry.repo_id.clone(),
-        filename: entry.filename.clone(),
-        quantization: entry.quantization.clone(),
-        size_bytes: entry.file_size(),
-        status: model_download_status_to_dto(entry.download_status()),
-        recommended: recommended_id == entry.id,
-        is_loaded: loaded_model_ids.contains(&entry.id),
-        settings: model_settings_to_dto(&entry.settings),
-        vision_capable,
-        mmproj_status: vision_capable
-            .then(|| model_download_status_to_dto(entry.mmproj_download_status())),
-    }
-}
-
-fn model_download_status_to_dto(
-    status: ModelDownloadStatus,
-) -> LocalInferenceModelDownloadStatusDto {
-    match status {
-        ModelDownloadStatus::NotDownloaded => LocalInferenceModelDownloadStatusDto {
-            state: LocalInferenceDownloadState::NotDownloaded,
-            ..Default::default()
-        },
-        ModelDownloadStatus::Downloading {
-            progress_percent,
-            bytes_downloaded,
-            total_bytes,
-            speed_bps,
-        } => LocalInferenceModelDownloadStatusDto {
-            state: LocalInferenceDownloadState::Downloading,
-            progress_percent: Some(progress_percent),
-            bytes_downloaded: Some(bytes_downloaded),
-            total_bytes: Some(total_bytes),
-            speed_bps: Some(speed_bps),
-        },
-        ModelDownloadStatus::Downloaded => LocalInferenceModelDownloadStatusDto {
+        id: model.id.clone(),
+        repo_id: model.repo_id.clone(),
+        filename: model.filename.clone(),
+        quantization: model.quantization.clone(),
+        size_bytes: model.size_bytes,
+        status: LocalInferenceModelDownloadStatusDto {
             state: LocalInferenceDownloadState::Downloaded,
             ..Default::default()
         },
+        recommended: recommended_id == Some(model.id.as_str()),
+        is_loaded: loaded_model_ids.contains(&model.id),
+        settings: model_settings_to_dto(&settings),
+        vision_capable: settings.vision_capable,
+        mmproj_status: settings
+            .vision_capable
+            .then_some(LocalInferenceModelDownloadStatusDto {
+                state: LocalInferenceDownloadState::Downloaded,
+                ..Default::default()
+            }),
+    }
+}
+
+fn active_download_to_dto(model_id: String, progress: &DownloadProgress) -> LocalInferenceModelDto {
+    let (repo_id, quantization, backend_id) = match hf_models::parse_model_spec(&model_id) {
+        Ok((repo_id, quantization)) => (repo_id, quantization, "llamacpp".to_string()),
+        Err(_) => (model_id.clone(), "default".to_string(), "mlx".to_string()),
+    };
+    let mut settings = crate::config_resolver::model_settings(&model_id).unwrap_or_default();
+    settings.backend_id = Some(backend_id);
+    LocalInferenceModelDto {
+        id: model_id,
+        repo_id,
+        filename: String::new(),
+        quantization,
+        size_bytes: progress.total_bytes,
+        status: active_download_status(progress),
+        recommended: false,
+        is_loaded: false,
+        settings: model_settings_to_dto(&settings),
+        vision_capable: false,
+        mmproj_status: None,
+    }
+}
+
+fn active_download_status(progress: &DownloadProgress) -> LocalInferenceModelDownloadStatusDto {
+    LocalInferenceModelDownloadStatusDto {
+        state: LocalInferenceDownloadState::Downloading,
+        progress_percent: Some(progress.progress_percent),
+        bytes_downloaded: Some(progress.bytes_downloaded),
+        total_bytes: Some(progress.total_bytes),
+        speed_bps: progress.speed_bps,
     }
 }
 
@@ -683,10 +535,16 @@ fn explicit_model_selection(
             .unwrap_or_else(|_| (req.spec.clone(), None));
         let variant_id = req.variant_id.clone().or(parsed_variant_id);
         match backend_id {
-            "mlx" | "llamacpp" => Ok(Some(LocalModelSelection {
+            "mlx" => Ok(Some(LocalModelSelection {
                 repo_id,
                 backend_id: backend_id.to_string(),
                 variant_id,
+            })),
+            "llamacpp" => Ok(Some(LocalModelSelection {
+                repo_id,
+                backend_id: backend_id.to_string(),
+                variant_id: variant_id
+                    .map(|variant_id| hf_models::canonicalize_quantization(&variant_id)),
             })),
             _ => anyhow::bail!("Unknown local inference backend '{}'", backend_id),
         }
@@ -709,14 +567,20 @@ async fn local_model_id_from_request(
                         selection.repo_id
                     )
                 })?;
-                Ok(model_id_from_repo(&selection.repo_id, quantization))
+                Ok(model_id_from_repo(
+                    &selection.repo_id,
+                    &hf_models::canonicalize_quantization(quantization),
+                ))
             }
             _ => anyhow::bail!("Unknown local inference backend '{}'", selection.backend_id),
         };
     }
 
     if let Ok((repo_id, quantization)) = hf_models::parse_model_spec(&req.spec) {
-        return Ok(model_id_from_repo(&repo_id, &quantization));
+        return Ok(model_id_from_repo(
+            &repo_id,
+            &hf_models::canonicalize_quantization(&quantization),
+        ));
     }
 
     let variants = hf_models::get_repo_local_variants(&req.spec).await?;
@@ -769,62 +633,36 @@ fn mark_download_failed(model_id: &str, error: impl std::fmt::Display) {
     });
 }
 
-fn model_download_completed(model_id: &str) -> bool {
-    get_download_manager()
-        .get_progress(&format!("{}-model", model_id))
-        .is_some_and(|progress| progress.status == DownloadStatus::Completed)
+fn download_cancellations() -> &'static Mutex<HashMap<String, Arc<watch::Sender<bool>>>> {
+    DOWNLOAD_CANCELLATIONS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn register_pending_download_model(
-    model_id: &str,
-    req: &LocalInferenceModelDownloadRequest,
-    selection: Option<&LocalModelSelection>,
-) -> Result<()> {
-    let (repo_id, backend_id, variant_id) = if let Some(selection) = selection {
-        (
-            selection.repo_id.clone(),
-            selection.backend_id.clone(),
-            selection
-                .variant_id
-                .clone()
-                .unwrap_or_else(|| "default".to_string()),
-        )
-    } else if let Ok((repo_id, quantization)) = hf_models::parse_model_spec(&req.spec) {
-        (repo_id, "llamacpp".to_string(), quantization)
-    } else {
-        (req.spec.clone(), "mlx".to_string(), "default".to_string())
-    };
-
-    let mut registry = get_registry()
+fn register_download_cancellation(download_id: &str) -> Arc<watch::Sender<bool>> {
+    let (sender, _) = watch::channel(false);
+    let sender = Arc::new(sender);
+    download_cancellations()
         .lock()
-        .map_err(|_| anyhow!("Failed to acquire registry lock"))?;
-    if registry.has_model(model_id) {
-        return Ok(());
-    }
+        .expect("download cancellation lock poisoned")
+        .insert(download_id.to_string(), sender.clone());
+    sender
+}
 
-    let mut settings = default_settings_for_model(model_id);
-    if backend_id != "llamacpp" {
-        settings.backend_id = Some(backend_id.clone());
+fn unregister_download_cancellation(download_id: &str, cancellation: &Arc<watch::Sender<bool>>) {
+    let mut cancellations = download_cancellations()
+        .lock()
+        .expect("download cancellation lock poisoned");
+    if cancellations
+        .get(download_id)
+        .is_some_and(|current| Arc::ptr_eq(current, cancellation))
+    {
+        cancellations.remove(download_id);
     }
+}
 
-    let filename = variant_id.clone();
-    registry.add_model(LocalModelEntry {
-        id: model_id.to_string(),
-        repo_id,
-        filename: filename.clone(),
-        quantization: variant_id,
-        local_path: Paths::in_data_dir("models").join(filename),
-        source_url: req.spec.clone(),
-        backend_id: settings.backend_id.clone(),
-        storage: LocalModelStorage::HuggingFaceCache,
-        settings,
-        size_bytes: 0,
-        mmproj_path: None,
-        mmproj_source_url: None,
-        mmproj_size_bytes: 0,
-        mmproj_checked: false,
-        shard_files: vec![],
-    })
+fn mark_download_task_exited(model_id: &str) {
+    get_download_manager().update_progress(&format!("{}-model", model_id), |progress| {
+        progress.task_exited = true;
+    });
 }
 
 #[cfg(test)]
@@ -850,7 +688,7 @@ mod tests {
         let req = LocalInferenceModelDownloadRequest {
             spec: "test/repo".to_string(),
             backend_id: Some("llamacpp".to_string()),
-            variant_id: Some("Q4_K_M".to_string()),
+            variant_id: Some("q4_k_m".to_string()),
         };
         let selection = explicit_model_selection(&req).unwrap();
         let model_id = local_model_id_from_request(&req, selection.as_ref())

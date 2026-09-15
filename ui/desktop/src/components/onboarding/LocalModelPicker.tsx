@@ -10,6 +10,7 @@ import {
 import { trackOnboardingSetupFailed } from '../../utils/analytics';
 import { defineMessages, useIntl } from '../../i18n';
 import { errorMessage as formatErrorMessage } from '../../utils/conversionUtils';
+import { HuggingFaceModelSearch } from '../settings/localInference/HuggingFaceModelSearch';
 
 const i18n = defineMessages({
   checkingModels: {
@@ -122,12 +123,72 @@ export default function LocalModelPicker({ onConfigured }: LocalModelPickerProps
 
   useEffect(() => cleanup, [cleanup]);
 
+  const finishSetup = useCallback(
+    async (modelId: string) => {
+      try {
+        await onConfigured(LOCAL_PROVIDER, modelId);
+      } catch (error) {
+        console.error('Failed to finish local model setup:', error);
+        setErrorMessage(formatErrorMessage(error));
+        trackOnboardingSetupFailed(LOCAL_PROVIDER, 'save_defaults_failed');
+        setPhase('error');
+      }
+    },
+    [onConfigured]
+  );
+
+  const pollDownload = useCallback(
+    (modelId: string) => {
+      cleanup();
+      pollRef.current = setInterval(async () => {
+        try {
+          const progress = await getLocalModelDownloadProgress(modelId);
+          if (!progress) {
+            cleanup();
+            setErrorMessage(intl.formatMessage(i18n.lostConnection));
+            trackOnboardingSetupFailed(LOCAL_PROVIDER, 'progress_missing');
+            setPhase('error');
+            return;
+          }
+
+          setDownloadProgress(progress);
+          if (progress.status === 'completed') {
+            cleanup();
+            await finishSetup(modelId);
+          } else if (progress.status === 'failed') {
+            cleanup();
+            setErrorMessage(progress.error || 'Download failed.');
+            trackOnboardingSetupFailed(LOCAL_PROVIDER, progress.error || 'download_failed');
+            setPhase('error');
+          } else if (progress.status === 'cancelled') {
+            cleanup();
+            setPhase('select');
+          }
+        } catch {
+          cleanup();
+          setErrorMessage(intl.formatMessage(i18n.lostConnection));
+          trackOnboardingSetupFailed(LOCAL_PROVIDER, 'progress_poll_failed');
+          setPhase('error');
+        }
+      }, 500);
+    },
+    [cleanup, finishSetup, intl]
+  );
+
   useEffect(() => {
     const load = async () => {
       try {
         const models = await listLocalModels();
         if (models) {
           setModels(models);
+
+          const activeDownload = models.find((m) => m.status.state === 'Downloading');
+          if (activeDownload) {
+            setSelectedModelId(activeDownload.id);
+            setPhase('downloading');
+            pollDownload(activeDownload.id);
+            return;
+          }
 
           const alreadyDownloaded = models.find((m) => m.status.state === 'Downloaded');
           if (alreadyDownloaded) {
@@ -146,18 +207,7 @@ export default function LocalModelPicker({ onConfigured }: LocalModelPickerProps
       setPhase('select');
     };
     load();
-  }, [intl]);
-
-  const finishSetup = async (modelId: string) => {
-    try {
-      await onConfigured(LOCAL_PROVIDER, modelId);
-    } catch (error) {
-      console.error('Failed to finish local model setup:', error);
-      setErrorMessage(formatErrorMessage(error));
-      trackOnboardingSetupFailed(LOCAL_PROVIDER, 'save_defaults_failed');
-      setPhase('error');
-    }
-  };
+  }, [intl, pollDownload]);
 
   const startDownload = async (modelId: string) => {
     setPhase('downloading');
@@ -181,53 +231,15 @@ export default function LocalModelPicker({ onConfigured }: LocalModelPickerProps
       return;
     }
 
-    pollRef.current = setInterval(async () => {
-      try {
-        const progress = await getLocalModelDownloadProgress(modelId);
-        if (!progress) {
-          cleanup();
-          setErrorMessage(intl.formatMessage(i18n.lostConnection));
-          trackOnboardingSetupFailed(LOCAL_PROVIDER, 'progress_missing');
-          setPhase('error');
-          return;
-        }
+    pollDownload(modelId);
+  };
 
-        setDownloadProgress(progress);
-        if (progress.status === 'completed') {
-          cleanup();
-          setModels((previousModels) =>
-            previousModels.map((model) =>
-              model.id === modelId
-                ? {
-                    ...model,
-                    status: {
-                      ...model.status,
-                      state: 'Downloaded',
-                      progressPercent: 100,
-                      bytesDownloaded: model.sizeBytes,
-                      totalBytes: model.sizeBytes,
-                    },
-                  }
-                : model
-            )
-          );
-          await finishSetup(modelId);
-        } else if (progress.status === 'failed') {
-          cleanup();
-          setErrorMessage(progress.error || 'Download failed.');
-          trackOnboardingSetupFailed(LOCAL_PROVIDER, progress.error || 'download_failed');
-          setPhase('error');
-        } else if (progress.status === 'cancelled') {
-          cleanup();
-          setPhase('select');
-        }
-      } catch {
-        cleanup();
-        setErrorMessage(intl.formatMessage(i18n.lostConnection));
-        trackOnboardingSetupFailed(LOCAL_PROVIDER, 'progress_poll_failed');
-        setPhase('error');
-      }
-    }, 500);
+  const handleHfDownloadStarted = (modelId: string) => {
+    setSelectedModelId(modelId);
+    setDownloadProgress(null);
+    setErrorMessage(null);
+    setPhase('downloading');
+    pollDownload(modelId);
   };
 
   const handleCancelDownload = async () => {
@@ -257,6 +269,12 @@ export default function LocalModelPicker({ onConfigured }: LocalModelPickerProps
   const recommended = models.find((m) => m.recommended);
   const otherModels = models.filter((m) => m.id !== recommended?.id);
   const selectedModel = models.find((m) => m.id === selectedModelId);
+  const activeDownloadIds = new Set(
+    models.filter((model) => model.status.state === 'Downloading').map((model) => model.id)
+  );
+  const downloadedModelIds = new Set(
+    models.filter((model) => model.status.state === 'Downloaded').map((model) => model.id)
+  );
 
   if (phase === 'loading') {
     return (
@@ -409,14 +427,22 @@ export default function LocalModelPicker({ onConfigured }: LocalModelPickerProps
                     })
                   : intl.formatMessage(i18n.selectModel)}
             </button>
+
+            <div className="border-t border-border-subtle pt-3">
+              <HuggingFaceModelSearch
+                onDownloadStarted={handleHfDownloadStarted}
+                activeDownloadIds={activeDownloadIds}
+                downloadedModelIds={downloadedModelIds}
+              />
+            </div>
           </div>
         )}
 
-        {phase === 'downloading' && selectedModel && (
+        {phase === 'downloading' && selectedModelId && (
           <div className="space-y-3">
             <div className="border border-border-subtle rounded-lg p-4 bg-background-default">
               <p className="font-medium text-text-default text-sm mb-3">
-                {intl.formatMessage(i18n.downloading, { modelId: selectedModel.id })}
+                {intl.formatMessage(i18n.downloading, { modelId: selectedModelId })}
               </p>
 
               {downloadProgress ? (

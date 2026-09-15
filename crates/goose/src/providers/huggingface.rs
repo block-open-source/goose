@@ -3,11 +3,15 @@ use super::base::{
     ConfigKey, MessageStream, ModelInfo, Provider, ProviderDef, ProviderMetadata,
     DEFAULT_PROVIDER_TIMEOUT_SECS,
 };
+use super::command_auth::CommandAuthProvider;
 use super::huggingface_auth;
 use super::openai_compatible::OpenAiCompatibleProvider;
 use crate::config::declarative_providers::DeclarativeProviderConfig;
 use crate::config::{Config, ConfigError};
 use crate::conversation::message::Message;
+use crate::session_context::{
+    session_id_request_builder, session_id_request_builder_with_header_override,
+};
 use anyhow::{anyhow, Result};
 use futures::future::BoxFuture;
 use goose_providers::errors::ProviderError;
@@ -84,10 +88,21 @@ impl HuggingFaceProvider {
             ));
         }
 
-        let auth_method = custom_auth_method(&config)?;
+        config.validate_auth()?;
+        let auth_method = match config.auth.as_ref() {
+            Some(auth_config) => AuthMethod::Custom(Box::new(CommandAuthProvider::new(
+                auth_config,
+                "Authorization",
+                "Bearer ",
+            ))),
+            None => custom_auth_method(&config)?,
+        };
         let (host, completions_prefix, query_params) =
             openai_compatible_endpoint_parts(&config.base_url, config.base_path.as_deref())?;
 
+        let request_builder = session_id_request_builder_with_header_override(
+            config.session_id_header_override.as_deref(),
+        )?;
         let timeout_secs = config
             .timeout_seconds
             .unwrap_or(DEFAULT_PROVIDER_TIMEOUT_SECS);
@@ -97,7 +112,7 @@ impl HuggingFaceProvider {
             std::time::Duration::from_secs(timeout_secs),
             tls_config,
         )?
-        .with_request_builder(crate::session_context::session_id_request_builder())
+        .with_request_builder(request_builder)
         .with_query(query_params);
 
         if let Some(headers) = &config.headers {
@@ -232,7 +247,7 @@ impl ProviderDef for HuggingFaceProvider {
                 .get_param("HF_HOST")
                 .unwrap_or_else(|_| HUGGINGFACE_API_HOST.to_string());
             let api_client = ApiClient::new_with_tls(host, auth_method, tls_config)?
-                .with_request_builder(crate::session_context::session_id_request_builder());
+                .with_request_builder(session_id_request_builder());
 
             Ok(Self {
                 inner: OpenAiCompatibleProvider::new(
@@ -465,6 +480,21 @@ mod tests {
     }
 
     #[test]
+    fn custom_provider_accepts_command_auth_without_huggingface_token() {
+        let mut config = test_config();
+        config.api_key_env.clear();
+        config.auth = Some(goose_providers::declarative::AuthConfig {
+            command: "echo".to_string(),
+            args: vec!["token".to_string()],
+            refresh_interval: 3600,
+            timeout_seconds: None,
+            cwd: None,
+        });
+
+        HuggingFaceProvider::from_custom_config(config, None).unwrap();
+    }
+
+    #[test]
     fn custom_provider_requires_static_models_when_dynamic_models_disabled() {
         let mut config = test_config();
         config.requires_auth = false;
@@ -546,17 +576,19 @@ mod tests {
             base_url: HUGGINGFACE_API_HOST.to_string(),
             models: Vec::new(),
             headers: None,
+            session_id_header_override: None,
             timeout_seconds: None,
             supports_streaming: Some(true),
             requires_auth: true,
             catalog_provider_id: None,
             base_path: None,
             env_vars: None,
+            auth: None,
             dynamic_models: None,
             skip_canonical_filtering: false,
             model_doc_link: None,
             setup_steps: vec![],
-            fast_model: None,
+            toolshim: false,
             preserves_thinking: true,
             emit_clear_thinking: false,
             setup: None,

@@ -81,10 +81,10 @@ Write-Host "  Dependencies installed." -ForegroundColor Green
 Write-Host ""
 
 # Step 4: Build desktop assets
-Write-Host "[5/7] Building Goose SDK, clearing Vite cache, and compiling i18n messages..." -ForegroundColor Yellow
-pnpm run build-goose-sdk
+Write-Host "[5/7] Building Goose ACP client, clearing Vite cache, and compiling i18n messages..." -ForegroundColor Yellow
+pnpm run build-goose-acp-client
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "Goose SDK build or Vite cache cleanup failed!" -ForegroundColor Red
+    Write-Host "Goose ACP client build or Vite cache cleanup failed!" -ForegroundColor Red
     Pop-Location
     exit 1
 }

@@ -39,6 +39,8 @@ fun main() = runBlocking {
                 is StreamChunk.EndChunk -> chunk.usage?.let { println("\nusage: $it") }
                 is StreamChunk.ErrorChunk -> System.err.println("\nerror: ${chunk.error.message}")
                 is StreamChunk.ToolChunk -> Unit
+                is StreamChunk.ThinkingChunk -> Unit
+                is StreamChunk.RedactedThinkingChunk -> Unit
             }
         }
     println()

@@ -16,7 +16,7 @@ static STRIP_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
 });
 
 static CLAUDE_PATTERNS: Lazy<Vec<(Regex, Regex, &'static str)>> = Lazy::new(|| {
-    ["sonnet", "opus", "haiku"]
+    ["sonnet", "opus", "haiku", "fable"]
         .iter()
         .map(|&size| {
             (

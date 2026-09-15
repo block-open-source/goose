@@ -151,19 +151,19 @@ run-server:
     @echo "Running external ACP backend..."
     GOOSE_SERVER__SECRET_KEY="${GOOSE_SERVER__SECRET_KEY:-test}" cargo run -p goose-cli --bin goose -- serve --platform desktop --enable-scheduler --host 127.0.0.1 --port 3000
 
-# Check if generated ACP schema and TypeScript types are up-to-date
-check-acp-schema: generate-acp-types
+# Check if checked-in ACP artifacts are up-to-date and the docs can be rendered
+check-acp-artifacts: generate-acp-types generate-acp-docs
     #!/usr/bin/env bash
     set -e
-    echo "🔍 Checking ACP schema and generated types are up-to-date..."
-    if ! git diff --exit-code crates/goose/acp-schema.json crates/goose/acp-meta.json ui/sdk/src/generated/; then
+    echo "🔍 Checking generated ACP artifacts are up-to-date..."
+    if ! git diff --exit-code crates/goose/acp-schema.json crates/goose/acp-meta.json ui/goose-acp-client/src/generated/; then
       echo ""
       echo "❌ ACP generated files are out of date!"
       echo ""
       echo "Run 'just generate-acp-types' locally, then commit the changes."
       exit 1
     fi
-    echo "✅ ACP schema and generated types are up-to-date"
+    echo "✅ Generated ACP artifacts are up-to-date"
 
 # Generate ACP JSON schema from Rust types
 generate-acp-schema:
@@ -174,14 +174,20 @@ generate-acp-schema:
 # Generate ACP TypeScript types from JSON schema (requires generate-acp-schema first)
 generate-acp-types: generate-acp-schema
     @echo "Generating ACP TypeScript types..."
-    cd ui/sdk && npx tsx generate-schema.ts
-    @echo "ACP TypeScript types generated in ui/sdk/src/generated/"
+    cd ui/goose-acp-client && npx tsx generate-schema.ts
+    @echo "ACP TypeScript types generated for the ACP client package."
 
-# Build SDK TypeScript package (schema + types + compile)
-build-sdk: generate-acp-types
+# Generate ACP documentation from the existing JSON schema and metadata
+generate-acp-docs:
+    @echo "Generating ACP documentation..."
+    node documentation/scripts/generate-acp-docs.js
+    @echo "ACP documentation generated for the docs build."
+
+# Build ACP client TypeScript package (schema + types + compile)
+build-acp-client: generate-acp-types
     @echo "Compiling ACP TypeScript..."
-    cd ui/sdk && pnpm run build:ts
-    @echo "ACP package built."
+    cd ui/goose-acp-client && pnpm run build:ts
+    @echo "ACP client package built."
 
 # Generate manpages for the CLI
 generate-manpages:
@@ -292,8 +298,13 @@ bump-version version:
     @just validate {{ version }} || exit 1
     @uvx --from=toml-cli toml set --toml-path=Cargo.toml "workspace.package.version" {{ version }}
     @cd ui/desktop && npm pkg set "version={{ version }}"
+    @node ui/scripts/npm-versions.mjs set {{ version }}
     # update Cargo.lock after bumping versions in Cargo.toml
     @cargo update --workspace
+    @just check-npm-versions
+
+check-npm-versions:
+    @node ui/scripts/npm-versions.mjs check
 
 # rebuild canonical model registry and mapping report from models.dev
 build-canonical-models:
@@ -307,6 +318,9 @@ prepare-release version:
         Cargo.toml \
         Cargo.lock \
         ui/desktop/package.json \
+        ui/goose-acp-client/package.json \
+        ui/goose-acp/package.json \
+        ui/goose-binary/*/package.json \
         ui/pnpm-lock.yaml \
         crates/goose-provider-types/src/canonical/data/canonical_models.json \
         crates/goose-provider-types/src/canonical/data/provider_metadata.json

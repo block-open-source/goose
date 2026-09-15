@@ -287,7 +287,7 @@ impl goose_context_management::CompactionModel for GooseCompactionModel<'_> {
         system: &str,
         messages: &[Message],
     ) -> Result<(Message, ProviderUsage), ProviderError> {
-        crate::model_config::complete_compaction(
+        crate::model_config::complete_one_shot(
             self.provider,
             self.model_config,
             self.session_id,
@@ -473,7 +473,7 @@ pub async fn summarize_tool_call(
                 if that is what it was.
             "#};
 
-    let (mut response, _) = crate::model_config::complete_compaction(
+    let (mut response, _) = crate::model_config::complete_one_shot(
         provider,
         model_config,
         session_id,

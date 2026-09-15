@@ -7,7 +7,7 @@ authors:
 ---
 
 :::danger Outdated
-Lead/Worker mode has been removed from goose. It has been replaced by [Planning Mode](/docs/guides/context-engineering/creating-plans), which uses a dedicated planner model with the `/plan` command. See the [multi-model guide](/docs/guides/multi-model/) for current workflows.
+Lead/Worker mode has been removed from goose, as has the Planning Mode that replaced it. See the [multi-model guide](/docs/guides/multi-model/) for current workflows.
 :::
 
 ![blog cover](header-image.png)
@@ -42,7 +42,7 @@ This is where it gets really cool - you can use Claude for reasoning and OpenAI 
 - 🏃‍♂️ Handle Long Dev Sessions
 Perfect for those marathon coding sessions where you need sustained performance without breaking the bank.
 
-## [Setting It Up](/docs/guides/context-engineering/creating-plans)
+## Setting It Up
 
 Getting started with the Lead/Worker model is surprisingly straightforward. In the Goose desktop app, you just need to:
 
@@ -104,7 +104,7 @@ The best part? The models made smart decisions we hadn't even thought of, like a
 
 ## Ready to Try Multi-Model Workflows?
 
-Lead/Worker mode has been removed, but goose now supports [Planning Mode](/docs/guides/context-engineering/creating-plans) for multi-model workflows. Whether you're working on documentation, building features, or tackling complex refactoring, pairing a strong planner model with a fast execution model can be a game changer.
+Lead/Worker mode has been removed, but goose still supports [multi-model workflows](/docs/guides/multi-model/). Whether you're working on documentation, building features, or tackling complex refactoring, pairing a strong reasoning model with a fast execution model can be a game changer.
 
 Want to see it in action? Check out the full stream where we built this feature live:
 

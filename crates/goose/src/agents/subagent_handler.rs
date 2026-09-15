@@ -193,7 +193,12 @@ fn get_agent_messages(params: SubagentRunParams) -> AgentMessagesFuture {
         let mut stream =
             crate::session_context::with_session_id(Some(session_id.to_string()), async {
                 agent
-                    .reply(user_message, session_config, cancellation_token)
+                    .reply(
+                        user_message,
+                        session_config,
+                        crate::agents::state_machine::enabled(),
+                        cancellation_token,
+                    )
                     .await
             })
             .await

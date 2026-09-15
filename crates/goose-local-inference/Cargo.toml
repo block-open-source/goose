@@ -1,6 +1,6 @@
 [package]
 name = "goose-local-inference"
-version = "0.1.0-alpha.6"
+version = "0.1.0-alpha.9"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
@@ -16,6 +16,12 @@ default = []
 cuda = ["llama-cpp-2/cuda"]
 vulkan = ["llama-cpp-2/vulkan"]
 mlx = ["dep:safemlx", "dep:safemlx-lm", "dep:safemlx-lm-utils"]
+hf-hub = [
+    "dep:futures",
+    "dep:goose-download-manager",
+    "dep:goose-sdk-types",
+    "dep:hf-hub",
+]
 
 [dependencies]
 anyhow = { workspace = true }
@@ -25,18 +31,16 @@ base64 = { workspace = true }
 chrono = { workspace = true }
 etcetera = { workspace = true }
 encoding_rs = { version = "0.8.35", default-features = false }
-fs2 = { workspace = true }
-futures = { workspace = true }
-goose-download-manager = { version = "0.1.0-alpha.6", path = "../goose-download-manager" }
-goose-provider-types = { version = "0.1.0-alpha.6", path = "../goose-provider-types", default-features = false }
-goose-sdk-types = { version = "0.1.0-alpha.6", path = "../goose-sdk-types", default-features = false }
-hf-hub = { version = "1.0.0-rc.1", default-features = false }
+futures = { workspace = true, optional = true }
+goose-download-manager = { version = "0.1.0-alpha.9", path = "../goose-download-manager", optional = true }
+goose-provider-types = { version = "0.1.0-alpha.9", path = "../goose-provider-types", default-features = false }
+goose-sdk-types = { version = "0.1.0-alpha.9", path = "../goose-sdk-types", default-features = false, optional = true }
+hf-hub = { version = "1.0.0", default-features = false, optional = true }
 include_dir = { workspace = true }
 llama-cpp-2 = { workspace = true }
 llama-cpp-sys-2 = { workspace = true }
 minijinja = { version = "2.18", default-features = false, features = ["loader", "multi_template", "serde"] }
 pulldown-cmark = { version = "0.13.4", default-features = false }
-reqwest = { workspace = true, features = ["json", "stream"] }
 regex = { workspace = true }
 rmcp = { workspace = true }
 serde = { workspace = true }
@@ -44,7 +48,6 @@ serde_json = { workspace = true }
 tokio = { workspace = true, features = ["fs", "rt-multi-thread", "sync", "time"] }
 tracing = { workspace = true }
 uuid = { workspace = true, features = ["v4", "std"] }
-tempfile = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 llama-cpp-2 = { workspace = true, features = ["sampler", "metal", "mtmd"] }

@@ -504,6 +504,10 @@ impl Provider for CursorAgentProvider {
         &self.name
     }
 
+    fn uses_local_session_naming(&self) -> bool {
+        true
+    }
+
     fn skip_canonical_filtering(&self) -> bool {
         // Cursor model IDs are CLI/account-specific and often absent from the
         // canonical registry. Keep the live list intact for inventory/config.
@@ -536,14 +540,6 @@ impl Provider for CursorAgentProvider {
         messages: &[Message],
         tools: &[Tool],
     ) -> Result<MessageStream, ProviderError> {
-        if super::cli_common::is_session_description_request(system) {
-            let (message, provider_usage) = super::cli_common::generate_simple_session_description(
-                &model_config.model_name,
-                messages,
-            )?;
-            return Ok(stream_from_single_message(message, provider_usage));
-        }
-
         let lines = self
             .execute_command(model_config, system, messages, tools)
             .await?;
@@ -638,6 +634,40 @@ printf '%s\n' '{"type":"result","result":"ok"}'
             Message::user().with_text(SENTINEL),
         ])
         .await;
+    }
+
+    #[test]
+    fn session_naming_is_local() {
+        let provider = CursorAgentProvider {
+            command: PathBuf::from("cursor-agent"),
+            name: CURSOR_AGENT_PROVIDER_NAME.to_string(),
+        };
+
+        assert!(provider.uses_local_session_naming());
+    }
+
+    #[tokio::test]
+    async fn former_session_title_phrase_reaches_cli() {
+        let directory = tempfile::tempdir().unwrap();
+        let provider = CursorAgentProvider {
+            command: recording_cli(directory.path()),
+            name: CURSOR_AGENT_PROVIDER_NAME.to_string(),
+        };
+
+        let (message, _) = provider
+            .complete(
+                &ModelConfig::new(CURSOR_AGENT_DEFAULT_MODEL),
+                "answer in four words or less",
+                &[Message::user().with_text("ordinary request")],
+                &[],
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(message.as_concat_text(), "ok");
+        assert!(fs::read_to_string(directory.path().join("stdin"))
+            .unwrap()
+            .contains("answer in four words or less"));
     }
 
     #[test]

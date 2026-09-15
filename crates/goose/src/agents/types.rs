@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-// We use double Arc here to allow easy provider swaps while sharing concurrent access
 pub type SharedProvider = Arc<Mutex<Option<Arc<dyn Provider>>>>;
 
 /// Default timeout for retry operations (5 minutes)

@@ -1,5 +1,5 @@
 import { methods, type ContentBlock, type PromptResponse } from '@agentclientprotocol/sdk';
-import type { SteerSessionRequest_unstable, SteerSessionResponse_unstable } from '@aaif/goose-sdk';
+import type { SteerSessionRequest_unstable, SteerSessionResponse_unstable } from '@aaif/goose-acp-client';
 import type { Message } from '../types/message';
 import { getAcpClient } from './acpConnection';
 
@@ -8,9 +8,11 @@ export async function acpPromptSession(
   message: Message
 ): Promise<PromptResponse> {
   const client = await getAcpClient();
+  const useLegacyAgentLoop = await window.electron.getSetting('useLegacyAgentLoop');
   return client.connection.agent.request(methods.agent.session.prompt, {
     sessionId,
     prompt: messageToAcpPromptContent(message),
+    _meta: { goose: { unrolledAgentLoop: !useLegacyAgentLoop } },
   });
 }
 

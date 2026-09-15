@@ -1,7 +1,7 @@
 use anyhow::Result;
-use goose_providers::conversation::message::{Message, MessageContent};
-use goose_providers::conversation::token_usage::ProviderUsage;
-use goose_providers::errors::ProviderError;
+use goose_provider_types::conversation::message::{Message, MessageContent};
+use goose_provider_types::conversation::token_usage::ProviderUsage;
+use goose_provider_types::errors::ProviderError;
 use rmcp::model::Role;
 use serde::Serialize;
 use tracing::warn;

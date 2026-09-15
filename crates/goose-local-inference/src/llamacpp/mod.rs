@@ -19,7 +19,7 @@ use self::inference_emulated_tools::{
 use self::inference_engine::{GenerationContext, LoadedChatTemplates, LoadedModel};
 use self::inference_native_tools::generate_with_native_tools;
 use crate::backend::{BackendLoadedModel, LocalGenerationRequest, LocalInferenceBackend};
-use crate::local_model_registry::{ChatTemplate, ModelSettings, ToolCallingMode};
+use crate::model::{ChatTemplate, ModelSettings, ToolCallingMode};
 use crate::multimodal::ExtractedImage;
 use crate::tool_parsing::compact_tools_json;
 use crate::{build_openai_messages_json, build_openai_text_messages_json, ResolvedModelPaths};
@@ -375,7 +375,7 @@ impl LlamaCppBackend {
     fn init_mtmd_context(
         model: &LlamaModel,
         mmproj_path: &Option<PathBuf>,
-        settings: &crate::local_model_registry::ModelSettings,
+        settings: &crate::model::ModelSettings,
     ) -> Option<llama_cpp_2::mtmd::MtmdContext> {
         use llama_cpp_2::mtmd::{MtmdContext, MtmdContextParams};
 
@@ -416,7 +416,7 @@ impl LocalInferenceBackend for LlamaCppBackend {
         &self,
         model_id: &str,
         resolved: &ResolvedModelPaths,
-        settings: &crate::local_model_registry::ModelSettings,
+        settings: &crate::model::ModelSettings,
     ) -> Result<Box<dyn BackendLoadedModel>, ProviderError> {
         let model_path = &resolved.model_path;
 

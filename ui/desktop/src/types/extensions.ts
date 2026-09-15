@@ -1,4 +1,4 @@
-import type { RecipeExtensionDto } from '@aaif/goose-sdk';
+import type { RecipeExtensionDto } from '@aaif/goose-acp-client';
 
 export type Envs = Record<string, string>;
 

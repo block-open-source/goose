@@ -44,8 +44,8 @@ Before saving recipes, it's important to understand where they can be stored and
 
 **Save New Recipe:**
 
-1. To create a recipe from your chat session, see [Create Recipe](/docs/guides/recipes/session-recipes#create-recipe)
-2. Once in the Recipe Editor, click `Save Recipe` to save it to your Recipe Library
+1. Open `Recipes` from the sidebar and click `Create Recipe`
+2. Complete the Recipe Editor, then click `Save Recipe` to save it to your Recipe Library
 
 **Save Modified Recipe:**
 
@@ -61,15 +61,7 @@ When you modify and save a recipe with a new name, a new recipe and new link are
   </TabItem>
   <TabItem value="cli" label="goose CLI">
 
-    When you [create a recipe](/docs/guides/recipes/recipe-reference), it gets saved to:
-
-    * Your working directory by default: `./recipe.yaml`
-    * Any path you specify: `/recipe /path/to/my-recipe.yaml`  
-    * Local project recipes: `/recipe .goose/recipes/my-recipe.yaml`
-
-    :::note
-    The CLI saves recipes as `.yaml` files. While the CLI can run recipes in `.json` format, it does not provide an option to save recipes as JSON.
-    :::
+    Create recipe files with your preferred editor. Store project-specific recipes in `.goose/recipes/` and global recipes in `~/.config/goose/recipes/`. The CLI can run recipes in either YAML or JSON format.
 
   </TabItem>
 </Tabs>

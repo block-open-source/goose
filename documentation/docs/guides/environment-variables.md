@@ -18,9 +18,9 @@ These are the minimum required variables to get started with goose.
 |----------|---------|---------|---------|
 | `GOOSE_PROVIDER` | Specifies the LLM provider to use | [See available providers](/docs/getting-started/providers#available-providers) | None (must be [configured](/docs/getting-started/providers#configure-provider-and-model)) |
 | `GOOSE_MODEL` | Specifies which model to use from the provider | Model name (e.g., "gpt-4", "claude-sonnet-4-20250514") | None (must be [configured](/docs/getting-started/providers#configure-provider-and-model)) |
-| `GOOSE_FAST_MODEL` | Overrides the provider's default fast model used for auxiliary calls (tool-selection, classification, session titles) | Model name (e.g., "gpt-4o-mini", "google/gemini-2.5-flash") | Provider-specific default |
 | `GOOSE_TEMPERATURE` | Sets the [temperature](https://medium.com/@kelseyywang/a-comprehensive-guide-to-llm-temperature-%EF%B8%8F-363a40bbc91f) for model responses | Float between 0.0 and 1.0 | Model-specific default |
 | `GOOSE_MAX_TOKENS` | Sets the maximum number of tokens for each model response (truncates longer responses) | Positive integer (e.g., 4096, 8192) | Model-specific default |
+| `GOOSE_CACHE_TTL` | Sets the Anthropic prompt-cache TTL. `1h` keeps the cached prefix alive across idle gaps (e.g. stepping away mid-session) but bills cache writes at 2x input instead of 1.25x, so it only pays off for sessions that actually idle. Headless runs (`goose run`, subagents, scheduled recipes) always use `5m` | `5m`, `1h` | `5m` |
 
 **Examples**
 
@@ -29,9 +29,6 @@ These are the minimum required variables to get started with goose.
 export GOOSE_PROVIDER="anthropic"
 export GOOSE_MODEL="claude-sonnet-4-5-20250929"
 export GOOSE_TEMPERATURE=0.7
-
-# Override the fast model used for auxiliary calls (tool-selection, classification, etc.)
-export GOOSE_FAST_MODEL="gpt-4o-mini"
 
 # Set a lower limit for shorter interactions
 export GOOSE_MAX_TOKENS=4096
@@ -89,23 +86,6 @@ export CLAUDE_THINKING_TYPE=disabled
 :::tip Viewing Thinking Output
 To see Claude's thinking output in the **CLI**, you also need to set `GOOSE_CLI_SHOW_THINKING=1`. In **goose Desktop**, thinking output is shown automatically in a collapsible "Show reasoning" toggle.
 :::
-
-### Planning Mode Configuration
-
-These variables control goose's [planning functionality](/docs/guides/context-engineering/creating-plans).
-
-| Variable | Purpose | Values | Default |
-|----------|---------|---------|---------|
-| `GOOSE_PLANNER_PROVIDER` | Specifies which provider to use for planning mode | [See available providers](/docs/getting-started/providers#available-providers) | Falls back to GOOSE_PROVIDER |
-| `GOOSE_PLANNER_MODEL` | Specifies which model to use for planning mode | Model name (e.g., "gpt-4", "claude-sonnet-4-20250514")| Falls back to GOOSE_MODEL |
-
-**Examples**
-
-```bash
-# Planning mode with different model
-export GOOSE_PLANNER_PROVIDER="openai"
-export GOOSE_PLANNER_MODEL="gpt-4"
-```
 
 ### Provider Retries
 
@@ -165,6 +145,7 @@ These variables control how goose manages conversation sessions and context.
 | `GOOSE_CLI_LIGHT_THEME` | Custom [bat theme](https://github.com/sharkdp/bat#adding-new-themes) for syntax highlighting when using light mode | bat theme name (e.g., "Solarized (light)", "OneHalfLight") | "GitHub" |
 | `GOOSE_CLI_DARK_THEME` | Custom [bat theme](https://github.com/sharkdp/bat#adding-new-themes) for syntax highlighting when using dark mode | bat theme name (e.g., "Dracula", "Nord") | "zenburn" |
 | `GOOSE_CLI_NEWLINE_KEY` | Customize the keyboard shortcut for [inserting newlines in CLI input](/docs/guides/goose-cli-commands#keyboard-shortcuts) | Single character (e.g., "n", "m") | "j" (Ctrl+J) |
+| `GOOSE_CLI_BELL` | Ring the terminal bell when an interactive turn finishes or tool approval is required | "true", "false" | false |
 | `GOOSE_CLI_SHOW_THINKING` | Shows model reasoning/thinking output in CLI responses. Some models (e.g., DeepSeek-R1, Kimi, Gemini) expose their internal reasoning process — this variable makes it visible in the CLI. | Set to any value to enable | Disabled |
 | `GOOSE_RANDOM_THINKING_MESSAGES` | Controls whether to show amusing random messages during processing | "true", "false" | "true" |
 | `GOOSE_CLI_SHOW_COST` | Toggles display of model cost estimates in CLI output | "1", "true" (case-insensitive) to enable | false |
@@ -431,6 +412,7 @@ You can control each signal (traces, metrics, logs) independently with `OTEL_{SI
 | `OTEL_EXPORTER_OTLP_{SIGNAL}_ENDPOINT` | Override endpoint for a specific signal | URL |
 | `OTEL_{SIGNAL}_EXPORTER` | Exporter type per signal | `otlp`, `console`, `none` |
 | `OTEL_SDK_DISABLED` | Disable all OTel export | `true` |
+| `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT` | Include model messages and tool arguments/results in exported traces | `true`, `false` (default) |
 
 Additional variables like `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES`,
 and `OTEL_EXPORTER_OTLP_TIMEOUT` are also supported.
@@ -664,4 +646,3 @@ When deploying goose in enterprise environments, administrators might need to co
 - Environment variables take precedence over configuration files.
 - For security-sensitive variables (like API keys), consider using the system keyring instead of environment variables.
 - Some variables may require restarting goose to take effect.
-- When using the planning mode, if planner-specific variables are not set, goose will fall back to the main model configuration.

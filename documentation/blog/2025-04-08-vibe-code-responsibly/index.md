@@ -7,6 +7,10 @@ authors:
 
 # How to Vibe Code Responsibly (with goose)
 
+:::warning Outdated
+The CLI `/plan` command described in step 1 has since been removed from goose. The other practices in this post still apply; ask goose for a plan in plain language instead.
+:::
+
 ![blog cover](responsible-vibe-code.png)
 
 On Feb 2, 2025, Andrej Karpathy coined the phrase "[vibe coding](https://x.com/karpathy/status/1886192184808149383)". Vibe coding represents a new approach to coding where developers ask an AI agent to build something, and they go with the flow.
@@ -46,7 +50,7 @@ Most folks define "vibe coding" as purely chaotic development with no rules. I'm
 
 ### 1. Create a plan
 
-goose's [`/plan`](https://goose-docs.ai/docs/guides/goose-cli-commands#examples) command helps you align with your agent before any code is touched, giving you a clear understanding of what it intends to do and how it will do it.
+goose's `/plan` command helps you align with your agent before any code is touched, giving you a clear understanding of what it intends to do and how it will do it.
 
 This is especially useful for tasks that span multiple files, involve side effects, or could impact critical areas of your codebase. No more guesswork—just a structured breakdown you can review and approve.
 

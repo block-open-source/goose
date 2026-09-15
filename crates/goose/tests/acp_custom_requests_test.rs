@@ -1188,7 +1188,11 @@ async fn call_app_tool(
     send_custom(
         conn.cx(),
         "_goose/unstable/tools/call",
-        serde_json::json!({ "sessionId": session_id, "name": APP_TOOL }),
+        serde_json::json!({
+            "sessionId": session_id,
+            "extensionName": "mcp-fixture",
+            "name": APP_TOOL
+        }),
     )
     .await
 }

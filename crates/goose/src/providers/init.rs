@@ -28,7 +28,6 @@ use super::{
     kimicode::KimiCodeProvider,
     litellm::LiteLLMProvider,
     nanogpt::NanoGptProvider,
-    openrouter::OpenRouterProvider,
     pi_acp::PiAcpProvider,
     provider_registry::ProviderRegistry,
     snowflake_def::SnowflakeProviderDef,
@@ -45,6 +44,7 @@ use crate::providers::databricks_v2_def::{self, DatabricksV2ProviderDef};
 use crate::providers::google_def::GoogleProviderDef;
 use crate::providers::ollama_def::OllamaProviderDef;
 use crate::providers::openai_def::OpenAiProviderDef;
+use crate::providers::openrouter_def::OpenRouterProviderDef;
 use crate::{
     config::declarative_providers::register_declarative_providers,
     providers::provider_registry::ProviderEntry,
@@ -157,7 +157,7 @@ async fn init_registry() -> RwLock<ProviderRegistry> {
             true,
             Some(registrations::openai_inventory()),
         );
-        registry.register_with_inventory::<OpenRouterProvider>(
+        registry.register_with_inventory::<OpenRouterProviderDef>(
             true,
             Some(registrations::refresh_only().with_configured(|| {
                 let config = crate::config::Config::global();
@@ -328,6 +328,22 @@ mod tests {
             .config_keys
             .iter()
             .any(|key| key.name == "HF_TOKEN" && key.secret));
+    }
+
+    #[tokio::test]
+    async fn test_aimlapi_provider_registry_wiring() {
+        let aimlapi = get_from_registry("aimlapi")
+            .await
+            .expect("aimlapi provider should be registered");
+        let meta = aimlapi.metadata();
+
+        assert_eq!(meta.name, "aimlapi");
+        assert_eq!(meta.display_name, "AI/ML API");
+        assert_eq!(meta.default_model, "openai/gpt-5-5");
+        assert!(meta
+            .config_keys
+            .iter()
+            .any(|key| key.name == "AIMLAPI_API_KEY" && key.secret));
     }
 
     #[tokio::test]

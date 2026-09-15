@@ -26,12 +26,13 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFileSync, spawn, execFile } from 'child_process';
 import 'dotenv/config';
-import { checkBackendStatus } from './backendStatus';
+import { connectRemoteBackend } from './remoteBackends';
 import { installBackendCertificateVerifiers } from './backendCertificateVerifier';
+import { configureProxy } from './proxy';
 import { startGooseServe } from './gooseServe';
 import { getLoginShellPath } from './loginShellPath';
 import { GooseServeLeaseRegistry, type GooseServeLease } from './gooseServeLeaseRegistry';
-import { acpWebSocketUrlFromHttpBase, normalizeAcpHttpBaseUrl } from './acp/url';
+import { normalizeAcpHttpBaseUrl } from './acp/url';
 import { expandTilde, sanitizeGoosePathRoot } from './utils/pathUtils';
 import log from './utils/logger';
 import { ensureWinShims } from './utils/winShims';
@@ -58,7 +59,7 @@ import type { GooseApp } from './types/apps';
 import installExtension, { REACT_DEVELOPER_TOOLS } from 'electron-devtools-installer';
 import { WEB_PROTOCOLS } from './utils/urlSecurity';
 import { openExternalUrl } from './utils/openExternalUrl';
-import { buildCSP } from './utils/csp';
+import { buildCSP, leaseBackendOrigin } from './utils/csp';
 import { resolveWorkingDir } from './utils/workingDir';
 import {
   DesktopFileAccess,
@@ -291,23 +292,6 @@ function listGitWorktreeDirs(dir: string): Promise<string[]> {
       }
     );
   });
-}
-
-async function configureProxy() {
-  const httpsProxy = process.env.HTTPS_PROXY || process.env.https_proxy;
-  const httpProxy = process.env.HTTP_PROXY || process.env.http_proxy;
-  const noProxy = process.env.NO_PROXY || process.env.no_proxy || '';
-
-  const proxyUrl = httpsProxy || httpProxy;
-
-  if (proxyUrl) {
-    console.log('[Main] Configuring proxy');
-    await session.defaultSession.setProxy({
-      proxyRules: proxyUrl,
-      proxyBypassRules: noProxy,
-    });
-    console.log('[Main] Proxy configured successfully');
-  }
 }
 
 if (started) app.quit();
@@ -1132,20 +1116,20 @@ const createChat = async (
         );
       }
 
-      const externalBackendReady = await checkBackendStatus({
+      const externalBackendCheck = await connectRemoteBackend({
         baseUrl: externalBaseUrl,
         serverSecret,
-        fetch: net.fetch as unknown as typeof globalThis.fetch,
+        pinnedHostname: externalBackend.certFingerprint ? externalBase.hostname : null,
       });
-      if (!externalBackendReady) {
+      if (!externalBackendCheck.ok) {
         externalCertificateTrust?.release();
+        log.error(`External backend check failed: ${externalBackendCheck.failure}`);
         const canDisableExternalBackend = externalBackend.source === 'settings';
         const response = dialog.showMessageBoxSync({
           type: 'error',
           title: 'External Backend Unreachable',
           message: `Could not connect to external backend at ${externalBaseUrl}`,
-          detail:
-            'The external backend must be running and the configured secret must match GOOSE_SERVER__SECRET_KEY on the server.',
+          detail: externalBackendCheck.failure ?? undefined,
           buttons: canDisableExternalBackend
             ? ['Disable External Backend & Retry', 'Quit']
             : ['Quit'],
@@ -1166,13 +1150,18 @@ const createChat = async (
         return;
       }
 
+      const resolvedAcpUrl = externalBackendCheck.acpUrl;
+      if (!resolvedAcpUrl) {
+        throw new Error('External backend check did not resolve an ACP endpoint');
+      }
+
+      const originLease = leaseBackendOrigin(resolvedAcpUrl);
       const leaseCertificateTrust = externalCertificateTrust;
       externalCertificateTrust = null;
-      gooseServeLease = gooseServeLeases.createExternal(
-        acpWebSocketUrlFromHttpBase(externalBaseUrl, serverSecret),
-        serverSecret,
-        leaseCertificateTrust ? async () => leaseCertificateTrust.release() : undefined
-      );
+      gooseServeLease = gooseServeLeases.createExternal(resolvedAcpUrl, serverSecret, async () => {
+        originLease.release();
+        leaseCertificateTrust?.release();
+      });
     } catch (error) {
       externalCertificateTrust?.release();
       log.error('External ACP backend is misconfigured', error);
@@ -1987,6 +1976,7 @@ const validSettingKeys: Set<string> = new Set([
   'seenAnnouncementIds',
   'disableAutoDownload',
   'recentModels',
+  'useLegacyAgentLoop',
 ]);
 
 ipcMain.handle('set-setting', (_event, key: SettingKey, value: unknown) => {
@@ -2472,7 +2462,8 @@ async function appMain() {
     }
   });
 
-  await configureProxy();
+  const rendererSession = session.fromPartition('persist:goose');
+  await configureProxy(session.defaultSession, rendererSession);
 
   // Ensure Windows shims are available before any MCP processes are spawned
   await ensureWinShims();
@@ -2493,7 +2484,7 @@ async function appMain() {
 
   // Add CSP headers to all sessions, recomputed on every response so external
   // backend settings take effect without restarting the app.
-  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+  rendererSession.webRequest.onHeadersReceived((details, callback) => {
     const currentSettings = getSettings();
     callback({
       responseHeaders: {

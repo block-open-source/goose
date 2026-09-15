@@ -928,6 +928,12 @@ impl SessionStorage {
     fn create_pool(path: &Path) -> Pool<Sqlite> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).expect("Failed to create session database directory");
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(parent, fs::Permissions::from_mode(0o700))
+                    .expect("Failed to secure session database directory");
+            }
         }
 
         let options = SqliteConnectOptions::new()
@@ -2788,6 +2794,58 @@ mod tests {
     const NUM_CONCURRENT_SESSIONS: i32 = 10;
     const GENERATED_SESSION_NAME: &str = "Generated session name";
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn session_directory_is_owner_private_for_fresh_and_existing_database() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp_dir = TempDir::new().unwrap();
+        let session_dir = temp_dir.path().join(SESSIONS_FOLDER);
+        let database_path = session_dir.join(DB_NAME);
+
+        let storage = SessionStorage::new(temp_dir.path().to_path_buf());
+        storage.pool().await.unwrap();
+        assert_eq!(
+            fs::metadata(&session_dir).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        storage.pool.close().await;
+        drop(storage);
+
+        fs::set_permissions(&database_path, fs::Permissions::from_mode(0o644)).unwrap();
+        fs::set_permissions(&session_dir, fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(
+            fs::metadata(&database_path).unwrap().permissions().mode() & 0o777,
+            0o644
+        );
+        assert_eq!(
+            fs::metadata(&session_dir).unwrap().permissions().mode() & 0o777,
+            0o755
+        );
+
+        let session_manager = SessionManager::new(temp_dir.path().to_path_buf());
+        let session = session_manager
+            .create_session(
+                PathBuf::from("/tmp/private-session-store"),
+                "Private session".to_string(),
+                SessionType::User,
+                GooseMode::default(),
+            )
+            .await
+            .unwrap();
+        let loaded = session_manager
+            .get_session(&session.id, false)
+            .await
+            .unwrap();
+
+        assert_eq!(loaded.id, session.id);
+        assert_eq!(loaded.name, "Private session");
+        assert_eq!(
+            fs::metadata(&session_dir).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+    }
+
     #[test]
     fn azure_session_model_config_preserves_suffixed_deployment_id() {
         let json = serde_json::to_string(&ModelConfig {
@@ -2860,6 +2918,8 @@ mod tests {
 
     struct StatefulNamingTestProvider;
 
+    struct LocalNamingTestProvider;
+
     #[async_trait::async_trait]
     impl Provider for NamingTestProvider {
         fn get_name(&self) -> &str {
@@ -2907,6 +2967,27 @@ mod tests {
         }
 
         fn manages_own_context(&self) -> bool {
+            true
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Provider for LocalNamingTestProvider {
+        fn get_name(&self) -> &str {
+            "local-naming-test"
+        }
+
+        async fn stream(
+            &self,
+            _model_config: &ModelConfig,
+            _system: &str,
+            _messages: &[Message],
+            _tools: &[Tool],
+        ) -> Result<MessageStream, ProviderError> {
+            panic!("local session naming must not call the provider")
+        }
+
+        fn uses_local_session_naming(&self) -> bool {
             true
         }
     }
@@ -3334,6 +3415,41 @@ mod tests {
             .unwrap();
 
         assert_eq!(update.name, "investigate session naming with");
+    }
+
+    #[tokio::test]
+    async fn test_maybe_update_name_uses_local_name_for_stateless_provider() {
+        let temp_dir = TempDir::new().unwrap();
+        let sm = SessionManager::new(temp_dir.path().to_path_buf());
+        let session = sm
+            .create_session(
+                temp_dir.path().to_path_buf(),
+                "New Chat".to_string(),
+                SessionType::User,
+                GooseMode::default(),
+            )
+            .await
+            .unwrap();
+
+        sm.update(&session.id)
+            .model_config(ModelConfig::new("test-model"))
+            .apply()
+            .await
+            .unwrap();
+        sm.add_message(
+            &session.id,
+            &Message::user().with_text("investigate local naming without provider completion"),
+        )
+        .await
+        .unwrap();
+
+        let update = sm
+            .maybe_update_name(&session.id, Arc::new(LocalNamingTestProvider))
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(update.name, "investigate local naming without");
     }
 
     #[tokio::test]

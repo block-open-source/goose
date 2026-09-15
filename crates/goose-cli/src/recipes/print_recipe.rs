@@ -87,7 +87,7 @@ pub fn print_recipe_info(recipe: &Recipe, params: Vec<(String, String)>) {
         style("Loading recipe:").green().bold(),
         style(&recipe.title).green()
     );
-    eprintln!("{} {}", style("Description:").bold(), &recipe.description);
+    eprintln!("{} {}", style("Description:").bold(), recipe.description);
 
     if !params.is_empty() {
         eprintln!("{}", style("Parameters used to load this recipe:").bold());

@@ -20,6 +20,7 @@ pub(crate) mod declarative_providers {
         cerebras,
         deepseek,
         empiriolabs,
+        eurouter,
         fireworks,
         friendli,
         futurmix,

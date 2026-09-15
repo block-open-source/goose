@@ -79,7 +79,12 @@ fn apply_onboarding_import_candidates(
     for candidate_id in &req.candidate_ids {
         match parse_candidate_id(candidate_id) {
             Some((OnboardingImportSourceKind::GooseConfig, path)) => {
-                match apply_goose_config_candidate(config, target_config_dir, &path) {
+                match apply_goose_config_candidate(
+                    config,
+                    target_config_dir,
+                    &path,
+                    req.enable_imported_extensions,
+                ) {
                     Ok(result) => {
                         add_counts(&mut imported, &result.imported);
                         add_counts(&mut skipped, &result.skipped);
@@ -318,6 +323,7 @@ fn apply_goose_config_candidate(
     target_config: &Config,
     target_config_dir: &Path,
     source_path: &Path,
+    enable_imported_extensions: bool,
 ) -> anyhow::Result<ApplyResult> {
     let source = read_yaml_mapping(source_path)?;
     let mut result = ApplyResult::default();
@@ -338,7 +344,8 @@ fn apply_goose_config_candidate(
         result.imported.providers = 1;
     }
 
-    let extension_result = import_goose_config_extensions(target_config, &source)?;
+    let extension_result =
+        import_goose_config_extensions(target_config, &source, enable_imported_extensions)?;
     result.imported.extensions += extension_result.imported;
     result.skipped.extensions += extension_result.skipped;
 
@@ -380,6 +387,7 @@ struct ImportPairCount {
 fn import_goose_config_extensions(
     target_config: &Config,
     source: &Mapping,
+    enable_imported_extensions: bool,
 ) -> anyhow::Result<ImportPairCount> {
     let Some(source_extensions) = source
         .get(serde_yaml::Value::String("extensions".to_string()))
@@ -395,7 +403,16 @@ fn import_goose_config_extensions(
             counts.skipped += 1;
             continue;
         }
-        target_extensions.insert(key.clone(), value.clone());
+        let mut value = value.clone();
+        if !enable_imported_extensions {
+            if let Some(extension) = value.as_mapping_mut() {
+                extension.insert(
+                    serde_yaml::Value::String("enabled".to_string()),
+                    serde_yaml::Value::Bool(false),
+                );
+            }
+        }
+        target_extensions.insert(key.clone(), value);
         counts.imported += 1;
     }
 
@@ -629,6 +646,51 @@ mod tests {
     }
 
     #[test]
+    fn goose_import_disables_new_extensions_when_requested() {
+        let source = TempDir::new().unwrap();
+        let target = TempDir::new().unwrap();
+        let source_config = source.path().join(CONFIG_YAML_NAME);
+        fs::write(
+            &source_config,
+            r#"
+extensions:
+  payload:
+    enabled: true
+    type: stdio
+    name: payload
+    description: imported command
+    cmd: /tmp/payload
+    args: []
+"#,
+        )
+        .unwrap();
+        let target_config = Config::new_with_file_secrets(
+            target.path().join(CONFIG_YAML_NAME),
+            target.path().join("secrets.yaml"),
+        )
+        .unwrap();
+        let req = OnboardingImportApplyRequest {
+            candidate_ids: vec![candidate_id(GOOSE_CONFIG_PREFIX, &source_config)],
+            enable_imported_extensions: false,
+        };
+
+        let response = apply_onboarding_import_candidates(&target_config, target.path(), &req);
+
+        assert_eq!(response.imported.extensions, 1);
+        let extensions = target_config.get_param::<Mapping>("extensions").unwrap();
+        let entry = extensions
+            .get(serde_yaml::Value::String("payload".to_string()))
+            .and_then(serde_yaml::Value::as_mapping)
+            .unwrap();
+        assert_eq!(
+            entry
+                .get(serde_yaml::Value::String("enabled".to_string()))
+                .and_then(serde_yaml::Value::as_bool),
+            Some(false)
+        );
+    }
+
+    #[test]
     fn apply_goose_config_imports_defaults_extensions_and_skills() {
         let source = TempDir::new().unwrap();
         let target = TempDir::new().unwrap();
@@ -660,13 +722,25 @@ extensions:
         .unwrap();
 
         let result =
-            apply_goose_config_candidate(&target_config, target.path(), &source_config).unwrap();
+            apply_goose_config_candidate(&target_config, target.path(), &source_config, true)
+                .unwrap();
 
         assert_eq!(result.imported.providers, 1);
         assert_eq!(result.imported.extensions, 1);
         assert_eq!(result.imported.skills, 1);
         assert_eq!(target_config.get_goose_provider().unwrap(), "openai");
         assert!(target.path().join("skills").join("reviewer").exists());
+        let extensions = target_config.get_param::<Mapping>("extensions").unwrap();
+        let entry = extensions
+            .get(serde_yaml::Value::String("github".to_string()))
+            .and_then(serde_yaml::Value::as_mapping)
+            .unwrap();
+        assert_eq!(
+            entry
+                .get(serde_yaml::Value::String("enabled".to_string()))
+                .and_then(serde_yaml::Value::as_bool),
+            Some(true)
+        );
     }
 
     #[test]
@@ -683,10 +757,76 @@ extensions:
         .unwrap();
 
         let result =
-            apply_goose_config_candidate(&target_config, target.path(), &source_config).unwrap();
+            apply_goose_config_candidate(&target_config, target.path(), &source_config, false)
+                .unwrap();
 
         assert_eq!(result.imported.providers, 0);
         assert!(target_config.get_goose_provider().is_err());
+    }
+
+    #[test]
+    fn goose_import_does_not_change_colliding_target_extension() {
+        let source = TempDir::new().unwrap();
+        let target = TempDir::new().unwrap();
+        let source_config = source.path().join(CONFIG_YAML_NAME);
+        fs::write(
+            &source_config,
+            r#"
+extensions:
+  payload:
+    enabled: true
+    type: stdio
+    name: payload
+    description: imported command
+    cmd: /tmp/imported
+    args: []
+"#,
+        )
+        .unwrap();
+        let target_config_path = target.path().join(CONFIG_YAML_NAME);
+        fs::write(
+            &target_config_path,
+            r#"
+extensions:
+  payload:
+    enabled: true
+    type: stdio
+    name: payload
+    description: existing command
+    cmd: /tmp/existing
+    args: []
+"#,
+        )
+        .unwrap();
+        let target_config =
+            Config::new_with_file_secrets(target_config_path, target.path().join("secrets.yaml"))
+                .unwrap();
+        let req = OnboardingImportApplyRequest {
+            candidate_ids: vec![candidate_id(GOOSE_CONFIG_PREFIX, &source_config)],
+            enable_imported_extensions: false,
+        };
+
+        let response = apply_onboarding_import_candidates(&target_config, target.path(), &req);
+
+        assert_eq!(response.imported.extensions, 0);
+        assert_eq!(response.skipped.extensions, 1);
+        let extensions = target_config.get_param::<Mapping>("extensions").unwrap();
+        let entry = extensions
+            .get(serde_yaml::Value::String("payload".to_string()))
+            .and_then(serde_yaml::Value::as_mapping)
+            .unwrap();
+        assert_eq!(
+            entry
+                .get(serde_yaml::Value::String("enabled".to_string()))
+                .and_then(serde_yaml::Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            entry
+                .get(serde_yaml::Value::String("cmd".to_string()))
+                .and_then(serde_yaml::Value::as_str),
+            Some("/tmp/existing")
+        );
     }
 
     #[cfg(unix)]

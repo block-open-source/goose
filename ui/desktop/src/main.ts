@@ -2483,7 +2483,7 @@ async function appMain() {
 
   // Add CSP headers to all sessions, recomputed on every response so external
   // backend settings take effect without restarting the app.
-  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+  rendererSession.webRequest.onHeadersReceived((details, callback) => {
     const currentSettings = getSettings();
     callback({
       responseHeaders: {

@@ -27,6 +27,20 @@ fn turn_budget_part(turns_taken: u32, max_turns: u32) -> Option<String> {
     ))
 }
 
+fn inference_turn_count(messages: &[Message]) -> u32 {
+    let messages = messages
+        .iter()
+        .filter(|message| {
+            message
+                .metadata
+                .operation_note("compaction", "synthetic_turn")
+                .is_none()
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    assistant_turn_count(&messages)
+}
+
 impl MaxTurnsOperation {
     pub fn new(max_turns: u32) -> Self {
         Self { max_turns }
@@ -44,7 +58,7 @@ impl Operation<Session, GooseEffect> for MaxTurnsOperation {
         _session: &Session,
         conversation: &Conversation,
     ) -> Result<Vec<String>> {
-        let turns_taken = assistant_turn_count(messages_since_kickoff(conversation)?);
+        let turns_taken = inference_turn_count(messages_since_kickoff(conversation)?);
         Ok(turn_budget_part(turns_taken, self.max_turns)
             .into_iter()
             .collect())
@@ -57,7 +71,7 @@ impl Operation<Session, GooseEffect> for MaxTurnsOperation {
         emit: &Emitter,
     ) -> Result<OperationResult<GooseEffect>> {
         let messages = messages_since_kickoff(conversation)?;
-        if assistant_turn_count(messages) < self.max_turns {
+        if inference_turn_count(messages) < self.max_turns {
             return not_applicable();
         }
 

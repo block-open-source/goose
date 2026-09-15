@@ -17,9 +17,9 @@ use crate::agents::prompt_manager::PromptManager;
 use crate::agents::state_machine::{
     BangShellOperation, CompactionOperation, DoctorOperation, Emitter, EntryHookOperation,
     ExitOnErrorOperation, GooseEffect, GooseInferenceProvider, GooseInferenceRequestPreparer,
-    InferenceRunner, MaxTurnsOperation, Operation, ProjectOperation, RecipeOperation,
-    RetryOperation, SkillOperation, SlashCommandOperation, StateMachine, StatusOperation,
-    SteerOperation, SteerQueue, Step, StopHookOperation, ToolApprovalOperation,
+    InferenceRunner, MaxTurnsOperation, Operation, PreparedRequestCompactionHook, ProjectOperation,
+    RecipeOperation, RetryOperation, SkillOperation, SlashCommandOperation, StateMachine,
+    StatusOperation, SteerOperation, SteerQueue, Step, StopHookOperation, ToolApprovalOperation,
     ToolExecutionOperation, ToolPairCompactionOperation, UnknownToolOperation,
 };
 use crate::agents::AgentEvent;
@@ -182,10 +182,17 @@ impl TestPipeline {
             provider.clone(),
             self.model_config.clone(),
         ));
+        let prepared_request_compaction = Arc::new(PreparedRequestCompactionHook::new(
+            provider.clone(),
+            self.model_config.clone(),
+            self.model_config.context_limit(),
+            COMPACTION_THRESHOLD,
+        ));
         let inference_provider = Arc::new(GooseInferenceProvider::new(provider));
         let inference = Arc::new(
             InferenceRunner::new(inference_provider, self.model_config.clone())
-                .with_request_preparer(Arc::new(request_preparer)),
+                .with_request_preparer(Arc::new(request_preparer))
+                .with_pre_inference_hook(prepared_request_compaction),
         );
         let mut command_handlers = operations.clone();
         command_handlers.push(status_operation);

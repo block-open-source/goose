@@ -37,6 +37,20 @@ pub trait InferenceRequestPreparer<S>: Send + Sync {
     ) -> Result<PreparedInferenceRequest>;
 }
 
+/// Runs after Goose has prepared the exact provider request, but before it is
+/// sent. Implementations can replace the inference with a state transition.
+#[async_trait]
+pub trait PreInferenceHook<S, E>: Send + Sync {
+    async fn run(
+        &self,
+        session: &S,
+        conversation: &Conversation,
+        request: &PreparedInferenceRequest,
+        messages: &[Message],
+        emit: &Emitter,
+    ) -> Result<Option<OperationResult<E>>>;
+}
+
 pub struct IdentityInferenceRequestPreparer;
 
 #[async_trait]
@@ -167,6 +181,7 @@ pub struct InferenceRunner<'a, S, E> {
     provider: Arc<dyn Provider>,
     model_config: ModelConfig,
     request_preparer: Arc<dyn InferenceRequestPreparer<S> + 'a>,
+    pre_inference_hook: Option<Arc<dyn PreInferenceHook<S, E> + 'a>>,
     effect: std::marker::PhantomData<fn() -> E>,
 }
 
@@ -273,6 +288,7 @@ impl<'a, S: Sync, E: InferenceEffect> InferenceRunner<'a, S, E> {
             provider,
             model_config,
             request_preparer: Arc::new(IdentityInferenceRequestPreparer),
+            pre_inference_hook: None,
             effect: std::marker::PhantomData,
         }
     }
@@ -282,6 +298,14 @@ impl<'a, S: Sync, E: InferenceEffect> InferenceRunner<'a, S, E> {
         request_preparer: Arc<dyn InferenceRequestPreparer<S> + 'a>,
     ) -> Self {
         self.request_preparer = request_preparer;
+        self
+    }
+
+    pub fn with_pre_inference_hook(
+        mut self,
+        pre_inference_hook: Arc<dyn PreInferenceHook<S, E> + 'a>,
+    ) -> Self {
+        self.pre_inference_hook = Some(pre_inference_hook);
         self
     }
 
@@ -362,6 +386,25 @@ impl<S: Sync, E: InferenceEffect> Inference<S, E> for InferenceRunner<'_, S, E> 
                 messages_for_provider.push(message.clone());
             }
             let mut usage_effects: Vec<E> = additional_messages.into_iter().map(E::from).collect();
+
+            if let Some(hook) = &self.pre_inference_hook {
+                if let Some(result) = hook
+                    .run(
+                        session,
+                        conversation,
+                        &PreparedInferenceRequest {
+                            system_prompt: system_prompt.clone(),
+                            tools: tools.clone(),
+                            additional_messages: Vec::new(),
+                        },
+                        &messages_for_provider,
+                        emit,
+                    )
+                    .await?
+                {
+                    return Ok(result);
+                }
+            }
 
             let provider_name = self.provider.get_name();
             if let Some(session_id) = latest_provider_session_id(conversation, provider_name) {

@@ -35,10 +35,10 @@ use crate::agents::state_machine::{
     persist_tool_confirmation_decision, run_goose, BangShellOperation, CompactionOperation,
     DoctorOperation, Emitter, EntryHookOperation, ExitOnErrorOperation, GooseEffect,
     GooseInferenceProvider, GooseInferenceRequestPreparer, InferenceRunner, MaxTurnsOperation,
-    Operation, ProjectOperation, RecipeOperation, RetryOperation, SkillOperation,
-    SlashCommandOperation, StateMachine, StatusOperation, SteerOperation, SteerQueue, Step,
-    StopHookOperation, ToolApprovalOperation, ToolExecutionOperation, ToolPairCompactionOperation,
-    UnknownToolOperation, MAX_TURNS_MESSAGE,
+    Operation, PreparedRequestCompactionHook, ProjectOperation, RecipeOperation, RetryOperation,
+    SkillOperation, SlashCommandOperation, StateMachine, StatusOperation, SteerOperation,
+    SteerQueue, Step, StopHookOperation, ToolApprovalOperation, ToolExecutionOperation,
+    ToolPairCompactionOperation, UnknownToolOperation, MAX_TURNS_MESSAGE,
 };
 use crate::agents::types::{
     SessionConfig, SharedProvider, DEFAULT_ON_FAILURE_TIMEOUT_SECONDS,
@@ -49,7 +49,8 @@ use crate::config::extensions::name_to_key;
 use crate::config::permission::PermissionManager;
 use crate::config::{Config, GooseMode};
 use crate::context_mgmt::{
-    check_if_compaction_needed, compact_messages, DEFAULT_COMPACTION_THRESHOLD,
+    check_if_compaction_needed, check_if_compaction_needed_for_request, compact_messages,
+    DEFAULT_COMPACTION_THRESHOLD,
 };
 use crate::conversation::message::{
     ActionRequiredData, InferenceMetadata, Message, MessageContent, MessageUsage, ProviderMetadata,
@@ -1725,10 +1726,17 @@ impl Agent {
         };
         let status_operation =
             Arc::new(StatusOperation::new(provider.clone(), model_config.clone()));
+        let prepared_request_compaction = Arc::new(PreparedRequestCompactionHook::new(
+            provider.clone(),
+            model_config.clone(),
+            context_limit,
+            compaction_threshold,
+        ));
         let inference_provider = Arc::new(GooseInferenceProvider::new(provider));
         let inference = Arc::new(
             InferenceRunner::new(inference_provider, model_config)
-                .with_request_preparer(Arc::new(request_preparer)),
+                .with_request_preparer(Arc::new(request_preparer))
+                .with_pre_inference_hook(prepared_request_compaction),
         );
         let mut command_handlers = operations.clone();
         command_handlers.push(status_operation);
@@ -2289,13 +2297,21 @@ impl Agent {
             }
         }
 
-        let needs_auto_compact = check_if_compaction_needed(
-            self.provider().await?.as_ref(),
-            &conversation,
-            None,
-            &session,
-        )
-        .await?;
+        let needs_auto_compact =
+            if crate::context_mgmt::context_tokens_since_last_inference(&conversation)
+                .await?
+                .is_some()
+            {
+                false
+            } else {
+                check_if_compaction_needed(
+                    self.provider().await?.as_ref(),
+                    &conversation,
+                    None,
+                    &session,
+                )
+                .await?
+            };
 
         let conversation_to_compact = conversation.clone();
         let reply_span = tracing::Span::current();
@@ -2554,7 +2570,11 @@ impl Agent {
                     break;
                 }
 
-                if can_drain_pending_steers {
+                let final_output = {
+                    let mut guard = self.final_output_tool.lock().await;
+                    guard.as_mut().and_then(|fot| fot.final_output.take())
+                };
+                if let Some(output) = final_output {
                     for message in self.drain_pending_steers(&session_config.id).await {
                         let message_text = agent_visible_message_text(&message);
                         if self
@@ -2579,13 +2599,6 @@ impl Agent {
                         .await?;
                         yield AgentEvent::Message(message);
                     }
-                }
-
-                let final_output = {
-                    let mut guard = self.final_output_tool.lock().await;
-                    guard.as_mut().and_then(|fot| fot.final_output.take())
-                };
-                if let Some(output) = final_output {
                     last_assistant_text = output.clone();
                     let message = Message::assistant()
                         .with_text(output)
@@ -2640,6 +2653,124 @@ impl Agent {
                     last_assistant_text = MAX_TURNS_MESSAGE.to_string();
                     yield AgentEvent::Message(Message::assistant().with_text(last_assistant_text.clone()));
                     break;
+                }
+
+                // The queue lock covers the final drain and request count. A
+                // steer arriving after it is released remains queued for the
+                // next preflight and cannot affect this prepared request.
+                let steer_queue = self.steer_queue(&session_config.id).await;
+                let mut pending_steers = steer_queue.lock().await;
+                let mut drained_steer_events = Vec::new();
+                let current_session = session_manager
+                    .get_session(&session_config.id, true)
+                    .await?;
+                if can_drain_pending_steers {
+                    // Elicitation request/response messages are persisted while
+                    // a tool is blocked, rather than flowing through
+                    // `messages_to_add`. Reload the persisted conversation so a
+                    // compaction replacement retains that exchange as well.
+                    if let Some(persisted_conversation) = current_session.conversation.clone() {
+                        conversation = persisted_conversation;
+                    }
+
+                    for message in pending_steers.drain(..).map(Message::with_steer) {
+                        let message_text = agent_visible_message_text(&message);
+                        if self
+                            .hook_manager
+                            .has_hooks(crate::hooks::HookEvent::UserPromptSubmit)
+                        {
+                            let ctx = crate::hooks::HookContext::new(
+                                crate::hooks::HookEvent::UserPromptSubmit,
+                                &session_config.id,
+                            )
+                            .with_message(message_text);
+                            self.hook_manager
+                                .emit(crate::hooks::HookEvent::UserPromptSubmit, ctx)
+                                .await;
+                        }
+                        let message = persist_and_push_message_with_id(
+                            &session_manager,
+                            &session_config.id,
+                            &mut conversation,
+                            message,
+                        )
+                        .await?;
+                        drained_steer_events.push(message);
+                    }
+
+                }
+
+                if check_if_compaction_needed_for_request(
+                    self.provider().await?.as_ref(),
+                    &conversation,
+                    None,
+                    &current_session,
+                    Some((&system_prompt, &tools)),
+                )
+                .await?
+                {
+                        drop(pending_steers);
+                        for message in drained_steer_events {
+                            yield AgentEvent::Message(message);
+                        }
+                        let threshold = Config::global()
+                            .get_param::<f64>("GOOSE_AUTO_COMPACT_THRESHOLD")
+                            .unwrap_or(DEFAULT_COMPACTION_THRESHOLD);
+                        let threshold_percentage = (threshold * 100.0) as u32;
+                        yield AgentEvent::Message(
+                            Message::assistant().with_system_notification(
+                                SystemNotificationType::InlineMessage,
+                                format!(
+                                    "Exceeded auto-compact threshold of {threshold_percentage}%. Performing auto-compaction..."
+                                ),
+                            ),
+                        );
+                        yield AgentEvent::Message(
+                            Message::assistant().with_system_notification(
+                                SystemNotificationType::ProgressMessage,
+                                COMPACTION_PROGRESS_TEXT,
+                            ),
+                        );
+
+                        match compact_messages(
+                            self.provider().await?.as_ref(),
+                            &model_config,
+                            &session_config.id,
+                            &conversation,
+                            false,
+                        )
+                        .await
+                        {
+                            Ok(compaction) => {
+                                session_manager
+                                    .replace_conversation(
+                                        &session_config.id,
+                                        &compaction.conversation,
+                                    )
+                                    .await?;
+                                self.update_session_metrics(
+                                    &session_config.id,
+                                    session_config.schedule_id.clone(),
+                                    &compaction.usage,
+                                    Some(compaction.retained_context_tokens),
+                                )
+                                .await?;
+                                conversation = compaction.conversation;
+                                yield AgentEvent::HistoryReplaced(conversation.clone());
+                                retrying_after_empty_turn = true;
+                                continue;
+                            }
+                            Err(e) => {
+                                yield AgentEvent::Message(Message::assistant().with_text(format!(
+                                    "Ran into this error trying to compact: {e}.\n\nPlease try again or create a new session"
+                                )));
+                                break;
+                            }
+                        }
+                }
+                drop(pending_steers);
+                for message in drained_steer_events {
+                    yield AgentEvent::Message(message);
                 }
 
                 let mut stream = crate::agents::reply_parts::stream_response_from_provider(
@@ -4815,6 +4946,57 @@ echo start >> "$PLUGIN_ROOT/hook.log"
         }
     }
 
+    struct InTurnToolProvider {
+        call_count: AtomicUsize,
+    }
+
+    impl InTurnToolProvider {
+        fn new() -> Self {
+            Self {
+                call_count: AtomicUsize::new(0),
+            }
+        }
+
+        fn call_count(&self) -> usize {
+            self.call_count.load(Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl crate::providers::base::Provider for InTurnToolProvider {
+        async fn stream(
+            &self,
+            _model_config: &goose_providers::model::ModelConfig,
+            _system_prompt: &str,
+            _messages: &[Message],
+            _tools: &[Tool],
+        ) -> Result<MessageStream, ProviderError> {
+            let call = self.call_count.fetch_add(1, Ordering::SeqCst);
+            let message = match call {
+                0 => Message::assistant().with_tool_request(
+                    "large-result",
+                    Err(ErrorData::new(
+                        ErrorCode::INVALID_PARAMS,
+                        "tool result large enough to trigger compaction".to_string(),
+                        None,
+                    )),
+                ),
+                _ => Message::assistant().with_text(format!("provider response {call}")),
+            };
+            let usage =
+                ProviderUsage::new("mock-model".to_string(), Usage::new(None, None, Some(170)));
+            Ok(stream_from_single_message(message, usage))
+        }
+
+        fn get_name(&self) -> &str {
+            "in-turn-tool"
+        }
+
+        async fn get_context_limit(&self, _model: &str, _override_limit: Option<usize>) -> usize {
+            200
+        }
+    }
+
     struct ChunkedTextProvider;
 
     #[async_trait::async_trait]
@@ -4968,6 +5150,17 @@ echo start >> "$PLUGIN_ROOT/hook.log"
         let hook_manager = crate::hooks::HookManager::from_plugins_for_test(vec![]);
         let (agent, session_id) =
             create_test_agent(temp_dir.path().join("data"), hook_manager, provider.clone()).await?;
+        agent
+            .config
+            .session_manager
+            .replace_conversation(
+                &session_id,
+                &Conversation::new_unvalidated([
+                    Message::user().with_text("older text prompt"),
+                    Message::assistant().with_text("older text response"),
+                ]),
+            )
+            .await?;
 
         let session_config = SessionConfig {
             id: session_id,
@@ -5041,6 +5234,44 @@ echo start >> "$PLUGIN_ROOT/hook.log"
             )
             .await?;
         Ok((agent, session.id))
+    }
+
+    #[tokio::test]
+    async fn legacy_compacts_a_tool_result_before_the_next_inference() -> Result<()> {
+        let _env = env_lock::lock_env([("GOOSE_STATE_MACHINE", Some("0"))]);
+        let temp_dir = tempfile::tempdir()?;
+        let provider = Arc::new(InTurnToolProvider::new());
+        let hook_manager = crate::hooks::HookManager::from_plugins_for_test(vec![]);
+        let (agent, session_id) =
+            create_test_agent(temp_dir.path().join("data"), hook_manager, provider.clone()).await?;
+
+        let stream = agent
+            .reply(
+                Message::user().with_image("aW1hZ2U=", "image/png"),
+                SessionConfig {
+                    id: session_id,
+                    schedule_id: None,
+                    max_turns: Some(2),
+                    retry_config: None,
+                },
+                None,
+            )
+            .await?;
+        tokio::pin!(stream);
+        let mut compacted = false;
+        while let Some(event) = stream.next().await {
+            compacted |= matches!(event?, AgentEvent::HistoryReplaced(_));
+        }
+
+        assert!(
+            compacted,
+            "legacy must compact before its next provider request"
+        );
+        assert!(
+            provider.call_count() >= 3,
+            "the tool request, compaction, and continuation call the provider"
+        );
+        Ok(())
     }
 
     struct TraceContentProvider;
@@ -5611,7 +5842,6 @@ echo start >> "$PLUGIN_ROOT/hook.log"
             !agent.has_pending_steers(session_id).await,
             "discarding must drop steers orphaned by a cancelled run so they cannot leak into a later prompt"
         );
-        assert!(agent.drain_pending_steers(session_id).await.is_empty());
     }
 
     #[test]

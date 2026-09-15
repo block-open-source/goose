@@ -51,7 +51,7 @@ pub(crate) use tool_confirmation::{
 pub(super) use inference_preparation::GooseInferenceRequestPreparer;
 pub(crate) use ops_bang_shell::bang_shell_command;
 pub(super) use ops_bang_shell::BangShellOperation;
-pub(super) use ops_compaction::CompactionOperation;
+pub(super) use ops_compaction::{CompactionOperation, PreparedRequestCompactionHook};
 pub(super) use ops_doctor::DoctorOperation;
 pub(super) use ops_entry_hook::EntryHookOperation;
 pub(super) use ops_exit_on_error::ExitOnErrorOperation;

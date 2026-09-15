@@ -2,7 +2,7 @@ use anyhow::Result;
 use goose_providers::conversation::token_usage::{ProviderUsage, Usage as ProviderTokenUsage};
 use rmcp::model::{CallToolRequestParams, CallToolResult, ContentBlock};
 
-use super::calculator_extension::{value, ADD};
+use super::calculator_extension::{value, ADD, ECHO};
 use super::dummy_api::ProviderFeatures;
 use super::pipeline::{self, test_pipeline, MessageKind::Agent};
 use crate::agents::state_machine;
@@ -498,6 +498,71 @@ async fn a_small_model_compacts_a_large_tool_result_out_of_the_conversation() ->
         .agent_visible_messages()
         .iter()
         .any(|message| message.as_concat_text().contains(&large_result)));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn auto_compacts_after_a_tool_result_before_the_next_inference() -> Result<()> {
+    let (pipeline, api) = test_pipeline().await?;
+    let pipeline = pipeline
+        .with_model_config(
+            goose_providers::model::ModelConfig::new("gpt-4.1").with_context_limit(Some(200)),
+        )
+        .await
+        .with_max_turns(2);
+
+    let large_result = "tool-result ".repeat(100);
+    let image_data = "aW1hZ2U=";
+    pipeline
+        .seed([
+            Message::user().with_text("older text prompt"),
+            Message::assistant().with_text("older text response"),
+        ])
+        .await?;
+    api.on("[image omitted: model does not support vision]")
+        .call(ECHO, serde_json::json!({ "text": large_result }));
+    api.on(SUMMARIZE_HISTORY).reply("summary");
+    api.on("Your context was compacted")
+        .reply("continued after tool result");
+
+    let compacted = pipeline
+        .run_message(Message::user().with_image(image_data, "image/png"))
+        .await?;
+
+    compacted.assert_message(-2, Agent, "continued after tool result");
+    compacted.assert_emitted("Performing auto-compaction");
+    assert_eq!(compacted.history_replacements(), 1);
+    assert_eq!(
+        api.call_count(),
+        3,
+        "compaction must not consume an inference turn"
+    );
+    assert!(
+        api.calls()
+            .get(1)
+            .is_some_and(|call| call.input_contains(SUMMARIZE_HISTORY)),
+        "the request after a tool result must compact before ordinary inference"
+    );
+    assert!(!compacted
+        .conversation()
+        .agent_visible_messages()
+        .iter()
+        .any(|message| message.as_concat_text().contains("older text prompt")));
+
+    let request_ids = compacted
+        .conversation()
+        .messages()
+        .iter()
+        .flat_map(|message| message.get_tool_request_ids())
+        .collect::<std::collections::HashSet<_>>();
+    let response_ids = compacted
+        .conversation()
+        .messages()
+        .iter()
+        .flat_map(|message| message.get_tool_response_ids())
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(request_ids, response_ids);
 
     Ok(())
 }

@@ -351,18 +351,7 @@ pub(crate) async fn stream_response_from_provider(
 
     let projected_messages =
         Conversation::new_unvalidated(messages.iter().cloned()).agent_visible_messages();
-    let (filtered_messages, _) =
-        fix_conversation(Conversation::new_unvalidated(projected_messages));
-    let filtered_messages = Conversation::new_unvalidated(merge_consecutive_messages_for_request(
-        filtered_messages.messages().clone(),
-    ));
-
-    // Convert tool messages to text if toolshim is enabled
-    let messages_for_provider = if config.toolshim {
-        convert_tool_messages_to_text(filtered_messages.messages())
-    } else {
-        filtered_messages
-    };
+    let messages_for_provider = prepare_messages_for_provider(projected_messages, &config);
     let span = tracing::Span::current();
     gen_ai_telemetry::record_request_params(&span, &model_config);
     let capture_message_content = gen_ai_telemetry::capture_message_content();
@@ -580,6 +569,21 @@ pub(crate) async fn stream_response_from_provider(
             }
         }
     }))
+}
+
+pub(crate) fn prepare_messages_for_provider(
+    messages: Vec<Message>,
+    model_config: &ModelConfig,
+) -> Conversation {
+    let (messages, _) = fix_conversation(Conversation::new_unvalidated(messages));
+    let messages = Conversation::new_unvalidated(merge_consecutive_messages_for_request(
+        messages.messages().clone(),
+    ));
+    if model_config.toolshim {
+        convert_tool_messages_to_text(messages.messages())
+    } else {
+        messages
+    }
 }
 
 impl Agent {

@@ -22,6 +22,7 @@ pub(super) const APP_ONLY: &str = "calculator__app_only";
 pub(super) const ADD_VALUES: &str = "calculator__add_values";
 pub(super) const ADD_WITH_AUDIENCE: &str = "calculator__add_with_audience";
 pub(super) const DIVIDE: &str = "calculator__divide";
+pub(super) const ECHO: &str = "calculator__echo";
 pub(super) const REQUEST_VALUE: &str = "calculator__request_value";
 const EXECUTION_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(100);
 
@@ -51,6 +52,11 @@ struct ValueParams {
 
 #[derive(JsonSchema)]
 struct RequestValueParams {}
+
+#[derive(Deserialize, JsonSchema)]
+struct EchoParams {
+    text: String,
+}
 
 pub(super) struct CalculatorExtension {
     info: InitializeResult,
@@ -119,6 +125,11 @@ impl McpClientTrait for CalculatorExtension {
             .as_object()
             .unwrap()
             .clone();
+        let echo_schema = serde_json::to_value(schema_for!(EchoParams))
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .clone();
         let add_values_schema = serde_json::to_value(schema_for!(HashMap<String, i64>))
             .unwrap()
             .as_object()
@@ -171,6 +182,7 @@ impl McpClientTrait for CalculatorExtension {
                 "Ask the user for a value",
                 Arc::new(request_value_schema),
             ),
+            Tool::new("echo", "Return text unchanged", Arc::new(echo_schema)),
         ]))
     }
 
@@ -223,6 +235,14 @@ impl McpClientTrait for CalculatorExtension {
             });
         }
         let arguments = Value::Object(arguments.unwrap_or_default());
+        if name == "echo" {
+            let params: EchoParams = serde_json::from_value(arguments).map_err(|error| {
+                McpError::McpError(ErrorData::invalid_params(error.to_string(), None))
+            })?;
+            return Ok(CallToolResult::success(vec![ContentBlock::text(
+                params.text,
+            )]));
+        }
         let (calculate, value, delay_ms): (fn(i64, i64) -> Option<i64>, i64, u64) =
             if name == "add_values" {
                 let values: HashMap<String, i64> =

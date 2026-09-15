@@ -36,7 +36,10 @@ impl InferenceEffect for GooseEffect {
     }
 }
 
-fn enrich_unclaimed_tool_errors(messages: &[Message], tools: &[rmcp::model::Tool]) -> Vec<Message> {
+pub(super) fn enrich_unclaimed_tool_errors(
+    messages: &[Message],
+    tools: &[rmcp::model::Tool],
+) -> Vec<Message> {
     let mut available_tools = tools
         .iter()
         .map(|tool| tool.name.as_ref())

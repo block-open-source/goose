@@ -1,6 +1,8 @@
 pub use goose_context_management::structured;
 
 use crate::conversation::message::MessageMetadata;
+#[cfg(test)]
+use crate::conversation::message::MessageUsage;
 use crate::conversation::message::{Message, MessageContent};
 use crate::conversation::{merge_consecutive_messages, Conversation};
 use crate::providers::base::Provider;
@@ -12,9 +14,9 @@ use goose_providers::conversation::token_usage::ProviderUsage;
 use goose_providers::errors::ProviderError;
 use goose_providers::model::ModelConfig;
 use indoc::indoc;
-use rmcp::model::Role;
 #[cfg(test)]
 use rmcp::model::{Annotations, ContentBlock, TextContent};
+use rmcp::model::{Role, Tool};
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 use tracing::info;
@@ -93,39 +95,56 @@ pub async fn compact_messages(
     };
 
     // Turn-context events are agent-appended, never the message to preserve.
-    let (preserved_user_message, preserved_idx, is_most_recent) = if !manual_compact {
-        let found_msg = messages.iter().enumerate().rev().find_map(|(idx, msg)| {
-            if !msg.is_agent_visible()
-                || msg.is_turn_context()
-                || !matches!(msg.role, rmcp::model::Role::User)
-            {
-                return None;
-            }
-
-            let projected = msg.agent_visible_content();
-            if !has_text_only(&projected) {
-                return None;
-            }
-
-            let preserved = projected
-                .content
-                .into_iter()
-                .filter(|content| matches!(content, MessageContent::Text(_)))
-                .fold(
-                    Message::user().with_metadata(MessageMetadata::agent_only()),
-                    Message::with_content,
-                );
-            Some((idx, preserved))
+    let (preserved_user_message, is_most_recent, turn_start) = if !manual_compact {
+        let current_turn_start = messages
+            .iter()
+            .rposition(|msg| {
+                msg.role == Role::User && msg.is_user_visible() && !msg.is_tool_response()
+            })
+            .unwrap_or(messages.len());
+        let turn_start = messages.iter().rposition(|msg| {
+            msg.role == Role::User
+                && msg.is_user_visible()
+                && !msg.is_tool_response()
+                && !msg.metadata.steer
         });
+        let found_msg = messages
+            .iter()
+            .enumerate()
+            .skip(current_turn_start)
+            .rev()
+            .find_map(|(idx, msg)| {
+                if !msg.is_agent_visible()
+                    || msg.is_turn_context()
+                    || !matches!(msg.role, rmcp::model::Role::User)
+                {
+                    return None;
+                }
+
+                let projected = msg.agent_visible_content();
+                if !has_text_only(&projected) {
+                    return None;
+                }
+
+                let preserved = projected
+                    .content
+                    .into_iter()
+                    .filter(|content| matches!(content, MessageContent::Text(_)))
+                    .fold(
+                        Message::user().with_metadata(MessageMetadata::agent_only()),
+                        Message::with_content,
+                    );
+                Some((idx, preserved))
+            });
 
         if let Some((idx, msg)) = found_msg {
             let is_last = messages[idx + 1..].iter().all(Message::is_turn_context);
-            (Some(msg), Some(idx), is_last)
+            (Some(msg), is_last, turn_start)
         } else {
-            (None, None, false)
+            (None, false, turn_start)
         }
     } else {
-        (None, None, false)
+        (None, false, None)
     };
 
     let messages_to_compact = messages.as_slice();
@@ -157,9 +176,15 @@ pub async fn compact_messages(
         TOOL_LOOP_CONTINUATION_TEXT
     };
 
-    let continuation_msg = Message::assistant()
-        .with_text(continuation_text)
-        .with_metadata(MessageMetadata::agent_only());
+    let continuation_msg = if preserved_user_message.is_none() && !manual_compact {
+        Message::user()
+            .with_text(continuation_text)
+            .with_metadata(MessageMetadata::agent_only())
+    } else {
+        Message::assistant()
+            .with_text(continuation_text)
+            .with_metadata(MessageMetadata::agent_only())
+    };
     let continuation_created = continuation_msg.created;
     continuation_messages.push(continuation_msg);
 
@@ -172,9 +197,9 @@ pub async fn compact_messages(
     }
 
     // Carry the turn's own context event (it follows the preserved prompt) so
-    // a mid-turn retry keeps it; anything earlier belongs to a previous turn.
-    if let Some(carry_from) = preserved_idx.map(|idx| idx + 1) {
-        if let Some(turn_context) = messages_to_compact[carry_from..]
+    // a mid-turn retry keeps it; anything earlier belongs to previous turns.
+    if let Some(turn_start) = turn_start {
+        if let Some(turn_context) = messages_to_compact[turn_start..]
             .iter()
             .rev()
             .find(|msg| msg.is_turn_context() && msg.is_agent_visible())
@@ -221,12 +246,93 @@ pub(crate) async fn count_context_tokens(conversation: &Conversation) -> Result<
     Ok(total.try_into()?)
 }
 
+/// Count messages added after the most recent inference when that inference
+/// produced tool calls. Provider usage describes the preceding inference,
+/// including its system prompt and tools, but not the tool responses (or a
+/// steer) appended after it. Adding this suffix preserves that full-context
+/// accounting without trying to reconstruct the next request here.
+pub(crate) async fn context_tokens_since_last_inference(
+    conversation: &Conversation,
+) -> Result<Option<i32>> {
+    let messages = conversation.messages();
+    let Some(latest_assistant) = messages
+        .iter()
+        .rposition(|message| message.is_agent_visible() && message.role == Role::Assistant)
+    else {
+        return Ok(None);
+    };
+    let previous_inference = messages[..latest_assistant].iter().rposition(|message| {
+        message.is_agent_visible()
+            && message.role == Role::Assistant
+            && message.metadata.usage.is_some()
+    });
+    let inference_start = previous_inference.map_or(0, |index| index + 1);
+    let Some(tool_request_offset) = messages[inference_start..].iter().position(|message| {
+        message.is_agent_visible()
+            && message.role == Role::Assistant
+            && message
+                .content
+                .iter()
+                .any(|content| matches!(content, MessageContent::ToolRequest(_)))
+    }) else {
+        return Ok(None);
+    };
+    let tool_calling_assistant = inference_start + tool_request_offset;
+
+    if latest_assistant > tool_calling_assistant
+        && messages[latest_assistant + 1..].iter().any(|message| {
+            message.role == Role::User && !message.is_tool_response() && !message.metadata.steer
+        })
+    {
+        return Ok(None);
+    }
+
+    let added_messages =
+        Conversation::new_unvalidated(messages[tool_calling_assistant + 1..].iter().cloned())
+            .agent_visible_messages()
+            .into_iter()
+            .filter(|message| message.role != Role::Assistant)
+            .collect::<Vec<_>>();
+    if !added_messages.iter().any(Message::is_tool_response) {
+        return Ok(None);
+    }
+
+    let counter = create_token_counter()
+        .await
+        .map_err(|error| anyhow::anyhow!("Failed to create token counter: {error}"))?;
+    Ok(Some(
+        counter
+            .count_chat_tokens("", &added_messages, &[])
+            .try_into()?,
+    ))
+}
+
 /// Check if messages exceed the auto-compaction threshold
 pub async fn check_if_compaction_needed(
     provider: &dyn Provider,
     conversation: &Conversation,
     threshold_override: Option<f64>,
     session: &crate::session::Session,
+) -> Result<bool> {
+    check_if_compaction_needed_for_request(
+        provider,
+        conversation,
+        threshold_override,
+        session,
+        None,
+    )
+    .await
+}
+
+/// Check compaction against the exact next provider request when it is already
+/// prepared. This is required after tools can have changed the prompt or tool
+/// schema during the current turn.
+pub async fn check_if_compaction_needed_for_request(
+    provider: &dyn Provider,
+    conversation: &Conversation,
+    threshold_override: Option<f64>,
+    session: &crate::session::Session,
+    request: Option<(&str, &[Tool])>,
 ) -> Result<bool> {
     if provider.manages_own_context() {
         return Ok(false);
@@ -247,21 +353,41 @@ pub async fn check_if_compaction_needed(
     let context_limit =
         crate::context_limit::get_context_limit(provider, &model_config.model_name).await?;
 
-    let (current_tokens, _token_source) = match session.usage.total_tokens {
-        Some(tokens) => (tokens as usize, "session metadata"),
-        None => {
+    let added_context_tokens = context_tokens_since_last_inference(conversation).await?;
+    let (current_tokens, _token_source) = match request {
+        Some((system_prompt, tools)) => {
             let token_counter = create_token_counter()
                 .await
-                .map_err(|e| anyhow::anyhow!("Failed to create token counter: {}", e))?;
-
-            let token_counts: Vec<_> = messages
-                .iter()
-                .filter(|m| m.is_agent_visible())
-                .map(|msg| token_counter.count_chat_tokens("", std::slice::from_ref(msg), &[]))
-                .collect();
-
-            (token_counts.iter().sum(), "estimated")
+                .map_err(|e| anyhow::anyhow!("Failed to create token counter: {e}"))?;
+            let messages = crate::agents::reply_parts::prepare_messages_for_provider(
+                conversation.agent_visible_messages(),
+                &model_config,
+            );
+            (
+                token_counter.count_chat_tokens(system_prompt, messages.messages(), tools),
+                "prepared provider request",
+            )
         }
+        _ => match (session.usage.total_tokens, added_context_tokens) {
+            (Some(tokens), Some(added_tokens)) => (
+                tokens.saturating_add(added_tokens) as usize,
+                "session metadata plus post-inference messages",
+            ),
+            (Some(tokens), None) => (tokens as usize, "session metadata"),
+            (None, _) => {
+                let token_counter = create_token_counter()
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Failed to create token counter: {}", e))?;
+
+                let token_counts: Vec<_> = messages
+                    .iter()
+                    .filter(|m| m.is_agent_visible())
+                    .map(|msg| token_counter.count_chat_tokens("", std::slice::from_ref(msg), &[]))
+                    .collect();
+
+                (token_counts.iter().sum(), "estimated")
+            }
+        },
     };
 
     let usage_ratio = current_tokens as f64 / context_limit as f64;
@@ -816,6 +942,275 @@ mod tests {
         assert!(
             long > short,
             "the preserved user message must be part of the retained context ({short} vs {long})"
+        );
+    }
+
+    #[tokio::test]
+    async fn tool_compaction_without_text_prompt_adds_a_user_continuation() {
+        let provider = MockProvider::new(Message::assistant().with_text("summary"), 100_000);
+        let conversation = Conversation::new_unvalidated([
+            Message::user().with_text("older text prompt"),
+            Message::assistant().with_text("older text response"),
+            Message::user().with_image("aW1hZ2U=", "image/png"),
+            Message::user()
+                .with_text("<turn-context>cwd /repo</turn-context>")
+                .with_metadata(MessageMetadata::agent_only().with_turn_context()),
+            Message::assistant().with_tool_request(
+                "image-tool",
+                Ok(rmcp::model::CallToolRequestParams::new("inspect_image")),
+            ),
+            Message::user().with_tool_response(
+                "image-tool",
+                Ok(rmcp::model::CallToolResult::success(vec![
+                    ContentBlock::text("large result"),
+                ])),
+            ),
+        ]);
+
+        let compacted = compact_messages(
+            &provider,
+            &provider.config,
+            "test-session-id",
+            &conversation,
+            false,
+        )
+        .await
+        .unwrap()
+        .conversation;
+
+        let continuation = compacted
+            .agent_visible_messages()
+            .into_iter()
+            .find(|message| {
+                message
+                    .as_concat_text()
+                    .contains(TOOL_LOOP_CONTINUATION_TEXT)
+            })
+            .expect("a provider-driving continuation");
+        assert_eq!(continuation.role, Role::User);
+        assert!(continuation
+            .as_concat_text()
+            .contains(TOOL_LOOP_CONTINUATION_TEXT));
+        assert!(!continuation.as_concat_text().contains("older text prompt"));
+        assert!(compacted.messages().last().is_some_and(|message| {
+            message.is_agent_visible()
+                && message.is_turn_context()
+                && message.as_concat_text().contains("cwd /repo")
+        }));
+    }
+
+    #[tokio::test]
+    async fn suffix_accounting_anchors_to_the_tool_call_when_a_later_chunk_is_persisted() {
+        let tool_request = Message::assistant()
+            .with_tool_request("call_0", Ok(CallToolRequestParams::new("read_file")));
+        let tool_response = Message::user().with_tool_response(
+            "call_0",
+            Ok(rmcp::model::CallToolResult::success(vec![
+                ContentBlock::text("large tool result"),
+            ])),
+        );
+        let conversation = Conversation::new_unvalidated([
+            tool_request.clone(),
+            tool_response.clone(),
+            Message::assistant()
+                .with_text("a later chunk from the same inference")
+                .with_metadata(MessageMetadata {
+                    usage: Some(Box::new(MessageUsage::default())),
+                    ..Default::default()
+                }),
+        ]);
+        let without_later_chunk = Conversation::new_unvalidated([tool_request, tool_response]);
+
+        assert_eq!(
+            context_tokens_since_last_inference(&conversation)
+                .await
+                .unwrap(),
+            context_tokens_since_last_inference(&without_later_chunk)
+                .await
+                .unwrap(),
+            "same-inference output is already covered by provider usage"
+        );
+    }
+
+    #[tokio::test]
+    async fn suffix_accounting_counts_all_streamed_results_when_the_final_result_is_hidden() {
+        let tool_request_zero = Message::assistant()
+            .with_tool_request("call_0", Ok(CallToolRequestParams::new("read_file")));
+        let tool_response_zero = Message::user().with_tool_response(
+            "call_0",
+            Ok(rmcp::model::CallToolResult::success(vec![
+                ContentBlock::text("large tool result"),
+            ])),
+        );
+        let tool_request_one = Message::assistant()
+            .with_tool_request("call_1", Ok(CallToolRequestParams::new("read_file")));
+        let hidden_tool_response_one = Message::user()
+            .with_tool_response(
+                "call_1",
+                Ok(rmcp::model::CallToolResult::success(vec![
+                    ContentBlock::text("hidden oversized tool result"),
+                ])),
+            )
+            .user_only();
+        let final_chunk = Message::assistant()
+            .with_text("a later chunk from the same inference")
+            .with_metadata(MessageMetadata {
+                usage: Some(Box::new(MessageUsage::default())),
+                ..Default::default()
+            });
+        let conversation = Conversation::new_unvalidated([
+            tool_request_zero.clone(),
+            tool_response_zero.clone(),
+            tool_request_one.clone(),
+            hidden_tool_response_one.clone(),
+            final_chunk.clone(),
+        ]);
+
+        let earlier_result_only =
+            Conversation::new_unvalidated([tool_request_zero, tool_response_zero]);
+        let all_results = Conversation::new_unvalidated([
+            Message::assistant()
+                .with_tool_request("call_0", Ok(CallToolRequestParams::new("read_file"))),
+            Message::user().with_tool_response(
+                "call_0",
+                Ok(rmcp::model::CallToolResult::success(vec![
+                    ContentBlock::text("large tool result"),
+                ])),
+            ),
+            Message::assistant()
+                .with_tool_request("call_1", Ok(CallToolRequestParams::new("read_file"))),
+            Message::user().with_tool_response(
+                "call_1",
+                Ok(rmcp::model::CallToolResult::success(vec![
+                    ContentBlock::text("hidden oversized tool result"),
+                ])),
+            ),
+        ]);
+
+        let suffix = context_tokens_since_last_inference(&conversation)
+            .await
+            .unwrap()
+            .expect(
+                "every result streamed by the latest tool-calling inference stays in the suffix",
+            );
+        assert_eq!(
+            suffix,
+            context_tokens_since_last_inference(&earlier_result_only)
+                .await
+                .unwrap()
+                .unwrap()
+        );
+        assert!(
+            suffix
+                < context_tokens_since_last_inference(&all_results)
+                    .await
+                    .unwrap()
+                    .unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn suffix_accounting_stops_after_a_later_completed_inference() {
+        let conversation = Conversation::new_unvalidated([
+            Message::assistant()
+                .with_tool_request("call_0", Ok(CallToolRequestParams::new("read_file"))),
+            Message::user().with_tool_response(
+                "call_0",
+                Ok(rmcp::model::CallToolResult::success(vec![
+                    ContentBlock::text("tool result"),
+                ])),
+            ),
+            Message::assistant()
+                .with_text("completed answer")
+                .with_metadata(MessageMetadata {
+                    usage: Some(Box::new(MessageUsage::default())),
+                    ..Default::default()
+                }),
+            Message::user().with_text("next request"),
+        ]);
+
+        assert!(
+            context_tokens_since_last_inference(&conversation)
+                .await
+                .unwrap()
+                .is_none(),
+            "a later completed inference has already accounted for the tool result"
+        );
+    }
+
+    #[tokio::test]
+    async fn suffix_accounting_stops_after_an_agent_only_non_steer_follow_up() {
+        let conversation = Conversation::new_unvalidated([
+            Message::assistant()
+                .with_tool_request("call_0", Ok(CallToolRequestParams::new("read_file"))),
+            Message::user().with_tool_response(
+                "call_0",
+                Ok(rmcp::model::CallToolResult::success(vec![
+                    ContentBlock::text("tool result"),
+                ])),
+            ),
+            Message::assistant()
+                .with_text("completed answer")
+                .with_metadata(MessageMetadata {
+                    usage: Some(Box::new(MessageUsage::default())),
+                    ..Default::default()
+                }),
+            Message::user()
+                .with_text("continue please")
+                .with_metadata(MessageMetadata::agent_only()),
+        ]);
+
+        assert!(
+            context_tokens_since_last_inference(&conversation)
+                .await
+                .unwrap()
+                .is_none(),
+            "an agent-only follow-up is a user boundary for suffix accounting"
+        );
+    }
+
+    #[tokio::test]
+    async fn steered_turn_context_is_carried_when_a_steer_ends_the_turn() {
+        let provider = MockProvider::new(Message::assistant().with_text("summary"), 1000);
+        let conversation = Conversation::new_unvalidated([
+            Message::user().with_text("earlier request"),
+            Message::assistant().with_text("earlier response"),
+            Message::user().with_text("the real current request"),
+            Message::user()
+                .with_text("<turn-context>steer context</turn-context>")
+                .with_metadata(MessageMetadata::agent_only().with_turn_context()),
+            Message::user()
+                .with_text("additionally check the linter")
+                .with_metadata(MessageMetadata::default().with_steer()),
+        ]);
+
+        let compacted = compact_messages(
+            &provider,
+            &provider.config,
+            "test-session-id",
+            &conversation,
+            false,
+        )
+        .await
+        .unwrap()
+        .conversation;
+
+        assert!(
+            compacted.messages().last().is_some_and(|message| {
+                message.is_turn_context()
+                    && message.is_agent_visible()
+                    && message.as_concat_text().contains("steer context")
+            }),
+            "the turn's context event must trail the carried forward turn"
+        );
+        assert!(
+            compacted.messages().iter().any(|message| {
+                message.is_user_visible()
+                    && message
+                        .as_concat_text()
+                        .contains("the real current request")
+            }),
+            "the preserved request must survive compaction"
         );
     }
 

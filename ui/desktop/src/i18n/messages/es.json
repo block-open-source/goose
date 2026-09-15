@@ -1214,9 +1214,6 @@
   "externalBackendSection.fingerprintRequiresHttps": {
     "defaultMessage": "Certificate fingerprint requires an https URL"
   },
-  "externalBackendSection.restartNote": {
-    "defaultMessage": "Los cambios requieren reiniciar Goose para que surtan efecto. Las nuevas ventanas de chat se conectarán al servidor externo."
-  },
   "externalBackendSection.secretKey": {
     "defaultMessage": "Secret Key"
   },
@@ -1232,6 +1229,30 @@
   "externalBackendSection.serverUrlHelp": {
     "defaultMessage": "Enter the HTTP(S) base URL. Goose checks /status and connects to /acp under this base."
   },
+  "externalBackendSection.connect": {
+    "defaultMessage": "Conectar"
+  },
+  "externalBackendSection.connectFailed": {
+    "defaultMessage": "No se pudo conectar: {error}"
+  },
+  "externalBackendSection.connected": {
+    "defaultMessage": "Esta ventana ahora usa el backend externo."
+  },
+  "externalBackendSection.connecting": {
+    "defaultMessage": "Conectando…"
+  },
+  "externalBackendSection.disconnect": {
+    "defaultMessage": "Desconectar"
+  },
+  "externalBackendSection.disconnectFailed": {
+    "defaultMessage": "No se pudo desconectar: {error}"
+  },
+  "externalBackendSection.disconnected": {
+    "defaultMessage": "Esta ventana ahora usa el backend local."
+  },
+  "externalBackendSection.disconnecting": {
+    "defaultMessage": "Desconectando…"
+  },
   "externalBackendSection.title": {
     "defaultMessage": "Goose Server"
   },
@@ -1243,12 +1264,6 @@
   },
   "externalBackendSection.urlProtocolError": {
     "defaultMessage": "La URL debe usar el protocolo http o https"
-  },
-  "externalBackendSection.useExternalServer": {
-    "defaultMessage": "Usar servidor externo"
-  },
-  "externalBackendSection.useExternalServerDescription": {
-    "defaultMessage": "Conéctate a un servidor goose que se ejecuta en otro lugar (requiere reiniciar la app)"
   },
   "externalBackendSection.workingDir": {
     "defaultMessage": "Directorio de trabajo remoto (opcional)"
@@ -2390,8 +2405,17 @@
   "onboardingGuard.checkProviderErrorTitle": {
     "defaultMessage": "No se pudo conectar con el servidor de Goose"
   },
+  "onboardingGuard.externalBackendErrorTitle": {
+    "defaultMessage": "No se pudo conectar al backend externo"
+  },
   "onboardingGuard.retry": {
     "defaultMessage": "Reintentar"
+  },
+  "onboardingGuard.retrying": {
+    "defaultMessage": "Reintentando…"
+  },
+  "onboardingGuard.switchToLocal": {
+    "defaultMessage": "Cambiar a local"
   },
   "onboardingGuard.welcomeDescription": {
     "defaultMessage": "Tu agente de IA local. Conecta un proveedor de modelos de IA para empezar."

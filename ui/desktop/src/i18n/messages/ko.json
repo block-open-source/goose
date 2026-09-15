@@ -1214,9 +1214,6 @@
   "externalBackendSection.fingerprintRequiresHttps": {
     "defaultMessage": "인증서 지문은 https URL이 필요합니다"
   },
-  "externalBackendSection.restartNote": {
-    "defaultMessage": "변경 사항은 새 채팅 창에 적용됩니다. 기존 창을 업데이트하려면 goose를 다시 시작하세요."
-  },
   "externalBackendSection.secretKey": {
     "defaultMessage": "비밀 키"
   },
@@ -1232,6 +1229,30 @@
   "externalBackendSection.serverUrlHelp": {
     "defaultMessage": "HTTP(S) 기본 URL을 입력하세요. goose는 /status를 확인하고 이 기본 주소 아래의 /acp에 연결합니다."
   },
+  "externalBackendSection.connect": {
+    "defaultMessage": "연결"
+  },
+  "externalBackendSection.connectFailed": {
+    "defaultMessage": "연결할 수 없음: {error}"
+  },
+  "externalBackendSection.connected": {
+    "defaultMessage": "이 윈도우는 이제 외부 백엔드를 사용합니다."
+  },
+  "externalBackendSection.connecting": {
+    "defaultMessage": "연결 중…"
+  },
+  "externalBackendSection.disconnect": {
+    "defaultMessage": "연결 해제"
+  },
+  "externalBackendSection.disconnectFailed": {
+    "defaultMessage": "연결을 해제할 수 없음: {error}"
+  },
+  "externalBackendSection.disconnected": {
+    "defaultMessage": "이 윈도우는 이제 로컬 백엔드를 사용합니다."
+  },
+  "externalBackendSection.disconnecting": {
+    "defaultMessage": "연결 해제 중…"
+  },
   "externalBackendSection.title": {
     "defaultMessage": "외부 백엔드 (ACP)"
   },
@@ -1243,12 +1264,6 @@
   },
   "externalBackendSection.urlProtocolError": {
     "defaultMessage": "URL은 반드시 http 또는 https 프로토콜을 사용해야 합니다."
-  },
-  "externalBackendSection.useExternalServer": {
-    "defaultMessage": "외부 서버 사용"
-  },
-  "externalBackendSection.useExternalServerDescription": {
-    "defaultMessage": "다른 곳에서 실행 중인 ACP 호환 백엔드에 연결합니다."
   },
   "externalBackendSection.workingDir": {
     "defaultMessage": "원격 작업 디렉터리(선택 사항)"
@@ -2390,8 +2405,17 @@
   "onboardingGuard.checkProviderErrorTitle": {
     "defaultMessage": "goose 서버에 접속할 수 없습니다"
   },
+  "onboardingGuard.externalBackendErrorTitle": {
+    "defaultMessage": "외부 백엔드에 연결할 수 없습니다"
+  },
   "onboardingGuard.retry": {
     "defaultMessage": "다시 시도"
+  },
+  "onboardingGuard.retrying": {
+    "defaultMessage": "다시 시도 중…"
+  },
+  "onboardingGuard.switchToLocal": {
+    "defaultMessage": "로컬로 전환"
   },
   "onboardingGuard.welcomeDescription": {
     "defaultMessage": "로컬 AI 에이전트입니다. 시작하려면 AI 모델 제공업체를 연결하세요."

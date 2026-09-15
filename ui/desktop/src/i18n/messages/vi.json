@@ -1214,9 +1214,6 @@
   "externalBackendSection.fingerprintRequiresHttps": {
     "defaultMessage": "Certificate fingerprint requires an https URL"
   },
-  "externalBackendSection.restartNote": {
-    "defaultMessage": "Các thay đổi cần khởi động lại Goose để có hiệu lực. Các cửa sổ trò chuyện mới sẽ kết nối tới máy chủ bên ngoài."
-  },
   "externalBackendSection.secretKey": {
     "defaultMessage": "Khóa bí mật"
   },
@@ -1232,6 +1229,30 @@
   "externalBackendSection.serverUrlHelp": {
     "defaultMessage": "Enter the HTTP(S) base URL. Goose checks /status and connects to /acp under this base."
   },
+  "externalBackendSection.connect": {
+    "defaultMessage": "Kết nối"
+  },
+  "externalBackendSection.connectFailed": {
+    "defaultMessage": "Không thể kết nối: {error}"
+  },
+  "externalBackendSection.connected": {
+    "defaultMessage": "Cửa sổ này hiện đang dùng backend bên ngoài."
+  },
+  "externalBackendSection.connecting": {
+    "defaultMessage": "Đang kết nối…"
+  },
+  "externalBackendSection.disconnect": {
+    "defaultMessage": "Ngắt kết nối"
+  },
+  "externalBackendSection.disconnectFailed": {
+    "defaultMessage": "Không thể ngắt kết nối: {error}"
+  },
+  "externalBackendSection.disconnected": {
+    "defaultMessage": "Cửa sổ này hiện đang dùng backend cục bộ."
+  },
+  "externalBackendSection.disconnecting": {
+    "defaultMessage": "Đang ngắt kết nối…"
+  },
   "externalBackendSection.title": {
     "defaultMessage": "Máy chủ Goose"
   },
@@ -1243,12 +1264,6 @@
   },
   "externalBackendSection.urlProtocolError": {
     "defaultMessage": "URL phải sử dụng giao thức http hoặc https"
-  },
-  "externalBackendSection.useExternalServer": {
-    "defaultMessage": "Sử dụng máy chủ bên ngoài"
-  },
-  "externalBackendSection.useExternalServerDescription": {
-    "defaultMessage": "Kết nối tới một máy chủ goose đang chạy ở nơi khác (cần khởi động lại ứng dụng)"
   },
   "externalBackendSection.workingDir": {
     "defaultMessage": "Thư mục làm việc từ xa (tùy chọn)"
@@ -2390,8 +2405,17 @@
   "onboardingGuard.checkProviderErrorTitle": {
     "defaultMessage": "Không thể kết nối với máy chủ Goose"
   },
+  "onboardingGuard.externalBackendErrorTitle": {
+    "defaultMessage": "Không thể kết nối tới backend bên ngoài"
+  },
   "onboardingGuard.retry": {
     "defaultMessage": "Thử lại"
+  },
+  "onboardingGuard.retrying": {
+    "defaultMessage": "Đang thử lại…"
+  },
+  "onboardingGuard.switchToLocal": {
+    "defaultMessage": "Chuyển sang cục bộ"
   },
   "onboardingGuard.welcomeDescription": {
     "defaultMessage": "Tác nhân AI cục bộ của bạn. Kết nối một nhà cung cấp mô hình AI để bắt đầu."

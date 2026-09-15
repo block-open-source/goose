@@ -6,6 +6,7 @@ export const GOOSE_SERVE_EXITED_USER_MESSAGE =
 export interface GooseServeLease {
   acpUrl: string;
   secretKey: string;
+  workingDir: string;
   cleanup: () => Promise<void>;
   windowIds: Set<number>;
   cleanedUp: boolean;
@@ -19,10 +20,11 @@ export class GooseServeLeaseRegistry {
 
   constructor(private readonly logger: Logger) {}
 
-  create(result: GooseServeResult, secretKey: string): GooseServeLease {
+  create(result: GooseServeResult, secretKey: string, workingDir: string): GooseServeLease {
     const lease: GooseServeLease = {
       acpUrl: result.acpUrl,
       secretKey,
+      workingDir,
       cleanup: result.cleanup,
       windowIds: new Set<number>(),
       cleanedUp: false,
@@ -73,11 +75,13 @@ export class GooseServeLeaseRegistry {
   createExternal(
     acpUrl: string,
     secretKey: string,
+    workingDir: string,
     cleanup: () => Promise<void> = async () => undefined
   ): GooseServeLease {
     return {
       acpUrl,
       secretKey,
+      workingDir,
       cleanup,
       windowIds: new Set<number>(),
       cleanedUp: false,
@@ -100,6 +104,10 @@ export class GooseServeLeaseRegistry {
       throw new Error(GOOSE_SERVE_EXITED_USER_MESSAGE);
     }
     return lease.acpUrl;
+  }
+
+  getWorkingDir(windowId: number): string | null {
+    return this.get(windowId)?.workingDir ?? null;
   }
 
   getSecretKey(windowId: number): string | null {

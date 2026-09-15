@@ -1214,9 +1214,6 @@
   "externalBackendSection.fingerprintRequiresHttps": {
     "defaultMessage": "Certificate fingerprint requires an https URL"
   },
-  "externalBackendSection.restartNote": {
-    "defaultMessage": "Les modifications nécessitent le redémarrage de Goose pour prendre effet. Les nouvelles fenêtres de discussion se connecteront au serveur externe."
-  },
   "externalBackendSection.secretKey": {
     "defaultMessage": "Clé secrète"
   },
@@ -1232,6 +1229,30 @@
   "externalBackendSection.serverUrlHelp": {
     "defaultMessage": "Enter the HTTP(S) base URL. Goose checks /status and connects to /acp under this base."
   },
+  "externalBackendSection.connect": {
+    "defaultMessage": "Connecter"
+  },
+  "externalBackendSection.connectFailed": {
+    "defaultMessage": "Connexion impossible : {error}"
+  },
+  "externalBackendSection.connected": {
+    "defaultMessage": "Cette fenêtre utilise maintenant le backend externe."
+  },
+  "externalBackendSection.connecting": {
+    "defaultMessage": "Connexion…"
+  },
+  "externalBackendSection.disconnect": {
+    "defaultMessage": "Déconnecter"
+  },
+  "externalBackendSection.disconnectFailed": {
+    "defaultMessage": "Déconnexion impossible : {error}"
+  },
+  "externalBackendSection.disconnected": {
+    "defaultMessage": "Cette fenêtre utilise maintenant le backend local."
+  },
+  "externalBackendSection.disconnecting": {
+    "defaultMessage": "Déconnexion…"
+  },
   "externalBackendSection.title": {
     "defaultMessage": "Serveur Goose"
   },
@@ -1243,12 +1264,6 @@
   },
   "externalBackendSection.urlProtocolError": {
     "defaultMessage": "L'URL doit utiliser le protocole http ou https"
-  },
-  "externalBackendSection.useExternalServer": {
-    "defaultMessage": "Utiliser un serveur externe"
-  },
-  "externalBackendSection.useExternalServerDescription": {
-    "defaultMessage": "Se connecter à un serveur goose exécuté ailleurs (nécessite le redémarrage de l'application)"
   },
   "externalBackendSection.workingDir": {
     "defaultMessage": "Répertoire de travail distant (facultatif)"
@@ -2390,8 +2405,17 @@
   "onboardingGuard.checkProviderErrorTitle": {
     "defaultMessage": "Impossible de se connecter au serveur Goose"
   },
+  "onboardingGuard.externalBackendErrorTitle": {
+    "defaultMessage": "Impossible de se connecter au backend externe"
+  },
   "onboardingGuard.retry": {
     "defaultMessage": "Réessayer"
+  },
+  "onboardingGuard.retrying": {
+    "defaultMessage": "Nouvelle tentative…"
+  },
+  "onboardingGuard.switchToLocal": {
+    "defaultMessage": "Passer en local"
   },
   "onboardingGuard.welcomeDescription": {
     "defaultMessage": "Votre agent IA local. Connectez un fournisseur de modèle IA pour commencer."

@@ -15,6 +15,8 @@ import {
   setTelemetryEnabled as setAnalyticsTelemetryEnabled,
 } from '../../utils/analytics';
 import { defineMessages, useIntl } from '../../i18n';
+import { reconnectAcpToNewBackend } from '../../acp/acpConnection';
+import { setWorkingDir } from '../../utils/workingDir';
 
 const i18n = defineMessages({
   welcomeTitle: {
@@ -37,6 +39,18 @@ const i18n = defineMessages({
     id: 'onboardingGuard.retry',
     defaultMessage: 'Retry',
   },
+  externalBackendErrorTitle: {
+    id: 'onboardingGuard.externalBackendErrorTitle',
+    defaultMessage: 'Unable to connect to the external backend',
+  },
+  switchToLocal: {
+    id: 'onboardingGuard.switchToLocal',
+    defaultMessage: 'Switch to Local',
+  },
+  retrying: {
+    id: 'onboardingGuard.retrying',
+    defaultMessage: 'Retrying…',
+  },
 });
 
 const TELEMETRY_CONFIG_KEY = 'GOOSE_TELEMETRY_ENABLED';
@@ -44,6 +58,9 @@ const TELEMETRY_CONFIG_KEY = 'GOOSE_TELEMETRY_ENABLED';
 interface OnboardingGuardProps {
   children: React.ReactNode;
 }
+
+const initialExternalBackendError = (): string =>
+  (window.appConfig?.get('GOOSE_EXTERNAL_BACKEND_ERROR') as string) ?? '';
 
 export default function OnboardingGuard({ children }: OnboardingGuardProps) {
   const intl = useIntl();
@@ -61,6 +78,8 @@ export default function OnboardingGuard({ children }: OnboardingGuardProps) {
   );
   const [configuredModel, setConfiguredModel] = useState<string | null>(null);
   const hasTrackedOnboardingStart = useRef(false);
+  const [externalBackendError, setExternalBackendError] = useState(initialExternalBackendError);
+  const [isRetrying, setIsRetrying] = useState(false);
 
   const checkProvider = async (retries = 3, delay = 1000) => {
     setIsCheckingProvider(true);
@@ -106,7 +125,12 @@ export default function OnboardingGuard({ children }: OnboardingGuardProps) {
   }, []);
 
   useEffect(() => {
-    if (!isCheckingProvider && !hasProvider && !checkProviderError && !hasTrackedOnboardingStart.current) {
+    if (
+      !isCheckingProvider &&
+      !hasProvider &&
+      !checkProviderError &&
+      !hasTrackedOnboardingStart.current
+    ) {
       trackOnboardingStarted();
       hasTrackedOnboardingStart.current = true;
     }
@@ -141,6 +165,66 @@ export default function OnboardingGuard({ children }: OnboardingGuardProps) {
     setHasProvider(true);
   };
 
+  const retryExternalBackend = async () => {
+    setIsRetrying(true);
+    try {
+      const result = await window.electron.switchBackend();
+      if (!result.ok) {
+        setExternalBackendError(result.error ?? 'Unknown error');
+        return;
+      }
+      setWorkingDir(result.workingDir ?? null);
+      reconnectAcpToNewBackend();
+      setExternalBackendError('');
+      await checkProvider();
+    } finally {
+      setIsRetrying(false);
+    }
+  };
+
+  const switchToLocalBackend = async () => {
+    setIsRetrying(true);
+    try {
+      const result = await window.electron.disconnectBackend();
+      if (!result.ok) {
+        setExternalBackendError(result.error ?? 'Unknown error');
+        return;
+      }
+      setWorkingDir(result.workingDir ?? null);
+      reconnectAcpToNewBackend();
+      setExternalBackendError('');
+      await checkProvider();
+    } finally {
+      setIsRetrying(false);
+    }
+  };
+
+  if (externalBackendError) {
+    return (
+      <div className="h-screen w-full bg-background-default flex flex-col items-center justify-center">
+        <div className="text-center max-w-md">
+          <div className="mb-4">
+            <Goose className="size-8 mx-auto" />
+          </div>
+          <h1 className="text-xl font-light mb-3">
+            {intl.formatMessage(i18n.externalBackendErrorTitle)}
+          </h1>
+          <p className="text-text-muted mb-6 whitespace-pre-line break-words">
+            {externalBackendError}
+          </p>
+          <div className="flex items-center justify-center gap-2">
+            <Button onClick={retryExternalBackend} disabled={isRetrying}>
+              {intl.formatMessage(isRetrying ? i18n.retrying : i18n.retry)}
+            </Button>
+            <Button variant="outline" onClick={switchToLocalBackend} disabled={isRetrying}>
+              {intl.formatMessage(i18n.switchToLocal)}
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (isCheckingProvider) {
     return null;
   }
@@ -152,11 +236,13 @@ export default function OnboardingGuard({ children }: OnboardingGuardProps) {
           <div className="mb-4">
             <Goose className="size-8 mx-auto" />
           </div>
-          <h1 className="text-xl font-light mb-3">{intl.formatMessage(i18n.checkProviderErrorTitle)}</h1>
-          <p className="text-text-muted mb-6">{intl.formatMessage(i18n.checkProviderErrorDescription)}</p>
-          <Button onClick={() => checkProvider()}>
-            {intl.formatMessage(i18n.retry)}
-          </Button>
+          <h1 className="text-xl font-light mb-3">
+            {intl.formatMessage(i18n.checkProviderErrorTitle)}
+          </h1>
+          <p className="text-text-muted mb-6">
+            {intl.formatMessage(i18n.checkProviderErrorDescription)}
+          </p>
+          <Button onClick={() => checkProvider()}>{intl.formatMessage(i18n.retry)}</Button>
         </div>
       </div>
     );
@@ -185,7 +271,9 @@ export default function OnboardingGuard({ children }: OnboardingGuardProps) {
               <div className="mb-4">
                 <Goose className="size-8" />
               </div>
-              <h1 className="text-2xl sm:text-4xl font-light mb-3">{intl.formatMessage(i18n.welcomeTitle)}</h1>
+              <h1 className="text-2xl sm:text-4xl font-light mb-3">
+                {intl.formatMessage(i18n.welcomeTitle)}
+              </h1>
               <p className="text-text-muted text-base sm:text-lg">
                 {intl.formatMessage(i18n.welcomeDescription)}
               </p>

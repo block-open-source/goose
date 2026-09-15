@@ -1214,9 +1214,6 @@
   "externalBackendSection.fingerprintRequiresHttps": {
     "defaultMessage": "Certificate fingerprint requires an https URL"
   },
-  "externalBackendSection.restartNote": {
-    "defaultMessage": "Чтобы изменения вступили в силу, требуется перезапуск Goose. Новые окна чата будут подключаться к внешнему серверу."
-  },
   "externalBackendSection.secretKey": {
     "defaultMessage": "Секретный ключ"
   },
@@ -1232,6 +1229,30 @@
   "externalBackendSection.serverUrlHelp": {
     "defaultMessage": "Enter the HTTP(S) base URL. Goose checks /status and connects to /acp under this base."
   },
+  "externalBackendSection.connect": {
+    "defaultMessage": "Подключить"
+  },
+  "externalBackendSection.connectFailed": {
+    "defaultMessage": "Не удалось подключиться: {error}"
+  },
+  "externalBackendSection.connected": {
+    "defaultMessage": "Это окно теперь использует внешний бэкенд."
+  },
+  "externalBackendSection.connecting": {
+    "defaultMessage": "Подключение…"
+  },
+  "externalBackendSection.disconnect": {
+    "defaultMessage": "Отключить"
+  },
+  "externalBackendSection.disconnectFailed": {
+    "defaultMessage": "Не удалось отключиться: {error}"
+  },
+  "externalBackendSection.disconnected": {
+    "defaultMessage": "Это окно теперь использует локальный бэкенд."
+  },
+  "externalBackendSection.disconnecting": {
+    "defaultMessage": "Отключение…"
+  },
   "externalBackendSection.title": {
     "defaultMessage": "Сервер Goose"
   },
@@ -1243,12 +1264,6 @@
   },
   "externalBackendSection.urlProtocolError": {
     "defaultMessage": "URL должен использовать протокол http или https"
-  },
-  "externalBackendSection.useExternalServer": {
-    "defaultMessage": "Использовать внешний сервер"
-  },
-  "externalBackendSection.useExternalServerDescription": {
-    "defaultMessage": "Подключиться к серверу goose, запущенному в другом месте (требуется перезапуск приложения)"
   },
   "externalBackendSection.workingDir": {
     "defaultMessage": "Удалённый рабочий каталог (необязательно)"
@@ -2390,8 +2405,17 @@
   "onboardingGuard.checkProviderErrorTitle": {
     "defaultMessage": "Не удалось подключиться к серверу Goose"
   },
+  "onboardingGuard.externalBackendErrorTitle": {
+    "defaultMessage": "Не удалось подключиться к внешнему бэкенду"
+  },
   "onboardingGuard.retry": {
     "defaultMessage": "Повторить"
+  },
+  "onboardingGuard.retrying": {
+    "defaultMessage": "Повторная попытка…"
+  },
+  "onboardingGuard.switchToLocal": {
+    "defaultMessage": "Переключиться на локальный"
   },
   "onboardingGuard.welcomeDescription": {
     "defaultMessage": "Ваш локальный ИИ-агент. Подключите провайдера ИИ-модели, чтобы начать."

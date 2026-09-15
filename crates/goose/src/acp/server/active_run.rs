@@ -18,9 +18,9 @@ struct SessionRunState {
 }
 
 pub(super) enum StartRunError {
-    AgentAlreadyRunning { run_id: String },
-    LiveAlreadyRunning,
-    LiveNotRunning,
+    AgentRunExists { run_id: String },
+    LiveCallExists,
+    LiveCallMissing,
 }
 
 #[derive(Default)]
@@ -42,12 +42,12 @@ impl ActiveRunRegistry {
             .expect("active run lock poisoned");
         if let Some(state) = runs.get(session_id) {
             if let Some(agent_run) = &state.agent_run {
-                return Err(StartRunError::AgentAlreadyRunning {
+                return Err(StartRunError::AgentRunExists {
                     run_id: agent_run.run_id.clone(),
                 });
             }
             if state.live_active {
-                return Err(StartRunError::LiveAlreadyRunning);
+                return Err(StartRunError::LiveCallExists);
             }
         }
         runs.insert(
@@ -76,10 +76,10 @@ impl ActiveRunRegistry {
             .lock()
             .expect("active run lock poisoned");
         let Some(state) = runs.get_mut(session_id) else {
-            return Err(StartRunError::LiveNotRunning);
+            return Err(StartRunError::LiveCallMissing);
         };
         if let Some(agent_run) = &state.agent_run {
-            return Err(StartRunError::AgentAlreadyRunning {
+            return Err(StartRunError::AgentRunExists {
                 run_id: agent_run.run_id.clone(),
             });
         }
@@ -203,7 +203,7 @@ mod tests {
                 CancellationToken::new(),
                 Arc::new(Agent::new()),
             ),
-            Err(StartRunError::LiveAlreadyRunning)
+            Err(StartRunError::LiveCallExists)
         ));
     }
 
@@ -226,7 +226,7 @@ mod tests {
                 CancellationToken::new(),
                 Arc::new(Agent::new()),
             ),
-            Err(StartRunError::AgentAlreadyRunning { .. })
+            Err(StartRunError::AgentRunExists { .. })
         ));
 
         registry.finish_live("session");

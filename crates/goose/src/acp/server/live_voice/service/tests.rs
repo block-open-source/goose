@@ -1,49 +1,54 @@
+use super::super::call::{LiveMainAgent, DELEGATION_INSTRUCTION, PROVIDER_CLEANUP_TIMEOUT};
 use super::*;
-use goose_providers::live_voice_provider::fake::{
-    provider_channel, provider_channel_with_availability, FakeConnectionDriver,
+use goose_providers::live_voice_provider::{
+    fake::{provider_channel, provider_channel_with_availability, FakeConnectionDriver},
+    ProviderConnectionEvent,
 };
 use goose_providers::model::ModelConfig;
 use rmcp::model::Role;
+use std::time::Duration;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
 type StartResult = Result<StartLiveVoiceCallResult, LiveVoiceError>;
 
-fn ignore_call_ended() -> LiveVoiceCallEndedHandler {
+fn ignore_transcript_publisher() -> LiveVoiceTranscriptPublisher {
     Arc::new(|_| {})
 }
 
-fn ignore_transcript() -> LiveVoiceTranscriptHandler {
-    Arc::new(|_| {})
+fn ignore_main_agent() -> LiveMainAgent {
+    LiveMainAgent::new(
+        |_, _| Ok(Box::pin(async { "unused".to_string() })),
+        |_, _| Box::pin(async { Ok("unused".to_string()) }),
+    )
 }
 
-fn ignore_delegation() -> LiveVoiceDelegationHandler {
-    Arc::new(|_, _| Box::pin(async { "unused".to_string() }))
-}
-
-fn controlled_delegation() -> (
-    LiveVoiceDelegationHandler,
-    tokio::sync::mpsc::UnboundedReceiver<LiveVoiceDelegationCommand>,
+fn controlled_main_agent() -> (
+    LiveMainAgent,
+    tokio::sync::mpsc::UnboundedReceiver<String>,
+    tokio::sync::mpsc::UnboundedReceiver<String>,
     oneshot::Sender<String>,
 ) {
-    let (command_tx, command_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (start_tx, start_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (steer_tx, steer_rx) = tokio::sync::mpsc::unbounded_channel();
     let (finish_tx, finish_rx) = oneshot::channel();
     let finish_rx = Arc::new(Mutex::new(Some(finish_rx)));
-    let handler: LiveVoiceDelegationHandler = Arc::new(move |_, command| {
-        let starts_run = matches!(&command, LiveVoiceDelegationCommand::Start { .. });
-        command_tx.send(command).unwrap();
-        if starts_run {
+    let main_agent = LiveMainAgent::new(
+        move |_, input| {
+            start_tx.send(input).unwrap();
             let finish_rx = finish_rx
                 .lock()
                 .unwrap()
                 .take()
                 .expect("one delegation run");
-            Box::pin(async move { finish_rx.await.unwrap() })
-        } else {
-            Box::pin(async { "steered".to_string() })
-        }
-    });
-    (handler, command_rx, finish_tx)
+            Ok(Box::pin(async move { finish_rx.await.unwrap() }))
+        },
+        move |_, input| {
+            steer_tx.send(input).unwrap();
+            Box::pin(async { Ok("steered".to_string()) })
+        },
+    );
+    (main_agent, start_rx, steer_rx, finish_tx)
 }
 
 fn session_manager() -> Arc<SessionManager> {
@@ -93,9 +98,8 @@ fn spawn_start(
                 &session_id,
                 WebRtcOffer::new(offer.into()).unwrap(),
                 session_manager,
-                ignore_transcript(),
-                ignore_call_ended(),
-                ignore_delegation(),
+                ignore_transcript_publisher(),
+                ignore_main_agent(),
             )
             .await
     })
@@ -115,13 +119,13 @@ async fn establish_call() -> (
     String,
 ) {
     let (service, connection, call_id, session_id, _) =
-        establish_call_with_handlers(ignore_delegation(), ignore_transcript()).await;
+        establish_call_with(ignore_main_agent(), ignore_transcript_publisher()).await;
     (service, connection, call_id, session_id)
 }
 
-async fn establish_call_with_handlers(
-    delegation_handler: LiveVoiceDelegationHandler,
-    transcript_handler: LiveVoiceTranscriptHandler,
+async fn establish_call_with(
+    main_agent: LiveMainAgent,
+    transcript_publisher: LiveVoiceTranscriptPublisher,
 ) -> (
     Arc<LiveVoiceService>,
     FakeConnectionDriver,
@@ -144,9 +148,8 @@ async fn establish_call_with_handlers(
                 &start_session_id,
                 WebRtcOffer::new("offer".into()).unwrap(),
                 start_manager,
-                transcript_handler,
-                ignore_call_ended(),
-                delegation_handler,
+                transcript_publisher,
+                main_agent,
             )
             .await
     });
@@ -186,12 +189,12 @@ fn reports_each_eligibility_gate() {
     );
 
     let ready = service(LiveVoiceProviderAvailability::Ready);
-    let run_guard = LiveRunGuard::start(ready.active_runs.clone(), "main-session").unwrap();
+    let call_guard = LiveCallGuard::start(ready.active_runs.clone(), "main-session").unwrap();
     assert_eq!(
         ready.availability("main-session", GooseMode::Auto),
         LiveVoiceAvailability::ChatBusy
     );
-    drop(run_guard);
+    drop(call_guard);
     assert_eq!(
         ready.availability("main-session", GooseMode::Approve),
         LiveVoiceAvailability::RequiresAutonomousMode
@@ -199,8 +202,8 @@ fn reports_each_eligibility_gate() {
     assert_availability(&ready, LiveVoiceAvailability::Ready);
 }
 
-#[test]
-fn input_messages_are_the_latest_visible_non_empty_text() {
+#[tokio::test]
+async fn input_messages_include_all_visible_non_empty_text_when_it_fits() {
     let mut messages = vec![
         Message::user().with_text("hidden").agent_only(),
         Message::assistant().with_thinking("internal", "signature"),
@@ -217,15 +220,43 @@ fn input_messages_are_the_latest_visible_non_empty_text() {
     messages.push(Message::assistant().with_text("other hidden").agent_only());
     let conversation = Conversation::new_unvalidated(messages);
 
-    let input_messages = live_voice_input_messages(&conversation);
-    assert_eq!(input_messages.len(), LIVE_VOICE_INPUT_MESSAGE_COUNT);
-    assert_eq!(input_messages.first().unwrap().text, "message 3");
-    assert_eq!(input_messages.first().unwrap().role, Role::Assistant);
+    let input_messages = live_voice_input_messages(&conversation).await.unwrap();
+    assert_eq!(input_messages.len(), 13);
+    assert_eq!(input_messages.first().unwrap().text, "message 0");
+    assert_eq!(input_messages.first().unwrap().role, Role::User);
     assert_eq!(input_messages.last().unwrap().text, "delegated result");
     assert_eq!(input_messages.last().unwrap().role, Role::Assistant);
     assert!(!input_messages
         .iter()
         .any(|message| message.text == "other hidden"));
+}
+
+#[tokio::test]
+async fn input_messages_keep_the_newest_complete_messages_within_provider_limits() {
+    let message_limited = Conversation::new_unvalidated(
+        (0..LIVE_VOICE_INPUT_MESSAGE_LIMIT + 2)
+            .map(|index| Message::user().with_text(format!("message {index}"))),
+    );
+    let selected = live_voice_input_messages(&message_limited).await.unwrap();
+    assert_eq!(selected.len(), LIVE_VOICE_INPUT_MESSAGE_LIMIT);
+    assert_eq!(selected.first().unwrap().text, "message 2");
+    assert_eq!(
+        selected.last().unwrap().text,
+        format!("message {}", LIVE_VOICE_INPUT_MESSAGE_LIMIT + 1)
+    );
+
+    let token_limited = Conversation::new_unvalidated([
+        Message::user().with_text("earlier"),
+        Message::assistant().with_text("history ".repeat(LIVE_VOICE_INPUT_TOKEN_LIMIT + 1)),
+        Message::user().with_text("newest"),
+    ]);
+    assert_eq!(
+        live_voice_input_messages(&token_limited).await.unwrap(),
+        vec![LiveVoiceInputMessage {
+            role: Role::User,
+            text: "newest".into(),
+        }]
+    );
 }
 
 #[tokio::test]
@@ -262,9 +293,8 @@ async fn a_start_reserves_the_session_until_it_finishes() {
             &session_id,
             WebRtcOffer::new("second-offer".into()).unwrap(),
             manager,
-            ignore_transcript(),
-            ignore_call_ended(),
-            ignore_delegation(),
+            ignore_transcript_publisher(),
+            ignore_main_agent(),
         )
         .await;
     assert!(matches!(second, Err(LiveVoiceError::Unavailable)));
@@ -353,9 +383,9 @@ async fn repeated_stop_uses_one_provider_shutdown() {
 }
 
 #[tokio::test]
-async fn transcript_without_delegation_is_agent_visible_after_stop() {
+async fn transcript_without_delegation_saves_raw_and_main_agent_context_after_stop() {
     let (service, mut connection, call_id, session_id, manager) =
-        establish_call_with_handlers(ignore_delegation(), ignore_transcript()).await;
+        establish_call_with(ignore_main_agent(), ignore_transcript_publisher()).await;
     connection
         .send_event(ProviderConnectionEvent::TranscriptDelta {
             event_id: "transcript".into(),
@@ -382,16 +412,75 @@ async fn transcript_without_delegation_is_agent_visible_after_stop() {
     assert!(stop.is_ok());
 
     let session = manager.get_session(&session_id, true).await.unwrap();
-    let transcript = session
-        .conversation
-        .unwrap()
+    let conversation = session.conversation.unwrap();
+    let transcript = conversation
         .messages()
         .iter()
         .find(|message| message.as_concat_text() == "spoken context")
         .cloned()
         .expect("Live transcript should be persisted");
     assert!(transcript.is_user_visible());
-    assert!(transcript.is_agent_visible());
+    assert!(!transcript.is_agent_visible());
+    let context = conversation
+        .messages()
+        .iter()
+        .find(|message| message.as_concat_text().contains("User: spoken context"))
+        .expect("Live context should be persisted");
+    assert!(!context.is_user_visible());
+    assert!(context.is_agent_visible());
+}
+
+#[tokio::test]
+async fn rejected_delegation_keeps_context_for_live_completion() {
+    let main_agent = LiveMainAgent::new(
+        |_, _| Err("main agent unavailable".into()),
+        |_, _| Box::pin(async { Ok("unused".into()) }),
+    );
+    let (service, mut connection, call_id, session_id, manager) =
+        establish_call_with(main_agent, ignore_transcript_publisher()).await;
+    connection
+        .send_event(ProviderConnectionEvent::TranscriptDelta {
+            event_id: "transcript".into(),
+            role: Role::User,
+            text: "keep this context".into(),
+            start_ms: 0,
+            end_ms: 1,
+        })
+        .unwrap();
+    connection
+        .send_event(ProviderConnectionEvent::DelegationRequested {
+            event_id: "delegation-event".into(),
+            delegation_id: "delegation".into(),
+            offset_ms: 1,
+        })
+        .unwrap();
+    assert_eq!(
+        connection.next_delegation_update().await.unwrap().text,
+        "main agent unavailable"
+    );
+
+    let stop = service.stop_call(&session_id, &call_id);
+    let provider = async move {
+        connection
+            .next_stop_request()
+            .await
+            .unwrap()
+            .send(Ok(()))
+            .unwrap();
+        connection
+            .send_event(ProviderConnectionEvent::Closed)
+            .unwrap();
+    };
+    let (stop, ()) = tokio::join!(stop, provider);
+    assert!(stop.is_ok());
+
+    let session = manager.get_session(&session_id, true).await.unwrap();
+    let conversation = session.conversation.unwrap();
+    assert!(conversation.messages().iter().any(|message| {
+        message.is_agent_visible()
+            && !message.is_user_visible()
+            && message.as_concat_text().contains("User: keep this context")
+    }));
 }
 
 #[tokio::test]
@@ -420,14 +509,17 @@ async fn transcript_is_projected_and_flushed_before_delegation() {
         Arc::new(ActiveRunRegistry::default()),
     ));
     let (transcript_tx, mut transcript_rx) = tokio::sync::mpsc::unbounded_channel();
-    let transcript_handler: LiveVoiceTranscriptHandler = Arc::new(move |message| {
+    let transcript_publisher: LiveVoiceTranscriptPublisher = Arc::new(move |message| {
         transcript_tx.send(message).unwrap();
     });
-    let (delegation_tx, mut delegation_rx) = tokio::sync::mpsc::unbounded_channel();
-    let delegation_handler: LiveVoiceDelegationHandler = Arc::new(move |_, command| {
-        delegation_tx.send(command).unwrap();
-        Box::pin(async { "unused".to_string() })
-    });
+    let (start_tx, mut start_rx) = tokio::sync::mpsc::unbounded_channel();
+    let main_agent = LiveMainAgent::new(
+        move |_, input| {
+            start_tx.send(input).unwrap();
+            Ok(Box::pin(async { "unused".to_string() }))
+        },
+        |_, _| Box::pin(async { Ok("unused".to_string()) }),
+    );
     let start_service = service.clone();
     let start_session_id = session.id.clone();
     let start_manager = session_manager.clone();
@@ -437,9 +529,8 @@ async fn transcript_is_projected_and_flushed_before_delegation() {
                 &start_session_id,
                 WebRtcOffer::new("offer".into()).unwrap(),
                 start_manager,
-                transcript_handler,
-                ignore_call_ended(),
-                delegation_handler,
+                transcript_publisher,
+                main_agent,
             )
             .await
     });
@@ -470,12 +561,10 @@ async fn transcript_is_projected_and_flushed_before_delegation() {
             offset_ms: 1,
         })
         .unwrap();
-    let LiveVoiceDelegationCommand::Start { input } = delegation_rx.recv().await.unwrap() else {
-        panic!("first delegation should start a run");
-    };
+    let input = start_rx.recv().await.unwrap();
     assert_eq!(
         input,
-        "Based on this conversation, identify and complete the user's request."
+        format!("Live conversation context:\nUser: hello\n{DELEGATION_INSTRUCTION}")
     );
     assert_eq!(
         connection.next_delegation_update().await.unwrap().text,
@@ -489,7 +578,7 @@ async fn transcript_is_projected_and_flushed_before_delegation() {
         .unwrap();
     assert_eq!(stored.messages().len(), 1);
     assert_eq!(stored.messages()[0].as_concat_text(), "hello");
-    assert!(stored.messages()[0].is_agent_visible());
+    assert!(!stored.messages()[0].is_agent_visible());
 
     let stop_service = service.clone();
     let stop_session_id = session.id.clone();
@@ -511,20 +600,28 @@ async fn transcript_is_projected_and_flushed_before_delegation() {
         .await
         .unwrap();
     let messages = stored.conversation.unwrap();
-    assert_eq!(messages.messages().len(), 2);
+    assert_eq!(messages.messages().len(), 3);
     assert_eq!(messages.messages()[0].as_concat_text(), "hello");
     assert_eq!(messages.messages()[1].as_concat_text(), " world");
+    assert!(!messages.messages()[0].is_agent_visible());
+    assert!(!messages.messages()[1].is_agent_visible());
+    assert!(messages.messages()[2].is_agent_visible());
+    assert!(!messages.messages()[2].is_user_visible());
+    assert!(messages.messages()[2]
+        .as_concat_text()
+        .contains("User: world"));
+    assert!(!messages.messages()[2].as_concat_text().contains("hello"));
 }
 
 #[tokio::test]
-async fn running_transcript_is_steered_and_finalized_after_live_stops() {
-    let (delegation_handler, mut commands, finish_run) = controlled_delegation();
+async fn running_transcript_is_saved_user_only_and_steered_to_the_main_agent() {
+    let (main_agent, mut starts, mut steers, finish_run) = controlled_main_agent();
     let (transcript_tx, mut transcript_rx) = tokio::sync::mpsc::unbounded_channel();
-    let transcript_handler: LiveVoiceTranscriptHandler = Arc::new(move |message| {
+    let transcript_publisher: LiveVoiceTranscriptPublisher = Arc::new(move |message| {
         transcript_tx.send(message).unwrap();
     });
     let (service, mut connection, call_id, session_id, manager) =
-        establish_call_with_handlers(delegation_handler, transcript_handler).await;
+        establish_call_with(main_agent, transcript_publisher).await;
     let delta =
         |event_id: &str, role: Role, text: &str, end_ms| ProviderConnectionEvent::TranscriptDelta {
             event_id: event_id.into(),
@@ -548,10 +645,11 @@ async fn running_transcript_is_steered_and_finalized_after_live_stops() {
             offset_ms: 10,
         })
         .unwrap();
-    let LiveVoiceDelegationCommand::Start { input } = commands.recv().await.unwrap() else {
-        panic!("first delegation should start a run");
-    };
-    assert_eq!(input, DELEGATION_INSTRUCTION);
+    let input = starts.recv().await.unwrap();
+    assert_eq!(
+        input,
+        format!("Live conversation context:\nUser: start work\n{DELEGATION_INSTRUCTION}")
+    );
 
     connection
         .send_event(delta("working", Role::Assistant, "working", 20))
@@ -572,9 +670,7 @@ async fn running_transcript_is_steered_and_finalized_after_live_stops() {
             offset_ms: 30,
         })
         .unwrap();
-    let LiveVoiceDelegationCommand::Steer { input } = commands.recv().await.unwrap() else {
-        panic!("later delegation should steer the run");
-    };
+    let input = steers.recv().await.unwrap();
     assert!(input.contains("GPT-Live: working\nUser: also run tests\n"));
     assert!(!input.contains("start work"));
     assert_eq!(
@@ -583,7 +679,11 @@ async fn running_transcript_is_steered_and_finalized_after_live_stops() {
     );
 
     let stored = manager.get_session(&session_id, true).await.unwrap();
-    assert_eq!(stored.conversation.unwrap().messages().len(), 2);
+    let stored_messages = stored.conversation.unwrap();
+    assert_eq!(stored_messages.messages().len(), 3);
+    assert_eq!(stored_messages.messages()[2].as_concat_text(), "working");
+    assert!(stored_messages.messages()[2].is_user_visible());
+    assert!(!stored_messages.messages()[2].is_agent_visible());
 
     connection
         .send_event(delta("question", Role::Assistant, "Anything else?", 40))
@@ -624,7 +724,7 @@ async fn running_transcript_is_steered_and_finalized_after_live_stops() {
             .unwrap()
             .messages()
             .len(),
-        2
+        5
     );
 
     finish_run.send("done".into()).unwrap();
@@ -645,7 +745,7 @@ async fn running_transcript_is_steered_and_finalized_after_live_stops() {
     let messages = stored.messages();
     assert_eq!(messages.len(), 7);
     assert_eq!(messages[1].as_concat_text(), "start work");
-    assert!(messages[1].is_agent_visible());
+    assert!(!messages[1].is_agent_visible());
     for (message, text) in
         messages[2..6]
             .iter()
@@ -660,6 +760,7 @@ async fn running_transcript_is_steered_and_finalized_after_live_stops() {
     assert!(messages[6]
         .as_concat_text()
         .contains("GPT-Live: Anything else?\nUser: Document it"));
+    assert!(!messages[6].as_concat_text().contains("also run tests"));
     assert!(!messages[6]
         .as_concat_text()
         .contains(DELEGATION_INSTRUCTION));
@@ -700,16 +801,12 @@ async fn provider_terminal_events_fail_and_release_the_session() {
 }
 
 #[tokio::test]
-async fn provider_terminal_publishes_one_call_ended_update_after_release() {
+async fn provider_terminal_publishes_completion_after_release() {
     let (provider, mut starts) = provider_channel();
     let service = Arc::new(LiveVoiceService::new(
         provider,
         Arc::new(ActiveRunRegistry::default()),
     ));
-    let (ended_tx, mut ended_rx) = tokio::sync::mpsc::unbounded_channel();
-    let call_ended_handler: LiveVoiceCallEndedHandler = Arc::new(move |ended| {
-        ended_tx.send(ended).unwrap();
-    });
     let start_service = service.clone();
     let (manager, session_id) = live_session([]).await;
     let start_session_id = session_id.clone();
@@ -719,9 +816,8 @@ async fn provider_terminal_publishes_one_call_ended_update_after_release() {
                 &start_session_id,
                 WebRtcOffer::new("offer".into()).unwrap(),
                 manager,
-                ignore_transcript(),
-                call_ended_handler,
-                ignore_delegation(),
+                ignore_transcript_publisher(),
+                ignore_main_agent(),
             )
             .await
     });
@@ -731,21 +827,18 @@ async fn provider_terminal_publishes_one_call_ended_update_after_release() {
         .unwrap()
         .accept(WebRtcAnswer::new("answer".into()).unwrap())
         .unwrap();
-    let call_id = start_task.await.unwrap().unwrap().call_id;
+    let started = start_task.await.unwrap().unwrap();
 
     connection
         .send_event(ProviderConnectionEvent::Closed)
         .unwrap();
-    let ended = ended_rx.recv().await.unwrap();
+    let completion = wait_for_completion(started.completion_rx).await.unwrap();
 
-    assert_eq!(ended.session_id, session_id);
-    assert_eq!(ended.call_id, call_id);
-    assert_eq!(ended.completion, LiveVoiceCallCompletion::Failed);
+    assert_eq!(completion, LiveVoiceCallCompletion::Failed);
     assert_eq!(
-        service.availability(&ended.session_id, GooseMode::Auto),
+        service.availability(&session_id, GooseMode::Auto),
         LiveVoiceAvailability::Ready
     );
-    assert!(ended_rx.try_recv().is_err());
 }
 
 #[tokio::test]
@@ -798,21 +891,20 @@ async fn queued_stop_wins_a_provider_close_race() {
 #[test]
 fn stale_cleanup_cannot_remove_a_later_call() {
     let active_runs = Arc::new(ActiveRunRegistry::default());
+    let _call_guard = LiveCallGuard::start(active_runs.clone(), "main-session").unwrap();
     let calls = Arc::new(Mutex::new(HashMap::new()));
     let current_id = LiveVoiceCallId("current".into());
     let (_, completion_rx) = watch::channel(None);
     calls.lock().unwrap().insert(
         "main-session".into(),
         LiveCallControl {
-            run_guard: LiveRunGuard::start(active_runs.clone(), "main-session").unwrap(),
             call_id: current_id.clone(),
             stop_requested: CancellationToken::new(),
             completion_rx,
         },
     );
 
-    let removed = remove_matching_call(&calls, "main-session", &LiveVoiceCallId("stale".into()));
-    assert!(removed.is_none());
+    remove_call_if_current(&calls, "main-session", &LiveVoiceCallId("stale".into()));
 
     assert!(matches!(
         calls.lock().unwrap().get("main-session"),

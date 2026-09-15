@@ -1,12 +1,24 @@
-use crate::conversation::message::{Message, MessageContent};
-use chrono::Utc;
+mod transcript;
+
+use super::service::{
+    remove_call_if_current, LiveCallControls, LiveCallGuard, LiveVoiceCallCompletion,
+    LiveVoiceTranscriptPublisher,
+};
+use crate::{conversation::message::Message, session::SessionManager, token_counter::TokenCounter};
+use futures::future::BoxFuture;
 use goose_providers::live_voice_provider::{ProviderConnection, ProviderConnectionEvent};
 use rmcp::model::Role;
-use std::collections::HashSet;
+use std::{collections::HashSet, sync::Arc, time::Duration};
+use tokio::{sync::watch, time::timeout};
+use tokio_util::sync::CancellationToken;
+use transcript::{DelegationContext, LiveTranscript};
 use uuid::Uuid;
 
+pub(super) const PROVIDER_CLEANUP_TIMEOUT: Duration = Duration::from_secs(20);
 pub(super) const DELEGATION_INSTRUCTION: &str =
     "Based on this conversation, identify and complete the user's request.";
+const DELEGATION_UPDATE_TOKEN_LIMIT: usize = 500;
+const SAVED_RESULT_NOTICE: &str = "\n\nThe full result is saved in Goose.";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct LiveVoiceCallId(pub(super) String);
@@ -21,20 +33,25 @@ pub(super) struct LiveVoiceCall {
     session_id: String,
     id: LiveVoiceCallId,
     provider_connection: Box<dyn ProviderConnection>,
-    transcript: Option<Message>,
-    provider_events: HashSet<String>,
-    transcript_fragments: Vec<TranscriptFragment>,
-    delegation_ids: HashSet<String>,
-    last_delegation_offset_ms: Option<u64>,
+    provider_event_ids: HashSet<String>,
+    provider_delegation_ids: HashSet<String>,
+    transcript: LiveTranscript,
+    delegated_main_agent_run: Option<DelegatedMainAgentRun>,
 }
 
-struct TranscriptFragment {
-    role: Role,
-    text: String,
-    end_ms: u64,
+struct DelegatedMainAgentRun {
+    // GPT-Live expects the final result on the delegation that started this run.
+    provider_delegation_id: String,
+    result_future: BoxFuture<'static, String>,
 }
 
-pub(super) enum DelegationDecision {
+enum LiveCallEvent {
+    StopRequested,
+    MainAgentFinished(String),
+    Provider(ProviderConnectionEvent),
+}
+
+enum DelegationDecision {
     Ignore,
     Reject(String),
     Accept(String),
@@ -50,120 +67,297 @@ impl LiveVoiceCall {
             session_id,
             id,
             provider_connection,
-            transcript: None,
-            provider_events: HashSet::new(),
-            transcript_fragments: Vec::new(),
-            delegation_ids: HashSet::new(),
-            last_delegation_offset_ms: None,
+            provider_event_ids: HashSet::new(),
+            provider_delegation_ids: HashSet::new(),
+            transcript: LiveTranscript::default(),
+            delegated_main_agent_run: None,
         }
     }
 
-    pub(super) fn id(&self) -> &LiveVoiceCallId {
-        &self.id
+    pub(super) async fn run(mut self, runtime: LiveCallRuntime) {
+        let mut stopping = false;
+        let completion = loop {
+            match self.next_event(&runtime.stop_requested, stopping).await {
+                LiveCallEvent::StopRequested => {
+                    match timeout(PROVIDER_CLEANUP_TIMEOUT, self.cleanup_provider()).await {
+                        Ok(Ok(())) => stopping = true,
+                        _ => break LiveVoiceCallCompletion::Failed,
+                    }
+                }
+                LiveCallEvent::MainAgentFinished(result) => {
+                    if self
+                        .handle_main_agent_finished(&runtime, result)
+                        .await
+                        .is_err()
+                    {
+                        self.stop_provider_after_error(stopping).await;
+                        break LiveVoiceCallCompletion::Failed;
+                    }
+                }
+                LiveCallEvent::Provider(ProviderConnectionEvent::TranscriptDelta {
+                    event_id,
+                    role,
+                    text,
+                    end_ms,
+                    ..
+                }) => {
+                    if self
+                        .receive_transcript(&runtime, event_id, role, text, end_ms)
+                        .await
+                        .is_err()
+                    {
+                        self.stop_provider_after_error(stopping).await;
+                        break LiveVoiceCallCompletion::Failed;
+                    }
+                }
+                LiveCallEvent::Provider(ProviderConnectionEvent::DelegationRequested {
+                    event_id,
+                    delegation_id,
+                    offset_ms,
+                }) => {
+                    if self
+                        .receive_delegation(&runtime, event_id, delegation_id, offset_ms)
+                        .await
+                        .is_err()
+                    {
+                        self.stop_provider_after_error(stopping).await;
+                        break LiveVoiceCallCompletion::Failed;
+                    }
+                }
+                LiveCallEvent::Provider(ProviderConnectionEvent::Closed) => {
+                    break if stopping {
+                        LiveVoiceCallCompletion::Stopped
+                    } else {
+                        LiveVoiceCallCompletion::Failed
+                    };
+                }
+                LiveCallEvent::Provider(
+                    ProviderConnectionEvent::ReceiverLagged | ProviderConnectionEvent::Failed,
+                ) => {
+                    self.stop_provider_after_error(stopping).await;
+                    break LiveVoiceCallCompletion::Failed;
+                }
+            }
+        };
+
+        self.finish_call(runtime, completion).await;
     }
 
-    pub(super) fn session_id(&self) -> &str {
-        &self.session_id
+    async fn next_event(
+        &mut self,
+        stop_requested: &CancellationToken,
+        stopping: bool,
+    ) -> LiveCallEvent {
+        if stopping {
+            return LiveCallEvent::Provider(self.provider_connection.next_event().await);
+        }
+
+        let delegated_run = &mut self.delegated_main_agent_run;
+        let provider_connection = &mut self.provider_connection;
+        tokio::select! {
+            biased;
+            _ = stop_requested.cancelled() => LiveCallEvent::StopRequested,
+            result = async {
+                delegated_run
+                    .as_mut()
+                    .expect("main agent is running")
+                    .result_future
+                    .as_mut()
+                    .await
+            }, if delegated_run.is_some() => LiveCallEvent::MainAgentFinished(result),
+            event = provider_connection.next_event() => LiveCallEvent::Provider(event),
+        }
     }
 
-    pub(super) async fn next_provider_event(&mut self) -> ProviderConnectionEvent {
-        self.provider_connection.next_event().await
+    async fn receive_transcript(
+        &mut self,
+        runtime: &LiveCallRuntime,
+        event_id: String,
+        role: Role,
+        text: String,
+        end_ms: u64,
+    ) -> anyhow::Result<()> {
+        let Some(transcript_delta_to_display) =
+            self.record_transcript(event_id, role, &text, end_ms)
+        else {
+            return Ok(());
+        };
+
+        (runtime.transcript_publisher)(transcript_delta_to_display);
+        save_raw_transcript_entries(
+            &runtime.session_manager,
+            &self.session_id,
+            &mut self.transcript,
+        )
+        .await?;
+        Ok(())
     }
 
-    pub(super) fn observe_transcript(
+    fn record_transcript(
         &mut self,
         event_id: String,
         role: Role,
         delta_text: &str,
         end_ms: u64,
-    ) -> Option<(Option<Message>, Message)> {
-        if !self.provider_events.insert(event_id) {
+    ) -> Option<Message> {
+        if !self.provider_event_ids.insert(event_id) {
             return None;
         }
-        if delta_text.is_empty() {
-            return None;
-        }
-
-        self.transcript_fragments.push(TranscriptFragment {
-            role: role.clone(),
-            text: delta_text.to_string(),
-            end_ms,
-        });
-
-        if self
-            .transcript
-            .as_ref()
-            .is_some_and(|message| message.role == role)
-        {
-            let message = self.transcript.as_mut().expect("transcript exists");
-            let [MessageContent::Text(content)] = message.content.as_mut_slice() else {
-                unreachable!("Live transcript messages contain one text block");
-            };
-            content.text.push_str(delta_text);
-            return Some((None, transcript_delta_message(message, delta_text)));
-        }
-
-        let finalized = self.transcript.take();
-        let message = live_transcript_message(role, delta_text.to_string());
-        let delta = transcript_delta_message(&message, delta_text);
-        self.transcript = Some(message);
-        Some((finalized, delta))
+        self.transcript.append(role, delta_text, end_ms)
     }
 
-    pub(super) fn take_transcript(&mut self) -> Option<Message> {
-        self.transcript.take()
+    async fn receive_delegation(
+        &mut self,
+        runtime: &LiveCallRuntime,
+        event_id: String,
+        delegation_id: String,
+        offset_ms: u64,
+    ) -> anyhow::Result<()> {
+        match self.handle_delegation_request(event_id, delegation_id.clone(), offset_ms) {
+            DelegationDecision::Ignore => {}
+            DelegationDecision::Reject(text) => {
+                self.send_delegation_update(delegation_id, bound_delegation_update(text).await)
+                    .await?;
+            }
+            DelegationDecision::Accept(context) => {
+                if self.delegated_main_agent_run.is_some() {
+                    let input = format!("{context}\n{DELEGATION_INSTRUCTION}");
+                    let response = match runtime
+                        .main_agent
+                        .steer(self.session_id.clone(), input)
+                        .await
+                    {
+                        Ok(response) => {
+                            self.transcript
+                                .mark_context_sent_to_main_agent_through(offset_ms);
+                            response
+                        }
+                        Err(response) => response,
+                    };
+                    self.send_delegation_update(
+                        delegation_id,
+                        bound_delegation_update(response).await,
+                    )
+                    .await?;
+                } else {
+                    self.transcript.finish_transcript_entry_being_built();
+                    save_raw_transcript_entries(
+                        &runtime.session_manager,
+                        &self.session_id,
+                        &mut self.transcript,
+                    )
+                    .await?;
+                    let input = format!("{context}\n{DELEGATION_INSTRUCTION}");
+                    match runtime.main_agent.start(self.session_id.clone(), input) {
+                        Ok(completion) => {
+                            self.delegated_main_agent_run = Some(DelegatedMainAgentRun {
+                                provider_delegation_id: delegation_id,
+                                result_future: completion,
+                            });
+                            self.transcript
+                                .mark_context_sent_to_main_agent_through(offset_ms);
+                        }
+                        Err(response) => {
+                            self.send_delegation_update(
+                                delegation_id,
+                                bound_delegation_update(response).await,
+                            )
+                            .await?;
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
-    pub(super) fn delegation_input(
+    fn handle_delegation_request(
         &mut self,
         event_id: String,
         delegation_id: String,
         offset_ms: u64,
     ) -> DelegationDecision {
-        if !self.provider_events.insert(event_id) || !self.delegation_ids.insert(delegation_id) {
+        if !self.provider_event_ids.insert(event_id)
+            || !self.provider_delegation_ids.insert(delegation_id)
+        {
             return DelegationDecision::Ignore;
         }
-        if self
-            .last_delegation_offset_ms
-            .is_some_and(|last_offset| offset_ms < last_offset)
-        {
-            return DelegationDecision::Reject(
-                "The delegated conversation position is stale.".into(),
-            );
+        match self.transcript.context_for_delegation(offset_ms) {
+            DelegationContext::Stale => {
+                DelegationDecision::Reject("The delegated conversation position is stale.".into())
+            }
+            DelegationContext::MissingUserInput => {
+                DelegationDecision::Reject("I couldn't identify a request to complete.".into())
+            }
+            DelegationContext::Available(context) => DelegationDecision::Accept(context),
         }
+    }
 
-        let fragments = self
-            .transcript_fragments
-            .iter()
-            .filter(|fragment| fragment.end_ms <= offset_ms)
-            .collect::<Vec<_>>();
-        if !fragments
-            .iter()
-            .any(|fragment| fragment.role == Role::User && !fragment.text.trim().is_empty())
-        {
-            return DelegationDecision::Reject("I couldn't identify a request to complete.".into());
+    async fn handle_main_agent_finished(
+        &mut self,
+        runtime: &LiveCallRuntime,
+        result: String,
+    ) -> anyhow::Result<()> {
+        let run = self
+            .delegated_main_agent_run
+            .take()
+            .expect("main agent is running");
+        save_transcript_and_context_waiting_for_main_agent(
+            &runtime.session_manager,
+            &self.session_id,
+            &mut self.transcript,
+        )
+        .await?;
+        self.send_delegation_update(
+            run.provider_delegation_id,
+            bound_delegation_update(result).await,
+        )
+        .await
+    }
+
+    async fn finish_call(
+        mut self,
+        runtime: LiveCallRuntime,
+        mut completion: LiveVoiceCallCompletion,
+    ) {
+        match self.delegated_main_agent_run.take() {
+            None => {
+                if save_transcript_and_context_waiting_for_main_agent(
+                    &runtime.session_manager,
+                    &self.session_id,
+                    &mut self.transcript,
+                )
+                .await
+                .is_err()
+                {
+                    completion = LiveVoiceCallCompletion::Failed;
+                }
+                remove_call_if_current(&runtime.calls_by_session, &self.session_id, &self.id);
+                drop(runtime.call_guard);
+                runtime.completion_tx.send_replace(Some(completion));
+            }
+            Some(run) => {
+                remove_call_if_current(&runtime.calls_by_session, &self.session_id, &self.id);
+                runtime.completion_tx.send_replace(Some(completion));
+                let _ = run.result_future.await;
+                let _ = save_transcript_and_context_waiting_for_main_agent(
+                    &runtime.session_manager,
+                    &self.session_id,
+                    &mut self.transcript,
+                )
+                .await;
+                drop(runtime.call_guard);
+            }
         }
-
-        let input = format_transcript(fragments, Some(DELEGATION_INSTRUCTION))
-            .expect("accepted delegation contains transcript");
-        DelegationDecision::Accept(input)
     }
 
-    pub(super) fn accept_delegation(&mut self, offset_ms: u64) {
-        self.transcript_fragments
-            .retain(|fragment| fragment.end_ms > offset_ms);
-        self.last_delegation_offset_ms = Some(offset_ms);
+    async fn stop_provider_after_error(&mut self, stopping: bool) {
+        if !stopping {
+            let _ = timeout(PROVIDER_CLEANUP_TIMEOUT, self.cleanup_provider()).await;
+        }
     }
 
-    pub(super) fn clear_pending_transcript(&mut self) {
-        self.transcript_fragments.clear();
-    }
-
-    pub(super) fn pending_transcript_context(&self) -> Option<String> {
-        format_transcript(&self.transcript_fragments, None)
-    }
-
-    pub(super) async fn send_delegation_update(
+    async fn send_delegation_update(
         &mut self,
         provider_delegation_id: String,
         text: String,
@@ -176,234 +370,131 @@ impl LiveVoiceCall {
             .await
     }
 
-    pub(super) async fn cleanup_provider(&mut self) -> anyhow::Result<()> {
+    async fn cleanup_provider(&mut self) -> anyhow::Result<()> {
         self.provider_connection.stop().await
     }
 }
 
-fn format_transcript<'a>(
-    fragments: impl IntoIterator<Item = &'a TranscriptFragment>,
-    instruction: Option<&str>,
-) -> Option<String> {
-    let mut input = String::from("Live conversation context:\n");
-    let mut previous_role = None;
-    for fragment in fragments {
-        if previous_role.as_ref() == Some(&fragment.role) {
-            input.push_str(&fragment.text);
-        } else {
-            if previous_role.is_some() {
-                input.push('\n');
-            }
-            input.push_str(speaker(&fragment.role));
-            input.push_str(": ");
-            input.push_str(fragment.text.trim_start());
-            previous_role = Some(fragment.role.clone());
+// Server-owned handles used for the lifetime of one call loop.
+pub(super) struct LiveCallRuntime {
+    calls_by_session: LiveCallControls,
+    stop_requested: CancellationToken,
+    completion_tx: watch::Sender<Option<LiveVoiceCallCompletion>>,
+    session_manager: Arc<SessionManager>,
+    transcript_publisher: LiveVoiceTranscriptPublisher,
+    main_agent: LiveMainAgent,
+    call_guard: LiveCallGuard,
+}
+
+impl LiveCallRuntime {
+    pub(super) fn new(
+        calls_by_session: LiveCallControls,
+        stop_requested: CancellationToken,
+        completion_tx: watch::Sender<Option<LiveVoiceCallCompletion>>,
+        session_manager: Arc<SessionManager>,
+        transcript_publisher: LiveVoiceTranscriptPublisher,
+        main_agent: LiveMainAgent,
+        call_guard: LiveCallGuard,
+    ) -> Self {
+        Self {
+            calls_by_session,
+            stop_requested,
+            completion_tx,
+            session_manager,
+            transcript_publisher,
+            main_agent,
+            call_guard,
         }
     }
-    previous_role?;
-    if let Some(instruction) = instruction {
-        input.push('\n');
-        input.push_str(instruction);
-    }
-    Some(input)
 }
 
-fn speaker(role: &Role) -> &'static str {
-    match role {
-        Role::User => "User",
-        Role::Assistant => "GPT-Live",
+pub(super) struct LiveMainAgent {
+    start: Box<dyn Fn(String, String) -> Result<MainAgentRun, String> + Send + Sync>,
+    steer: Box<dyn Fn(String, String) -> MainAgentSteerResponse + Send + Sync>,
+}
+
+type MainAgentRun = BoxFuture<'static, String>;
+type MainAgentSteerResponse = BoxFuture<'static, Result<String, String>>;
+
+impl LiveMainAgent {
+    pub(super) fn new(
+        start: impl Fn(String, String) -> Result<MainAgentRun, String> + Send + Sync + 'static,
+        steer: impl Fn(String, String) -> MainAgentSteerResponse + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            start: Box::new(start),
+            steer: Box::new(steer),
+        }
+    }
+
+    fn start(&self, session_id: String, input: String) -> Result<MainAgentRun, String> {
+        (self.start)(session_id, input)
+    }
+
+    fn steer(&self, session_id: String, input: String) -> MainAgentSteerResponse {
+        (self.steer)(session_id, input)
     }
 }
 
-fn live_transcript_message(role: Role, text: String) -> Message {
-    Message::new(role, Utc::now().timestamp(), vec![])
-        .with_id(format!("msg_live_{}", Uuid::now_v7()))
-        .with_text(text)
+async fn save_raw_transcript_entries(
+    session_manager: &SessionManager,
+    session_id: &str,
+    transcript: &mut LiveTranscript,
+) -> anyhow::Result<()> {
+    for message in transcript.raw_transcript_entries_waiting_to_save() {
+        session_manager.add_message(session_id, message).await?;
+    }
+    transcript.mark_raw_transcript_entries_saved();
+    Ok(())
 }
 
-fn transcript_delta_message(message: &Message, text: &str) -> Message {
-    Message {
-        id: message.id.clone(),
-        role: message.role.clone(),
-        created: message.created,
-        content: vec![MessageContent::text(text)],
-        metadata: message.metadata.clone(),
+async fn save_transcript_and_context_waiting_for_main_agent(
+    session_manager: &SessionManager,
+    session_id: &str,
+    transcript: &mut LiveTranscript,
+) -> anyhow::Result<()> {
+    transcript.finish_transcript_entry_being_built();
+    save_raw_transcript_entries(session_manager, session_id, transcript).await?;
+    if let Some(context) = transcript.agent_only_context_message_waiting_to_save() {
+        session_manager.add_message(session_id, &context).await?;
+        transcript.mark_context_saved_for_main_agent();
     }
+    Ok(())
+}
+
+async fn bound_delegation_update(text: String) -> String {
+    let Ok(counter) = TokenCounter::new().await else {
+        return text;
+    };
+    if counter.count_tokens(&text) <= DELEGATION_UPDATE_TOKEN_LIMIT {
+        return text;
+    }
+
+    let allowed = DELEGATION_UPDATE_TOKEN_LIMIT - counter.count_tokens(SAVED_RESULT_NOTICE);
+    let boundaries = text
+        .char_indices()
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    let mut low = 0;
+    let mut high = boundaries.len();
+    while low < high {
+        let middle = (low + high).div_ceil(2);
+        let end = boundaries.get(middle).copied().unwrap_or(text.len());
+        let candidate = text
+            .get(..end)
+            .expect("delegation update boundary comes from char_indices");
+        if counter.count_tokens(candidate) <= allowed {
+            low = middle;
+        } else {
+            high = middle - 1;
+        }
+    }
+    let end = boundaries.get(low).copied().unwrap_or(text.len());
+    let truncated = text
+        .get(..end)
+        .expect("delegation update boundary comes from char_indices");
+    format!("{}{}", truncated.trim_end(), SAVED_RESULT_NOTICE)
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use async_trait::async_trait;
-    use tokio::sync::oneshot;
-
-    struct TestConnection {
-        stopped: Option<oneshot::Sender<()>>,
-    }
-
-    #[async_trait]
-    impl ProviderConnection for TestConnection {
-        async fn next_event(&mut self) -> ProviderConnectionEvent {
-            std::future::pending().await
-        }
-
-        async fn send_delegation_update(
-            &mut self,
-            _update: goose_providers::live_voice_provider::DelegationUpdate,
-        ) -> anyhow::Result<()> {
-            Ok(())
-        }
-
-        async fn stop(&mut self) -> anyhow::Result<()> {
-            if let Some(stopped) = self.stopped.take() {
-                let _ = stopped.send(());
-            }
-            Ok(())
-        }
-    }
-
-    #[tokio::test]
-    async fn a_call_owns_and_stops_its_provider_connection() {
-        let (stopped, did_stop) = oneshot::channel();
-        let mut call = LiveVoiceCall::new(
-            "test-session".into(),
-            LiveVoiceCallId("live-test".into()),
-            Box::new(TestConnection {
-                stopped: Some(stopped),
-            }),
-        );
-
-        call.cleanup_provider().await.unwrap();
-        did_stop.await.unwrap();
-    }
-
-    #[test]
-    fn delegation_input_respects_offset_and_suppresses_duplicates() {
-        let mut call = LiveVoiceCall::new(
-            "test-session".into(),
-            LiveVoiceCallId("live-test".into()),
-            Box::new(TestConnection { stopped: None }),
-        );
-        call.observe_transcript("1".into(), Role::Assistant, "ready", 5);
-        call.observe_transcript("2".into(), Role::User, "do ", 10);
-        call.observe_transcript("3".into(), Role::User, "this", 20);
-        call.observe_transcript("4".into(), Role::Assistant, "crossing", 25);
-        call.observe_transcript("5".into(), Role::Assistant, "later", 40);
-        let open_transcript = call.transcript.as_ref().unwrap().as_concat_text();
-
-        let DelegationDecision::Accept(input) =
-            call.delegation_input("event-1".into(), "delegation-1".into(), 20)
-        else {
-            panic!("delegation should be accepted");
-        };
-        assert!(input.contains("GPT-Live: ready\nUser: do this\n"));
-        assert!(!input.contains("crossing"));
-        assert!(!input.contains("later"));
-        call.accept_delegation(20);
-        assert_eq!(
-            call.transcript.as_ref().unwrap().as_concat_text(),
-            open_transcript
-        );
-        assert!(matches!(
-            call.delegation_input("event-1".into(), "delegation-1".into(), 20),
-            DelegationDecision::Ignore
-        ));
-
-        call.observe_transcript("6".into(), Role::User, " late detail", 20);
-        let DelegationDecision::Accept(continuation) =
-            call.delegation_input("event-2".into(), "delegation-2".into(), 20)
-        else {
-            panic!("continuation should be accepted");
-        };
-        assert!(continuation.contains("User: late detail\n"));
-        assert!(!continuation.contains("ready"));
-        assert!(!continuation.contains("do this"));
-        call.accept_delegation(20);
-
-        assert!(matches!(
-            call.delegation_input("event-3".into(), "delegation-3".into(), 19),
-            DelegationDecision::Reject(_)
-        ));
-
-        call.observe_transcript("7".into(), Role::User, "again", 50);
-        let DelegationDecision::Accept(next) =
-            call.delegation_input("event-4".into(), "delegation-4".into(), 50)
-        else {
-            panic!("later continuation should be accepted");
-        };
-        assert!(next.contains("GPT-Live: crossinglater\nUser: again\n"));
-        assert!(!next.contains("ready"));
-        assert!(!next.contains("late detail"));
-        call.accept_delegation(50);
-
-        let mut missing_user = LiveVoiceCall::new(
-            "test-session".into(),
-            LiveVoiceCallId("live-test-2".into()),
-            Box::new(TestConnection { stopped: None }),
-        );
-        missing_user.observe_transcript("1".into(), Role::Assistant, "hello", 10);
-        assert!(matches!(
-            missing_user.delegation_input("event-1".into(), "delegation-1".into(), 10),
-            DelegationDecision::Reject(_)
-        ));
-    }
-
-    #[test]
-    fn pending_context_has_no_action_instruction_and_can_be_cleared() {
-        let mut call = LiveVoiceCall::new(
-            "test-session".into(),
-            LiveVoiceCallId("live-test".into()),
-            Box::new(TestConnection { stopped: None }),
-        );
-        call.observe_transcript("1".into(), Role::Assistant, "Anything else?", 10);
-        call.observe_transcript("2".into(), Role::User, "No thanks", 20);
-
-        let context = call.pending_transcript_context().unwrap();
-        assert_eq!(
-            context,
-            "Live conversation context:\nGPT-Live: Anything else?\nUser: No thanks"
-        );
-        assert!(!context.contains(DELEGATION_INSTRUCTION));
-        assert_eq!(call.pending_transcript_context().unwrap(), context);
-
-        call.observe_transcript("3".into(), Role::User, "Already shared", 30);
-        call.clear_pending_transcript();
-        assert!(call.pending_transcript_context().is_none());
-    }
-
-    #[test]
-    fn transcript_grouping_projects_deltas_and_finalizes_messages() {
-        let mut call = LiveVoiceCall::new(
-            "test-session".into(),
-            LiveVoiceCallId("live-test".into()),
-            Box::new(TestConnection { stopped: None }),
-        );
-        let first = call
-            .observe_transcript("1".into(), Role::User, "hello", 10)
-            .unwrap();
-        assert!(first.0.is_none());
-        assert!(first.1.is_user_visible());
-        assert!(first.1.is_agent_visible());
-        let message_id = first.1.id.clone();
-        let second = call
-            .observe_transcript("2".into(), Role::User, " world", 20)
-            .unwrap();
-        assert!(second.0.is_none());
-        assert_eq!(second.1.id, message_id);
-        assert_eq!(second.1.as_concat_text(), " world");
-        assert_eq!(
-            call.transcript.as_ref().unwrap().as_concat_text(),
-            "hello world"
-        );
-
-        assert!(call
-            .observe_transcript("2".into(), Role::User, " world", 20)
-            .is_none());
-
-        let role_change = call
-            .observe_transcript("3".into(), Role::Assistant, "hello", 30)
-            .unwrap();
-        assert_eq!(role_change.0.unwrap().as_concat_text(), "hello world");
-        assert_eq!(role_change.1.role, Role::Assistant);
-    }
-}
+mod tests;

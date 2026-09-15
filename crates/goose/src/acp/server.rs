@@ -1901,15 +1901,15 @@ impl GooseAcpAgent {
         self.active_runs
             .start_prompt_run(session_id, run_id, cancel_token, agent)
             .map_err(|error| match error {
-                StartRunError::AgentAlreadyRunning { run_id } => {
+                StartRunError::AgentRunExists { run_id } => {
                     let message = format!(
                         "session already has active run `{run_id}`; use _goose/unstable/session/steer"
                     );
                     agent_client_protocol::Error::invalid_params().data(message)
                 }
-                StartRunError::LiveAlreadyRunning => agent_client_protocol::Error::invalid_params()
+                StartRunError::LiveCallExists => agent_client_protocol::Error::invalid_params()
                     .data("session already has an active Live run"),
-                StartRunError::LiveNotRunning => unreachable!("prompt runs do not require Live"),
+                StartRunError::LiveCallMissing => unreachable!("prompt runs do not require Live"),
             })?;
         Ok(())
     }

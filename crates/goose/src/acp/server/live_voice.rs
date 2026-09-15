@@ -2,12 +2,11 @@ mod call;
 mod service;
 
 use super::*;
-use call::LiveVoiceCallId;
+use call::{LiveMainAgent, LiveVoiceCallId};
 use futures::FutureExt;
 use service::{
-    wait_for_completion, LiveVoiceAvailability, LiveVoiceCallCompletion, LiveVoiceCallEndedHandler,
-    LiveVoiceDelegationCommand, LiveVoiceDelegationHandler, LiveVoiceError,
-    LiveVoiceTranscriptHandler, WebRtcOffer,
+    wait_for_completion, LiveVoiceAvailability, LiveVoiceCallCompletion, LiveVoiceError,
+    LiveVoiceTranscriptPublisher, StartLiveVoiceCallResult, WebRtcOffer,
 };
 
 pub use service::LiveVoiceService;
@@ -60,30 +59,41 @@ impl GooseAcpAgent {
     ) -> Result<LiveVoiceStartResponse, agent_client_protocol::Error> {
         let offer = WebRtcOffer::new(req.offer_sdp)
             .ok_or_else(agent_client_protocol::Error::invalid_params)?;
-        let call_ended_handler: LiveVoiceCallEndedHandler =
-            if self.supports_goose_custom_notifications() {
-                let notification_connection = cx.clone();
-                Arc::new(move |ended| {
-                    let outcome = match ended.completion {
-                        LiveVoiceCallCompletion::Stopped => LiveVoiceCallOutcome::Stopped,
-                        LiveVoiceCallCompletion::Failed => LiveVoiceCallOutcome::Failed,
-                    };
-                    let _ = notification_connection.send_notification(GooseSessionNotification {
-                        session_id: ended.session_id,
-                        update: GooseSessionUpdate::LiveVoiceCallEnded(LiveVoiceCallEndedUpdate {
-                            call_id: ended.call_id.0,
-                            outcome,
-                        }),
-                    });
-                })
-            } else {
-                Arc::new(|_| {})
-            };
-
         let session_id = req.session_id.clone();
-        let transcript_session_id = req.session_id.clone();
-        let transcript_connection = cx.clone();
-        let transcript_handler: LiveVoiceTranscriptHandler = Arc::new(move |message| {
+        let transcript_publisher = Self::live_transcript_publisher(cx, &req.session_id);
+        let prepared_agent = self.prepare_live_agent(&req.session_id).await;
+        let main_agent = self.live_main_agent(cx, prepared_agent);
+        let start = self.live_voice.start_call(
+            &req.session_id,
+            offer,
+            self.session_manager.clone(),
+            transcript_publisher,
+            main_agent,
+        );
+        tokio::pin!(start);
+        let call = tokio::select! {
+            result = &mut start => result.map_err(map_live_voice_error)?,
+            _ = cx.incoming_closed() => {
+                return Err(agent_client_protocol::Error::internal_error()
+                    .data("ACP connection closed while Live voice was starting"));
+            }
+        };
+
+        self.watch_live_call(cx, session_id, &call);
+
+        Ok(LiveVoiceStartResponse {
+            call_id: call.call_id.0,
+            answer_sdp: call.answer.into_sdp(),
+        })
+    }
+
+    fn live_transcript_publisher(
+        cx: &ConnectionTo<Client>,
+        session_id: &str,
+    ) -> LiveVoiceTranscriptPublisher {
+        let connection = cx.clone();
+        let session_id = session_id.to_string();
+        Arc::new(move |message| {
             let [MessageContent::Text(text)] = message.content.as_slice() else {
                 return;
             };
@@ -95,65 +105,73 @@ impl GooseAcpAgent {
                 Role::User => SessionUpdate::UserMessageChunk(chunk),
                 Role::Assistant => SessionUpdate::AgentMessageChunk(chunk),
             };
-            let _ = transcript_connection.send_notification(SessionNotification::new(
-                SessionId::new(transcript_session_id.clone()),
+            let _ = connection.send_notification(SessionNotification::new(
+                SessionId::new(session_id.clone()),
                 update,
             ));
-        });
-        let prepared_agent = self.prepare_live_agent(&req.session_id).await;
-        let delegation_owner = Arc::clone(self);
-        let delegation_connection = cx.clone();
-        let delegation_handler: LiveVoiceDelegationHandler =
-            Arc::new(move |session_id, delegation| {
-                let owner = delegation_owner.clone();
-                let connection = delegation_connection.clone();
-                match delegation {
-                    LiveVoiceDelegationCommand::Steer { input } => {
-                        async move { owner.steer_live_delegation(&session_id, input).await }.boxed()
-                    }
-                    LiveVoiceDelegationCommand::Start { input } => owner.start_live_delegation(
-                        session_id,
-                        input,
-                        connection,
-                        prepared_agent.clone(),
-                    ),
-                }
-            });
-        let start = self.live_voice.start_call(
-            &req.session_id,
-            offer,
-            self.session_manager.clone(),
-            transcript_handler,
-            call_ended_handler,
-            delegation_handler,
-        );
-        tokio::pin!(start);
-        let call = tokio::select! {
-            result = &mut start => result.map_err(map_live_voice_error)?,
-            _ = cx.incoming_closed() => {
-                return Err(agent_client_protocol::Error::internal_error()
-                    .data("ACP connection closed while Live voice was starting"));
-            }
-        };
+        })
+    }
 
+    fn live_main_agent(
+        self: &Arc<Self>,
+        cx: &ConnectionTo<Client>,
+        prepared_agent: Result<Arc<Agent>, String>,
+    ) -> LiveMainAgent {
+        let start_owner = Arc::clone(self);
+        let start_connection = cx.clone();
+        let steer_owner = Arc::clone(self);
+        LiveMainAgent::new(
+            move |session_id, input| {
+                start_owner.clone().start_live_delegation(
+                    session_id,
+                    input,
+                    start_connection.clone(),
+                    prepared_agent.clone(),
+                )
+            },
+            move |session_id, input| {
+                let owner = steer_owner.clone();
+                async move { owner.steer_live_delegation(&session_id, input).await }.boxed()
+            },
+        )
+    }
+
+    fn watch_live_call(
+        &self,
+        cx: &ConnectionTo<Client>,
+        session_id: String,
+        call: &StartLiveVoiceCallResult,
+    ) {
         let call_id = call.call_id.clone();
+        let completion_rx = call.completion_rx.clone();
         let live_voice = self.live_voice.clone();
-        let completion_rx = call.completion_rx;
-        let watcher_connection = cx.clone();
+        let connection = cx.clone();
+        let notify_call_ended = self.supports_goose_custom_notifications();
         tokio::spawn(async move {
             tokio::select! {
                 biased;
-                _ = watcher_connection.incoming_closed() => {
+                _ = connection.incoming_closed() => {
                     let _ = live_voice.stop_call(&session_id, &call_id).await;
                 }
-                _ = wait_for_completion(completion_rx) => {}
+                completion = wait_for_completion(completion_rx) => {
+                    if notify_call_ended {
+                        if let Ok(completion) = completion {
+                            let outcome = match completion {
+                                LiveVoiceCallCompletion::Stopped => LiveVoiceCallOutcome::Stopped,
+                                LiveVoiceCallCompletion::Failed => LiveVoiceCallOutcome::Failed,
+                            };
+                            let _ = connection.send_notification(GooseSessionNotification {
+                                session_id,
+                                update: GooseSessionUpdate::LiveVoiceCallEnded(LiveVoiceCallEndedUpdate {
+                                    call_id: call_id.0,
+                                    outcome,
+                                }),
+                            });
+                        }
+                    }
+                }
             }
         });
-
-        Ok(LiveVoiceStartResponse {
-            call_id: call.call_id.0,
-            answer_sdp: call.answer.into_sdp(),
-        })
     }
 
     pub(super) async fn on_live_voice_stop(
@@ -175,11 +193,8 @@ impl GooseAcpAgent {
         input: String,
         cx: ConnectionTo<Client>,
         prepared_agent: Result<Arc<Agent>, String>,
-    ) -> BoxFuture<'static, String> {
-        let agent = match prepared_agent {
-            Ok(value) => value,
-            Err(message) => return async move { message }.boxed(),
-        };
+    ) -> Result<BoxFuture<'static, String>, String> {
+        let agent = prepared_agent?;
         let cancel_token = CancellationToken::new();
         let run_id = format!("run_{}", Uuid::new_v4());
         if self
@@ -192,7 +207,7 @@ impl GooseAcpAgent {
             )
             .is_err()
         {
-            return async { "The coding task is busy right now.".into() }.boxed();
+            return Err("The coding task is busy right now.".into());
         }
         let run_guard = ActiveRunDropGuard {
             registry: self.active_runs.clone(),
@@ -201,12 +216,12 @@ impl GooseAcpAgent {
             cancel_token: cancel_token.clone(),
         };
 
-        async move {
+        Ok(async move {
             let _run_guard = run_guard;
             self.run_live_delegation(session_id, input, cancel_token, cx, agent, run_id)
                 .await
         }
-        .boxed()
+        .boxed())
     }
 
     async fn run_live_delegation(
@@ -335,15 +350,21 @@ impl GooseAcpAgent {
         outcome
     }
 
-    async fn steer_live_delegation(&self, session_id: &str, input: String) -> String {
+    async fn steer_live_delegation(
+        &self,
+        session_id: &str,
+        input: String,
+    ) -> Result<String, String> {
         let Some((_, agent)) = self.active_runs.agent_run(session_id) else {
-            return "The task could not receive the latest instruction.".into();
+            return Err("The task could not receive the latest instruction.".into());
         };
         agent
             .steer(session_id, Message::user().with_text(input).agent_only())
             .await;
-        "The latest instruction was added to the work in progress. Wait for its updated result."
-            .into()
+        Ok(
+            "The latest instruction was added to the work in progress. Wait for its updated result."
+                .into(),
+        )
     }
 
     async fn prepare_live_agent(&self, session_id: &str) -> Result<Arc<Agent>, String> {

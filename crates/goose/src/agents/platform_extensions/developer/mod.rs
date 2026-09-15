@@ -159,7 +159,10 @@ impl DeveloperClient {
             )),
             Tool::new(
                 "tree".to_string(),
-                "List a directory tree with line counts. Traversal respects .gitignore rules.".to_string(),
+                "List a directory tree with line counts. Traversal respects .gitignore rules. \
+                 Cloud-storage placeholders that are not downloaded to this machine are listed \
+                 by size instead of being read."
+                    .to_string(),
                 Self::schema::<TreeParams>(),
             )
             .annotate(ToolAnnotations::from_raw(

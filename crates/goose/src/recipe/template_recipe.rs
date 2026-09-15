@@ -243,35 +243,47 @@ pub fn parse_recipe_content(
     Ok((parsed.recipe, parsed.template_variables))
 }
 
-pub(crate) fn parse_recipe_template(
+fn prepare_recipe_template_with_environment(
     content: &str,
     recipe_dir: Option<String>,
-) -> Result<ParsedRecipeTemplate> {
+) -> Result<(String, HashSet<String>, Environment<'static>)> {
     let preprocessed_content = preprocess_template_variables(content)?;
-
     let (env, template_variables) = get_env_with_template_variables(
         &preprocessed_content,
         recipe_dir,
         UndefinedBehavior::Lenient,
     )?;
     let template = env.get_template(CURRENT_TEMPLATE_NAME).unwrap();
-
-    // Detect if template uses inheritance or includes
     let recipe_content = if uses_template_inheritance(&preprocessed_content) {
-        // Must render to resolve inheritance
         template
             .render(())
             .map_err(|e| anyhow::anyhow!("Failed to parse the recipe {}", e))?
     } else {
-        // Preserve conditionals and variables as-is
         preprocessed_content
     };
+    Ok((recipe_content, template_variables, env))
+}
 
+pub(crate) fn prepare_recipe_template(
+    content: &str,
+    recipe_dir: Option<String>,
+) -> Result<(String, HashSet<String>)> {
+    let (recipe_content, template_variables, _) =
+        prepare_recipe_template_with_environment(content, recipe_dir)?;
+    Ok((recipe_content, template_variables))
+}
+
+pub(crate) fn parse_recipe_template(
+    content: &str,
+    recipe_dir: Option<String>,
+) -> Result<ParsedRecipeTemplate> {
+    let (recipe_content, template_variables, environment) =
+        prepare_recipe_template_with_environment(content, recipe_dir)?;
     let recipe = Recipe::from_content(&recipe_content)?;
     Ok(ParsedRecipeTemplate {
         recipe,
         template_variables,
-        environment: env,
+        environment,
     })
 }
 

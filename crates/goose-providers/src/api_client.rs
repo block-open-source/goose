@@ -305,6 +305,12 @@ impl ApiClient {
         self.timeout
     }
 
+    pub fn default_header(&self, name: &str) -> Option<&str> {
+        self.default_headers
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+    }
+
     fn client_builder(timeout: Duration) -> reqwest::ClientBuilder {
         Client::builder()
             .connect_timeout(Duration::from_secs(DEFAULT_CONNECT_TIMEOUT_SECS))

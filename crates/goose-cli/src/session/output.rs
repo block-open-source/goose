@@ -550,26 +550,6 @@ pub fn render_text_no_newlines(text: &str, color: Option<Color>, dim: bool) {
     print!("{}", styled_text);
 }
 
-pub fn render_enter_plan_mode() {
-    println!(
-        "\n{} {}\n",
-        accent("Entering plan mode.").bold(),
-        style("You can provide instructions to create a plan and then act on it. To exit early, type /endplan")
-            .dim()
-    );
-}
-
-pub fn render_act_on_plan() {
-    println!(
-        "\n{}\n",
-        accent("Exiting plan mode and acting on the above plan").bold(),
-    );
-}
-
-pub fn render_exit_plan_mode() {
-    println!("\n{}\n", accent("Exiting plan mode.").bold());
-}
-
 pub fn goose_mode_message(text: &str) {
     println!("\n{} {}", accent("mode:"), text);
 }
@@ -582,7 +562,7 @@ fn should_show_thinking() -> bool {
 }
 
 fn render_thinking(text: &str, theme: Theme) {
-    if should_show_thinking() {
+    if should_show_thinking() && !text.is_empty() {
         println!("\n{}", style("Thinking:").dim().italic());
         print_markdown(text, theme);
     }
@@ -594,7 +574,7 @@ fn render_thinking_streaming(
     header_shown: &mut bool,
     theme: Theme,
 ) {
-    if should_show_thinking() {
+    if should_show_thinking() && !text.is_empty() {
         flush_markdown_buffer(buffer, theme);
         if !*header_shown {
             println!("\n{}", style("Thinking:").dim().italic());

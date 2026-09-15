@@ -634,7 +634,6 @@ mod tests {
             .iter()
             .any(|command| command.name == "status"));
     }
-
     #[tokio::test]
     async fn invalid_rendered_recipe_schema_returns_assistant_response() {
         let agent = Agent::new();
@@ -672,5 +671,26 @@ mod tests {
             .as_concat_text()
             .contains("Recipe /invalid-rendered-schema is not valid"));
         assert!(agent.final_output_tool.lock().await.is_none());
+    }
+    #[tokio::test]
+    async fn doctor_refuses_without_enabling_developer() {
+        let agent = Agent::new();
+
+        let response = agent
+            .execute_command("/doctor", "doctor-disabled-legacy-test")
+            .await
+            .expect("doctor command should succeed")
+            .expect("doctor command should return a message");
+
+        assert_eq!(
+            response.as_concat_text(),
+            crate::doctor::DEVELOPER_EXTENSION_REQUIRED_MESSAGE
+        );
+        assert!(
+            !agent
+                .extension_manager
+                .is_extension_enabled(crate::agents::platform_extensions::developer::EXTENSION_NAME)
+                .await
+        );
     }
 }

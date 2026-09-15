@@ -227,11 +227,19 @@ const config: Config = {
           },
           {
             from: "/docs/guides/multi-model/creating-plans",
-            to: "/docs/guides/context-engineering/creating-plans",
+            to: "/docs/guides/context-engineering",
           },
           {
             from: "/docs/guides/creating-plans",
-            to: "/docs/guides/context-engineering/creating-plans",
+            to: "/docs/guides/context-engineering",
+          },
+          {
+            from: "/docs/guides/context-engineering/creating-plans",
+            to: "/docs/guides/context-engineering",
+          },
+          {
+            from: "/docs/tutorials/plan-feature-devcontainer-setup",
+            to: "/docs/guides/context-engineering",
           },
           {
             from: "/docs/guides/config-file",
@@ -408,7 +416,7 @@ const config: Config = {
           },
           {
             from: "/docs/tutorials/lead-worker",
-            to: "/docs/guides/context-engineering/creating-plans",
+            to: "/docs/guides/context-engineering",
           },
         ],
       },

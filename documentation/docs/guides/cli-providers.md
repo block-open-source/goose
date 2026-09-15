@@ -25,7 +25,7 @@ CLI providers are useful if you:
 - need session persistence to save, resume, and export conversation history
 - want to use goose recipes and scheduled tasks to create repeatable workflows
 - prefer unified commands across different AI providers
-- want to [use multiple models together](#combining-with-planner-models) in your tasks
+- want to [use multiple models together](/docs/guides/multi-model) in your tasks
 
 ### Benefits
 
@@ -37,7 +37,7 @@ CLI providers are useful if you:
 #### Workflow Integration  
 - **Recipe compatibility**: Use CLI providers in automated goose recipes
 - **Scheduling support**: Include in scheduled tasks and workflows
-- **Hybrid configurations**: Combine with planning mode and model-specific workflows
+- **Hybrid configurations**: Combine with subagents and model-specific workflows
 
 #### Interface Consistency
 - **Unified commands**: Use the same `goose session` interface across all providers
@@ -257,20 +257,6 @@ The Gemini CLI provider integrates with Google's [Gemini CLI tool](https://ai.go
 Once configured, you can start a goose session using these providers just like any others:
 
 ```bash
-goose session
-```
-
-### Combining with Planner Models
-
-CLI providers also work well with planning mode when you want one model for strategy and another for execution:
-
-```bash
-# Use Claude Code for execution, OpenAI for planning
-export GOOSE_PROVIDER=claude-code
-export GOOSE_MODEL=default
-export GOOSE_PLANNER_PROVIDER=openai
-export GOOSE_PLANNER_MODEL=gpt-4o
-
 goose session
 ```
 

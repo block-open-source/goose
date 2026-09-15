@@ -1074,7 +1074,9 @@ pub fn anthropic_provider(
         api_client = api_client.with_header("anthropic-beta", &beta_headers.join(","))?;
     }
 
-    let provider = AnthropicProviderBuilder::new(api_client).build();
+    let provider = AnthropicProviderBuilder::new(api_client)
+        .format_options(goose_providers::formats::anthropic::AnthropicFormatOptions::native())
+        .build();
     Ok(Provider::new(Box::new(provider)))
 }
 

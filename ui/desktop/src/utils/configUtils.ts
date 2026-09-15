@@ -4,8 +4,6 @@ export const configLabels: Record<string, string> = {
   GOOSE_MODEL: 'Model',
   GOOSE_TEMPERATURE: 'Temperature',
   GOOSE_MODE: 'Mode',
-  GOOSE_PLANNER_PROVIDER: 'Planner Provider',
-  GOOSE_PLANNER_MODEL: 'Planner Model',
   GOOSE_TOOLSHIM: 'Tool Shim',
   GOOSE_TOOLSHIM_OLLAMA_MODEL: 'Tool Shim Ollama Model',
   GOOSE_CLI_MIN_PRIORITY: 'CLI Min Priority',

@@ -24,8 +24,6 @@ pub enum InputResult {
     PromptCommand(PromptCommandOptions),
     GooseMode(String),
     Model(ModelCommandOptions),
-    Plan(PlanCommandOptions),
-    EndPlan,
     Clear,
     New,
     Compact,
@@ -40,11 +38,6 @@ pub struct PromptCommandOptions {
     pub name: String,
     pub info: bool,
     pub arguments: HashMap<String, String>,
-}
-
-#[derive(Debug)]
-pub struct PlanCommandOptions {
-    pub message_text: String,
 }
 
 #[derive(Debug, Default)]
@@ -236,8 +229,6 @@ fn handle_slash_command(input: &str) -> Option<InputResult> {
     const CMD_MODE: &str = "/mode ";
     const CMD_MODEL: &str = "/model";
     const CMD_MODEL_WITH_SPACE: &str = "/model ";
-    const CMD_PLAN: &str = "/plan";
-    const CMD_ENDPLAN: &str = "/endplan";
     const CMD_CLEAR: &str = "/clear";
     const CMD_NEW: &str = "/new";
     const CMD_COMPACT: &str = "/compact";
@@ -330,10 +321,6 @@ fn handle_slash_command(input: &str) -> Option<InputResult> {
                 }))
             }
         }
-        s if s.starts_with(CMD_PLAN) => {
-            parse_plan_command(s.get(CMD_PLAN.len()..).unwrap_or("").trim().to_string())
-        }
-        s if s == CMD_ENDPLAN => Some(InputResult::EndPlan),
         s if s == CMD_CLEAR => Some(InputResult::Clear),
         s if s == CMD_NEW => Some(InputResult::New),
         s if s == CMD_COMPACT => Some(InputResult::Compact),
@@ -421,14 +408,6 @@ fn parse_prompt_command(args: &str) -> Option<InputResult> {
     Some(InputResult::PromptCommand(options))
 }
 
-fn parse_plan_command(input: String) -> Option<InputResult> {
-    let options = PlanCommandOptions {
-        message_text: input.trim().to_string(),
-    };
-
-    Some(InputResult::Plan(options))
-}
-
 fn help_text() -> String {
     let modes = GooseMode::VARIANTS.join(", ");
     let newline_key = get_newline_key().to_ascii_uppercase();
@@ -452,12 +431,6 @@ fn help_text() -> String {
 /mode <name> - Set the goose mode to use ({modes})
 /model [name] - Show the current model, or switch models for this session while keeping the same provider
 /model --provider <name> [model] - Switch to a different provider (optionally specifying a model)
-/plan <message_text> -  Enters 'plan' mode with optional message. Create a plan based on the current messages and asks user if they want to act on it.
-                        If user acts on the plan, goose mode is set to 'auto' and returns to 'normal' goose mode.
-                        To warm up goose before using '/plan', we recommend setting '/mode approve' & putting appropriate context into goose.
-                        The model is used based on $GOOSE_PLANNER_PROVIDER and $GOOSE_PLANNER_MODEL environment variables.
-                        If no model is set, the default model is used.
-/endplan - Exit plan mode and return to 'normal' goose mode.
 /compact - Compact the current conversation to reduce context length while preserving key information.
 {additional_builtin_help}/status - Show session status: model, provider, mode, and token usage.
 /edit [text] - Open your prompt editor to compose a message. Optionally pre-fill with text.
@@ -794,24 +767,6 @@ mod tests {
             // Invalid arguments are ignored but logged
         } else {
             panic!("Expected PromptCommand");
-        }
-    }
-
-    #[test]
-    fn test_plan_mode() {
-        // Test plan mode with no text
-        let result = handle_slash_command("/plan");
-        assert!(result.is_some());
-
-        // Test plan mode with text
-        let result = handle_slash_command("/plan hello world");
-        assert!(result.is_some());
-        let options = result.unwrap();
-        match options {
-            InputResult::Plan(options) => {
-                assert_eq!(options.message_text, "hello world");
-            }
-            _ => panic!("Expected Plan"),
         }
     }
 

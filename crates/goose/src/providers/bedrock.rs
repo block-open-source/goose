@@ -774,7 +774,7 @@ fn process_stream_event(
         bedrock::ConverseStreamOutput::ContentBlockStop(ev) => {
             let idx = ev.content_block_index;
             if let Some((text, signature)) = state.reasoning_blocks.remove(&idx) {
-                if !text.is_empty() {
+                if !text.is_empty() || !signature.is_empty() {
                     messages.push(
                         Message::assistant()
                             .with_thinking(text, signature)

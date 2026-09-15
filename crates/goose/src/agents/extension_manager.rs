@@ -5,6 +5,7 @@ use futures::stream::{self, FuturesUnordered, StreamExt};
 use futures::Stream;
 use futures::{future, FutureExt};
 use once_cell::sync::Lazy;
+use rmcp::model::ProtocolVersion;
 use rmcp::service::{ClientInitializeError, ServiceError};
 use rmcp::transport::streamable_http_client::{
     StreamableHttpClientTransportConfig, StreamableHttpError,
@@ -766,6 +767,21 @@ pub(crate) fn substitute_env_vars(value: &str, env_map: &HashMap<String, String>
 const GOOSE_USER_AGENT: reqwest::header::HeaderValue =
     reqwest::header::HeaderValue::from_static(concat!("goose/", env!("CARGO_PKG_VERSION")));
 
+fn should_retry_legacy_after_empty_discover(
+    result: &Result<McpClient, ClientInitializeError>,
+    capabilities: &GooseMcpClientCapabilities,
+) -> bool {
+    capabilities.protocol_version.is_none()
+        && result.as_ref().is_err_and(|error| {
+            error.to_string().contains("empty sse stream")
+                || matches!(
+                    error,
+                    ClientInitializeError::ConnectionClosed(context)
+                        if context == "discover response"
+                )
+        })
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn connect_with_auth(
     auth_manager: rmcp::transport::AuthorizationManager,
@@ -801,20 +817,42 @@ async fn connect_with_auth(
         .map_err(|_| ExtensionError::ConfigError("could not construct http client".to_string()))?;
     let auth_client = AuthClient::new(auth_http_client, auth_manager);
     let transport = StreamableHttpClientTransport::with_client(
-        auth_client,
+        auth_client.clone(),
         StreamableHttpClientTransportConfig::with_uri(uri),
     );
-    Ok(McpClient::connect(
+    let mut result = McpClient::connect(
         transport,
         timeout,
-        provider,
-        client_name,
-        capabilities,
+        provider.clone(),
+        client_name.clone(),
+        capabilities.clone(),
         roots_dir.to_path_buf(),
-        action_required,
-        extension_manager,
+        action_required.clone(),
+        extension_manager.clone(),
     )
-    .await?)
+    .await;
+
+    if should_retry_legacy_after_empty_discover(&result, &capabilities) {
+        let transport = StreamableHttpClientTransport::with_client(
+            auth_client,
+            StreamableHttpClientTransportConfig::with_uri(uri),
+        );
+        let mut legacy_capabilities = capabilities;
+        legacy_capabilities.protocol_version = Some(ProtocolVersion::V_2025_11_25);
+        result = McpClient::connect(
+            transport,
+            timeout,
+            provider,
+            client_name,
+            legacy_capabilities,
+            roots_dir.to_path_buf(),
+            action_required,
+            extension_manager,
+        )
+        .await;
+    }
+
+    Ok(result?)
 }
 
 /// Connection parameters needed to re-establish an authorized streamable HTTP
@@ -1174,7 +1212,7 @@ async fn create_streamable_http_client(
         .map_err(|_| ExtensionError::ConfigError("could not construct http client".to_string()))?;
 
     let transport = StreamableHttpClientTransport::with_client(
-        http_client,
+        http_client.clone(),
         StreamableHttpClientTransportConfig::with_uri(uri),
     );
 
@@ -1249,7 +1287,7 @@ async fn create_streamable_http_client(
         }
     }
 
-    let client_res = McpClient::connect(
+    let mut client_res = McpClient::connect(
         transport,
         timeout_duration,
         provider.clone(),
@@ -1260,6 +1298,28 @@ async fn create_streamable_http_client(
         extension_manager.clone(),
     )
     .await;
+
+    // TODO: Remove these compatibility retries, including the authenticated path in
+    // connect_with_auth, once rmcp handles empty discovery SSE responses upstream.
+    if should_retry_legacy_after_empty_discover(&client_res, &capabilities) {
+        let transport = StreamableHttpClientTransport::with_client(
+            http_client,
+            StreamableHttpClientTransportConfig::with_uri(uri),
+        );
+        let mut legacy_capabilities = capabilities.clone();
+        legacy_capabilities.protocol_version = Some(ProtocolVersion::V_2025_11_25);
+        client_res = McpClient::connect(
+            transport,
+            timeout_duration,
+            provider.clone(),
+            client_name.clone(),
+            legacy_capabilities,
+            roots_dir.to_path_buf(),
+            action_required.clone(),
+            extension_manager.clone(),
+        )
+        .await;
+    }
 
     if should_attempt_oauth_fallback(&client_res) {
         let challenge = auth_challenge_from_result(&client_res);
@@ -1343,22 +1403,42 @@ async fn create_unix_socket_http_client(
         custom_headers.insert(header_name, header_value);
     }
 
-    let config = StreamableHttpClientTransportConfig::with_uri(uri).custom_headers(custom_headers);
-    let transport = StreamableHttpClientTransport::with_client(unix_client, config);
+    let config =
+        StreamableHttpClientTransportConfig::with_uri(uri).custom_headers(custom_headers.clone());
+    let transport = StreamableHttpClientTransport::with_client(unix_client.clone(), config);
 
     let timeout_duration = Duration::from_secs(resolve_timeout(timeout));
 
-    let client_res = McpClient::connect(
+    let mut client_res = McpClient::connect(
         transport,
         timeout_duration,
         provider.clone(),
         client_name.clone(),
         capabilities.clone(),
         roots_dir.to_path_buf(),
-        action_required,
-        extension_manager,
+        action_required.clone(),
+        extension_manager.clone(),
     )
     .await;
+
+    if should_retry_legacy_after_empty_discover(&client_res, &capabilities) {
+        let config =
+            StreamableHttpClientTransportConfig::with_uri(uri).custom_headers(custom_headers);
+        let transport = StreamableHttpClientTransport::with_client(unix_client, config);
+        let mut legacy_capabilities = capabilities;
+        legacy_capabilities.protocol_version = Some(ProtocolVersion::V_2025_11_25);
+        client_res = McpClient::connect(
+            transport,
+            timeout_duration,
+            provider.clone(),
+            client_name.clone(),
+            legacy_capabilities,
+            roots_dir.to_path_buf(),
+            action_required,
+            extension_manager,
+        )
+        .await;
+    }
 
     if should_attempt_oauth_fallback(&client_res) {
         tracing::warn!(

@@ -36,7 +36,7 @@ candle-core = { version = "0.11", default-features = false }
 candle-nn = { version = "0.11", default-features = false }
 chrono = { version = "0.4.44", default-features = false, features = ["serde", "std"] }
 clap = { version = "4.1.14", default-features = false, features = ["derive", "std", "help", "suggestions", "usage", "color", "error-context"] }
-dirs = { version = "6", default-features = false }
+dirs = { version = "7", default-features = false }
 dotenvy = { version = "0.15.7", default-features = false }
 env-lock = { version = "1", default-features = false }
 etcetera = { version = "0.11", default-features = false }

@@ -227,6 +227,41 @@ async fn parse_errors_do_not_reflect_recipe_contents() {
 }
 
 #[tokio::test]
+async fn reports_actionable_schema_errors_without_reflecting_values() {
+    let temp_dir = TempDir::new().unwrap();
+    let scheduler = Arc::new(MockScheduler::new());
+    let tool = schedule_tool(&temp_dir, scheduler.clone());
+    let cases = [
+        (
+            "missing-title.yaml",
+            "description: Missing title\nprompt: Run safely\n".to_string(),
+            "Invalid recipe: missing field `title`",
+            "Missing title",
+        ),
+        (
+            "invalid-input-type.yaml",
+            "title: Test\ndescription: hi\nprompt: Run {{ item }}\nparameters:\n  - key: item\n    input_type: yaml-secret-242\n    requirement: required\n    description: hi\n"
+                .to_string(),
+            "Invalid recipe: parameters[0].input_type is invalid",
+            "yaml-secret-242",
+        ),
+    ];
+
+    for (name, content, expected, secret) in cases {
+        let path = temp_dir.path().join(name);
+        std::fs::write(&path, content).unwrap();
+
+        let message = create_schedule(&tool, &path).await.unwrap_err();
+
+        assert_eq!(message, expected);
+        assert!(!message.contains(secret));
+    }
+
+    assert!(scheduler.jobs.lock().await.is_empty());
+    assert!(scheduler.validated_recipes.lock().await.is_empty());
+}
+
+#[tokio::test]
 async fn rejects_non_regular_recipe_path() {
     let temp_dir = TempDir::new().unwrap();
     let scheduler = Arc::new(MockScheduler::new());

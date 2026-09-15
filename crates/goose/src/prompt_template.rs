@@ -36,10 +36,6 @@ static TEMPLATE_REGISTRY: &[(&str, &str)] = &[
         "Prompt for analyzing tool operations for read-only detection",
     ),
     (
-        "plan.md",
-        "Prompt used when goose creates step-by-step plans. CLI only",
-    ),
-    (
         "tiny_model_system.md",
         "System prompt for tiny local models using shell command emulation",
     ),

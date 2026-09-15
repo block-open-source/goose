@@ -105,7 +105,7 @@ fn spawn_start(
 
 fn assert_availability(service: &LiveVoiceService, expected: Result<(), &'static str>) {
     assert_eq!(
-        service.availability("main-session", GooseMode::Auto),
+        service.availability(Some("main-session"), GooseMode::Auto),
         expected
     );
 }
@@ -186,12 +186,13 @@ fn reports_each_eligibility_gate() {
     let ready = service();
     let call_guard = LiveCallGuard::start(ready.active_runs.clone(), "main-session").unwrap();
     assert_eq!(
-        ready.availability("main-session", GooseMode::Auto),
+        ready.availability(Some("main-session"), GooseMode::Auto),
         Err("Live voice is unavailable while this session is busy")
     );
+    assert_eq!(ready.availability(None, GooseMode::Auto), Ok(()));
     drop(call_guard);
     assert_eq!(
-        ready.availability("main-session", GooseMode::Approve),
+        ready.availability(Some("main-session"), GooseMode::Approve),
         Err("Live voice requires Autonomous mode")
     );
     assert_availability(&ready, Ok(()));
@@ -313,7 +314,7 @@ async fn a_start_reserves_the_session_until_it_finishes() {
     );
 
     assert_eq!(
-        service.availability(&session_id, GooseMode::Auto),
+        service.availability(Some(&session_id), GooseMode::Auto),
         Err("Live voice is unavailable while this session is busy")
     );
 
@@ -333,7 +334,10 @@ async fn a_start_reserves_the_session_until_it_finishes() {
         first.await.unwrap(),
         Err(LiveVoiceError::StartFailed)
     ));
-    assert_eq!(service.availability(&session_id, GooseMode::Auto), Ok(()));
+    assert_eq!(
+        service.availability(Some(&session_id), GooseMode::Auto),
+        Ok(())
+    );
 }
 
 #[tokio::test]
@@ -349,7 +353,10 @@ async fn a_cancelled_start_releases_the_session() {
 
     start_task.abort();
     assert!(matches!(start_task.await, Err(error) if error.is_cancelled()));
-    assert_eq!(service.availability(&session_id, GooseMode::Auto), Ok(()));
+    assert_eq!(
+        service.availability(Some(&session_id), GooseMode::Auto),
+        Ok(())
+    );
     drop(pending);
 }
 
@@ -371,7 +378,10 @@ async fn stop_failure_releases_the_session() {
         stop.await.unwrap(),
         Err(LiveVoiceError::StopFailed)
     ));
-    assert_eq!(service.availability(&session_id, GooseMode::Auto), Ok(()));
+    assert_eq!(
+        service.availability(Some(&session_id), GooseMode::Auto),
+        Ok(())
+    );
 }
 
 #[tokio::test]
@@ -396,7 +406,10 @@ async fn repeated_stop_uses_one_provider_shutdown() {
 
     assert!(first.is_ok());
     assert!(second.is_ok());
-    assert_eq!(service.availability(&session_id, GooseMode::Auto), Ok(()));
+    assert_eq!(
+        service.availability(Some(&session_id), GooseMode::Auto),
+        Ok(())
+    );
 }
 
 #[tokio::test]
@@ -729,7 +742,7 @@ async fn running_transcript_is_saved_user_only_and_steered_to_the_main_agent() {
     let (stop, ()) = tokio::join!(stop, provider);
     assert!(stop.is_ok());
     assert_eq!(
-        service.availability(&session_id, GooseMode::Auto),
+        service.availability(Some(&session_id), GooseMode::Auto),
         Err("Live voice is unavailable while this session is busy")
     );
     assert_eq!(
@@ -746,7 +759,10 @@ async fn running_transcript_is_saved_user_only_and_steered_to_the_main_agent() {
 
     finish_run.send("done".into()).unwrap();
     tokio::time::timeout(Duration::from_secs(1), async {
-        while service.availability(&session_id, GooseMode::Auto).is_err() {
+        while service
+            .availability(Some(&session_id), GooseMode::Auto)
+            .is_err()
+        {
             tokio::task::yield_now().await;
         }
     })
@@ -810,7 +826,10 @@ async fn provider_terminal_events_fail_and_release_the_session() {
             service.stop_call(&session_id, &call_id).await,
             Err(LiveVoiceError::Unavailable)
         ));
-        assert_eq!(service.availability(&session_id, GooseMode::Auto), Ok(()));
+        assert_eq!(
+            service.availability(Some(&session_id), GooseMode::Auto),
+            Ok(())
+        );
     }
 }
 
@@ -849,7 +868,10 @@ async fn provider_terminal_publishes_completion_after_release() {
     let completion = wait_for_completion(started.completion_rx).await.unwrap();
 
     assert_eq!(completion, LiveVoiceCallCompletion::Failed);
-    assert_eq!(service.availability(&session_id, GooseMode::Auto), Ok(()));
+    assert_eq!(
+        service.availability(Some(&session_id), GooseMode::Auto),
+        Ok(())
+    );
 }
 
 #[tokio::test]
@@ -867,7 +889,10 @@ async fn cleanup_timeout_fails_and_releases_the_session() {
         stop.await.unwrap(),
         Err(LiveVoiceError::StopFailed)
     ));
-    assert_eq!(service.availability(&session_id, GooseMode::Auto), Ok(()));
+    assert_eq!(
+        service.availability(Some(&session_id), GooseMode::Auto),
+        Ok(())
+    );
     drop(pending_response);
 }
 
@@ -890,7 +915,10 @@ async fn queued_stop_wins_a_provider_close_race() {
     let (stop, ()) = tokio::join!(stop, provider);
 
     assert!(stop.is_ok());
-    assert_eq!(service.availability(&session_id, GooseMode::Auto), Ok(()));
+    assert_eq!(
+        service.availability(Some(&session_id), GooseMode::Auto),
+        Ok(())
+    );
 }
 
 #[test]

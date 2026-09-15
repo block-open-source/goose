@@ -239,7 +239,7 @@ pub struct SteerSessionResponse {
     pub message_id: String,
 }
 
-/// Ask whether the displayed main session can enter direct Live voice.
+/// Ask whether a new or existing chat can enter direct Live voice.
 #[derive(Debug, Default, Clone, Serialize, Deserialize, JsonSchema, JsonRpcRequest)]
 #[request(
     method = "_goose/unstable/session/live-voice/availability",
@@ -247,7 +247,7 @@ pub struct SteerSessionResponse {
 )]
 #[serde(rename_all = "camelCase")]
 pub struct LiveVoiceAvailabilityRequest {
-    pub session_id: String,
+    pub session_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

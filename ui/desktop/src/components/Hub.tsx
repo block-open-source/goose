@@ -28,6 +28,8 @@ import {
 import { formatAcpError } from '../acp/errors';
 import { toastError } from '../toasts';
 import { formatClockDisplay } from '../utils/timeUtils';
+import { acpGetLiveVoiceAvailability } from '../acp/liveVoice';
+import type { LiveVoiceAvailabilityResponse_unstable } from '@aaif/goose-acp-client';
 
 const i18n = defineMessages({
   goodMorning: { id: 'hub.goodMorning', defaultMessage: 'Good morning' },
@@ -58,6 +60,8 @@ export default function Hub({
   const [workingDir, setWorkingDir] = useState(getInitialWorkingDir());
   const userSelectedWorkingDirRef = useRef(false);
   const [isCreatingSession, setIsCreatingSession] = useState(false);
+  const [liveVoiceAvailability, setLiveVoiceAvailability] =
+    useState<LiveVoiceAvailabilityResponse_unstable | null>(null);
   const [nextChatExtensionDraft, setNextChatExtensionDraft] =
     useState<NextChatExtensionDraft | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -70,6 +74,21 @@ export default function Hub({
     void getEffectiveWorkingDir().then((dir) => {
       if (active && !userSelectedWorkingDirRef.current) setWorkingDir(dir);
     });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    void acpGetLiveVoiceAvailability().then(
+      (availability) => {
+        if (active) setLiveVoiceAvailability(availability);
+      },
+      () => {
+        if (active) setLiveVoiceAvailability(null);
+      }
+    );
     return () => {
       active = false;
     };
@@ -211,9 +230,7 @@ export default function Hub({
             nextChatExtensionDraft={draftForMenu}
             onNextChatExtensionDraftChange={handleNextChatExtensionDraftChange}
             liveVoice={{
-              availability: isCreatingSession
-                ? null
-                : { status: 'ready', message: 'Start Live voice' },
+              availability: isCreatingSession ? null : liveVoiceAvailability,
               phase: 'idle',
               muted: false,
               start: handleStartLiveVoice,

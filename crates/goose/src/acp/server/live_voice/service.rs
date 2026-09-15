@@ -99,7 +99,7 @@ impl LiveVoiceService {
 
     pub(super) fn availability(
         &self,
-        session_id: &str,
+        session_id: Option<&str>,
         mode: GooseMode,
     ) -> Result<(), &'static str> {
         self.eligible_provider(session_id, mode).map(|_| ())
@@ -107,14 +107,14 @@ impl LiveVoiceService {
 
     fn eligible_provider(
         &self,
-        session_id: &str,
+        session_id: Option<&str>,
         mode: GooseMode,
     ) -> Result<Arc<dyn LiveVoiceProvider>, &'static str> {
         let provider = (self.live_voice_resolver)()?;
 
         if mode != GooseMode::Auto {
             Err("Live voice requires Autonomous mode")
-        } else if self.active_runs.is_active(session_id) {
+        } else if session_id.is_some_and(|session_id| self.active_runs.is_active(session_id)) {
             Err("Live voice is unavailable while this session is busy")
         } else {
             Ok(provider)
@@ -134,7 +134,7 @@ impl LiveVoiceService {
             .await
             .map_err(|_| LiveVoiceError::Unavailable)?;
         let provider = self
-            .eligible_provider(session_id, session.goose_mode)
+            .eligible_provider(Some(session_id), session.goose_mode)
             .map_err(|_| LiveVoiceError::Unavailable)?;
         let call_guard = LiveCallGuard::start(self.active_runs.clone(), session_id)
             .ok_or(LiveVoiceError::Unavailable)?;

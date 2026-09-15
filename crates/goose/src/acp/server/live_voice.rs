@@ -36,11 +36,16 @@ impl GooseAcpAgent {
         &self,
         req: LiveVoiceAvailabilityRequest,
     ) -> Result<LiveVoiceAvailabilityResponse, agent_client_protocol::Error> {
-        let session = self.load_live_voice_session(&req.session_id).await?;
+        let mode = match req.session_id.as_deref() {
+            Some(session_id) => self.load_live_voice_session(session_id).await?.goose_mode,
+            None => crate::config::Config::global()
+                .get_goose_mode()
+                .unwrap_or_default(),
+        };
         Ok(
             match self
                 .live_voice
-                .availability(&req.session_id, session.goose_mode)
+                .availability(req.session_id.as_deref(), mode)
             {
                 Ok(()) => LiveVoiceAvailabilityResponse {
                     status: LiveVoiceStatus::Ready,
@@ -65,7 +70,7 @@ impl GooseAcpAgent {
         let session = self.load_live_voice_session(&session_id).await?;
         if self
             .live_voice
-            .availability(&session_id, session.goose_mode)
+            .availability(Some(&session_id), session.goose_mode)
             .is_err()
         {
             return Err(map_live_voice_error(LiveVoiceError::Unavailable));

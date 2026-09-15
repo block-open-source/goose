@@ -25,6 +25,24 @@ describe('ACP Live voice', () => {
     expect(sessionLiveVoiceAvailability).toHaveBeenCalledWith({ sessionId: 'main-session' });
   });
 
+  it('checks availability without a session for a new chat', async () => {
+    const sessionLiveVoiceAvailability = vi.fn().mockResolvedValue({
+      status: 'unavailable',
+      message: 'Live voice is disabled',
+    });
+    vi.mocked(getAcpClient).mockResolvedValue({
+      goose: {
+        sessionLiveVoiceAvailability_unstable: sessionLiveVoiceAvailability,
+      },
+    } as unknown as Awaited<ReturnType<typeof getAcpClient>>);
+
+    await expect(acpGetLiveVoiceAvailability()).resolves.toEqual({
+      status: 'unavailable',
+      message: 'Live voice is disabled',
+    });
+    expect(sessionLiveVoiceAvailability).toHaveBeenCalledWith({});
+  });
+
   it('uses generated start and stop clients with the call ID', async () => {
     const start = vi.fn().mockResolvedValue({
       callId: 'live-opaque',

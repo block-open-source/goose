@@ -104,23 +104,10 @@ describe('createSession ACP session extensions', () => {
     });
   });
 
-  it('falls back to enabled configured extensions when extension configs are empty', async () => {
+  it('sends an explicitly empty selection as an empty list, not as "unspecified"', async () => {
     await createSession('/tmp', {
       extensionConfigs: [],
       allExtensions: [configuredExtension('developer', true), configuredExtension('memory', false)],
-    });
-
-    expect(mockedGetConfiguredGooseExtensions).toHaveBeenCalledOnce();
-    expect(mockedCreateAcpSession).toHaveBeenCalledWith('/tmp', [gooseExtension('developer')], {
-      recipeDeeplink: undefined,
-      recipeId: undefined,
-      recipeParameterScopeId: undefined,
-    });
-  });
-
-  it('omits ACP session extensions when no configured extensions are enabled', async () => {
-    await createSession('/tmp', {
-      allExtensions: [configuredExtension('developer', false)],
     });
 
     expect(mockedGetConfiguredGooseExtensions).not.toHaveBeenCalled();
@@ -131,11 +118,34 @@ describe('createSession ACP session extensions', () => {
     });
   });
 
+  it('leaves the set unspecified when no configured extensions are enabled', async () => {
+    await createSession('/tmp', {
+      allExtensions: [configuredExtension('developer', false)],
+    });
+
+    expect(mockedGetConfiguredGooseExtensions).not.toHaveBeenCalled();
+    expect(mockedCreateAcpSession).toHaveBeenCalledWith('/tmp', undefined, {
+      recipeDeeplink: undefined,
+      recipeId: undefined,
+      recipeParameterScopeId: undefined,
+    });
+  });
+
+  it('leaves the set unspecified while the configured extensions are still loading', async () => {
+    await createSession('/tmp', { allExtensions: [] });
+
+    expect(mockedCreateAcpSession).toHaveBeenCalledWith('/tmp', undefined, {
+      recipeDeeplink: undefined,
+      recipeId: undefined,
+      recipeParameterScopeId: undefined,
+    });
+  });
+
   it('scopes startup parameters to recipe deeplink session creation', async () => {
     await createSession('/tmp', { recipeDeeplink: 'goose://recipe?url=example' });
 
     expect(mockedBeginConfiguredRecipeParameterScope).toHaveBeenCalledOnce();
-    expect(mockedCreateAcpSession).toHaveBeenCalledWith('/tmp', [], {
+    expect(mockedCreateAcpSession).toHaveBeenCalledWith('/tmp', undefined, {
       recipeDeeplink: 'goose://recipe?url=example',
       recipeId: undefined,
       recipeParameterScopeId: 'scope-1',

@@ -111,13 +111,13 @@ export default function Hub({
     setIsCreatingSession(true);
 
     try {
-      const selectedExtensions = nextChatExtensionDraft
-        ? selectNextChatExtensions(extensionsList, nextChatExtensionDraft)
-        : [];
-      const sessionOptions =
-        selectedExtensions.length > 0
-          ? { extensionConfigs: selectedExtensions }
-          : { allExtensions: extensionsList };
+      // A draft exists only once the user has opened the picker, so its absence is
+      // "not specified" while an empty draft is "start with no extensions".
+      const sessionOptions = nextChatExtensionDraft
+        ? {
+            extensionConfigs: selectNextChatExtensions(extensionsList, nextChatExtensionDraft),
+          }
+        : { allExtensions: extensionsList };
 
       // Resolve the effective directory at submit time: the IPC lookup may still
       // be pending when the user submits, and an explicit pick must win.

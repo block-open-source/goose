@@ -11,6 +11,7 @@ import { UserInput } from '../types/message';
 type ChatInputCapture = {
   draftRef?: { current: string };
   handleSubmit: (input: UserInput) => void;
+  onNextChatExtensionDraftChange?: (draft: { selectedNames: Set<string> }) => void;
 };
 
 type Session = Awaited<ReturnType<typeof createSession>>;
@@ -80,6 +81,29 @@ describe('Hub', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     captured.chatInput = null;
+  });
+
+  it('starts a chat with no extensions when the user cleared the picker', async () => {
+    vi.mocked(createSession).mockResolvedValue({ id: 'session-1' } as Session);
+    renderHub({ current: '' });
+
+    // Touching the picker is what turns "not specified" into a real choice, and
+    // clearing it is the case the composer already promises in a toast.
+    await act(async () => {
+      captured.chatInput?.onNextChatExtensionDraftChange?.({ selectedNames: new Set() });
+    });
+    await submit();
+
+    expect(createSession).toHaveBeenCalledWith('/tmp/goose', { extensionConfigs: [] });
+  });
+
+  it('leaves the set unspecified when the picker was never touched', async () => {
+    vi.mocked(createSession).mockResolvedValue({ id: 'session-1' } as Session);
+    renderHub({ current: '' });
+
+    await submit();
+
+    expect(createSession).toHaveBeenCalledWith('/tmp/goose', { allExtensions: [] });
   });
 
   it('hands the draft to the input', () => {

@@ -73,7 +73,8 @@ export default function StandaloneAppView() {
       }
 
       try {
-        const { sessionId: sid } = await acpNewSession(workingDir, []);
+        // This view names no extension set, so the backend uses the configured one.
+        const { sessionId: sid } = await acpNewSession(workingDir, undefined);
         setSessionId(sid);
         setLoading(false);
       } catch (err) {

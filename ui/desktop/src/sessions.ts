@@ -1,5 +1,6 @@
 import type { Session } from './types/session';
 import type { ExtensionConfig } from './types/extensions';
+import type { GooseExtension } from '@aaif/goose-acp-client';
 import type { setViewType } from './hooks/useNavigation';
 import type { FixedExtensionEntry } from './components/ConfigContext';
 import { AppEvents } from './constants/events';
@@ -26,19 +27,44 @@ interface CreateSessionOptions {
   allExtensions?: FixedExtensionEntry[];
 }
 
-function selectedExtensionConfigs(options?: CreateSessionOptions): ExtensionConfig[] {
-  if (options?.extensionConfigs && options.extensionConfigs.length > 0) {
+/**
+ * Three-valued on purpose. `undefined` means the caller is not naming a set and the
+ * backend should use the configured one; `[]` means the user asked for a session with
+ * no extensions at all. Collapsing the two is what made an all-off selection come back
+ * with the default extensions.
+ */
+function selectedExtensionConfigs(options?: CreateSessionOptions): ExtensionConfig[] | undefined {
+  if (options?.extensionConfigs) {
     return options.extensionConfigs;
   }
   if (options?.allExtensions) {
-    return options.allExtensions
+    const enabled = options.allExtensions
       .filter((extension) => extension.enabled)
       .map((extension) => {
         const { enabled: _enabled, ...config } = extension;
         return config as ExtensionConfig;
       });
+    // An empty configured list is also what this looks like before the config
+    // finishes loading, so it stays "not specified" rather than becoming an
+    // explicit empty selection. Only `extensionConfigs` can express that.
+    return enabled.length > 0 ? enabled : undefined;
   }
-  return [];
+  return undefined;
+}
+
+async function resolveGooseExtensions(
+  selected: ExtensionConfig[] | undefined
+): Promise<GooseExtension[] | undefined> {
+  if (selected === undefined) {
+    return undefined;
+  }
+  if (selected.length === 0) {
+    return [];
+  }
+  const selectedNames = new Set(selected.map((config) => config.name));
+  return (await getConfiguredGooseExtensions())
+    .filter((entry) => selectedNames.has(gooseExtensionName(entry.extension)))
+    .map((entry) => entry.extension);
 }
 
 async function createAcpSession(
@@ -55,13 +81,7 @@ async function createAcpSession(
         throw new RecipeParameterScopesUnsupportedError();
       }
     }
-    const selectedNames = new Set(selectedExtensionConfigs(options).map((config) => config.name));
-    const gooseExtensions =
-      selectedNames.size > 0
-        ? (await getConfiguredGooseExtensions())
-            .filter((entry) => selectedNames.has(gooseExtensionName(entry.extension)))
-            .map((entry) => entry.extension)
-        : [];
+    const gooseExtensions = await resolveGooseExtensions(selectedExtensionConfigs(options));
     return await acpChatSessionController.createSession(workingDir, gooseExtensions, {
       recipeId: options?.recipeId,
       recipeDeeplink: options?.recipeDeeplink,

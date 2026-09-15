@@ -302,6 +302,48 @@ fn build_authorization_request(
     request
 }
 
+async fn credentials_replaced_since(
+    credential_store: &GooseCredentialStore,
+    attempted_refresh_token: Option<&str>,
+) -> bool {
+    match credential_store.load().await {
+        Ok(Some(current)) => {
+            current.token_response.as_ref().and_then(|response| {
+                response
+                    .refresh_token()
+                    .map(|token| token.secret().as_str())
+            }) != attempted_refresh_token
+        }
+        _ => false,
+    }
+}
+
+/// Try to build an authorization manager from credentials another goose
+/// process stored after rotating the refresh token, so a lost refresh race
+/// does not force an interactive re-authorization.
+async fn reuse_rotated_credentials(
+    mcp_server_url: &String,
+    credential_store: &GooseCredentialStore,
+    static_client: Option<&StaticOAuthClientConfig>,
+) -> Result<Option<AuthorizationManager>, anyhow::Error> {
+    let mut auth_manager = AuthorizationManager::new(mcp_server_url).await?;
+    auth_manager.set_credential_store(credential_store.clone());
+
+    let stored_credentials = credential_store.load().await?;
+    if !auth_manager.initialize_from_store().await? {
+        return Ok(None);
+    }
+    let stored_credentials = stored_credentials
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("OAuth credentials disappeared during startup"))?;
+
+    configure_static_client(&mut auth_manager, static_client, mcp_server_url)?;
+    if access_token_needs_refresh(stored_credentials) {
+        return Ok(None);
+    }
+    Ok(Some(auth_manager))
+}
+
 pub async fn oauth_flow(
     mcp_server_url: &String,
     name: &String,
@@ -319,11 +361,20 @@ pub async fn oauth_flow_with_challenge(
     let env_client = env_static_oauth_client();
     let static_client = static_client.or(env_client.as_ref());
     let credential_store = GooseCredentialStore::new(name.clone());
+    let mut keep_stored_credentials = false;
     let mut auth_manager = AuthorizationManager::new(mcp_server_url).await?;
     auth_manager.set_credential_store(credential_store.clone());
 
     let stored_credentials = credential_store.load().await?;
     let previous_requested_scopes = credential_store.load_requested_scopes()?;
+    let attempted_refresh_token = stored_credentials
+        .as_ref()
+        .and_then(|stored| stored.token_response.as_ref())
+        .and_then(|response| {
+            response
+                .refresh_token()
+                .map(|token| token.secret().to_string())
+        });
     let previously_granted_scopes = stored_credentials
         .as_ref()
         .map(|stored| stored.granted_scopes.clone())
@@ -396,16 +447,56 @@ pub async fn oauth_flow_with_challenge(
                     return Ok(auth_manager);
                 }
                 Err(e) => {
-                    warn!(
-                        "[OAuth:{}] Token refresh failed: {} - clearing stored credentials and falling back to browser auth",
-                        name, e
-                    );
+                    let definitive_rejection = matches!(e, AuthError::TokenRefreshRejected(_));
+                    if definitive_rejection
+                        && credentials_replaced_since(
+                            &credential_store,
+                            attempted_refresh_token.as_deref(),
+                        )
+                        .await
+                    {
+                        // Another goose process (the desktop and CLI share
+                        // the credential store) refreshed first and rotated
+                        // the refresh token: our rejection is stale, so pick
+                        // up the replacement instead of clobbering it.
+                        warn!(
+                            "[OAuth:{}] Refresh token rejected but stored credentials were replaced by another goose process; retrying with them",
+                            name
+                        );
+                        if let Some(rotated_manager) = reuse_rotated_credentials(
+                            mcp_server_url,
+                            &credential_store,
+                            static_client,
+                        )
+                        .await?
+                        {
+                            return Ok(rotated_manager);
+                        }
+                        keep_stored_credentials = true;
+                    } else if definitive_rejection {
+                        warn!(
+                            "[OAuth:{}] Token refresh rejected: {} - clearing stored credentials and falling back to browser auth",
+                            name, e
+                        );
+                    } else {
+                        // Transient failure (server 5xx, network error): the
+                        // stored refresh token may still be valid. Keep it so
+                        // the next session can refresh again; only this
+                        // session falls back to browser auth.
+                        warn!(
+                            "[OAuth:{}] Token refresh failed: {} - keeping stored credentials, falling back to browser auth",
+                            name, e
+                        );
+                        keep_stored_credentials = true;
+                    }
                 }
             }
         }
 
-        if let Err(e) = credential_store.clear().await {
-            warn!("[OAuth:{}] error clearing bad credentials: {}", name, e);
+        if !keep_stored_credentials {
+            if let Err(e) = credential_store.clear().await {
+                warn!("[OAuth:{}] error clearing bad credentials: {}", name, e);
+            }
         }
     }
 

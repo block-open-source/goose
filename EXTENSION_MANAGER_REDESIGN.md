@@ -25,16 +25,16 @@ everything that had ever needed to touch it. Seven distinct jobs lived in one fi
    extensions; `search_available_extensions` formats a string about extensions that
    are *not* loaded.
 
-Three consequences we want to fix:
+Three consequences this work fixes:
 
-**`add_extension` is the wrong shape.** A 280-line `match` under
-`#[allow(clippy::too_many_lines)]` that interleaves config resolution, secret merging,
+**`add_extension` was the wrong shape.** A 280-line `match` under
+`#[allow(clippy::too_many_lines)]` that interleaved config resolution, secret merging,
 env substitution, docker-vs-local, malware checking, temp-file writing, transport
-setup and registry insert. Every branch calls something with 9-12 positional arguments
+setup and registry insert. Every branch called something with 9-12 positional arguments
 under `#[allow(clippy::too_many_arguments)]`. The same six values — `provider`,
 `client_name`, `capabilities`, `working_dir`, `action_required`,
-`Weak<ExtensionManager>` — travel together everywhere. That is a struct that does not
-exist yet.
+`Weak<ExtensionManager>` — travelled together everywhere. Step 2 made them a
+`ConnectContext`.
 
 **"Which extensions are in play" is expressed four incompatible ways.** The
 `extension_name` filter argument, the `exclude` argument (added for code mode), the
@@ -270,7 +270,7 @@ different `working_dir`.
 
 Methods live on the resolved lease, not on a manager taking a set. `session_id` comes
 off every signature — it is not a real dimension today, since there is one `Agent` per
-ACP session (`crates/goose/src/acp/server.rs:1221`) and `McpClient` asserts it never
+ACP session (`crates/goose/src/acp/server.rs:1250`) and `McpClient` asserts it never
 sees two session ids (`mcp_client.rs:247`).
 
 - `tools()` — ordered concat, prefix, filter, dedupe over members
@@ -379,7 +379,7 @@ A partial refresh leaves the previous value intact.
 
 Serve the tool list and system prompt from the manifest cache; start the runtime on
 first actual use. Whether a server is running becomes invisible to the caller. Today
-`Agent::add_extensions_bulk` (`agent.rs:1508`) spawns every configured server before the
+`Agent::add_extensions_bulk` (`agent.rs:1371`) spawns every configured server before the
 first token, whether or not the session uses them.
 
 The manifest is a hint, always. When a runtime starts, refresh and reconcile. If a tool
@@ -462,7 +462,10 @@ reaping timeout, no idle eviction.
    `substitute_env_vars` again to build the command. `resolve()` covers Stdio and
    StreamableHttp only; other branches inline it. Resolve once, build from the resolved
    config, and `Extension::resolved_config` stops needing to be kept in sync. This is
-   where the sanitized connection fingerprint gets defined.
+   where the sanitized connection fingerprint gets defined. Also in this step:
+   `merge_environments` and `substitute_env_vars` leave `extension_manager/mod.rs` for
+   wherever `ExtensionConfig::resolve` ends up, and `search_available_extensions` moves
+   next to `config/extensions.rs` and the `manage_extensions` tool that calls it.
 4. **Pending — `ExtensionSet` / `ExtensionScopeContext` / `ExtensionLease` /
    `ExtensionHost`.**
    Slots and the catalog, `session_id` off the signatures, host relocated above `Agent`,
@@ -472,7 +475,8 @@ reaping timeout, no idle eviction.
    a timeout before SIGKILL, idle eviction of running-but-selected slots.
 6. **Pending — manifest cache, lazy start, `warm`/`validate`.** The step users will feel.
 7. **Pending — sharing policy.** `Shared` for stateless 2026 HTTP; everything else
-   `Scoped`. Gated on 2026 protocol support existing.
+   `Scoped`. The client already negotiates 2026-07-28 (`ClientLifecycleMode::Discover`),
+   so this is not gated on protocol work.
 
 ## Constraints
 

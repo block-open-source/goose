@@ -364,9 +364,15 @@ fn review_git_command(repo_root: &Path) -> Command {
     cmd
 }
 
-fn touched_files(repo_root: &Path, range: Option<&str>, files: &[String]) -> Result<Vec<String>> {
+fn review_diff_command(repo_root: &Path) -> Command {
     let mut cmd = review_git_command(repo_root);
-    cmd.arg("diff").arg("--name-only");
+    cmd.args(["diff", "--no-ext-diff", "--no-textconv"]);
+    cmd
+}
+
+fn touched_files(repo_root: &Path, range: Option<&str>, files: &[String]) -> Result<Vec<String>> {
+    let mut cmd = review_diff_command(repo_root);
+    cmd.arg("--name-only");
     match range {
         Some(r) => {
             cmd.arg(r);
@@ -396,8 +402,7 @@ fn touched_files(repo_root: &Path, range: Option<&str>, files: &[String]) -> Res
 }
 
 fn collect_diff(repo_root: &Path, range: Option<&str>, files: &[String]) -> Result<String> {
-    let mut cmd = review_git_command(repo_root);
-    cmd.arg("diff");
+    let mut cmd = review_diff_command(repo_root);
     match range {
         Some(r) => {
             cmd.arg(r);
@@ -420,8 +425,8 @@ fn collect_diff(repo_root: &Path, range: Option<&str>, files: &[String]) -> Resu
 }
 
 fn collect_diff_stat(repo_root: &Path, range: Option<&str>, files: &[String]) -> Result<String> {
-    let mut cmd = review_git_command(repo_root);
-    cmd.arg("diff").arg("--stat");
+    let mut cmd = review_diff_command(repo_root);
+    cmd.arg("--stat");
     match range {
         Some(r) => {
             cmd.arg(r);
@@ -1136,6 +1141,46 @@ mod tests {
     use goose::checks::Check;
     use std::path::PathBuf;
 
+    #[cfg(unix)]
+    fn run_git(root: &Path, args: &[&str]) {
+        let output = Command::new("git")
+            .current_dir(root)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[cfg(unix)]
+    fn review_test_repo() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        run_git(root, &["init", "--quiet"]);
+        run_git(root, &["config", "user.email", "test@example.com"]);
+        run_git(root, &["config", "user.name", "Test"]);
+        fs::write(root.join("tracked.txt"), "before\n").unwrap();
+        run_git(root, &["add", "tracked.txt"]);
+        run_git(
+            root,
+            &["commit", "--quiet", "--no-gpg-sign", "-m", "initial"],
+        );
+        dir
+    }
+
+    #[cfg(unix)]
+    fn write_executable_script(path: &Path, body: &str) {
+        use std::os::unix::fs::PermissionsExt;
+
+        fs::write(path, body).unwrap();
+        let mut permissions = fs::metadata(path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(path, permissions).unwrap();
+    }
+
     fn open_test_untracked_root(path: &Path) -> std::io::Result<UntrackedRoot> {
         #[cfg(unix)]
         let path = fs::canonicalize(path)?;
@@ -1222,6 +1267,67 @@ mod tests {
         let out = prepend_instructions("BASE", Some("Refactor only — flag any behavior change."));
         assert!(out.starts_with("## Reviewer instructions\n\nRefactor only"));
         assert!(out.ends_with("BASE"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn review_diff_collection_ignores_external_diff_helpers() {
+        let dir = review_test_repo();
+        let root = dir.path();
+        let marker = root.join("external-diff-ran");
+        let script = root.join("external-diff.sh");
+        write_executable_script(
+            &script,
+            "#!/bin/sh\ntouch \"$(dirname \"$0\")/external-diff-ran\"\nexit 0\n",
+        );
+        run_git(root, &["config", "diff.external", script.to_str().unwrap()]);
+        fs::write(root.join("tracked.txt"), "after\n").unwrap();
+
+        assert_eq!(touched_files(root, None, &[]).unwrap(), ["tracked.txt"]);
+        let diff = collect_diff(root, None, &[]).unwrap();
+        assert!(diff.contains("-before"));
+        assert!(diff.contains("+after"));
+        assert!(collect_diff_stat(root, None, &[])
+            .unwrap()
+            .contains("tracked.txt"));
+        assert!(!marker.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn review_diff_collection_ignores_textconv_helpers() {
+        let dir = review_test_repo();
+        let root = dir.path();
+        let marker = root.join("textconv-ran");
+        let script = root.join("textconv.sh");
+        write_executable_script(
+            &script,
+            "#!/bin/sh\ntouch \"$(dirname \"$0\")/textconv-ran\"\ncat \"$1\"\n",
+        );
+        fs::write(
+            root.join(".gitattributes"),
+            "tracked.txt diff=review-test\n",
+        )
+        .unwrap();
+        run_git(root, &["add", ".gitattributes"]);
+        run_git(
+            root,
+            &["commit", "--quiet", "--no-gpg-sign", "-m", "add attributes"],
+        );
+        run_git(
+            root,
+            &[
+                "config",
+                "diff.review-test.textconv",
+                script.to_str().unwrap(),
+            ],
+        );
+        fs::write(root.join("tracked.txt"), "after\n").unwrap();
+
+        let diff = collect_diff(root, None, &[]).unwrap();
+        assert!(diff.contains("-before"));
+        assert!(diff.contains("+after"));
+        assert!(!marker.exists());
     }
 
     #[cfg(any(unix, windows))]

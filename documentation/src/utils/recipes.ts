@@ -7,14 +7,13 @@ const recipeFiles = require.context(
   /\.ya?ml$/
 );
 
+const allRecipes = loadAllRecipes();
+
 export function getRecipeById(id: string): Recipe | null {
-  const allRecipes = loadAllRecipes();
   return allRecipes.find((recipe) => recipe.id === id) || null;
 }
 
 export async function searchRecipes(query: string): Promise<Recipe[]> {
-  const allRecipes = loadAllRecipes();
-
   if (!query) return allRecipes;
 
   return allRecipes.filter((r) =>
@@ -26,14 +25,29 @@ export async function searchRecipes(query: string): Promise<Recipe[]> {
 }
 
 function loadAllRecipes(): Recipe[] {
+  const sourceById = new Map<string, string>();
+
   return recipeFiles.keys().map((key: string) => {
     const parsed = recipeFiles(key).default || recipeFiles(key);
-    const id = key.replace(/^.*[\\/]/, "").replace(/\.(yaml|yml)$/, "");
-    return normalizeRecipe({ ...parsed, id });
+    const sourceFile = key.replace(/^.*[\\/]/, "");
+    const id = sourceFile.replace(/\.(yaml|yml)$/, "");
+    const existingSource = sourceById.get(id);
+
+    if (existingSource) {
+      throw new Error(
+        `Ambiguous recipe ID "${id}" from "${existingSource}" and "${sourceFile}"`
+      );
+    }
+
+    sourceById.set(id, sourceFile);
+    return normalizeRecipe(
+      { ...parsed, id },
+      `documentation/src/pages/recipes/data/recipes/${sourceFile}`
+    );
   });
 }
 
-function normalizeRecipe(recipe: any): Recipe {
+function normalizeRecipe(recipe: any, localPath: string): Recipe {
   const cleaned: Recipe = {
     id: recipe.id || recipe.title?.toLowerCase().replace(/\s+/g, "-") || "untitled-recipe",
     title: recipe.title || "Untitled Recipe",
@@ -55,7 +69,7 @@ function normalizeRecipe(recipe: any): Recipe {
     persona: recipe.persona || undefined,
     tags: recipe.tags || [],
     recipeUrl: "",
-    localPath: `documentation/src/pages/recipes/data/recipes/${recipe.id}.yaml`,
+    localPath,
   };
 
   // Add parameters and populate missing required values

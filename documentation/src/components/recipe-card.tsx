@@ -2,6 +2,7 @@
 import React, { useState } from "react";
 import toast from "react-hot-toast";
 import Link from "@docusaurus/Link";
+import { buildRecipeCliCommand } from "@site/src/utils/recipe-command";
 
 export type Recipe = {
   id: string;
@@ -10,6 +11,7 @@ export type Recipe = {
   extensions: string[];
   activities: string[];
   recipeUrl: string;
+  localPath: string;
   action?: string;
   author?: {
     contact?: string;
@@ -33,7 +35,7 @@ export function RecipeCard({ recipe }: { recipe: Recipe }) {
       setShowParamPrompt(true);
       return;
     }
-    const command = `goose run --recipe documentation/src/pages/recipes/data/recipes/${recipe.id}.yaml`;
+    const command = buildRecipeCliCommand(recipe.localPath);
     navigator.clipboard.writeText(command);
     toast.success("CLI command copied!");
   };
@@ -42,7 +44,7 @@ export function RecipeCard({ recipe }: { recipe: Recipe }) {
     const filledParams = Object.entries(paramValues)
       .map(([key, val]) => `${key}=${val}`)
       .join(" ");
-    const command = `goose run --recipe documentation/src/pages/recipes/data/recipes/${recipe.id}.yaml --params ${filledParams}`;
+    const command = buildRecipeCliCommand(recipe.localPath, filledParams);
     navigator.clipboard.writeText(command);
     setShowParamPrompt(false);
     toast.success("CLI command copied with params!");

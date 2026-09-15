@@ -10,6 +10,7 @@ import { getRecipeById } from "@site/src/utils/recipes";
 import type { Recipe } from "@site/src/components/recipe-card";
 import toast from "react-hot-toast";
 import ReactMarkdown from "react-markdown";
+import { buildRecipeCliCommand } from "@site/src/utils/recipe-command";
 
 const colorMap: { [key: string]: string } = {
   "GitHub MCP": "bg-yellow-100 text-yellow-800 border-yellow-200",
@@ -61,26 +62,28 @@ export default function RecipeDetailPage(): JSX.Element {
   const requiredParams = allParams.filter((p) => p.requirement === "required");
 
   const handleCopyCLI = () => {
+    if (!recipe) return;
+
     if (allParams.length > 0) {
       setParamValues({});
       setShowParamsPrompt(true);
       return;
     }
 
-    const command = `goose run --recipe ${recipe?.localPath}`;
+    const command = buildRecipeCliCommand(recipe.localPath);
     navigator.clipboard.writeText(command);
     toast.success("CLI command copied!");
   };
 
   const handleSubmitParams = () => {
+    if (!recipe) return;
+
     const filledParams = Object.entries(paramValues)
       .filter(([, val]) => val !== "")
       .map(([key, val]) => `${key}=${val}`)
       .join(" ");
 
-    const command = `goose run --recipe ${recipe?.localPath}${
-      filledParams ? ` --params ${filledParams}` : ""
-    }`;
+    const command = buildRecipeCliCommand(recipe.localPath, filledParams);
 
     navigator.clipboard.writeText(command);
     toast.success("CLI command copied with params!");

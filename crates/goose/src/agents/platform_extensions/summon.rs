@@ -1736,21 +1736,19 @@ impl SummonClient {
             .and_then(serde_json::Value::as_str);
         let matches_provider =
             |candidate: Option<&str>| candidate.is_none() || candidate == Some(provider_name);
-        let model = env_model
+        let model = recipe_settings
+            .and_then(|settings| settings.goose_model.clone())
+            .filter(|_| {
+                matches_provider(
+                    recipe_settings.and_then(|settings| settings.goose_provider.as_deref()),
+                )
+            })
+            .or_else(|| env_model.clone())
             .or_else(|| {
                 params
                     .model
                     .clone()
                     .filter(|_| matches_provider(params.provider.as_deref()))
-            })
-            .or_else(|| {
-                recipe_settings
-                    .and_then(|settings| settings.goose_model.clone())
-                    .filter(|_| {
-                        matches_provider(
-                            recipe_settings.and_then(|settings| settings.goose_provider.as_deref()),
-                        )
-                    })
             })
             .or_else(|| {
                 configured_model
@@ -1820,15 +1818,12 @@ impl SummonClient {
         anyhow::Error,
     > {
         let env_provider = std::env::var("GOOSE_SUBAGENT_PROVIDER").ok();
-        let provider_name = env_provider
-            .clone()
+        let provider_name = recipe
+            .settings
+            .as_ref()
+            .and_then(|s| s.goose_provider.clone())
+            .or_else(|| env_provider.clone())
             .or_else(|| params.provider.clone())
-            .or_else(|| {
-                recipe
-                    .settings
-                    .as_ref()
-                    .and_then(|s| s.goose_provider.clone())
-            })
             .or_else(|| {
                 Config::global()
                     .get_param::<String>("GOOSE_SUBAGENT_PROVIDER")
@@ -3243,7 +3238,7 @@ You review code."#;
 
     #[tokio::test]
     #[serial]
-    async fn test_resolve_model_config_env_var_overrides_recipe_model() {
+    async fn test_resolve_model_config_recipe_overrides_env_var() {
         let _env = env_lock::lock_env([
             ("GOOSE_CONTEXT_LIMIT", None::<&str>),
             ("GOOSE_MAX_TOKENS", None::<&str>),
@@ -3268,8 +3263,43 @@ You review code."#;
             )
             .expect("resolve_model_config");
         assert_eq!(
-            result.model_name, OVERRIDE_MODEL,
-            "GOOSE_SUBAGENT_MODEL must take priority over recipe settings"
+            result.model_name, "recipe-model",
+            "recipe settings.goose_model must take priority over GOOSE_SUBAGENT_MODEL"
+        );
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_resolve_provider_recipe_overrides_env_var() {
+        let _env = env_lock::lock_env([
+            ("GOOSE_CONTEXT_LIMIT", None::<&str>),
+            ("GOOSE_MAX_TOKENS", None::<&str>),
+            ("GOOSE_SUBAGENT_PROVIDER", Some("openai")),
+            ("GOOSE_SUBAGENT_MODEL", None::<&str>),
+            ("ANTHROPIC_API_KEY", Some("test-key")),
+        ]);
+
+        let client = SummonClient::new(create_test_context()).unwrap();
+        let mut recipe = empty_recipe();
+        recipe.settings = Some(crate::recipe::Settings {
+            goose_provider: Some(PROVIDER.to_string()),
+            goose_model: None,
+            temperature: None,
+            max_turns: None,
+        });
+        let (resolved_provider, _) = client
+            .resolve_provider(
+                &DelegateParams::default(),
+                &recipe,
+                &session_with(parent_config()),
+                &[],
+            )
+            .await
+            .expect("resolve_provider");
+        assert_eq!(
+            resolved_provider.get_name(),
+            PROVIDER,
+            "recipe settings.goose_provider must take priority over GOOSE_SUBAGENT_PROVIDER"
         );
     }
 
@@ -3285,33 +3315,16 @@ You review code."#;
         ]);
 
         let client = SummonClient::new(create_test_context()).unwrap();
-        let params = DelegateParams {
-            provider: Some("openai".to_string()),
-            model: Some("model-for-another-provider".to_string()),
-            ..Default::default()
-        };
-        let mut recipe = empty_recipe();
-        recipe.settings = Some(crate::recipe::Settings {
-            goose_provider: Some("openai".to_string()),
-            goose_model: Some("recipe-model-for-another-provider".to_string()),
-            temperature: None,
-            max_turns: None,
-        });
+        let params = DelegateParams::default();
         let default_model = providers::get_from_registry(PROVIDER)
             .await
             .unwrap()
             .metadata()
             .default_model
             .clone();
-        let session = crate::session::Session {
-            provider_name: Some("openai".to_string()),
-            model_config: Some(goose_providers::model::ModelConfig::new(
-                "parent-openai-model",
-            )),
-            ..Default::default()
-        };
+        let session = crate::session::Session::default();
         let (_, result) = client
-            .resolve_provider(&params, &recipe, &session, &[])
+            .resolve_provider(&params, &empty_recipe(), &session, &[])
             .await
             .expect("resolve_provider");
 

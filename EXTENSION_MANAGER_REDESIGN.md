@@ -1,16 +1,19 @@
 # Extension manager redesign
 
-Status: proposal, revised twice after review. Nothing here is implemented yet.
+Status: active design and implementation tracker. The cleanup in step 1 shipped in
+[#11645](https://github.com/aaif-goose/goose/pull/11645). The transport extraction in
+step 2 is implemented in
+[#12088](https://github.com/aaif-goose/goose/pull/12088) and awaiting review. The main
+design is tracked in [#12084](https://github.com/aaif-goose/goose/issues/12084).
 
 ## Why
 
-`crates/goose/src/agents/extension_manager.rs` is 2,720 lines before the test module.
-It is a `Mutex<HashMap<String, Extension>>` plus everything that has ever needed to
-touch it. Seven distinct jobs live in one file:
+At the start of this work, `crates/goose/src/agents/extension_manager.rs` was 2,720
+lines before the test module. It was a `Mutex<HashMap<String, Extension>>` plus
+everything that had ever needed to touch it. Seven distinct jobs lived in one file:
 
 1. Transport construction — process spawn, PATH resolution, stderr capture, docker
-   exec, unix sockets, and the OAuth refresh / 401 / browser-fallback dance. This is
-   everything above `impl ExtensionManager` at line 1370.
+   exec, unix sockets, and the OAuth refresh / 401 / browser-fallback dance.
 2. The registry of live clients, keyed by `name_to_key`.
 3. Tool catalog assembly — fan-out `tools/list`, pagination, prefixing,
    `available_tools` filtering, schema normalization, dedupe, caching.
@@ -42,12 +45,11 @@ global catalog.
 `Agent::add_extension` fetches the session, passes `working_dir`, the container and the
 session id, then persists session state. `ExtensionManagerClient::manage_extensions_impl`
 upgrades the `Weak<ExtensionManager>` out of `PlatformExtensionContext` and calls
-`add_extension(config, None, None, None)`
-(`crates/goose/src/agents/platform_extensions/ext_manager.rs:191`). So when the *model*
-enables an extension it starts in the process cwd instead of the session working dir,
-outside the docker container, without `AGENT_SESSION_ID`, and is never persisted.
-Disable has the mirror problem: it skips `remove_frontend_extension` and persistence.
-This is a live bug and it is a direct consequence of the layering.
+`add_extension(config, None, None, None)`. So when the *model* enables an extension it
+starts in the process cwd instead of the session working dir, outside the docker
+container and without `AGENT_SESSION_ID`. Both agent loops now persist successful model
+changes after the tool call, but startup context and persistence still have different
+owners. This is a live bug and it is a direct consequence of the layering.
 
 ## Protocol context
 
@@ -95,73 +97,25 @@ goose today is an initialize-based client (`McpClient::connect` → `serve` →
 `peer_info`). Supporting the 2026 protocol is separate work; this redesign should avoid
 making it harder, which mostly means not baking the old handshake into the cache format.
 
-## Two things to delete
+## Completed cleanup
 
-### The planning prompt
+[#11645](https://github.com/aaif-goose/goose/pull/11645) removed code that did not
+belong in the redesign:
 
-`get_planning_prompt` (`extension_manager.rs:2060`) has exactly one caller
-(`agent.rs:3960`). But `plan.md` itself is a documented, user-editable prompt template,
-listed in `documentation/docs/guides/context-engineering/prompt-templates.md` as
-CLI-only. So delete the method, keep the template, render it at the call site or in
-`prompt_manager`. No feature loss.
+- `get_planning_prompt` was removed from the extension manager. The documented,
+  user-editable `plan.md` template remains and is rendered by the agent.
+- Frontend extensions and `FrontendToolRequest` were removed from configuration,
+  runtime handling, providers and the UI.
+- Inline Python extensions were removed.
+- The obsolete `Sse` runtime variant was removed. Configuration loading still detects
+  raw `type: sse` entries so users get the targeted migration warning.
 
-### Frontend extensions
-
-Dead in every current front end. ACP skips the variant when listing
-(`crates/goose/src/acp/server/extensions.rs:248`) and hard-bails on it in recipes
-(`crates/goose/src/acp/server/recipe/conversions.rs:457`). The CLI has no front end to
-call back into. Nothing outside tests constructs one.
-
-The runtime blast radius is wide and all of it is subtraction:
-
-- `MessageContent::FrontendToolRequest`, matched in seven provider formats (anthropic,
-  openai, openai_responses, databricks, snowflake, bedrock, openrouter).
-- The `is_frontend_tool` branch in `crates/goose/src/agents/tool_execution.rs:250`.
-- `frontend_instructions` threading through `prompt_manager` and both agent loops.
-- `Agent`'s `frontend_extensions` / `frontend_tools` / `frontend_instructions` fields
-  and the union logic in `list_tools`, `list_extensions`, `get_extension_configs`,
-  `total_extension_and_tool_counts`, `add_extension_inner` and `remove_extension` —
-  roughly 120 lines.
-
-**The risk is deserialization of historical data, not runtime.** Both
-`ExtensionConfig` and `MessageContentBlock` are `#[serde(tag = "type")]`, so removing a
-variant means old data mentioning it stops parsing. Four call sites, and they differ:
-
-- **Config file — safe.** `parse_extensions_map`
-  (`crates/goose/src/config/extensions.rs:54`) parses each entry individually and logs
-  and skips on error. A stale `type: frontend` entry just disappears.
-- **Session extension state — silent data loss.** `EnabledExtensionsState` holds a
-  `Vec<ExtensionConfig>` deserialized as one unit, and
-  `ExtensionState::from_extension_data` swallows the error with `.ok()`
-  (`crates/goose/src/session/extension_data.rs:69`). One unrecognised variant anywhere
-  in the vec makes the whole state return `None`, and `extensions_or_default` silently
-  falls back to global config. The session does not crash — it quietly loses its
-  per-session extension set with no error message.
-- **Persisted conversations — hard failure.** This is the worst one.
-  `session_manager.rs:1887` deserializes each message's content with
-  `serde_json::from_str(&content_json)?` inside the row loop, and the `?` propagates out
-  of the whole function. A single historical message containing a
-  `frontendToolRequest` block makes the **entire session fail to load**, not just lose
-  one message. Frontend tools were used by the pre-ACP Electron UI, so such messages
-  plausibly exist in real users' history.
-- **Recipes — already loud.** `recipe_extension_adapter.rs` carries its own
-  `#[serde(rename = "frontend")]` and ACP already bails, so failure here is loud and
-  pre-existing.
-
-Fix, in two parts:
-
-- Keep `FrontendToolRequest` as a **deserialize-only tombstone** in
-  `MessageContentBlock`, rendered as inert text. Remove every piece of runtime handling;
-  keep the wire variant so history still loads. This is not optional.
-- For session extension state, use per-element tolerant deserialization (or an
-  `Unknown` tombstone variant) so unrecognised entries drop individually with a warning
-  instead of taking the whole list down.
-
-Removing `Sse` has a smaller version of the same problem: `get_warnings`
-(`crates/goose/src/config/extensions.rs:275`) matches specifically on
-`ExtensionConfig::Sse` to tell users to migrate to `streamable_http`. Delete the variant
-and that targeted message degrades to a generic "skipping malformed entry" log. Keep a
-config-level tombstone if we still want to nudge people.
+We deliberately did not keep tombstone variants or add tolerant deserialization. These
+features were experimental and effectively unused, so carrying compatibility machinery
+would cost more than it protects. A session containing an old frontend or inline-Python
+extension may fall back to the default extension set. A persisted conversation containing
+`FrontendToolRequest` may fail to load. That compatibility break was accepted in
+[#11642](https://github.com/aaif-goose/goose/issues/11642).
 
 ## Target design
 
@@ -308,9 +262,9 @@ sharing a connection means one silently gets the wrong roots, and for the develo
 extension that means reading the wrong tree. Under MRTR this goes away, but it binds
 every server we talk to today.
 
-Either way `update_working_dir` (`extension_manager.rs:1778`), which mutates that shared
-lock and fires `roots/list_changed`, stops existing. Changing directory means presenting
-a set with a different `working_dir`.
+Either way `update_working_dir`, which mutates that shared lock and fires
+`roots/list_changed`, stops existing. Changing directory means presenting a set with a
+different `working_dir`.
 
 ### The lease owns the catalog
 
@@ -493,43 +447,41 @@ cancel, no shutdown handshake. Teardown relies entirely on `RunningService` bein
 when the `Extension` leaves the HashMap, which kills the child. No graceful shutdown, no
 reaping timeout, no idle eviction.
 
-## Sequence
+## Sequence and progress
 
-Steps 1-4 are refactors with no user-visible behaviour change and need no flag.
-
-1. **Delete.** Planning prompt method, frontend extensions, `Sse` variant — with the
-   `FrontendToolRequest` message tombstone and the session-state tolerance described
-   above. Largest diff; the risk is entirely historical-data compatibility, and it is
-   now identified.
-2. **Extract transports.** One module per variant, each a
+1. **Done — cleanup.** The planning prompt method, frontend extensions, inline Python
+   extensions and the `Sse` runtime variant were removed in
+   [#11645](https://github.com/aaif-goose/goose/pull/11645).
+2. **In review — extract transports.** One module per variant, each a
    `connect(&ConnectContext) -> Box<dyn McpClientTrait>`. `ConnectContext` replaces the
    parameter parade. Removes both `#[allow(too_many_arguments)]` and
-   `#[allow(too_many_lines)]`.
-3. **Resolve secrets once.** `add_extension` currently calls `config.resolve()` to
+   `#[allow(too_many_lines)]`. Implemented in
+   [#12088](https://github.com/aaif-goose/goose/pull/12088).
+3. **Next — resolve secrets once.** `add_extension` currently calls `config.resolve()` to
    compare against the stored snapshot, then each branch calls `merge_environments` and
    `substitute_env_vars` again to build the command. `resolve()` covers Stdio and
    StreamableHttp only; other branches inline it. Resolve once, build from the resolved
    config, and `Extension::resolved_config` stops needing to be kept in sync. This is
    where the sanitized connection fingerprint gets defined.
-4. **`ExtensionSet` / `ExtensionScopeContext` / `ExtensionLease` / `ExtensionHost`.**
+4. **Pending — `ExtensionSet` / `ExtensionScopeContext` / `ExtensionLease` /
+   `ExtensionHost`.**
    Slots and the catalog, `session_id` off the signatures, host relocated above `Agent`,
    platform extension context rebuilt, and `manage_extensions` converted to emit a
    desired-state mutation. Scope id stays in `RuntimeKey` throughout.
-5. **Explicit lifecycle.** The three reference kinds, graceful shutdown with a timeout
-   before SIGKILL, idle eviction of running-but-selected slots.
-6. **Manifest cache, lazy start, `warm`/`validate`.** The step users will feel.
-7. **Sharing policy.** `Shared` for stateless 2026 HTTP; everything else `Scoped`. Gated
-   on 2026 protocol support existing.
+5. **Pending — explicit lifecycle.** The three reference kinds, graceful shutdown with
+   a timeout before SIGKILL, idle eviction of running-but-selected slots.
+6. **Pending — manifest cache, lazy start, `warm`/`validate`.** The step users will feel.
+7. **Pending — sharing policy.** `Shared` for stateless 2026 HTTP; everything else
+   `Scoped`. Gated on 2026 protocol support existing.
 
 ## Constraints
 
 `AGENTS.md` requires agent-loop changes to land in both `agent.rs` and `state_machine/`
 until the migration completes. `ops_toolcalling.rs` and `ops_llm.rs` both call into the
-manager, so steps 1 and 4 need parity work in both paths.
+manager, so future agent-loop changes, especially step 4, need parity in both paths.
 
-Steps 1-3 can go up as one PR each. Step 4 needs agreement on the issue first —
-specifically on where `ExtensionHost` lives and what replaces
-`PlatformExtensionContext`.
+Step 3 can land independently. Step 4 needs agreement on the issue first — specifically
+on where `ExtensionHost` lives and what replaces `PlatformExtensionContext`.
 
 ## Open questions
 

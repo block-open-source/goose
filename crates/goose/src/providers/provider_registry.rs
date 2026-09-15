@@ -1,11 +1,15 @@
 use super::api_client::TlsConfig;
 use super::base::{ConfigKey, ModelInfo, Provider, ProviderDef, ProviderMetadata, ProviderType};
 use super::inventory::{InventoryIdentityInput, InventoryRegistration, InventoryResolvers};
+use crate::acp::{extension_configs_to_mcp_servers, AcpProvider, AcpProviderConfig};
+use crate::config::{Config, GooseMode};
 use crate::config::{DeclarativeProviderConfig, ExtensionConfig};
+use crate::providers::base::current_working_dir;
 use anyhow::Result;
 use futures::future::BoxFuture;
 use goose_providers::model::ModelConfig;
 use std::collections::HashMap;
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -154,6 +158,119 @@ impl ProviderRegistry {
                 supports_inventory_refresh: inventory.supports_refresh,
                 tls_config: self.tls_config.clone(),
                 toolshim: false,
+            },
+        );
+    }
+
+    pub fn register_generic_acp(
+        &mut self,
+        config: &goose_providers::declarative::DeclarativeProviderConfig,
+        provider_type: ProviderType,
+    ) {
+        let acp = config.acp.clone().expect("ACP config is required");
+        let metadata = ProviderMetadata {
+            name: config.name.clone(),
+            display_name: config.display_name.clone(),
+            description: config.description.clone().unwrap_or_else(|| {
+                format!("Use {} via Agent Client Protocol.", config.display_name)
+            }),
+            default_model: config
+                .models
+                .first()
+                .map(|m| m.name.clone())
+                .unwrap_or_default(),
+            known_models: config.models.clone(),
+            model_doc_link: config.model_doc_link.clone().unwrap_or_default(),
+            config_keys: Vec::new(),
+            setup_steps: config.setup_steps.clone(),
+            setup: config.setup.clone(),
+            deprecated: None,
+        };
+        let name = config.name.clone();
+        let registry_name = name.clone();
+        let display_name = config.display_name.clone();
+        let command = acp.command.clone();
+        let args = acp.args.clone();
+        let env = acp.env.clone();
+        let env_remove = acp.env_remove.clone();
+        let configured_work_dir = acp.work_dir.clone();
+        let mode_mapping = acp.mode_mapping.clone();
+        let model_config_option_id = acp.model_config_option_id.clone();
+        let session_config_options = acp.session_config_options.clone();
+        let default_model = metadata.default_model.clone();
+        let constructor: ProviderConstructor =
+            Arc::new(move |extensions, working_dir, _tls, use_default_model| {
+                let command = command.clone();
+                let args = args.clone();
+                let env = env.clone();
+                let env_remove = env_remove.clone();
+                let mode_mapping = mode_mapping.clone();
+                let model_config_option_id = model_config_option_id.clone();
+                let mut session_config_options = session_config_options.clone();
+                let work_dir = configured_work_dir
+                    .clone()
+                    .or(working_dir)
+                    .unwrap_or_else(current_working_dir);
+                let name = registry_name.clone();
+                let _display_name = display_name.clone();
+                let default_model = default_model.clone();
+                Box::pin(async move {
+                    let resolved_command = if Path::new(&command).is_absolute()
+                        || command.contains(std::path::MAIN_SEPARATOR)
+                    {
+                        let path = Path::new(&command);
+                        if path.is_absolute() {
+                            path.to_path_buf()
+                        } else {
+                            work_dir.join(path)
+                        }
+                    } else {
+                        crate::config::search_path::SearchPaths::builder()
+                            .with_npm()
+                            .resolve(&command)?
+                    };
+                    if !use_default_model
+                        && session_config_options.is_empty()
+                        && !default_model.is_empty()
+                        && model_config_option_id.as_deref() == Some("model")
+                    {
+                        session_config_options.push(("model".to_string(), default_model));
+                    }
+                    let goose_mode = Config::global().get_goose_mode().unwrap_or(GooseMode::Auto);
+                    let provider_config = AcpProviderConfig {
+                        command: resolved_command,
+                        args,
+                        env,
+                        env_remove,
+                        work_dir,
+                        mcp_servers: extension_configs_to_mcp_servers(&extensions),
+                        session_mode_id: None,
+                        session_config_options,
+                        model_config_option_id,
+                        mode_mapping,
+                        notification_callback: None,
+                    };
+                    Ok(
+                        Arc::new(AcpProvider::connect(name, goose_mode, provider_config).await?)
+                            as Arc<dyn Provider>,
+                    )
+                })
+            });
+        let inventory_name = config.name.clone();
+        self.entries.insert(
+            name,
+            ProviderEntry {
+                metadata,
+                constructor,
+                inventory_identity: Arc::new(move || {
+                    Ok(InventoryIdentityInput::new(inventory_name.clone(), "acp"))
+                }),
+                inventory_configured: Arc::new(|| true),
+                cleanup: None,
+                provider_type,
+                supports_inventory_refresh: false,
+                tls_config: self.tls_config.clone(),
+                toolshim: config.toolshim,
             },
         );
     }
@@ -337,14 +454,17 @@ impl ProviderRegistry {
         self
     }
 
+    pub fn entry(&self, name: &str) -> Option<&ProviderEntry> {
+        self.entries.get(name)
+    }
+
     pub async fn create(
         &self,
         name: &str,
         extensions: Vec<ExtensionConfig>,
     ) -> Result<Arc<dyn Provider>> {
         let entry = self
-            .entries
-            .get(name)
+            .entry(name)
             .ok_or_else(|| anyhow::anyhow!("Unknown provider: {}", name))?;
 
         entry.create(extensions).await
@@ -394,7 +514,36 @@ mod tests {
             preserves_thinking: false,
             emit_clear_thinking: false,
             setup: None,
+            acp: None,
         }
+    }
+
+    #[test]
+    fn generic_acp_registration_exposes_custom_metadata() {
+        let mut registry = ProviderRegistry::new(None);
+        let mut config = test_config();
+        config.name = "pi-custom-acp".to_string();
+        config.display_name = "Pi custom ACP".to_string();
+        config.engine = ProviderEngine::Acp;
+        config.base_url.clear();
+        config.requires_auth = false;
+        config.acp = Some(goose_providers::declarative::DeclarativeAcpConfig {
+            command: "pi-acp".to_string(),
+            args: vec!["--mode".to_string(), "acp".to_string()],
+            env: vec![],
+            env_remove: vec![],
+            work_dir: None,
+            mode_mapping: HashMap::new(),
+            model_config_option_id: None,
+            session_config_options: vec![],
+        });
+
+        registry.register_generic_acp(&config, ProviderType::Custom);
+        let entry = registry.entries.get("pi-custom-acp").unwrap();
+        assert_eq!(entry.metadata().display_name, "Pi custom ACP");
+        assert_eq!(entry.provider_type(), ProviderType::Custom);
+        assert!(entry.metadata().config_keys.is_empty());
+        assert_eq!(entry.inventory_identity().unwrap().provider_family, "acp");
     }
 
     #[test]

@@ -1,7 +1,7 @@
 #[macro_use]
 mod macros;
 
-use std::{collections::HashMap, path::Path, str::FromStr};
+use std::{collections::HashMap, path::Path, path::PathBuf, str::FromStr};
 
 use anyhow::Result;
 use include_dir::{include_dir, Dir};
@@ -67,6 +67,7 @@ use crate::{
     anthropic,
     api_client::TlsConfig,
     base::{ModelInfo, Provider},
+    goose_mode::GooseMode,
     ollama, openai,
 };
 
@@ -101,6 +102,7 @@ pub enum ProviderEngine {
     Ollama,
     #[serde(alias = "anthropic_compatible")]
     Anthropic,
+    Acp,
 }
 
 impl FromStr for ProviderEngine {
@@ -111,6 +113,7 @@ impl FromStr for ProviderEngine {
             "openai" | "openai_compatible" => Ok(Self::OpenAI),
             "anthropic" | "anthropic_compatible" => Ok(Self::Anthropic),
             "ollama" | "ollama_compatible" => Ok(Self::Ollama),
+            "acp" => Ok(Self::Acp),
             _ => Err(anyhow::anyhow!("Invalid provider type: {}", engine)),
         }
     }
@@ -143,6 +146,25 @@ pub struct AuthConfig {
 
 fn default_refresh_interval() -> u64 {
     3600
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeclarativeAcpConfig {
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub env: Vec<(String, String)>,
+    #[serde(default)]
+    pub env_remove: Vec<String>,
+    #[serde(default)]
+    pub work_dir: Option<PathBuf>,
+    #[serde(default)]
+    pub mode_mapping: HashMap<GooseMode, Vec<String>>,
+    #[serde(default)]
+    pub model_config_option_id: Option<String>,
+    #[serde(default)]
+    pub session_config_options: Vec<(String, String)>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -196,6 +218,8 @@ pub struct DeclarativeProviderConfig {
     pub emit_clear_thinking: bool,
     #[serde(default)]
     pub setup: Option<goose_provider_types::canonical::catalog::ProviderSetupMetadata>,
+    #[serde(default)]
+    pub acp: Option<DeclarativeAcpConfig>,
 }
 
 fn default_requires_auth() -> bool {
@@ -234,6 +258,28 @@ impl DeclarativeProviderConfig {
         if self.auth.is_some() && !self.api_key_env.is_empty() {
             anyhow::bail!(
                 "Provider '{}' sets both `api_key_env` and `auth.command`; these are mutually exclusive.",
+                self.name
+            );
+        }
+        if let Some(acp) = &self.acp {
+            if self.engine != ProviderEngine::Acp {
+                anyhow::bail!(
+                    "Provider '{}' has ACP fields but is not an ACP provider.",
+                    self.name
+                );
+            }
+            if acp.command.trim().is_empty() {
+                anyhow::bail!("Provider '{}' has an empty ACP command.", self.name);
+            }
+            if !self.base_url.is_empty() || !self.api_key_env.is_empty() || self.auth.is_some() {
+                anyhow::bail!(
+                    "Provider '{}' mixes ACP and HTTP authentication fields.",
+                    self.name
+                );
+            }
+        } else if self.engine == ProviderEngine::Acp {
+            anyhow::bail!(
+                "Provider '{}' uses the ACP engine without ACP fields.",
                 self.name
             );
         }
@@ -367,6 +413,9 @@ pub fn from_json(
             anthropic::from_declarative_config(config, tls_config, key_resolver)
                 .map(|provider| Box::new(provider.build()) as Box<dyn Provider>)
         }
+        ProviderEngine::Acp => {
+            anyhow::bail!("ACP providers are constructed by goose, not goose-providers")
+        }
     }
 }
 
@@ -386,6 +435,48 @@ mod tests {
             "supports_cache_control": null,
             "reasoning": false
         })
+    }
+
+    #[test]
+    fn acp_config_requires_matching_engine_and_command() {
+        let valid = serde_json::from_value::<DeclarativeProviderConfig>(json!({
+            "name": "pi-custom-acp",
+            "engine": "acp",
+            "display_name": "Pi custom ACP",
+            "base_url": "",
+            "models": [],
+            "requires_auth": false,
+            "acp": {
+                "command": "pi-acp",
+                "args": ["--mode", "acp"]
+            }
+        }))
+        .unwrap();
+        valid.validate_auth().unwrap();
+
+        let missing_command = serde_json::from_value::<DeclarativeProviderConfig>(json!({
+            "name": "broken-acp",
+            "engine": "acp",
+            "display_name": "Broken ACP",
+            "base_url": "",
+            "models": [],
+            "requires_auth": false,
+            "acp": {"command": "   "}
+        }))
+        .unwrap();
+        assert!(missing_command.validate_auth().is_err());
+
+        let mixed = serde_json::from_value::<DeclarativeProviderConfig>(json!({
+            "name": "mixed-acp",
+            "engine": "acp",
+            "display_name": "Mixed ACP",
+            "base_url": "https://example.invalid",
+            "models": [],
+            "requires_auth": false,
+            "acp": {"command": "pi-acp"}
+        }))
+        .unwrap();
+        assert!(mixed.validate_auth().is_err());
     }
 
     #[test]

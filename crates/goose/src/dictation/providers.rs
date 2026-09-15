@@ -537,6 +537,10 @@ fn resolve_model_native_config(
                     provider_name
                 )
             }
+            ProviderEngine::Acp => anyhow::bail!(
+                "Provider '{}' uses ACP and does not support model-native dictation",
+                provider_name
+            ),
         }
         // Resolve env var placeholders (e.g. ${LMSTUDIO_HOST}) in base_url
         if let Some(ref env_vars) = cfg.env_vars {

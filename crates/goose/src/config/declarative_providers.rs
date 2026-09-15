@@ -135,6 +135,7 @@ pub fn generate_api_key_name(id: &str) -> String {
 #[derive(Debug, Clone)]
 pub struct CreateCustomProviderParams {
     pub engine: String,
+    pub acp: Option<DeclarativeAcpConfig>,
     pub display_name: String,
     pub api_url: String,
     pub api_key: Option<String>,
@@ -153,6 +154,7 @@ pub struct CreateCustomProviderParams {
 #[derive(Debug, Clone)]
 pub struct UpdateCustomProviderParams {
     pub id: String,
+    pub acp: Option<DeclarativeAcpConfig>,
     pub engine: String,
     pub display_name: String,
     pub api_url: String,
@@ -203,6 +205,47 @@ pub fn create_custom_provider(
     let model_infos = params.models;
 
     let engine = ProviderEngine::from_str(&params.engine)?;
+    if engine == ProviderEngine::Acp {
+        let acp = params
+            .acp
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("ACP configuration is required"))?;
+        let provider_config = DeclarativeProviderConfig {
+            name: id.clone(),
+            engine,
+            display_name: params.display_name.clone(),
+            description: Some(format!("Custom {} ACP provider", params.display_name)),
+            api_key_env: String::new(),
+            base_url: String::new(),
+            models: model_infos,
+            headers: None,
+            session_id_header_override: None,
+            timeout_seconds: None,
+            supports_streaming: None,
+            requires_auth: false,
+            catalog_provider_id: None,
+            base_path: None,
+            env_vars: None,
+            auth: None,
+            dynamic_models: Some(false),
+            skip_canonical_filtering: true,
+            model_doc_link: None,
+            setup_steps: vec!["Authenticate the configured ACP agent separately.".to_string()],
+            toolshim: false,
+            preserves_thinking: false,
+            emit_clear_thinking: false,
+            setup: None,
+            acp: Some(acp),
+        };
+        provider_config.validate_auth()?;
+        let custom_providers_dir = custom_providers_dir();
+        std::fs::create_dir_all(&custom_providers_dir)?;
+        std::fs::write(
+            custom_providers_dir.join(format!("{}.json", id)),
+            serde_json::to_string_pretty(&provider_config)?,
+        )?;
+        return Ok(provider_config);
+    }
     let preserves_thinking = params
         .preserves_thinking
         .unwrap_or_else(|| should_preserve_thinking_by_default(&engine));
@@ -232,6 +275,7 @@ pub fn create_custom_provider(
         preserves_thinking,
         emit_clear_thinking: false,
         setup: None,
+        acp: params.acp,
     };
 
     let custom_providers_dir = custom_providers_dir();
@@ -315,6 +359,43 @@ pub fn update_custom_provider(params: UpdateCustomProviderParams) -> Result<()> 
             .collect();
 
         let engine = ProviderEngine::from_str(&params.engine)?;
+        if engine == ProviderEngine::Acp {
+            let acp = params
+                .acp
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("ACP configuration is required"))?;
+            let updated_config = DeclarativeProviderConfig {
+                name: params.id.clone(),
+                engine,
+                display_name: params.display_name,
+                description: existing_config.description,
+                api_key_env: String::new(),
+                base_url: String::new(),
+                models: model_infos,
+                headers: None,
+                session_id_header_override: None,
+                timeout_seconds: None,
+                supports_streaming: None,
+                requires_auth: false,
+                catalog_provider_id: None,
+                base_path: None,
+                env_vars: None,
+                auth: None,
+                dynamic_models: Some(false),
+                skip_canonical_filtering: true,
+                model_doc_link: None,
+                setup_steps: existing_config.setup_steps,
+                toolshim: false,
+                preserves_thinking: false,
+                emit_clear_thinking: false,
+                setup: existing_config.setup,
+                acp: Some(acp),
+            };
+            updated_config.validate_auth()?;
+            let file_path = custom_provider_file_path(&updated_config.name)?;
+            std::fs::write(file_path, serde_json::to_string_pretty(&updated_config)?)?;
+            return Ok(());
+        }
         let preserves_thinking = match params.preserves_thinking {
             Some(value) => value,
             None if existing_config.engine != engine => {
@@ -352,6 +433,7 @@ pub fn update_custom_provider(params: UpdateCustomProviderParams) -> Result<()> 
             preserves_thinking,
             emit_clear_thinking: existing_config.emit_clear_thinking,
             setup: existing_config.setup,
+            acp: existing_config.acp,
         };
 
         let file_path = custom_provider_file_path(&updated_config.name)?;
@@ -384,6 +466,7 @@ pub fn load_provider(id: &str) -> Result<LoadedProvider> {
     if custom_file_path.exists() {
         let content = std::fs::read_to_string(&custom_file_path)?;
         let config = deserialize_provider_config(&content)?;
+        config.validate_auth()?;
         return Ok(LoadedProvider {
             config,
             is_editable: true,
@@ -558,6 +641,7 @@ pub fn register_declarative_provider(
                 },
             );
         }
+        ProviderEngine::Acp => registry.register_generic_acp(&config, provider_type),
     }
 }
 
@@ -630,6 +714,7 @@ mod tests {
             preserves_thinking: true,
             emit_clear_thinking: false,
             setup: None,
+            acp: None,
         }
     }
 
@@ -805,6 +890,7 @@ mod tests {
         )]));
         let created = create_custom_provider(CreateCustomProviderParams {
             engine: "openai".to_string(),
+            acp: None,
             display_name: "Large Context".to_string(),
             api_url: "https://example.invalid/v1".to_string(),
             api_key: None,
@@ -822,6 +908,7 @@ mod tests {
 
         update_custom_provider(UpdateCustomProviderParams {
             id: created.name.clone(),
+            acp: None,
             engine: "openai".to_string(),
             display_name: created.display_name.clone(),
             api_url: created.base_url.clone(),
@@ -953,6 +1040,7 @@ mod tests {
             toolshim: false,
             preserves_thinking: None,
             auth: None,
+            acp: None,
         })
         .unwrap();
 

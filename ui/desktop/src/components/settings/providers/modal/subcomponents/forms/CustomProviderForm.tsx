@@ -3,7 +3,7 @@ import { Input } from '../../../../../ui/input';
 import { Select } from '../../../../../ui/Select';
 import { Button } from '../../../../../ui/button';
 import { SecureStorageNotice } from '../SecureStorageNotice';
-import type { UpdateCustomProviderRequest } from '../../../../../../types/providers';
+import type { CustomAcpConfig, UpdateCustomProviderRequest } from '../../../../../../types/providers';
 import type { ProviderTemplateDto } from '@aaif/goose-acp-client';
 import { Plus, X, Trash2, AlertTriangle, ExternalLink, Search, Settings } from 'lucide-react';
 import { cn } from '../../../../../../utils';
@@ -231,7 +231,7 @@ const i18n = defineMessages({
 
 type Step = 'choice' | 'catalog' | 'form';
 
-type ProviderEngine = 'openai_compatible' | 'anthropic_compatible' | 'ollama_compatible';
+type ProviderEngine = 'openai_compatible' | 'anthropic_compatible' | 'ollama_compatible' | 'acp';
 
 const ENGINE_ALIASES: Record<string, ProviderEngine> = {
   openai: 'openai_compatible',
@@ -240,10 +240,33 @@ const ENGINE_ALIASES: Record<string, ProviderEngine> = {
   anthropic_compatible: 'anthropic_compatible',
   ollama: 'ollama_compatible',
   ollama_compatible: 'ollama_compatible',
+  acp: 'acp',
 };
 
 const normalizeEngine = (engine: string): ProviderEngine =>
   ENGINE_ALIASES[engine.trim().toLowerCase()] ?? 'openai_compatible';
+
+const parseNameValueLines = (value: string): [string, string][] =>
+  value
+    .split('\n')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      const separator = entry.indexOf('=');
+      return separator < 0
+        ? ([entry, ''] as [string, string])
+        : ([entry.slice(0, separator).trim(), entry.slice(separator + 1)] as [string, string]);
+    })
+    .filter(([name]) => name.length > 0);
+
+const formatNameValueLines = (entries?: [string, string][]): string =>
+  entries?.map(([name, value]) => `${name}=${value}`).join('\n') ?? '';
+
+const parseCommaSeparated = (value: string): string[] =>
+  value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
 
 interface CustomProviderFormProps {
   onSubmit: (data: UpdateCustomProviderRequest) => void | Promise<void>;
@@ -267,10 +290,18 @@ export default function CustomProviderForm({
     { value: 'openai_compatible', label: intl.formatMessage(i18n.openaiCompatible) },
     { value: 'anthropic_compatible', label: intl.formatMessage(i18n.anthropicCompatible) },
     { value: 'ollama_compatible', label: intl.formatMessage(i18n.ollamaCompatible) },
+    { value: 'acp', label: 'ACP agent (local stdio)' },
   ];
   const [engine, setEngine] = useState<ProviderEngine>('openai_compatible');
   const [displayName, setDisplayName] = useState('');
   const [apiUrl, setApiUrl] = useState('');
+  const [acpCommand, setAcpCommand] = useState('');
+  const [acpArgs, setAcpArgs] = useState('');
+  const [acpEnv, setAcpEnv] = useState('');
+  const [acpEnvRemove, setAcpEnvRemove] = useState('');
+  const [acpWorkDir, setAcpWorkDir] = useState('');
+  const [acpModelConfigOptionId, setAcpModelConfigOptionId] = useState('');
+  const [acpSessionConfigOptions, setAcpSessionConfigOptions] = useState('');
   const [basePath, setBasePath] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [models, setModels] = useState('');
@@ -311,6 +342,15 @@ export default function CustomProviderForm({
       setEngine(normalizeEngine(initialData.engine));
       setDisplayName(initialData.display_name);
       setApiUrl(initialData.api_url);
+      setAcpCommand(initialData.acp?.command ?? '');
+      setAcpArgs(initialData.acp?.args.join(', ') ?? '');
+      setAcpEnv(formatNameValueLines(initialData.acp?.env));
+      setAcpEnvRemove(initialData.acp?.env_remove?.join(', ') ?? '');
+      setAcpWorkDir(initialData.acp?.work_dir ?? '');
+      setAcpModelConfigOptionId(initialData.acp?.model_config_option_id ?? '');
+      setAcpSessionConfigOptions(
+        formatNameValueLines(initialData.acp?.session_config_options)
+      );
       setBasePath(initialData.base_path ?? '');
       setModels(initialData.models.join(', '));
       setSupportsStreaming(initialData.supports_streaming ?? true);
@@ -452,11 +492,12 @@ export default function CustomProviderForm({
 
     const errors: Record<string, string> = {};
     if (!displayName) errors.displayName = intl.formatMessage(i18n.displayNameRequired);
-    if (!apiUrl) errors.apiUrl = intl.formatMessage(i18n.apiUrlRequired);
+    if (engine !== 'acp' && !apiUrl) errors.apiUrl = intl.formatMessage(i18n.apiUrlRequired);
+    if (engine === 'acp' && !acpCommand.trim()) errors.acpCommand = 'ACP command is required';
     const existingHadAuth = initialData && (initialData.requires_auth ?? true);
     if (requiresAuth && !apiKey && !existingHadAuth)
       errors.apiKey = intl.formatMessage(i18n.apiKeyRequired);
-    if (!models) errors.models = intl.formatMessage(i18n.modelsRequired);
+    if (engine !== 'acp' && !models) errors.models = intl.formatMessage(i18n.modelsRequired);
 
     if (Object.keys(errors).length > 0) {
       setValidationErrors(errors);
@@ -494,8 +535,8 @@ export default function CustomProviderForm({
       await onSubmit({
         engine,
         display_name: displayName,
-        api_url: apiUrl,
-        api_key: apiKey,
+        api_url: engine === 'acp' ? '' : apiUrl,
+        api_key: engine === 'acp' ? '' : apiKey,
         models: modelList,
         supports_streaming: supportsStreaming,
         toolshim,
@@ -504,6 +545,18 @@ export default function CustomProviderForm({
         catalog_provider_id:
           selectedTemplate?.providerId ?? initialData?.catalog_provider_id ?? undefined,
         base_path: basePath || undefined,
+        acp:
+          engine === 'acp'
+            ? ({
+                command: acpCommand.trim(),
+                args: acpArgs.split(',').map((arg) => arg.trim()).filter(Boolean),
+                env: parseNameValueLines(acpEnv),
+                env_remove: parseCommaSeparated(acpEnvRemove),
+                work_dir: acpWorkDir.trim() || null,
+                model_config_option_id: acpModelConfigOptionId.trim() || null,
+                session_config_options: parseNameValueLines(acpSessionConfigOptions),
+              } satisfies CustomAcpConfig)
+            : null,
       });
     } catch (error) {
       if (contextVersionRef.current !== contextVersion) return;
@@ -692,8 +745,57 @@ export default function CustomProviderForm({
         </div>
       )}
 
+      {/* ACP command */}
+      {isEditable && engine === 'acp' && (
+        <div className="space-y-4">
+          <div>
+            <label htmlFor="acp-command" className="flex items-center text-sm font-medium text-text-primary mb-2">
+              ACP command<span className="text-red-500 ml-1">*</span>
+            </label>
+            <Input id="acp-command" value={acpCommand} onChange={(e) => setAcpCommand(e.target.value)} placeholder="kiro-cli" />
+            {validationErrors.acpCommand && <p className="text-red-500 text-sm mt-1">{validationErrors.acpCommand}</p>}
+          </div>
+          <div>
+            <label htmlFor="acp-args" className="block text-sm font-medium text-text-primary mb-2">ACP arguments</label>
+            <Input id="acp-args" value={acpArgs} onChange={(e) => setAcpArgs(e.target.value)} placeholder="acp, --agent, my-agent" />
+          </div>
+          <div>
+            <label htmlFor="acp-env" className="block text-sm font-medium text-text-primary mb-2">Environment additions</label>
+            <textarea
+              id="acp-env"
+              value={acpEnv}
+              onChange={(e) => setAcpEnv(e.target.value)}
+              placeholder="NAME=value (one per line)"
+              className="w-full min-h-20 rounded-md border border-borderSubtle bg-background-primary px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label htmlFor="acp-env-remove" className="block text-sm font-medium text-text-primary mb-2">Environment variables to remove</label>
+            <Input id="acp-env-remove" value={acpEnvRemove} onChange={(e) => setAcpEnvRemove(e.target.value)} placeholder="SECRET_KEY, OTHER_VAR" />
+          </div>
+          <div>
+            <label htmlFor="acp-work-dir" className="block text-sm font-medium text-text-primary mb-2">Working directory</label>
+            <Input id="acp-work-dir" value={acpWorkDir} onChange={(e) => setAcpWorkDir(e.target.value)} placeholder="Optional" />
+          </div>
+          <div>
+            <label htmlFor="acp-model-option" className="block text-sm font-medium text-text-primary mb-2">Model config option ID</label>
+            <Input id="acp-model-option" value={acpModelConfigOptionId} onChange={(e) => setAcpModelConfigOptionId(e.target.value)} placeholder="e.g. model" />
+          </div>
+          <div>
+            <label htmlFor="acp-session-options" className="block text-sm font-medium text-text-primary mb-2">Session config options</label>
+            <textarea
+              id="acp-session-options"
+              value={acpSessionConfigOptions}
+              onChange={(e) => setAcpSessionConfigOptions(e.target.value)}
+              placeholder="NAME=value (one per line)"
+              className="w-full min-h-20 rounded-md border border-borderSubtle bg-background-primary px-3 py-2 text-sm"
+            />
+          </div>
+        </div>
+      )}
+
       {/* API URL */}
-      {isEditable && (
+      {isEditable && engine !== 'acp' && (
         <div>
           <label
             htmlFor="api-url"

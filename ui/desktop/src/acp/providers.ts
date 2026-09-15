@@ -93,6 +93,17 @@ function updateRequestToCreate(
     basePath: request.base_path ?? null,
     toolshim: request.toolshim,
     preservesThinking: request.preserves_thinking ?? null,
+    acp: request.acp
+      ? {
+          command: request.acp.command,
+          args: request.acp.args,
+          env: request.acp.env,
+          envRemove: request.acp.env_remove,
+          workDir: request.acp.work_dir ?? null,
+          modelConfigOptionId: request.acp.model_config_option_id ?? null,
+          sessionConfigOptions: request.acp.session_config_options,
+        }
+      : undefined,
   };
 }
 

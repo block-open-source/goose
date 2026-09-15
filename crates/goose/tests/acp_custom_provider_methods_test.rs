@@ -735,3 +735,154 @@ fn acp_catalog_and_custom_provider_methods_use_core_provider_store() {
         );
     });
 }
+
+#[test]
+#[serial]
+fn acp_custom_provider_round_trips_structured_launch_config() {
+    let _env = env_lock::lock_env([
+        ("GOOSE_DISABLE_KEYRING", Some("1")),
+        ("ACP_CUSTOM_TOKEN", None),
+    ]);
+
+    run_test(async move {
+        let config_dir = Paths::config_dir();
+        write_config(
+            &config_dir,
+            "GOOSE_MODEL: gpt-4o\nGOOSE_PROVIDER: openai\nGOOSE_DISABLE_KEYRING: true\n",
+        );
+        Config::global().invalidate_secrets_cache();
+
+        let openai = common_tests::fixtures::OpenAiFixture::new(
+            vec![],
+            Arc::new(EnforceSessionId::default()),
+        )
+        .await;
+        let config = TestConnectionConfig {
+            data_root: config_dir.clone(),
+            ..Default::default()
+        };
+        let conn = AcpServerConnection::new(config, openai).await;
+
+        let created = send_custom(
+            conn.cx(),
+            "_goose/unstable/providers/custom/create",
+            serde_json::json!({
+                "engine": "acp",
+                "displayName": "Pi-shaped Generic Agent",
+                "apiUrl": "",
+                "models": [],
+                "requiresAuth": false,
+                "toolshim": false,
+                "acp": {
+                    "command": "pi-acp",
+                    "args": ["--mode", "acp"],
+                    "env": [["ACP_CUSTOM_TOKEN", "configured"]],
+                    "envRemove": ["INHERITED_SECRET"],
+                    "workDir": "workspace",
+                    "modelConfigOptionId": "model",
+                    "sessionConfigOptions": [["mode", "default"]]
+                }
+            }),
+        )
+        .await
+        .expect("ACP custom provider create should allow dynamic models");
+
+        let provider_id = created
+            .get("providerId")
+            .and_then(|value| value.as_str())
+            .expect("ACP create should return providerId")
+            .to_string();
+        let provider_path = config_dir
+            .join("custom_providers")
+            .join(format!("{provider_id}.json"));
+        let saved: DeclarativeProviderConfig = serde_json::from_str(
+            &std::fs::read_to_string(&provider_path).expect("ACP provider file should exist"),
+        )
+        .expect("ACP provider file should use the declarative schema");
+
+        assert_eq!(
+            saved.engine,
+            goose::config::declarative_providers::ProviderEngine::Acp
+        );
+        assert!(saved.models.is_empty());
+        let acp = saved.acp.expect("ACP launch config should be persisted");
+        assert_eq!(acp.command, "pi-acp");
+        assert_eq!(acp.args, ["--mode", "acp"]);
+        assert_eq!(
+            acp.env,
+            [("ACP_CUSTOM_TOKEN".to_string(), "configured".to_string())]
+        );
+        assert_eq!(acp.env_remove, ["INHERITED_SECRET"]);
+        assert_eq!(
+            acp.work_dir.as_deref(),
+            Some(std::path::Path::new("workspace"))
+        );
+        assert_eq!(acp.model_config_option_id.as_deref(), Some("model"));
+        assert_eq!(
+            acp.session_config_options,
+            [("mode".to_string(), "default".to_string())]
+        );
+
+        let read = send_custom(
+            conn.cx(),
+            "_goose/unstable/providers/custom/read",
+            serde_json::json!({ "providerId": provider_id }),
+        )
+        .await
+        .expect("ACP custom provider read should succeed");
+        assert_eq!(
+            read.pointer("/provider/engine"),
+            Some(&serde_json::json!("acp"))
+        );
+        assert_eq!(
+            read.pointer("/provider/models"),
+            Some(&serde_json::json!([]))
+        );
+        assert_eq!(
+            read.pointer("/provider/acp"),
+            Some(&serde_json::json!({
+                "command": "pi-acp",
+                "args": ["--mode", "acp"],
+                "env": [["ACP_CUSTOM_TOKEN", "configured"]],
+                "envRemove": ["INHERITED_SECRET"],
+                "workDir": "workspace",
+                "modelConfigOptionId": "model",
+                "sessionConfigOptions": [["mode", "default"]]
+            }))
+        );
+
+        let updated = send_custom(
+            conn.cx(),
+            "_goose/unstable/providers/custom/update",
+            serde_json::json!({
+                "providerId": provider_id,
+                "engine": "acp",
+                "displayName": "Pi-shaped Generic Agent Updated",
+                "apiUrl": "",
+                "models": [],
+                "requiresAuth": false,
+                "toolshim": false,
+                "acp": {
+                    "command": "kiro-cli",
+                    "args": ["acp", "--agent", "default"],
+                    "workDir": null,
+                    "modelConfigOptionId": null,
+                    "sessionConfigOptions": []
+                }
+            }),
+        )
+        .await
+        .expect("ACP custom provider update should preserve structured semantics");
+        assert_eq!(
+            updated.get("providerId"),
+            Some(&serde_json::json!(provider_id))
+        );
+
+        let reloaded = load_provider(&provider_id).expect("updated ACP provider should reload");
+        assert_eq!(
+            reloaded.config.display_name,
+            "Pi-shaped Generic Agent Updated"
+        );
+        assert_eq!(reloaded.config.acp.unwrap().command, "kiro-cli");
+    });
+}

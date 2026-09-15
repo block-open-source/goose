@@ -1,10 +1,10 @@
 use agent_client_protocol::schema::v1::{
-    Annotations as AcpAnnotations, ClientCapabilities, CloseSessionRequest, ContentBlock,
-    ContentChunk, EnvVariable, HttpHeader, ImageContent, InitializeRequest, InitializeResponse,
-    LoadSessionRequest, McpCapabilities, McpServer, McpServerHttp, McpServerStdio,
-    NewSessionRequest, NewSessionResponse, PromptRequest, PromptResponse, RequestPermissionOutcome,
-    RequestPermissionRequest, RequestPermissionResponse, Role as AcpRole, SessionConfigKind,
-    SessionConfigOption, SessionConfigOptionCategory, SessionConfigSelectOption,
+    Annotations as AcpAnnotations, CancelNotification, ClientCapabilities, CloseSessionRequest,
+    ContentBlock, ContentChunk, EnvVariable, HttpHeader, ImageContent, InitializeRequest,
+    InitializeResponse, LoadSessionRequest, McpCapabilities, McpServer, McpServerHttp,
+    McpServerStdio, NewSessionRequest, NewSessionResponse, PromptRequest, PromptResponse,
+    RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse, Role as AcpRole,
+    SessionConfigKind, SessionConfigOption, SessionConfigOptionCategory, SessionConfigSelectOption,
     SessionConfigSelectOptions, SessionId, SessionModeState, SessionNotification, SessionUpdate,
     SetSessionConfigOptionRequest, SetSessionModeRequest, SetSessionModeResponse, StopReason,
     TextContent, ToolCallContent, ToolCallStatus, ToolKind,
@@ -99,6 +99,7 @@ enum ClientRequest {
     },
     Prompt {
         session_id: SessionId,
+        turn_id: u64,
         content: Vec<ContentBlock>,
         response_tx: mpsc::Sender<AcpUpdate>,
     },
@@ -256,10 +257,54 @@ impl AcpEffortState {
     }
 }
 
+/// Identifies one in-flight turn so a cancellation that arrives after the turn
+/// finished cannot be mistaken for a request to cancel the next one.
+type TurnKey = (SessionId, u64);
+
+/// Dropped with the stream that carries a turn's output: once nobody is reading
+/// the turn, tell the agent to stop working instead of letting it run to
+/// completion unobserved. The client loop ignores the signal unless that exact
+/// turn is still in flight.
+struct TurnCancellation {
+    tx: mpsc::Sender<TurnKey>,
+    turn: TurnKey,
+}
+
+impl TurnCancellation {
+    fn new(tx: mpsc::Sender<TurnKey>, turn: TurnKey) -> Self {
+        Self { tx, turn }
+    }
+
+    /// Point the guard at a replacement turn so an abandoned retry still stops
+    /// the agent, rather than signalling the already-finished original.
+    fn retarget(&mut self, turn: TurnKey) {
+        self.turn = turn;
+    }
+}
+
+impl Drop for TurnCancellation {
+    fn drop(&mut self) {
+        if self.tx.try_send(self.turn.clone()).is_err() {
+            tracing::debug!(
+                session_id = %self.turn.0,
+                "could not signal turn cancellation to the ACP client loop"
+            );
+        }
+    }
+}
+
 #[derive(Clone)]
 struct AcpSessionState {
     active_id: Arc<Mutex<Option<SessionId>>>,
     effort: AcpEffortState,
+}
+
+/// The per-turn plumbing the request loop needs: where prompt updates go, which
+/// session is active, and the turns whose consumers have gone away.
+struct AcpTurnState {
+    prompt_response_tx: Arc<Mutex<Option<mpsc::Sender<AcpUpdate>>>>,
+    session_state: AcpSessionState,
+    turn_cancel_rx: mpsc::Receiver<TurnKey>,
 }
 
 impl AcpSessionState {
@@ -305,6 +350,11 @@ pub struct AcpProvider {
     tx: Option<mpsc::Sender<ClientRequest>>,
     cancel_tx: Option<oneshot::Sender<()>>,
     loop_thread: Option<JoinHandle<()>>,
+
+    /// Signals the client loop that the consumer of an in-flight turn is gone.
+    turn_cancel_tx: mpsc::Sender<TurnKey>,
+    /// Allocates the id that distinguishes one turn from the next.
+    turn_counter: Arc<AtomicU64>,
 }
 
 impl std::fmt::Debug for AcpProvider {
@@ -398,12 +448,14 @@ impl AcpProvider {
             Arc::new(Mutex::new(HashMap::new()));
         let context_size = Arc::new(AtomicU64::new(0));
         let effort = AcpEffortState::new();
+        let (turn_cancel_tx, turn_cancel_rx) = mpsc::channel(8);
         let client_loop = AcpClientLoop::new(
             config,
             goose_mode_shared.clone(),
             pending_tool_updates.clone(),
             context_size.clone(),
             effort.clone(),
+            turn_cancel_rx,
         );
         let (cancel_tx, cancel_rx) = oneshot::channel();
         let loop_thread = spawn_client_loop(run(client_loop, rx, init_tx, cancel_rx));
@@ -452,6 +504,8 @@ impl AcpProvider {
             tx: client_loop_guard.tx.take(),
             cancel_tx: client_loop_guard.cancel_tx.take(),
             loop_thread: client_loop_guard.thread.take(),
+            turn_cancel_tx,
+            turn_counter: Arc::new(AtomicU64::new(0)),
         })
     }
 
@@ -603,23 +657,27 @@ impl AcpProvider {
             .await
     }
 
+    /// Sends a prompt and returns the turn's update stream together with its
+    /// key, so the caller can signal cancellation for the exact turn it owns.
     async fn prompt(
         &self,
         session_id: SessionId,
         content: Vec<ContentBlock>,
-    ) -> Result<mpsc::Receiver<AcpUpdate>> {
+    ) -> Result<(mpsc::Receiver<AcpUpdate>, TurnKey)> {
+        let turn_id = self.turn_counter.fetch_add(1, Ordering::Relaxed);
         let (response_tx, response_rx) = mpsc::channel(64);
         self.tx
             .as_ref()
             .unwrap()
             .send(ClientRequest::Prompt {
-                session_id,
+                session_id: session_id.clone(),
+                turn_id,
                 content,
                 response_tx,
             })
             .await
             .context("ACP client is unavailable")?;
-        Ok(response_rx)
+        Ok((response_rx, (session_id, turn_id)))
     }
 
     fn session_has_config_option(&self, category: SessionConfigOptionCategory) -> bool {
@@ -872,8 +930,8 @@ impl Provider for AcpProvider {
         if let Ok(mut buffer) = self.pending_tool_updates.lock() {
             buffer.clear();
         }
-        let mut rx = match self.prompt(session_id.clone(), prompt_blocks).await {
-            Ok(rx) => rx,
+        let (mut rx, turn_key) = match self.prompt(session_id.clone(), prompt_blocks).await {
+            Ok(turn) => turn,
             Err(e) => match bare_retry_blocks.take() {
                 Some(blocks) => {
                     // Consume the handoff before retrying. The memo is the only thing this
@@ -897,6 +955,8 @@ impl Provider for AcpProvider {
                 }
             },
         };
+        let turn_guard = TurnCancellation::new(self.turn_cancel_tx.clone(), turn_key);
+        let turn_counter = self.turn_counter.clone();
         let bare_retry =
             bare_retry_blocks.map(|blocks| (self.tx.as_ref().unwrap().clone(), session_id, blocks));
 
@@ -910,6 +970,7 @@ impl Provider for AcpProvider {
         let model_name = model_config.model_name.clone();
 
         Ok(Box::pin(try_stream! {
+            let mut turn_guard = turn_guard;
             let mut suppress_text = false;
             let mut bare_retry = bare_retry;
             let mut updates_seen = 0usize;
@@ -1073,8 +1134,10 @@ impl Provider for AcpProvider {
                                 // turn would reproduce the rejection forever.
                                 handoff_claim_guard.commit();
                                 let (response_tx, response_rx) = mpsc::channel(64);
+                                let turn_id = turn_counter.fetch_add(1, Ordering::Relaxed);
                                 let request = ClientRequest::Prompt {
-                                    session_id,
+                                    session_id: session_id.clone(),
+                                    turn_id,
                                     content: blocks,
                                     response_tx,
                                 };
@@ -1083,6 +1146,7 @@ impl Provider for AcpProvider {
                                         %error,
                                         "ACP prompt with handoff context rejected, retrying without it"
                                     );
+                                    turn_guard.retarget((session_id, turn_id));
                                     rx = response_rx;
                                     updates_seen = 0;
                                     continue;
@@ -1125,6 +1189,7 @@ struct AcpClientLoop {
     pending_tool_updates: Arc<Mutex<HashMap<String, AccumulatedToolCall>>>,
     context_size: Arc<AtomicU64>,
     effort: AcpEffortState,
+    turn_cancel_rx: mpsc::Receiver<TurnKey>,
 }
 
 impl AcpClientLoop {
@@ -1134,12 +1199,14 @@ impl AcpClientLoop {
         pending_tool_updates: Arc<Mutex<HashMap<String, AccumulatedToolCall>>>,
         context_size: Arc<AtomicU64>,
         effort: AcpEffortState,
+        turn_cancel_rx: mpsc::Receiver<TurnKey>,
     ) -> Self {
         Self {
             config,
             goose_mode,
             prompt_response_tx: Arc::new(Mutex::new(None)),
             pending_tool_updates,
+            turn_cancel_rx,
             context_size,
             effort,
         }
@@ -1153,8 +1220,11 @@ impl AcpClientLoop {
         let child = match spawn_acp_process(&self.config).await {
             Ok(c) => c,
             Err(e) => {
-                let _ = init_tx.send(Err(anyhow::anyhow!("{e}")));
-                tracing::error!("failed to spawn ACP process: {e}");
+                // Keep the source chain: the context alone ("failed to spawn ACP
+                // process") does not tell a user whether the command was missing
+                // or not executable.
+                tracing::error!("failed to spawn ACP process: {e:#}");
+                let _ = init_tx.send(Err(e));
                 return;
             }
         };
@@ -1197,6 +1267,7 @@ impl AcpClientLoop {
             pending_tool_updates,
             context_size,
             effort,
+            turn_cancel_rx,
         } = self;
         let notification_callback = config.notification_callback.clone();
         let reverse_modes = reverse_mode_mapping(&config.mode_mapping);
@@ -1421,8 +1492,11 @@ impl AcpClientLoop {
                     goose_mode,
                     cx,
                     rx,
-                    prompt_response_tx,
-                    session_state,
+                    AcpTurnState {
+                        prompt_response_tx,
+                        session_state,
+                        turn_cancel_rx,
+                    },
                     init_tx,
                 )
                 .await
@@ -1527,10 +1601,14 @@ async fn handle_requests(
     goose_mode: Arc<Mutex<GooseMode>>,
     cx: ConnectionTo<Agent>,
     rx: &mut mpsc::Receiver<ClientRequest>,
-    prompt_response_tx: Arc<Mutex<Option<mpsc::Sender<AcpUpdate>>>>,
-    session_state: AcpSessionState,
+    turn_state: AcpTurnState,
     init_tx: oneshot::Sender<Result<InitializeResponse>>,
 ) -> Result<(), agent_client_protocol::Error> {
+    let AcpTurnState {
+        prompt_response_tx,
+        session_state,
+        mut turn_cancel_rx,
+    } = turn_state;
     let mut init_tx = Some(init_tx);
 
     let client_capabilities = ClientCapabilities::new();
@@ -1696,15 +1774,44 @@ async fn handle_requests(
             }
             ClientRequest::Prompt {
                 session_id,
+                turn_id,
                 content,
                 response_tx,
             } => {
                 *prompt_response_tx.lock().unwrap() = Some(response_tx.clone());
 
-                let response: Result<PromptResponse, _> = cx
-                    .send_request(PromptRequest::new(session_id, content))
-                    .block_task()
-                    .await;
+                let turn = (session_id.clone(), turn_id);
+                let request = cx
+                    .send_request(PromptRequest::new(session_id.clone(), content))
+                    .block_task();
+                tokio::pin!(request);
+
+                // The prompt request occupies this loop until the agent answers,
+                // so an abandoned turn can only be cancelled from here. Cancel
+                // signals are keyed to a specific turn: a signal that arrives
+                // after its turn finished must not stop the next one.
+                let mut listening = true;
+                let response: Result<PromptResponse, _> = loop {
+                    tokio::select! {
+                        result = &mut request => break result,
+                        cancelled = turn_cancel_rx.recv(), if listening => match cancelled {
+                            Some(key) if key == turn => {
+                                if let Err(e) = cx.send_notification(CancelNotification::new(
+                                    session_id.clone(),
+                                )) {
+                                    tracing::debug!(
+                                        session_id = %session_id,
+                                        %e,
+                                        "failed to send ACP {}",
+                                        AGENT_METHOD_NAMES.session_cancel
+                                    );
+                                }
+                            }
+                            Some(_) => {}
+                            None => listening = false,
+                        },
+                    }
+                };
 
                 match response {
                     Ok(r) => {
@@ -2377,6 +2484,23 @@ mod tests {
         }
     }
 
+    /// The guard has to name the turn it actually belongs to, or a cancel for a
+    /// finished turn would stop the one that replaced it.
+    #[tokio::test]
+    async fn turn_cancellation_reports_the_turn_it_was_retargeted_to() {
+        let session = SessionId::new("test-session");
+
+        let (tx, mut rx) = mpsc::channel(4);
+        drop(TurnCancellation::new(tx, (session.clone(), 1)));
+        assert_eq!(rx.recv().await, Some((session.clone(), 1)));
+
+        let (tx, mut rx) = mpsc::channel(4);
+        let mut guard = TurnCancellation::new(tx, (session.clone(), 2));
+        guard.retarget((session.clone(), 3));
+        drop(guard);
+        assert_eq!(rx.recv().await, Some((session, 3)));
+    }
+
     fn acp_error_code(error: &anyhow::Error) -> Option<ErrorCode> {
         error.chain().find_map(|source| {
             source
@@ -2521,6 +2645,8 @@ mod tests {
                 tx,
                 cancel_tx: None,
                 loop_thread: None,
+                turn_cancel_tx: mpsc::channel(1).0,
+                turn_counter: Arc::new(AtomicU64::new(0)),
             },
             ModelConfig::new("test-model"),
         )
@@ -4294,6 +4420,18 @@ mod tests {
         let servers = extension_configs_to_mcp_servers(&[config]);
         let filtered = filter_supported_servers(&servers, &McpCapabilities::default());
         assert!(filtered.is_empty());
+    }
+
+    #[test]
+    fn test_filter_supported_servers_skips_sse() {
+        let servers = vec![McpServer::Sse(
+            agent_client_protocol::schema::v1::McpServerSse::new(
+                "legacy-sse",
+                "https://example.invalid/sse",
+            ),
+        )];
+
+        assert!(filter_supported_servers(&servers, &McpCapabilities::default()).is_empty());
     }
 
     #[test_case(GooseMode::Auto => Some(PermissionDecision::AllowOnce) ; "auto allows")]

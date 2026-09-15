@@ -495,6 +495,7 @@ mod tests {
             preserves_thinking: true,
             emit_clear_thinking: false,
             setup: None,
+            acp: None,
         }
     }
 

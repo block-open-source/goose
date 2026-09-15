@@ -40,6 +40,7 @@ fn custom_config_with_auth(base_url: &str, auth: AuthConfig) -> DeclarativeProvi
         preserves_thinking: false,
         emit_clear_thinking: false,
         setup: None,
+        acp: None,
     }
 }
 

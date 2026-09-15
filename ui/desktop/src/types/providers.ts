@@ -50,6 +50,16 @@ export type ProviderDetails = {
   saved_model?: string | null;
 };
 
+export type CustomAcpConfig = {
+  command: string;
+  args: string[];
+  env?: [string, string][];
+  env_remove?: string[];
+  work_dir?: string | null;
+  model_config_option_id?: string | null;
+  session_config_options?: [string, string][];
+};
+
 export type UpdateCustomProviderRequest = {
   api_key: string;
   api_url: string;
@@ -63,4 +73,5 @@ export type UpdateCustomProviderRequest = {
   requires_auth?: boolean;
   supports_streaming?: boolean | null;
   toolshim: boolean;
+  acp?: CustomAcpConfig | null;
 };

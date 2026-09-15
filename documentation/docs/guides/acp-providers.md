@@ -54,6 +54,16 @@ Use goose with ChatGPT Plus/Pro or OpenAI API credits via the [codex-acp](https:
 
 Wraps `pi-acp`, an ACP adapter for Pi. Uses your existing Pi installation.
 
+### Custom ACP agents
+
+Goose can also run a user-defined ACP agent through the **Custom provider** flow.
+This is useful for agents that are not built into goose, including Kiro CLI, and it
+uses the same provider list after setup. The custom route launches a local process
+with a structured executable and argument vector; it never evaluates a shell command.
+
+The built-in Pi provider remains available. A custom Pi configuration is useful as a
+smoke test or when you need different launch arguments.
+
 **Requirements:**
 - Pi CLI installed
 - ACP adapter installed (`pi-acp` binary available)
@@ -179,6 +189,63 @@ Wraps `pi-acp`, an ACP adapter for Pi. Uses your existing Pi installation.
 
 Replacing the npm package does not change `~/.codex` or require recreating your goose configuration. goose does not replace the package automatically.
 
+### Custom ACP agent (Kiro example)
+
+1. Install and authenticate the agent. For Kiro, verify that `kiro-cli acp` works.
+2. Run `goose configure` and select **Custom Providers**, then **Add A Custom Provider**.
+3. Select **ACP agent (local stdio)**.
+4. Enter a display name such as `Kiro ACP`, command `kiro-cli`, and arguments
+   `acp` (or `acp, --agent, my-agent` for a named Kiro agent).
+5. Run `goose configure` again and select the saved provider from the normal provider
+   list.
+
+The equivalent persisted shape is:
+
+```json
+{
+  "name": "custom_kiro_acp",
+  "engine": "acp",
+  "display_name": "Kiro ACP",
+  "base_url": "",
+  "models": [],
+  "requires_auth": false,
+  "acp": {
+    "command": "kiro-cli",
+    "args": ["acp"],
+    "env": [],
+    "env_remove": [],
+    "work_dir": null,
+    "model_config_option_id": "model",
+    "session_config_options": []
+  }
+}
+```
+
+The ACP agent owns authentication and model availability. Goose forwards configured
+MCP extensions and uses the existing ACP lifecycle, but unsupported capabilities
+remain agent-dependent.
+
+The custom command is launched with goose's working directory and receives the
+configured `work_dir` as the session working directory, exactly like the built-in
+ACP providers. Set `work_dir` when the agent should treat a specific directory as
+the session root; the agent still decides which files and tools it may use.
+
+`env` adds variables for the agent process and `env_remove` strips inherited ones;
+values in `env` are stored in the provider file, so keep secrets out of it and let
+the agent read them from your environment instead.
+
+An optional `mode_mapping` maps goose's permission modes to the mode IDs your agent
+offers, for example `{"auto": ["agent-auto"], "approve": ["agent-ask"]}`. This
+changes which actions the agent may take without asking, so set it deliberately and
+only with mode IDs the installed agent actually reports. If a mapped mode is not
+offered, goose refuses to start the provider rather than leaving the agent in its
+own default mode. `mode_mapping` is only available by editing the provider file.
+
+### Custom ACP agent (Pi example)
+
+Use command `pi-acp` with no arguments and save it as `Pi custom ACP`. This exercises
+the generic path and does not replace the built-in `pi-acp` provider.
+
 ### Pi ACP
 
 1. **Install the Pi CLI and ACP adapter**
@@ -289,7 +356,7 @@ See [codex-acp](https://github.com/agentclientprotocol/codex-acp) for session mo
 
 ACP providers depend on external binaries, so ensure:
 
-- The ACP agent binary is installed and in your PATH (`amp-acp`, `claude-agent-acp`, `codex-acp`, `pi-acp`, or `copilot`)
+- The ACP agent binary is installed and in your PATH (`amp-acp`, `claude-agent-acp`, `codex-acp`, `pi-acp`, `copilot`, or your configured custom command)
 - The underlying CLI tool is authenticated and working
 - Subscription limits are not exceeded
 - Node.js and npm are installed (for npm-distributed adapters)

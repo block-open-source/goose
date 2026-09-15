@@ -1220,6 +1220,26 @@ pub struct CustomProviderConfigDto {
     pub api_key_env: Option<String>,
     pub api_key_set: bool,
     pub preserves_thinking: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub acp: Option<CustomAcpConfigDto>,
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CustomAcpConfigDto {
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub env: Vec<(String, String)>,
+    #[serde(default)]
+    pub env_remove: Vec<String>,
+    #[serde(default)]
+    pub work_dir: Option<String>,
+    #[serde(default)]
+    pub model_config_option_id: Option<String>,
+    #[serde(default)]
+    pub session_config_options: Vec<(String, String)>,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize, JsonSchema)]
@@ -1243,6 +1263,8 @@ pub struct CustomProviderUpsertDto {
     pub base_path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preserves_thinking: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub acp: Option<CustomAcpConfigDto>,
 }
 
 /// Create a custom provider backed by goose's declarative provider store.

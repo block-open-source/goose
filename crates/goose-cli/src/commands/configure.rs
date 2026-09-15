@@ -7,6 +7,7 @@ use goose::agents::Agent;
 use goose::agents::{extension::Envs, ExtensionConfig};
 use goose::config::declarative_providers::{
     create_custom_provider, remove_custom_provider, AuthConfig, CreateCustomProviderParams,
+    DeclarativeAcpConfig,
 };
 use goose::config::extensions::{
     get_all_extension_names, get_all_extensions, get_enabled_extensions, get_extension_by_name,
@@ -2152,9 +2153,70 @@ fn collect_custom_headers() -> anyhow::Result<Option<std::collections::HashMap<S
     }
 }
 
+/// Raw answers for an ACP custom provider. Kept separate from the interactive
+/// prompts so the parsing and validation can be exercised deterministically.
+struct AcpProviderAnswers {
+    command: String,
+    args: String,
+    env: String,
+    env_remove: String,
+    work_dir: String,
+    model_config_option_id: String,
+}
+
+fn split_comma_separated(value: &str) -> Vec<String> {
+    value
+        .split(',')
+        .map(str::trim)
+        .filter(|entry| !entry.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+fn parse_env_assignments(value: &str) -> Vec<(String, String)> {
+    split_comma_separated(value)
+        .into_iter()
+        .filter_map(|entry| {
+            let (name, assigned) = match entry.split_once('=') {
+                Some((name, assigned)) => (name.trim(), assigned.trim()),
+                None => (entry.trim(), ""),
+            };
+            (!name.is_empty()).then(|| (name.to_string(), assigned.to_string()))
+        })
+        .collect()
+}
+
+fn build_acp_launch_config(answers: AcpProviderAnswers) -> anyhow::Result<DeclarativeAcpConfig> {
+    let command = answers.command.trim();
+    if command.is_empty() {
+        anyhow::bail!("ACP command cannot be empty");
+    }
+    let work_dir = answers.work_dir.trim();
+    let model_config_option_id = answers.model_config_option_id.trim();
+
+    Ok(DeclarativeAcpConfig {
+        command: command.to_string(),
+        args: split_comma_separated(&answers.args),
+        env: parse_env_assignments(&answers.env),
+        env_remove: split_comma_separated(&answers.env_remove),
+        work_dir: (!work_dir.is_empty()).then(|| std::path::PathBuf::from(work_dir)),
+        mode_mapping: std::collections::HashMap::new(),
+        // Agents differ in which config option selects the model, and some select it
+        // themselves, so goose does not assume an option id the user never configured.
+        model_config_option_id: (!model_config_option_id.is_empty())
+            .then(|| model_config_option_id.to_string()),
+        session_config_options: vec![],
+    })
+}
+
 fn add_provider() -> anyhow::Result<()> {
     let config = Config::global();
-    let provider_type = cliclack::select("What type of API is this?")
+    let provider_type = cliclack::select("What type of provider is this?")
+        .item(
+            "acp",
+            "ACP agent (local stdio)",
+            "Run an installed ACP-compatible agent",
+        )
         .item(
             "openai_compatible",
             "OpenAI Compatible",
@@ -2182,6 +2244,79 @@ fn add_provider() -> anyhow::Result<()> {
             }
         })
         .interact()?;
+
+    if provider_type == "acp" {
+        let command: String = cliclack::input("ACP command:")
+            .placeholder("kiro-cli")
+            .validate(|input: &String| {
+                if input.trim().is_empty() {
+                    Err("Please enter a command")
+                } else {
+                    Ok(())
+                }
+            })
+            .interact()?;
+        let args_input: String = cliclack::input("ACP arguments (comma-separated, optional):")
+            .placeholder("acp, --agent, my-agent")
+            .required(false)
+            .interact()?;
+        let env_input: String =
+            cliclack::input("Environment additions (comma-separated NAME=value, optional):")
+                .placeholder("KIRO_TOKEN=value, OTHER=value")
+                .required(false)
+                .interact()?;
+        let env_remove_input: String =
+            cliclack::input("Environment variables to remove (comma-separated, optional):")
+                .placeholder("INHERITED_SECRET")
+                .required(false)
+                .interact()?;
+        let work_dir_input: String = cliclack::input("Working directory (optional):")
+            .required(false)
+            .interact()?;
+        let model_config_option_id_input: String = cliclack::input(
+            "Model config option ID (optional; only if this agent selects models with a config option):",
+        )
+        .placeholder("model")
+        .required(false)
+        .interact()?;
+        let models_input: String = cliclack::input("Model name (optional; agent may provide it):")
+            .required(false)
+            .interact()?;
+        let models = split_comma_separated(&models_input)
+            .into_iter()
+            .map(goose_providers::base::ModelInfo::new)
+            .collect();
+        let acp = build_acp_launch_config(AcpProviderAnswers {
+            command,
+            args: args_input,
+            env: env_input,
+            env_remove: env_remove_input,
+            work_dir: work_dir_input,
+            model_config_option_id: model_config_option_id_input,
+        })?;
+        let provider_config = create_custom_provider(CreateCustomProviderParams {
+            engine: "acp".to_string(),
+            acp: Some(acp),
+            display_name: display_name.clone(),
+            api_url: String::new(),
+            api_key: None,
+            models,
+            supports_streaming: None,
+            headers: None,
+            requires_auth: false,
+            catalog_provider_id: None,
+            base_path: None,
+            toolshim: false,
+            preserves_thinking: Some(false),
+            auth: None,
+        })?;
+        config.set_goose_provider(&provider_config.name)?;
+        if let Some(model) = provider_config.models.first() {
+            config.set_goose_model(&model.name)?;
+        }
+        cliclack::outro(format!("Custom ACP provider added: {}", display_name))?;
+        return Ok(());
+    }
 
     let api_url: String = cliclack::input("Provider API URL:")
         .placeholder("https://api.example.com/v1")
@@ -2298,6 +2433,7 @@ fn add_provider() -> anyhow::Result<()> {
 
     let provider_config = create_custom_provider(CreateCustomProviderParams {
         engine: provider_type.to_string(),
+        acp: None,
         display_name: display_name.clone(),
         api_url,
         api_key: requires_auth.then_some(api_key),
@@ -2452,5 +2588,85 @@ mod tests {
         let filtered = fuzzy_filter_provider_items(&items, "open ai");
 
         assert_eq!(filtered.first().map(|item| item.0.as_str()), Some("openai"));
+    }
+
+    fn acp_answers(command: &str) -> AcpProviderAnswers {
+        AcpProviderAnswers {
+            command: command.to_string(),
+            args: String::new(),
+            env: String::new(),
+            env_remove: String::new(),
+            work_dir: String::new(),
+            model_config_option_id: String::new(),
+        }
+    }
+
+    #[test]
+    fn acp_launch_config_keeps_a_kiro_command_with_named_agent_arguments() {
+        let config = build_acp_launch_config(AcpProviderAnswers {
+            args: "acp, --agent, my-agent".to_string(),
+            ..acp_answers("  kiro-cli  ")
+        })
+        .unwrap();
+
+        assert_eq!(config.command, "kiro-cli");
+        assert_eq!(config.args, ["acp", "--agent", "my-agent"]);
+    }
+
+    #[test]
+    fn acp_launch_config_parses_environment_mutations() {
+        let config = build_acp_launch_config(AcpProviderAnswers {
+            env: "KIRO_TOKEN=value, FLAG, PADDED = spaced value ".to_string(),
+            env_remove: "INHERITED_SECRET, OTHER".to_string(),
+            ..acp_answers("kiro-cli")
+        })
+        .unwrap();
+
+        assert_eq!(
+            config.env,
+            [
+                ("KIRO_TOKEN".to_string(), "value".to_string()),
+                ("FLAG".to_string(), String::new()),
+                ("PADDED".to_string(), "spaced value".to_string()),
+            ]
+        );
+        assert_eq!(config.env_remove, ["INHERITED_SECRET", "OTHER"]);
+    }
+
+    #[test]
+    fn acp_launch_config_leaves_unset_optional_fields_empty() {
+        let config = build_acp_launch_config(acp_answers("pi-acp")).unwrap();
+
+        assert!(config.args.is_empty());
+        assert!(config.env.is_empty());
+        assert!(config.env_remove.is_empty());
+        assert_eq!(config.work_dir, None);
+        assert_eq!(
+            config.model_config_option_id, None,
+            "goose must not assume which config option selects the agent's model"
+        );
+    }
+
+    #[test]
+    fn acp_launch_config_records_explicit_optional_fields() {
+        let config = build_acp_launch_config(AcpProviderAnswers {
+            work_dir: " /tmp/workspace ".to_string(),
+            model_config_option_id: " model ".to_string(),
+            ..acp_answers("kiro-cli")
+        })
+        .unwrap();
+
+        assert_eq!(
+            config.work_dir.as_deref(),
+            Some(std::path::Path::new("/tmp/workspace"))
+        );
+        assert_eq!(config.model_config_option_id.as_deref(), Some("model"));
+    }
+
+    #[test]
+    fn acp_launch_config_rejects_an_empty_command() {
+        let error = build_acp_launch_config(acp_answers("   ")).unwrap_err();
+
+        assert!(error.to_string().contains("command"));
     }
 }

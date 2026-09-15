@@ -307,12 +307,16 @@ export const SwitchModelModal = ({
   const [providerErrors, setProviderErrors] = useState<Record<string, string>>({});
   const [providerWarnings, setProviderWarnings] = useState<Record<string, string>>({});
   const [activeProvidersList, setActiveProvidersList] = useState<ProviderDetails[]>([]);
+  const userEditedSelection = useRef(false);
   const fetchedProviders = useRef<Set<string>>(new Set());
   const reasoningRequestId = useRef(0);
   const [thinkingEffort, setThinkingEffort] = useState<ThinkingEffort | null>(null);
   const [selectedModelReasoning, setSelectedModelReasoning] = useState<boolean | null>(null);
 
   const modelReasoning = selectedModelReasoning ?? selectedPredefinedModel?.reasoning;
+  const isSelectionVisible =
+    usePredefinedModels ||
+    (!loadingModels && providerOptions.some((option) => option.value === provider));
   const showThinkingControl = modelReasoning === true;
   const resolveSelectedModelReasoning = useCallback(
     (providerName: string, modelName: string, fallback?: boolean) => {
@@ -393,6 +397,7 @@ export const SwitchModelModal = ({
   };
 
   const handleSubmit = async () => {
+    if (!isSelectionVisible) return;
     setAttemptedSubmit(true);
     const isFormValid = validateForm();
 
@@ -464,20 +469,15 @@ export const SwitchModelModal = ({
     }
   }, [usePredefinedModels, currentModel, resolveSelectedModelReasoning]);
 
-  // For manual mode: one-time sync of provider/model when session data
-  // arrives after the modal has already mounted. Uses a ref so it only
-  // fires once and doesn't interfere with user-driven changes (e.g.
-  // switching provider clears model intentionally).
-  const manualSyncDone = useRef(false);
+  // Session metadata can arrive after config defaults. Follow it until the user edits.
   useEffect(() => {
-    if (usePredefinedModels || manualSyncDone.current) return;
+    if (usePredefinedModels || userEditedSelection.current) return;
     if (initialProvider && initialProvider !== currentProvider) return;
     if (currentModel && currentProvider) {
-      if (!provider) setProvider(currentProvider);
-      if (!model) setModel(currentModel);
-      manualSyncDone.current = true;
+      setProvider(currentProvider);
+      setModel(currentModel);
     }
-  }, [currentModel, currentProvider, usePredefinedModels, provider, model, initialProvider]);
+  }, [currentModel, currentProvider, usePredefinedModels, initialProvider]);
 
   useEffect(() => {
     if (usePredefinedModels) {
@@ -641,6 +641,7 @@ export const SwitchModelModal = ({
 
   // Handle model selection change
   const handleModelChange = (newValue: unknown) => {
+    userEditedSelection.current = true;
     const selectedOption = newValue as {
       value: string;
       label: string;
@@ -823,6 +824,7 @@ export const SwitchModelModal = ({
                   options={providerOptions}
                   value={providerOptions.find((option) => option.value === provider) || null}
                   onChange={(newValue: unknown) => {
+                    userEditedSelection.current = true;
                     const option = newValue as { value: string; label: string } | null;
                     if (option?.value === 'configure_providers') {
                       // Navigate to ConfigureProviders view
@@ -897,7 +899,10 @@ export const SwitchModelModal = ({
                       <Input
                         className="border-2 px-4 py-5"
                         placeholder={intl.formatMessage(i18n.typeModelName)}
-                        onChange={(event) => setModel(event.target.value)}
+                        onChange={(event) => {
+                          userEditedSelection.current = true;
+                          setModel(event.target.value);
+                        }}
                         value={model}
                       />
                       {attemptedSubmit && validationErrors.model && (
@@ -959,7 +964,10 @@ export const SwitchModelModal = ({
                       <Input
                         className="border-2 px-4 py-5"
                         placeholder={intl.formatMessage(i18n.typeModelName)}
-                        onChange={(event) => setModel(event.target.value)}
+                        onChange={(event) => {
+                          userEditedSelection.current = true;
+                          setModel(event.target.value);
+                        }}
                         value={model}
                       />
                       {attemptedSubmit && validationErrors.model && (
@@ -989,7 +997,7 @@ export const SwitchModelModal = ({
             <Button variant="outline" onClick={handleClose} type="button">
               {intl.formatMessage(i18n.cancel)}
             </Button>
-            <Button onClick={handleSubmit} disabled={!isValid}>
+            <Button onClick={handleSubmit} disabled={!isValid || !isSelectionVisible}>
               {intl.formatMessage(i18n.selectModelButton)}
             </Button>
           </div>

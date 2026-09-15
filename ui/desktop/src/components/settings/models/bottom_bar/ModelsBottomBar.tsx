@@ -247,9 +247,15 @@ export default function ModelsBottomBar({
           <h6 className="text-xs text-text-primary mt-2 ml-2">
             {intl.formatMessage(i18n.currentModel)}
           </h6>
-          <p className="flex items-center justify-between text-sm mx-2 pb-2 border-b mb-2">
-            {menuModelLabel}
-            {!isModelLoading && displayProvider && ` — ${displayProvider}`}
+          <p className="flex items-center justify-between gap-1 text-sm mx-2 pb-2 border-b mb-2">
+            <bdi dir="auto" className="min-w-0 truncate" title={menuModelLabel}>
+              {menuModelLabel}
+            </bdi>
+            {!isModelLoading && displayProvider && (
+              <span className="flex-shrink-0">
+                — <bdi dir="auto">{displayProvider}</bdi>
+              </span>
+            )}
           </p>
           {shouldShowResolvedModel && resolvedDisplayModelName && (
             <div className="mx-2 pb-2 border-b mb-2">
@@ -272,8 +278,15 @@ export default function ModelsBottomBar({
                   onClick={() => void handleRecentModelClick(recent)}
                 >
                   <History className="mr-2 h-3.5 w-3.5 flex-shrink-0 text-text-secondary" />
-                  <span className="truncate">
-                    {getModelDisplayName(recent.model)} — {recent.provider}
+                  <bdi
+                    dir="auto"
+                    className="min-w-0 truncate"
+                    title={getModelDisplayName(recent.model)}
+                  >
+                    {getModelDisplayName(recent.model)}
+                  </bdi>
+                  <span className="flex-shrink-0">
+                    — <bdi dir="auto">{recent.provider}</bdi>
                   </span>
                 </DropdownMenuItem>
               ))}

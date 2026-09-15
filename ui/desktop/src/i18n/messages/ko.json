@@ -1229,6 +1229,12 @@
   "externalBackendSection.serverUrlHelp": {
     "defaultMessage": "HTTP(S) 기본 URL을 입력하세요. goose는 /status를 확인하고 이 기본 주소 아래의 /acp에 연결합니다."
   },
+  "externalBackendSection.diagnosticsHeading": {
+    "defaultMessage": "연결 확인"
+  },
+  "externalBackendSection.diagnosticsHint": {
+    "defaultMessage": "위에서 처음 실패한 확인 항목이 연결이 중단된 지점입니다. 백엔드가 실행 중이고 이 컴퓨터에서 연결 가능한지, 시크릿 키가 일치하는지, 중간의 프록시나 VPN이 /status와 /acp를 허용하는지 확인하세요."
+  },
   "externalBackendSection.connect": {
     "defaultMessage": "연결"
   },

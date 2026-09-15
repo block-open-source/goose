@@ -1229,6 +1229,12 @@
   "externalBackendSection.serverUrlHelp": {
     "defaultMessage": "Enter the HTTP(S) base URL. Goose checks /status and connects to /acp under this base."
   },
+  "externalBackendSection.diagnosticsHeading": {
+    "defaultMessage": "连接检查"
+  },
+  "externalBackendSection.diagnosticsHint": {
+    "defaultMessage": "上面第一个失败的检查就是连接中断的位置。请确认后端正在运行且可从本机访问、其密钥一致，并且中间的任何代理或 VPN 允许访问 /status 和 /acp。"
+  },
   "externalBackendSection.connect": {
     "defaultMessage": "连接"
   },

@@ -28,6 +28,17 @@ export function isRecipeParameterScopesUnsupported(
   return error instanceof RecipeParameterScopesUnsupportedError;
 }
 
+export class RecipeDeclinedError extends Error {
+  constructor() {
+    super('Recipe was not trusted by the user');
+    this.name = 'RecipeDeclinedError';
+  }
+}
+
+export function isRecipeDeclined(error: unknown): error is RecipeDeclinedError {
+  return error instanceof RecipeDeclinedError;
+}
+
 export function isRecipeParamsCancelled(error: unknown): boolean {
   return asAcpJsonRpcError(error)?.data?.reason === RECIPE_PARAMS_CANCELLED_REASON;
 }

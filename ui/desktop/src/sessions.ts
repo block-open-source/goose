@@ -7,7 +7,11 @@ import { acpChatSessionController } from './acp/chatSessionController';
 import { getConfiguredGooseExtensions, gooseExtensionName } from './acp/extensions';
 import { beginConfiguredRecipeParameterScope } from './acp/recipeParamRequests';
 import { getAcpFeatureCapabilities } from './acp/capabilities';
-import { RecipeParameterScopesUnsupportedError } from './acp/errors';
+import { RecipeDeclinedError, RecipeParameterScopesUnsupportedError } from './acp/errors';
+import { decodeRecipe } from './acp/recipe';
+import { scanRecipe, type Recipe } from './recipe';
+import { listSavedRecipes } from './recipe/recipe_management';
+import { requestRecipeConsent } from './recipe/consent';
 
 export function getSessionDisplayName(session: Session): string {
   if (session.user_set_name) {
@@ -41,10 +45,45 @@ function selectedExtensionConfigs(options?: CreateSessionOptions): ExtensionConf
   return [];
 }
 
+async function resolveRecipe(options?: CreateSessionOptions): Promise<Recipe | undefined> {
+  if (options?.recipeId) {
+    const entry = (await listSavedRecipes()).find((manifest) => manifest.id === options.recipeId);
+    if (!entry) {
+      throw new Error(`Recipe ${options.recipeId} was not found in the recipe library`);
+    }
+    return entry.recipe;
+  }
+  if (options?.recipeDeeplink) {
+    return decodeRecipe(options.recipeDeeplink);
+  }
+  return undefined;
+}
+
+// Recipes can declare commands, endpoints, and shell checks that run as soon as the
+// session exists, so consent has to be settled before session/new is ever sent.
+async function ensureRecipeConsent(options?: CreateSessionOptions): Promise<void> {
+  const recipe = await resolveRecipe(options);
+  if (!recipe || (await window.electron.hasAcceptedRecipeBefore(recipe))) {
+    return;
+  }
+
+  const scan = await scanRecipe(recipe);
+  const accepted = await requestRecipeConsent({
+    recipe,
+    hasSecurityWarnings: scan.has_security_warnings,
+  });
+  if (!accepted) {
+    throw new RecipeDeclinedError();
+  }
+  await window.electron.recordRecipeHash(recipe);
+}
+
 async function createAcpSession(
   workingDir: string,
   options?: CreateSessionOptions
 ): Promise<Session> {
+  await ensureRecipeConsent(options);
+
   const configuredParameterScope = options?.recipeDeeplink
     ? beginConfiguredRecipeParameterScope()
     : undefined;

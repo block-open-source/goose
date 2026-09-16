@@ -17,11 +17,9 @@ import { useIsMobile } from '../hooks/use-mobile';
 import { useNavigationContextSafe } from './Layout/NavigationContext';
 import { cn } from '../utils';
 import { useChatSession } from '../hooks/useChatSession';
-import { acpDeleteSession, acpUpdateWorkingDir } from '../acp/sessions';
+import { acpUpdateWorkingDir } from '../acp/sessions';
 import { useNavigation } from '../hooks/useNavigation';
 import { RecipeHeader } from './RecipeHeader';
-import { RecipeWarningModal } from './ui/RecipeWarningModal';
-import { scanRecipe } from '../recipe';
 import type { Recipe } from '../recipe';
 import RecipeActivities from './recipes/RecipeActivities';
 import {
@@ -90,8 +88,6 @@ export default function BaseChat({
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
   const disableAnimation = location.state?.disableAnimation || false;
   const [hasStartedUsingRecipe, setHasStartedUsingRecipe] = React.useState(false);
-  const [hasNotAcceptedRecipe, setHasNotAcceptedRecipe] = useState<boolean>();
-  const [hasRecipeSecurityWarnings, setHasRecipeSecurityWarnings] = useState(false);
   const [acpRecovering, setAcpRecovering] = useState(isAcpRecovering);
   const isMobile = useIsMobile();
   const navContext = useNavigationContextSafe();
@@ -157,10 +153,7 @@ export default function BaseChat({
   // (goose://new-session?prompt=...). Once the conversation has messages, later flows
   // such as forks or resumes should auto-submit normally.
   const suppressInitialAutoSubmit = noAutoSubmit && messages.length === 0;
-  const canAutoSubmit =
-    !acpRecovering &&
-    !suppressInitialAutoSubmit &&
-    (session?.session_type === 'scheduled' || !recipe || hasNotAcceptedRecipe === false);
+  const canAutoSubmit = !acpRecovering && !suppressInitialAutoSubmit;
 
   useAutoSubmit({
     sessionId,
@@ -235,38 +228,6 @@ export default function BaseChat({
     }
     return null;
   }, [messages]);
-
-  useEffect(() => {
-    if (!recipe || !isActiveSession || session?.session_type === 'scheduled') return;
-
-    (async () => {
-      const accepted = await window.electron.hasAcceptedRecipeBefore(recipe);
-      setHasNotAcceptedRecipe(!accepted);
-
-      if (!accepted) {
-        const scanResult = await scanRecipe(recipe);
-        setHasRecipeSecurityWarnings(scanResult.has_security_warnings);
-      }
-    })();
-  }, [recipe, isActiveSession, session?.session_type]);
-
-  const handleRecipeAccept = async (accept: boolean) => {
-    if (recipe && accept) {
-      await window.electron.recordRecipeHash(recipe);
-      setHasNotAcceptedRecipe(false);
-      return;
-    }
-
-    if (sessionId) {
-      try {
-        await acpDeleteSession(sessionId);
-        window.dispatchEvent(new CustomEvent(AppEvents.SESSION_DELETED, { detail: { sessionId } }));
-      } catch (error) {
-        console.error('Failed to delete declined recipe session:', error);
-      }
-    }
-    setView('chat');
-  };
 
   // Track if this is the initial render for session resuming
   const initialRenderRef = useRef(true);
@@ -539,7 +500,6 @@ export default function BaseChat({
             messages={messages}
             disableAnimation={disableAnimation}
             recipe={recipe}
-            recipeAccepted={!hasNotAcceptedRecipe}
             initialPrompt={initialPrompt}
             sessionModel={sessionModel}
             sessionProvider={sessionProvider}
@@ -551,20 +511,6 @@ export default function BaseChat({
           />
         </ChatInputCard>
       </MainPanelLayout>
-
-      {recipe && isActiveSession && session?.session_type !== 'scheduled' && (
-        <RecipeWarningModal
-          isOpen={!!hasNotAcceptedRecipe}
-          onConfirm={() => handleRecipeAccept(true)}
-          onCancel={() => handleRecipeAccept(false)}
-          recipeDetails={{
-            title: recipe.title,
-            description: recipe.description,
-            instructions: recipe.instructions || undefined,
-          }}
-          hasSecurityWarnings={hasRecipeSecurityWarnings}
-        />
-      )}
     </div>
   );
 }

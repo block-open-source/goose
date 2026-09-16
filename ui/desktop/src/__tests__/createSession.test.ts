@@ -27,9 +27,27 @@ vi.mock('../acp/recipeParamRequests', () => ({
   beginConfiguredRecipeParameterScope: vi.fn(),
 }));
 
+vi.mock('../acp/recipe', () => ({
+  decodeRecipe: vi.fn(async () => testRecipe),
+}));
+
+vi.mock('../recipe', () => ({
+  scanRecipe: vi.fn(async () => ({ has_security_warnings: false })),
+}));
+
+vi.mock('../recipe/recipe_management', () => ({
+  listSavedRecipes: vi.fn(async () => [{ id: 'recipe-1', recipe: testRecipe }]),
+}));
+
+vi.mock('../recipe/consent', () => ({
+  requestRecipeConsent: vi.fn(async () => true),
+}));
+
 vi.mock('../acp/capabilities', () => ({
   getAcpFeatureCapabilities: vi.fn(),
 }));
+
+const testRecipe = vi.hoisted(() => ({ title: 'Test recipe', description: 'Recipe used in tests' }));
 
 const testSession: Session = {
   id: 'session-1',
@@ -71,6 +89,10 @@ const finishConfiguredRecipeParameterScope = vi.fn();
 
 describe('createSession ACP session extensions', () => {
   beforeEach(() => {
+    Object.assign(window.electron, {
+      hasAcceptedRecipeBefore: vi.fn(async () => true),
+      recordRecipeHash: vi.fn(async () => true),
+    });
     mockedGetConfiguredGooseExtensions.mockReset();
     mockedGetConfiguredGooseExtensions.mockResolvedValue([
       gooseExtensionEntry('developer'),

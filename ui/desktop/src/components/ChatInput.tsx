@@ -187,7 +187,6 @@ interface ChatInputProps {
   disableAnimation?: boolean;
   recipe?: Recipe | null;
   recipeId?: string | null;
-  recipeAccepted?: boolean;
   initialPrompt?: string;
   append?: (message: Message) => void;
   onWorkingDirChange?: (newDir: string) => Promise<void> | void;
@@ -224,7 +223,6 @@ export default function ChatInput({
   disableAnimation = false,
   recipe: _recipe,
   recipeId: _recipeId,
-  recipeAccepted,
   initialPrompt,
   append: _append,
   onWorkingDirChange,
@@ -553,17 +551,15 @@ export default function ChatInput({
     setHasUserTyped(false);
   }, [initialValue, draftRef]);
 
-  // Handle recipe prompt updates
   useEffect(() => {
-    // If recipe is accepted and we have an initial prompt, and no messages yet, and we haven't set it before
-    if (recipeAccepted && initialPrompt && messages.length === 0) {
+    if (initialPrompt && messages.length === 0) {
       setDisplayValue(initialPrompt);
       setValue(initialPrompt);
       setTimeout(() => {
         textAreaRef.current?.focus();
       }, 0);
     }
-  }, [recipeAccepted, initialPrompt, messages.length, textAreaRef]);
+  }, [initialPrompt, messages.length, textAreaRef]);
 
   const [isComposing, setIsComposing] = useState(false);
   const [historyIndex, setHistoryIndex] = useState(-1);

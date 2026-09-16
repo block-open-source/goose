@@ -31,7 +31,7 @@ import { MainPanelLayout } from '../Layout/MainPanelLayout';
 import { toastSuccess, toastError } from '../../toasts';
 import { useEscapeKey } from '../../hooks/useEscapeKey';
 import { createSession } from '../../sessions';
-import { isRecipeParamsCancelled } from '../../acp/errors';
+import { isRecipeDeclined, isRecipeParamsCancelled } from '../../acp/errors';
 import ImportRecipeForm, { ImportRecipeButton } from './ImportRecipeForm';
 import CreateEditRecipeModal from './CreateEditRecipeModal';
 import { generateDeepLink } from '../../recipe';
@@ -394,7 +394,7 @@ export default function RecipesView() {
           : undefined,
       });
     } catch (error) {
-      if (isRecipeParamsCancelled(error)) {
+      if (isRecipeDeclined(error) || isRecipeParamsCancelled(error)) {
         setView('chat');
         return;
       }

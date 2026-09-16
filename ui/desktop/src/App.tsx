@@ -5,7 +5,12 @@ import { importNostrSessionFromDeepLink } from './sessionLinks';
 import { ErrorUI } from './components/ErrorBoundary';
 import { ExtensionInstallModal } from './components/ExtensionInstallModal';
 import RecipeParamsModalContainer from './components/RecipeParamsModalContainer';
-import { isRecipeParamsCancelled, isRecipeParameterScopesUnsupported } from './acp/errors';
+import RecipeConsentModalContainer from './components/RecipeConsentModalContainer';
+import {
+  isRecipeDeclined,
+  isRecipeParamsCancelled,
+  isRecipeParameterScopesUnsupported,
+} from './acp/errors';
 import { toast, ToastContainer } from 'react-toastify';
 import AnnouncementModal from './components/AnnouncementModal';
 import TelemetryConsentPrompt from './components/TelemetryConsentPrompt';
@@ -133,7 +138,7 @@ export const PairRouteWrapper = ({
             return prev;
           });
         } catch (error) {
-          if (isRecipeParamsCancelled(error)) {
+          if (isRecipeDeclined(error) || isRecipeParamsCancelled(error)) {
             navigate('/');
             return;
           }
@@ -629,6 +634,7 @@ export function AppInner() {
         pauseOnHover
       />
       <ExtensionInstallModal addExtension={addExtension} setView={setView} />
+      <RecipeConsentModalContainer />
       <RecipeParamsModalContainer />
       <div className="relative w-screen h-screen overflow-hidden bg-background-secondary flex flex-col">
         <div className="titlebar-drag-region" />

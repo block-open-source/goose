@@ -66,6 +66,21 @@
       "responseType": "SteerSessionResponse_unstable"
     },
     {
+      "method": "_goose/unstable/session/live-voice/availability",
+      "requestType": "LiveVoiceAvailabilityRequest_unstable",
+      "responseType": "LiveVoiceAvailabilityResponse_unstable"
+    },
+    {
+      "method": "_goose/unstable/session/live-voice/start",
+      "requestType": "LiveVoiceStartRequest_unstable",
+      "responseType": "LiveVoiceStartResponse_unstable"
+    },
+    {
+      "method": "_goose/unstable/session/live-voice/stop",
+      "requestType": "LiveVoiceStopRequest_unstable",
+      "responseType": "EmptyResponse"
+    },
+    {
       "method": "_goose/unstable/diagnostics/get",
       "requestType": "DiagnosticsGetRequest_unstable",
       "responseType": "DiagnosticsGetResponse_unstable"

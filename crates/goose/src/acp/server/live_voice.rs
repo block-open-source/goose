@@ -276,6 +276,11 @@ impl GooseAcpAgent {
         let mut tool_requests = HashMap::new();
         let mut outcome_message_id: Option<String> = None;
         let mut outcome = String::new();
+        let target = SessionAgentTarget {
+            agent: agent.clone(),
+            session_id: session_id.clone(),
+            cancel_token: Some(cancel_token.clone()),
+        };
         while let Some(event) = stream.next().await {
             if cancel_token.is_cancelled() {
                 self.clear_active_run(&session_id, &run_id).await;
@@ -306,7 +311,7 @@ impl GooseAcpAgent {
                                 content,
                                 &projected_message,
                                 &acp_session_id,
-                                &agent,
+                                &target,
                                 &tool_requests,
                                 &cx,
                             )

@@ -1,7 +1,7 @@
 import type {
   LiveVoiceAvailabilityResponse_unstable,
   LiveVoiceStartResponse_unstable,
-} from '@aaif/goose-sdk';
+} from '@aaif/goose-acp-client';
 import { getAcpClient } from './acpConnection';
 
 export async function acpGetLiveVoiceAvailability(

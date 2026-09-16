@@ -1299,6 +1299,96 @@
       "x-side": "agent",
       "x-method": "_goose/unstable/session/steer"
     },
+    "LiveVoiceAvailabilityRequest_unstable": {
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "description": "Ask whether a new or existing chat can enter direct Live voice.",
+      "x-side": "agent",
+      "x-method": "_goose/unstable/session/live-voice/availability"
+    },
+    "LiveVoiceAvailabilityResponse_unstable": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/LiveVoiceStatus"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "message"
+      ],
+      "x-side": "agent",
+      "x-method": "_goose/unstable/session/live-voice/availability"
+    },
+    "LiveVoiceStatus": {
+      "type": "string",
+      "enum": [
+        "ready",
+        "unavailable"
+      ]
+    },
+    "LiveVoiceStartRequest_unstable": {
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "type": "string"
+        },
+        "offerSdp": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId",
+        "offerSdp"
+      ],
+      "description": "Get a diagnostic report for a session.",
+      "x-side": "agent",
+      "x-method": "_goose/unstable/session/live-voice/start"
+    },
+    "LiveVoiceStartResponse_unstable": {
+      "type": "object",
+      "properties": {
+        "callId": {
+          "type": "string"
+        },
+        "answerSdp": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "callId",
+        "answerSdp"
+      ],
+      "x-side": "agent",
+      "x-method": "_goose/unstable/session/live-voice/start"
+    },
+    "LiveVoiceStopRequest_unstable": {
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "type": "string"
+        },
+        "callId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId",
+        "callId"
+      ],
+      "x-side": "agent",
+      "x-method": "_goose/unstable/session/live-voice/stop"
+    },
     "DiagnosticsGetRequest_unstable": {
       "type": "object",
       "properties": {
@@ -1313,7 +1403,6 @@
       "required": [
         "sessionId"
       ],
-      "description": "Get a diagnostic report for a session.",
       "x-side": "agent",
       "x-method": "_goose/unstable/diagnostics/get"
     },
@@ -6689,6 +6778,19 @@
           "required": [
             "sessionUpdate"
           ]
+        },
+        {
+          "$ref": "#/$defs/LiveVoiceCallEndedUpdate",
+          "type": "object",
+          "properties": {
+            "sessionUpdate": {
+              "type": "string",
+              "const": "live_voice_call_ended"
+            }
+          },
+          "required": [
+            "sessionUpdate"
+          ]
         }
       ],
       "description": "Discriminated union of goose-specific session update payloads.\nVariant tag matches ACP's convention (`sessionUpdate: \"<snake_case>\"`).\n\n`discriminator.mapping` is what makes TS codegen (`@hey-api/openapi-ts`)\nemit the correct snake_case tag value even when this enum has a single\nvariant. Add a mapping entry per variant.",
@@ -6697,7 +6799,8 @@
         "mapping": {
           "usage_update": "#/$defs/SessionUsageUpdate",
           "status_message": "#/$defs/StatusMessageUpdate",
-          "message_usage": "#/$defs/MessageUsageUpdate"
+          "message_usage": "#/$defs/MessageUsageUpdate",
+          "live_voice_call_ended": "#/$defs/LiveVoiceCallEndedUpdate"
         }
       }
     },
@@ -6889,6 +6992,28 @@
         "usage"
       ],
       "description": "Per-message token usage/cost/timing, keyed by the message id used for\nchunk matching. Sent live after a turn's messages and on replay."
+    },
+    "LiveVoiceCallOutcome": {
+      "type": "string",
+      "enum": [
+        "stopped",
+        "failed"
+      ]
+    },
+    "LiveVoiceCallEndedUpdate": {
+      "type": "object",
+      "properties": {
+        "callId": {
+          "type": "string"
+        },
+        "outcome": {
+          "$ref": "#/$defs/LiveVoiceCallOutcome"
+        }
+      },
+      "required": [
+        "callId",
+        "outcome"
+      ]
     },
     "ProviderDeviceCodeNotification_unstable": {
       "type": "object",
@@ -7097,6 +7222,33 @@
                   ],
                   "description": "Params for _goose/unstable/session/steer",
                   "title": "SteerSessionRequest_unstable"
+                },
+                {
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/LiveVoiceAvailabilityRequest_unstable"
+                    }
+                  ],
+                  "description": "Params for _goose/unstable/session/live-voice/availability",
+                  "title": "LiveVoiceAvailabilityRequest_unstable"
+                },
+                {
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/LiveVoiceStartRequest_unstable"
+                    }
+                  ],
+                  "description": "Params for _goose/unstable/session/live-voice/start",
+                  "title": "LiveVoiceStartRequest_unstable"
+                },
+                {
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/LiveVoiceStopRequest_unstable"
+                    }
+                  ],
+                  "description": "Params for _goose/unstable/session/live-voice/stop",
+                  "title": "LiveVoiceStopRequest_unstable"
                 },
                 {
                   "allOf": [
@@ -8062,6 +8214,22 @@
                         }
                       ],
                       "title": "SteerSessionResponse_unstable"
+                    },
+                    {
+                      "allOf": [
+                        {
+                          "$ref": "#/$defs/LiveVoiceAvailabilityResponse_unstable"
+                        }
+                      ],
+                      "title": "LiveVoiceAvailabilityResponse_unstable"
+                    },
+                    {
+                      "allOf": [
+                        {
+                          "$ref": "#/$defs/LiveVoiceStartResponse_unstable"
+                        }
+                      ],
+                      "title": "LiveVoiceStartResponse_unstable"
                     },
                     {
                       "allOf": [

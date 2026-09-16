@@ -42,7 +42,7 @@ import { defineMessages, useIntl } from '../i18n';
 import TurndownService from 'turndown';
 import type { NextChatExtensionDraft } from '../utils/nextChatExtensions';
 import { LiveVoiceButton } from './LiveVoiceButton';
-import type { LiveVoiceAvailabilityResponse_unstable } from '@aaif/goose-sdk';
+import type { LiveVoiceAvailabilityResponse_unstable } from '@aaif/goose-acp-client';
 import { isLiveVoiceActive, type LiveVoiceController } from '../liveVoice/useLiveVoice';
 
 const turndown = new TurndownService({

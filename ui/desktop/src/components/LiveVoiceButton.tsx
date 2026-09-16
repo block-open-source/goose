@@ -1,4 +1,4 @@
-import type { LiveVoiceAvailabilityResponse_unstable } from '@aaif/goose-sdk';
+import type { LiveVoiceAvailabilityResponse_unstable } from '@aaif/goose-acp-client';
 import { AudioLines, LoaderCircle, Mic, MicOff, Square } from 'lucide-react';
 import { defineMessages, useIntl } from '../i18n';
 import { cn } from '../utils';

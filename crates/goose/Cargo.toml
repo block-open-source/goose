@@ -137,7 +137,7 @@ once_cell = { workspace = true }
 etcetera = { workspace = true }
 fs-err = { version = "3.1", default-features = false }
 goose-context-management = { path = "../goose-context-management" }
-goose-providers = { path = "../goose-providers", default-features = false }
+goose-providers = { path = "../goose-providers", default-features = false, features = ["live-websocket"] }
 goose-download-manager = { path = "../goose-download-manager" }
 goose-sdk-types = { path = "../goose-sdk-types" }
 goose-agent = { path = "../goose-agent" }

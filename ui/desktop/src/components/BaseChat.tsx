@@ -36,7 +36,7 @@ import { Goose } from './icons';
 import EnvironmentBadge from './GooseSidebar/EnvironmentBadge';
 import SessionActionsHeader from './SessionActionsHeader';
 import { isAcpRecovering, subscribeToAcpRecovery } from '../acp/acpConnection';
-import type { LiveVoiceAvailabilityResponse_unstable } from '@aaif/goose-sdk';
+import type { LiveVoiceAvailabilityResponse_unstable } from '@aaif/goose-acp-client';
 import { acpGetLiveVoiceAvailability } from '../acp/liveVoice';
 import { useLiveVoice } from '../liveVoice/useLiveVoice';
 

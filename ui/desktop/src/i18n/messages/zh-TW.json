@@ -929,6 +929,10 @@
   "dirSwitcher.enterPathInvalid": {
     "defaultMessage": "Working directory must be an absolute path"
   },
+
+
+
+
   "dirSwitcher.failedToUpdateWorkingDir": {
     "defaultMessage": "無法更新工作目錄"
   },
@@ -1732,6 +1736,33 @@
   },
   "launcher.placeholder": {
     "defaultMessage": "向 goose 詢問任何問題…"
+  },
+  "liveVoice.connecting": {
+    "defaultMessage": "Connecting Live voice"
+  },
+  "liveVoice.emptyComposerRequired": {
+    "defaultMessage": "Clear the message and attachments to use Live voice"
+  },
+  "liveVoice.error": {
+    "defaultMessage": "Live voice failed. Try again"
+  },
+  "liveVoice.live": {
+    "defaultMessage": "Stop Live voice"
+  },
+  "liveVoice.mute": {
+    "defaultMessage": "Mute microphone"
+  },
+  "liveVoice.stopping": {
+    "defaultMessage": "Stopping Live voice"
+  },
+  "liveVoice.unmute": {
+    "defaultMessage": "Unmute microphone"
+  },
+  "liveVoiceSettings.description": {
+    "defaultMessage": "與 Goose 進行即時語音對話"
+  },
+  "liveVoiceSettings.title": {
+    "defaultMessage": "即時語音"
   },
   "loadingGoose.compacting": {
     "defaultMessage": "goose 正在壓縮對話…"

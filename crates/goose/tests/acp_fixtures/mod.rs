@@ -389,6 +389,10 @@ pub async fn spawn_acp_server_in_process(
         )
     });
 
+    let active_runs = Arc::new(goose::acp::server::ActiveRunRegistry::default());
+    let live_voice = Arc::new(goose::acp::server::LiveVoiceService::from_config(
+        active_runs.clone(),
+    ));
     let agent = GooseAcpAgent::new(GooseAcpAgentOptions {
         provider_factory,
         builtin_selection: goose::acp::server::AcpBuiltinSelection {
@@ -402,7 +406,8 @@ pub async fn spawn_acp_server_in_process(
         additional_source_roots: Vec::new(),
         session_cwd: None,
         scheduler: Some(Arc::new(FixtureScheduler::new())),
-        active_prompt_runs: Default::default(),
+        active_runs,
+        live_voice,
     })
     .await
     .unwrap();

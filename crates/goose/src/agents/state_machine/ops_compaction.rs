@@ -191,7 +191,7 @@ impl Operation<Session, GooseEffect> for CompactionOperation {
         emit.message(command).await;
         let response = emit.message(response).await;
         yielded_with([
-            GooseEffect::ReplaceConversation {
+            GooseEffect::CompactConversation {
                 conversation: compacted,
                 usage: Some(usage),
             },
@@ -306,7 +306,7 @@ impl Operation<Session, GooseEffect> for CompactionOperation {
                     "Compaction complete",
                 ))
                 .await;
-                applied([GooseEffect::ReplaceConversation {
+                applied([GooseEffect::CompactConversation {
                     conversation: compacted,
                     usage: Some(usage),
                 }])

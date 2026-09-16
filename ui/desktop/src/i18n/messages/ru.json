@@ -929,6 +929,10 @@
   "dirSwitcher.enterPathInvalid": {
     "defaultMessage": "Working directory must be an absolute path"
   },
+
+
+
+
   "dirSwitcher.failedToUpdateWorkingDir": {
     "defaultMessage": "Не удалось обновить рабочий каталог"
   },
@@ -1732,6 +1736,33 @@
   },
   "launcher.placeholder": {
     "defaultMessage": "Спросите goose о чем угодно..."
+  },
+  "liveVoice.connecting": {
+    "defaultMessage": "Connecting Live voice"
+  },
+  "liveVoice.emptyComposerRequired": {
+    "defaultMessage": "Clear the message and attachments to use Live voice"
+  },
+  "liveVoice.error": {
+    "defaultMessage": "Live voice failed. Try again"
+  },
+  "liveVoice.live": {
+    "defaultMessage": "Stop Live voice"
+  },
+  "liveVoice.mute": {
+    "defaultMessage": "Mute microphone"
+  },
+  "liveVoice.stopping": {
+    "defaultMessage": "Stopping Live voice"
+  },
+  "liveVoice.unmute": {
+    "defaultMessage": "Unmute microphone"
+  },
+  "liveVoiceSettings.description": {
+    "defaultMessage": "Общайтесь с Goose голосом в реальном времени"
+  },
+  "liveVoiceSettings.title": {
+    "defaultMessage": "Голосовой режим"
   },
   "loadingGoose.compacting": {
     "defaultMessage": "goose сжимает разговор..."

@@ -4,7 +4,8 @@ use goose_acp_macros::custom_methods;
 #[custom_methods]
 impl GooseAcpAgent {
     pub async fn dispatch_custom_request(
-        &self,
+        self: &Arc<Self>,
+        cx: &ConnectionTo<Client>,
         method: &str,
         params: serde_json::Value,
     ) -> Result<serde_json::Value, agent_client_protocol::Error> {
@@ -18,7 +19,7 @@ impl GooseAcpAgent {
                 });
             }
 
-            self.handle_custom_request(method, params).await
+            self.handle_custom_request(cx, method, params).await
         }
         .await;
 
@@ -131,6 +132,31 @@ impl GooseAcpAgent {
         req: SteerSessionRequest,
     ) -> Result<SteerSessionResponse, agent_client_protocol::Error> {
         self.on_steer_session(req).await
+    }
+
+    #[custom_method(LiveVoiceAvailabilityRequest)]
+    async fn dispatch_live_voice_availability(
+        &self,
+        req: LiveVoiceAvailabilityRequest,
+    ) -> Result<LiveVoiceAvailabilityResponse, agent_client_protocol::Error> {
+        self.on_live_voice_availability(req).await
+    }
+
+    #[custom_method(LiveVoiceStartRequest)]
+    async fn dispatch_live_voice_start(
+        self: &Arc<Self>,
+        cx: &ConnectionTo<Client>,
+        req: LiveVoiceStartRequest,
+    ) -> Result<LiveVoiceStartResponse, agent_client_protocol::Error> {
+        self.on_live_voice_start(cx, req).await
+    }
+
+    #[custom_method(LiveVoiceStopRequest)]
+    async fn dispatch_live_voice_stop(
+        &self,
+        req: LiveVoiceStopRequest,
+    ) -> Result<EmptyResponse, agent_client_protocol::Error> {
+        self.on_live_voice_stop(req).await
     }
 
     #[custom_method(DiagnosticsGetRequest)]

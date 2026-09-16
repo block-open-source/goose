@@ -4,9 +4,13 @@ import { AppEvents } from '../../constants/events';
 import { ChatState } from '../../types/chatState';
 import type { Session } from '../../types/session';
 import { maybeHandlePlatformEvent } from '../../utils/platform_events';
-import { handleAcpSessionNotification } from '../chatNotifications';
+import {
+  handleAcpGooseSessionNotification,
+  handleAcpSessionNotification,
+} from '../chatNotifications';
 import type { AcpChatSessionSnapshot } from '../chatSessionStore';
 import { acpChatSessionActions, acpChatSessionStore } from '../chatSessionStore';
+import { subscribeToLiveVoiceCallEnded } from '../liveVoiceNotifications';
 
 vi.mock('../chatSessionStore', () => ({
   acpChatSessionStore: {
@@ -183,5 +187,30 @@ describe('handleAcpSessionNotification', () => {
     await handleAcpSessionNotification(platformEventToolUpdate('completed'));
 
     expect(maybeHandlePlatformEvent).not.toHaveBeenCalled();
+  });
+
+  it('routes Live voice call endings outside the conversation store', async () => {
+    const listener = vi.fn();
+    const unsubscribe = subscribeToLiveVoiceCallEnded(listener);
+
+    await handleAcpGooseSessionNotification({
+      sessionId: SESSION_ID,
+      update: {
+        sessionUpdate: 'live_voice_call_ended',
+        callId: 'live-opaque',
+        outcome: 'failed',
+      },
+    });
+
+    expect(listener).toHaveBeenCalledWith({
+      sessionId: SESSION_ID,
+      update: {
+        sessionUpdate: 'live_voice_call_ended',
+        callId: 'live-opaque',
+        outcome: 'failed',
+      },
+    });
+    expect(acpChatSessionActions.applyAcpGooseSessionNotification).not.toHaveBeenCalled();
+    unsubscribe();
   });
 });

@@ -475,8 +475,16 @@ impl HandleDispatchFrom<Client> for GooseAcpHandler {
                     |message: Dispatch| async move {
                         match message {
                             Dispatch::Request(req, responder) => {
+                                let request_cx = cx.clone();
                                 cx.spawn(async move {
-                                    match agent.dispatch_custom_request(&req.method, req.params).await {
+                                    match agent
+                                        .dispatch_custom_request(
+                                            &request_cx,
+                                            &req.method,
+                                            req.params,
+                                        )
+                                        .await
+                                    {
                                         Ok(json) => responder.respond(json)?,
                                         Err(e) => responder.respond_with_error(e)?,
                                     }

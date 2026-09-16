@@ -1,6 +1,6 @@
 use crate::config::paths::Paths;
 use crate::config::GooseMode;
-use crate::conversation::message::{Message, MessageUsage, TokenState};
+use crate::conversation::message::{Message, MessageMetadata, MessageUsage, TokenState};
 use crate::conversation::Conversation;
 use crate::providers::base::CostSource;
 use crate::providers::base::Provider;
@@ -458,6 +458,16 @@ impl SessionManager {
 
     pub async fn replace_conversation(&self, id: &str, conversation: &Conversation) -> Result<()> {
         self.storage.replace_conversation(id, conversation).await
+    }
+
+    pub(crate) async fn save_compacted_conversation(
+        &self,
+        id: &str,
+        conversation: &Conversation,
+    ) -> Result<()> {
+        self.storage
+            .save_compacted_conversation(id, conversation)
+            .await
     }
 
     pub async fn list_sessions(&self) -> Result<Vec<Session>> {
@@ -1998,6 +2008,62 @@ impl SessionStorage {
     ) -> Result<()> {
         let pool = self.pool().await?;
         Self::replace_conversation_inner(pool, session_id, conversation).await
+    }
+
+    async fn save_compacted_conversation(
+        &self,
+        session_id: &str,
+        conversation: &Conversation,
+    ) -> Result<()> {
+        let pool = self.pool().await?;
+        let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
+
+        for message in conversation.messages() {
+            let message_id = message
+                .id
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("compacted conversation message has no id"))?;
+            let stored_metadata_json = sqlx::query_scalar::<_, Option<String>>(
+                "SELECT metadata_json FROM messages WHERE session_id = ? AND message_id = ?",
+            )
+            .bind(session_id)
+            .bind(message_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+            if let Some(stored_metadata_json) = stored_metadata_json {
+                let mut metadata = stored_metadata_json
+                    .and_then(|json| serde_json::from_str::<MessageMetadata>(&json).ok())
+                    .unwrap_or_default();
+                metadata.agent_visible = message.metadata.agent_visible;
+                sqlx::query(
+                    "UPDATE messages SET metadata_json = ? WHERE session_id = ? AND message_id = ?",
+                )
+                .bind(serde_json::to_string(&metadata)?)
+                .bind(session_id)
+                .bind(message_id)
+                .execute(&mut *tx)
+                .await?;
+            } else {
+                sqlx::query(
+                    "INSERT INTO messages (message_id, session_id, role, content_json, created_timestamp, metadata_json) VALUES (?, ?, ?, ?, ?, ?)",
+                )
+                .bind(message_id)
+                .bind(session_id)
+                .bind(role_to_string(&message.role))
+                .bind(serde_json::to_string(&message.content)?)
+                .bind(message.created)
+                .bind(serde_json::to_string(&message.metadata)?)
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
+
+        sqlx::query("UPDATE sessions SET updated_at = datetime('now') WHERE id = ?")
+            .bind(session_id)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(())
     }
 
     async fn list_sessions_matching(&self, query: SessionListQuery<'_>) -> Result<Vec<Session>> {

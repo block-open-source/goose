@@ -7,7 +7,7 @@ use goose_agent::operation::{ConversationEffect, MachineEffect};
 
 pub enum GooseEffect {
     Conversation(ConversationEffect),
-    ReplaceConversation {
+    CompactConversation {
         conversation: Conversation,
         usage: Option<ProviderUsage>,
     },
@@ -20,7 +20,7 @@ impl MachineEffect for GooseEffect {
     fn ensure_message_ids(&mut self) {
         match self {
             GooseEffect::Conversation(effect) => effect.ensure_message_ids(),
-            GooseEffect::ReplaceConversation { conversation, .. } => {
+            GooseEffect::CompactConversation { conversation, .. } => {
                 for message in conversation.messages_mut() {
                     if message.id.is_none() {
                         message.id = Some(format!("msg_{}", uuid::Uuid::new_v4()));

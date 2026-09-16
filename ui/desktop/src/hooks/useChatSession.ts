@@ -68,6 +68,7 @@ export function useChatSession({
   const sessionLoadError = acpSnapshot?.sessionLoadError;
   const tokenState = acpSnapshot?.tokenState ?? initialTokenState;
   const queueProcessingBlocked = acpSnapshot?.pendingCancelPromptAttemptId != null;
+  const hasActiveRun = acpSnapshot?.activeRunId != null;
 
   const snapshotRef = useRef(acpSnapshot);
   snapshotRef.current = acpSnapshot;
@@ -156,59 +157,7 @@ export function useChatSession({
     void retrySessionLoad();
   }, [retrySessionLoad]);
 
-  const handleSubmit = useCallback(
-    async (input: UserInput) => {
-      if (isAcpRecovering()) {
-        return;
-      }
-
-      const { msg: userMessage, images } = input;
-      const currentSnapshot = getCurrentSnapshot();
-
-      if (
-        !currentSnapshot?.session ||
-        currentSnapshot.chatState === ChatState.LoadingConversation ||
-        currentSnapshot.chatState === ChatState.Streaming ||
-        currentSnapshot.chatState === ChatState.Thinking ||
-        currentSnapshot.chatState === ChatState.Compacting ||
-        currentSnapshot.pendingCancelPromptAttemptId !== null
-      ) {
-        return;
-      }
-
-      const currentMessages = currentSnapshot.messages;
-      const hasExistingMessages = currentMessages.length > 0;
-      const hasNewMessage = userMessage.trim().length > 0 || images.length > 0;
-      const clearsConversation = hasNewMessage && isClearCommand(userMessage);
-
-      if (!hasNewMessage && !hasExistingMessages) {
-        return;
-      }
-
-      // Emit session-created event for first message in a new session
-      if (!hasExistingMessages && hasNewMessage) {
-        window.dispatchEvent(new CustomEvent(AppEvents.SESSION_CREATED));
-      }
-
-      const newMessage = hasNewMessage
-        ? createUserMessage(userMessage, images)
-        : currentMessages[currentMessages.length - 1];
-      const messagesForStore = clearsConversation
-        ? []
-        : hasNewMessage
-          ? [...currentMessages, newMessage]
-          : [...currentMessages];
-
-      if (clearsConversation || hasNewMessage) {
-        acpChatSessionActions.setMessages(sessionId, messagesForStore);
-      }
-
-      await submitToAcpSession(sessionId, newMessage);
-    },
-    [getCurrentSnapshot, sessionId, submitToAcpSession]
-  );
-
-  const onSteerQueuedMessage = useCallback(
+  const steerMessage = useCallback(
     async (input: UserInput): Promise<boolean> => {
       const { msg: userMessage, images } = input;
       const hasTextContent = userMessage.trim().length > 0;
@@ -259,6 +208,70 @@ export function useChatSession({
       }
     },
     [getCurrentSnapshot, sessionId]
+  );
+
+  const handleSubmit = useCallback(
+    async (input: UserInput) => {
+      if (isAcpRecovering()) {
+        return;
+      }
+
+      const { msg: userMessage, images } = input;
+      const currentSnapshot = getCurrentSnapshot();
+
+      if (
+        !currentSnapshot?.session ||
+        currentSnapshot.chatState === ChatState.LoadingConversation ||
+        currentSnapshot.pendingCancelPromptAttemptId !== null
+      ) {
+        return;
+      }
+
+      const activeRunId =
+        acpChatSessionStore.getSnapshot(sessionId)?.activeRunId ?? currentSnapshot.activeRunId;
+      if (activeRunId) {
+        await steerMessage(input);
+        return;
+      }
+
+      if (
+        currentSnapshot.chatState === ChatState.Streaming ||
+        currentSnapshot.chatState === ChatState.Thinking ||
+        currentSnapshot.chatState === ChatState.Compacting
+      ) {
+        return;
+      }
+
+      const currentMessages = currentSnapshot.messages;
+      const hasExistingMessages = currentMessages.length > 0;
+      const hasNewMessage = userMessage.trim().length > 0 || images.length > 0;
+      const clearsConversation = hasNewMessage && isClearCommand(userMessage);
+
+      if (!hasNewMessage && !hasExistingMessages) {
+        return;
+      }
+
+      // Emit session-created event for first message in a new session
+      if (!hasExistingMessages && hasNewMessage) {
+        window.dispatchEvent(new CustomEvent(AppEvents.SESSION_CREATED));
+      }
+
+      const newMessage = hasNewMessage
+        ? createUserMessage(userMessage, images)
+        : currentMessages[currentMessages.length - 1];
+      const messagesForStore = clearsConversation
+        ? []
+        : hasNewMessage
+          ? [...currentMessages, newMessage]
+          : [...currentMessages];
+
+      if (clearsConversation || hasNewMessage) {
+        acpChatSessionActions.setMessages(sessionId, messagesForStore);
+      }
+
+      await submitToAcpSession(sessionId, newMessage);
+    },
+    [getCurrentSnapshot, sessionId, steerMessage, submitToAcpSession]
   );
 
   const submitElicitationResponse = useCallback(
@@ -346,7 +359,7 @@ export function useChatSession({
     progressMessage,
     updateSession,
     handleSubmit,
-    onSteerQueuedMessage,
+    onSteerQueuedMessage: steerMessage,
     submitElicitationResponse,
     stopStreaming,
     retrySessionLoad,
@@ -354,6 +367,7 @@ export function useChatSession({
     notifications: notificationsMap,
     pauseQueueOnStop: false,
     queueProcessingBlocked,
+    hasActiveRun,
     onMessageUpdate,
   };
 }

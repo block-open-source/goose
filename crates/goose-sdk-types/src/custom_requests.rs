@@ -239,7 +239,61 @@ pub struct SteerSessionResponse {
     pub message_id: String,
 }
 
+/// Ask whether a new or existing chat can enter direct Live voice.
+#[derive(Debug, Default, Clone, Serialize, Deserialize, JsonSchema, JsonRpcRequest)]
+#[request(
+    method = "_goose/unstable/session/live-voice/availability",
+    response = LiveVoiceAvailabilityResponse
+)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveVoiceAvailabilityRequest {
+    pub session_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LiveVoiceStatus {
+    Ready,
+    Unavailable,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, JsonRpcResponse)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveVoiceAvailabilityResponse {
+    pub status: LiveVoiceStatus,
+    pub message: String,
+}
+
 /// Get a diagnostic report for a session.
+#[derive(Debug, Default, Clone, Serialize, Deserialize, JsonSchema, JsonRpcRequest)]
+#[request(
+    method = "_goose/unstable/session/live-voice/start",
+    response = LiveVoiceStartResponse
+)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveVoiceStartRequest {
+    pub session_id: String,
+    pub offer_sdp: String,
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize, JsonSchema, JsonRpcResponse)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveVoiceStartResponse {
+    pub call_id: String,
+    pub answer_sdp: String,
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize, JsonSchema, JsonRpcRequest)]
+#[request(
+    method = "_goose/unstable/session/live-voice/stop",
+    response = EmptyResponse
+)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveVoiceStopRequest {
+    pub session_id: String,
+    pub call_id: String,
+}
+
 #[derive(Debug, Default, Clone, Serialize, Deserialize, JsonSchema, JsonRpcRequest)]
 #[request(
     method = "_goose/unstable/diagnostics/get",

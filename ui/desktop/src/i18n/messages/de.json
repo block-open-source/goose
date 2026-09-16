@@ -1733,6 +1733,33 @@
   "launcher.placeholder": {
     "defaultMessage": "Frag goose irgendetwas..."
   },
+  "liveVoice.connecting": {
+    "defaultMessage": "Connecting Live voice"
+  },
+  "liveVoice.emptyComposerRequired": {
+    "defaultMessage": "Clear the message and attachments to use Live voice"
+  },
+  "liveVoice.error": {
+    "defaultMessage": "Live voice failed. Try again"
+  },
+  "liveVoice.live": {
+    "defaultMessage": "Stop Live voice"
+  },
+  "liveVoice.mute": {
+    "defaultMessage": "Mute microphone"
+  },
+  "liveVoice.stopping": {
+    "defaultMessage": "Stopping Live voice"
+  },
+  "liveVoice.unmute": {
+    "defaultMessage": "Unmute microphone"
+  },
+  "liveVoiceSettings.description": {
+    "defaultMessage": "Führe ein Echtzeit-Sprachgespräch mit Goose"
+  },
+  "liveVoiceSettings.title": {
+    "defaultMessage": "Live-Sprachmodus"
+  },
   "loadingGoose.compacting": {
     "defaultMessage": "goose komprimiert die Unterhaltung..."
   },

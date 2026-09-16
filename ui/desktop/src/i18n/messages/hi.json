@@ -929,6 +929,10 @@
   "dirSwitcher.enterPathInvalid": {
     "defaultMessage": "Working directory must be an absolute path"
   },
+
+
+
+
   "dirSwitcher.failedToUpdateWorkingDir": {
     "defaultMessage": "कार्यशील निर्देशिका अद्यतन करने में विफल"
   },
@@ -1732,6 +1736,33 @@
   },
   "launcher.placeholder": {
     "defaultMessage": "goose से कुछ भी पूछें..."
+  },
+  "liveVoice.connecting": {
+    "defaultMessage": "Connecting Live voice"
+  },
+  "liveVoice.emptyComposerRequired": {
+    "defaultMessage": "Clear the message and attachments to use Live voice"
+  },
+  "liveVoice.error": {
+    "defaultMessage": "Live voice failed. Try again"
+  },
+  "liveVoice.live": {
+    "defaultMessage": "Stop Live voice"
+  },
+  "liveVoice.mute": {
+    "defaultMessage": "Mute microphone"
+  },
+  "liveVoice.stopping": {
+    "defaultMessage": "Stopping Live voice"
+  },
+  "liveVoice.unmute": {
+    "defaultMessage": "Unmute microphone"
+  },
+  "liveVoiceSettings.description": {
+    "defaultMessage": "Goose के साथ रीयल-टाइम वॉइस बातचीत करें"
+  },
+  "liveVoiceSettings.title": {
+    "defaultMessage": "लाइव वॉइस"
   },
   "loadingGoose.compacting": {
     "defaultMessage": "goose बातचीत को संक्षिप्त कर रहा है..."

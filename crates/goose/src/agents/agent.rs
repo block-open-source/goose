@@ -2013,6 +2013,22 @@ impl Agent {
         ))
     }
 
+    pub(crate) async fn reply_live_delegation(
+        &self,
+        user_message: Message,
+        session_config: SessionConfig,
+        cancel_token: CancellationToken,
+    ) -> Result<BoxStream<'_, Result<AgentEvent>>> {
+        if !super::state_machine::enabled() {
+            return Err(anyhow!("Live delegation requires the state machine"));
+        }
+        let user_message = user_message.agent_only();
+        let events = self
+            .reply_with_state_machine(user_message, session_config, Some(cancel_token))
+            .await?;
+        Ok(Box::pin(events.map_ok(ensure_message_event_id)))
+    }
+
     #[instrument(
         skip(self, user_message, session_config, use_state_machine, cancel_token),
         fields(

@@ -1754,6 +1754,33 @@
   "launcher.placeholder": {
     "defaultMessage": "Ask goose anything..."
   },
+  "liveVoice.connecting": {
+    "defaultMessage": "Connecting Live voice"
+  },
+  "liveVoice.emptyComposerRequired": {
+    "defaultMessage": "Clear the message and attachments to use Live voice"
+  },
+  "liveVoice.error": {
+    "defaultMessage": "Live voice failed. Try again"
+  },
+  "liveVoice.live": {
+    "defaultMessage": "Stop Live voice"
+  },
+  "liveVoice.mute": {
+    "defaultMessage": "Mute microphone"
+  },
+  "liveVoice.stopping": {
+    "defaultMessage": "Stopping Live voice"
+  },
+  "liveVoice.unmute": {
+    "defaultMessage": "Unmute microphone"
+  },
+  "liveVoiceSettings.description": {
+    "defaultMessage": "Have a real-time voice conversation with Goose"
+  },
+  "liveVoiceSettings.title": {
+    "defaultMessage": "Live voice"
+  },
   "loadingGoose.compacting": {
     "defaultMessage": "goose is compacting the conversation..."
   },

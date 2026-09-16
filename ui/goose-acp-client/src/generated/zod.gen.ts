@@ -423,11 +423,40 @@ export const zSteerSessionResponse_unstable = z.object({
     messageId: z.string()
 });
 
-export const zDiagnosticsReportLevel = z.enum(['summary', 'full']);
+/**
+ * Ask whether a new or existing chat can enter direct Live voice.
+ */
+export const zLiveVoiceAvailabilityRequest_unstable = z.object({
+    sessionId: z.string().nullish()
+});
+
+export const zLiveVoiceStatus = z.enum(['ready', 'unavailable']);
+
+export const zLiveVoiceAvailabilityResponse_unstable = z.object({
+    status: zLiveVoiceStatus,
+    message: z.string()
+});
 
 /**
  * Get a diagnostic report for a session.
  */
+export const zLiveVoiceStartRequest_unstable = z.object({
+    sessionId: z.string(),
+    offerSdp: z.string()
+});
+
+export const zLiveVoiceStartResponse_unstable = z.object({
+    callId: z.string(),
+    answerSdp: z.string()
+});
+
+export const zLiveVoiceStopRequest_unstable = z.object({
+    sessionId: z.string(),
+    callId: z.string()
+});
+
+export const zDiagnosticsReportLevel = z.enum(['summary', 'full']);
+
 export const zDiagnosticsGetRequest_unstable = z.object({
     sessionId: z.string(),
     level: zDiagnosticsReportLevel.optional().default('summary')
@@ -2234,6 +2263,13 @@ export const zMessageUsageUpdate = z.object({
     usage: zMessageUsageData
 });
 
+export const zLiveVoiceCallOutcome = z.enum(['stopped', 'failed']);
+
+export const zLiveVoiceCallEndedUpdate = z.object({
+    callId: z.string(),
+    outcome: zLiveVoiceCallOutcome
+});
+
 /**
  * Discriminated union of goose-specific session update payloads.
  * Variant tag matches ACP's convention (`sessionUpdate: "<snake_case>"`).
@@ -2245,7 +2281,8 @@ export const zMessageUsageUpdate = z.object({
 export const zGooseSessionUpdate = z.discriminatedUnion('sessionUpdate', [
     zSessionUsageUpdate.extend({ sessionUpdate: z.literal('usage_update') }),
     zStatusMessageUpdate.extend({ sessionUpdate: z.literal('status_message') }),
-    zMessageUsageUpdate.extend({ sessionUpdate: z.literal('message_usage') })
+    zMessageUsageUpdate.extend({ sessionUpdate: z.literal('message_usage') }),
+    zLiveVoiceCallEndedUpdate.extend({ sessionUpdate: z.literal('live_voice_call_ended') })
 ]);
 
 /**
@@ -2303,6 +2340,9 @@ export const zExtRequest = z.object({
             zUpdateWorkingDirRequest_unstable,
             zSetSessionSystemPromptRequest_unstable,
             zSteerSessionRequest_unstable,
+            zLiveVoiceAvailabilityRequest_unstable,
+            zLiveVoiceStartRequest_unstable,
+            zLiveVoiceStopRequest_unstable,
             zDiagnosticsGetRequest_unstable,
             zListPromptsRequest_unstable,
             zGetPromptRequest_unstable,
@@ -2418,6 +2458,8 @@ export const zExtResponse = z.union([
                 zAppsImportResponse_unstable,
                 zAppsDeleteResponse_unstable,
                 zSteerSessionResponse_unstable,
+                zLiveVoiceAvailabilityResponse_unstable,
+                zLiveVoiceStartResponse_unstable,
                 zDiagnosticsGetResponse_unstable,
                 zListPromptsResponse_unstable,
                 zGetPromptResponse_unstable,

@@ -19,7 +19,6 @@ fn contains_tool_confirmation_request(message: &Message) -> bool {
         )
     })
 }
-
 impl MachineSession for Session {
     fn id(&self) -> &str {
         &self.id
@@ -63,14 +62,15 @@ impl EffectHandler<Session, GooseEffect> for SessionManager {
                         .apply()
                         .await?;
                 }
-                GooseEffect::ReplaceConversation {
+                GooseEffect::CompactConversation {
                     conversation,
                     usage: replacement_usage,
                 } => {
                     if let Some(provider_usage) = replacement_usage {
                         usage::record(self, session, provider_usage, true).await?;
                     }
-                    self.replace_conversation(&session.id, conversation).await?;
+                    self.save_compacted_conversation(&session.id, conversation)
+                        .await?;
                     self.update(&session.id)
                         .usage(usage::estimate_context(conversation).await?)
                         .apply()
@@ -137,7 +137,7 @@ impl EffectHandler<Session, GooseEffect> for SessionManager {
                 GooseEffect::Conversation(ConversationEffect::ReplaceConversation(
                     conversation,
                 ))
-                | GooseEffect::ReplaceConversation { conversation, .. } => {
+                | GooseEffect::CompactConversation { conversation, .. } => {
                     emit.emit(AgentEvent::HistoryReplaced(conversation.clone()))
                         .await;
                 }
@@ -158,7 +158,7 @@ impl EffectUsage<GooseEffect> for SessionManager {
     ) -> Option<goose_providers::conversation::token_usage::Usage> {
         match effect {
             GooseEffect::RecordUsage(usage)
-            | GooseEffect::ReplaceConversation {
+            | GooseEffect::CompactConversation {
                 usage: Some(usage), ..
             } => Some(usage.usage),
             _ => None,
@@ -236,4 +236,77 @@ pub(crate) async fn run(
     }
     crate::agents::gen_ai_telemetry::record_usage(&tracing::Span::current(), &turn_usage);
     Ok(session)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::GooseMode;
+    use crate::conversation::message::Message;
+    use crate::session::session_manager::SessionType;
+
+    #[tokio::test]
+    async fn live_replacement_preserves_concurrent_transcript_and_hidden_handoff() {
+        let manager = SessionManager::new(tempfile::tempdir().unwrap().keep());
+        let session = manager
+            .create_session(
+                "/tmp".into(),
+                "concurrent compaction".into(),
+                SessionType::User,
+                GooseMode::Auto,
+            )
+            .await
+            .unwrap();
+        let kickoff = Message::user()
+            .with_id("kickoff")
+            .with_text("delegated request")
+            .agent_only();
+        manager.add_message(&session.id, &kickoff).await.unwrap();
+
+        let snapshot = manager.get_session(&session.id, true).await.unwrap();
+
+        manager
+            .add_message(
+                &session.id,
+                &Message::user()
+                    .with_id("concurrent-live")
+                    .with_text("still speaking")
+                    .user_only(),
+            )
+            .await
+            .unwrap();
+
+        let mut compacted = snapshot.conversation.clone().unwrap();
+        for message in compacted.messages_mut() {
+            message.metadata.agent_visible = false;
+        }
+        compacted.messages_mut().push(
+            Message::assistant()
+                .with_id("summary")
+                .with_text("summary")
+                .agent_only(),
+        );
+        manager
+            .save_compacted_conversation(&session.id, &compacted)
+            .await
+            .unwrap();
+
+        let reloaded = manager.get_session(&session.id, true).await.unwrap();
+        let messages = reloaded.conversation.unwrap();
+        let kickoff = messages
+            .messages()
+            .iter()
+            .find(|message| message.id.as_deref() == Some("kickoff"))
+            .unwrap();
+        assert!(!kickoff.is_user_visible());
+        assert!(!kickoff.is_agent_visible());
+        assert!(messages
+            .messages()
+            .iter()
+            .any(|message| message.id.as_deref() == Some("concurrent-live")));
+        assert!(messages
+            .messages()
+            .iter()
+            .any(|message| message.id.as_deref() == Some("summary")));
+    }
 }

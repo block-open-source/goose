@@ -28,6 +28,8 @@ import {
 import { formatAcpError } from '../acp/errors';
 import { toastError } from '../toasts';
 import { formatClockDisplay } from '../utils/timeUtils';
+import { acpGetLiveVoiceAvailability } from '../acp/liveVoice';
+import type { LiveVoiceAvailabilityResponse_unstable } from '@aaif/goose-acp-client';
 
 const i18n = defineMessages({
   goodMorning: { id: 'hub.goodMorning', defaultMessage: 'Good morning' },
@@ -58,6 +60,8 @@ export default function Hub({
   const [workingDir, setWorkingDir] = useState(getInitialWorkingDir());
   const userSelectedWorkingDirRef = useRef(false);
   const [isCreatingSession, setIsCreatingSession] = useState(false);
+  const [liveVoiceAvailability, setLiveVoiceAvailability] =
+    useState<LiveVoiceAvailabilityResponse_unstable | null>(null);
   const [nextChatExtensionDraft, setNextChatExtensionDraft] =
     useState<NextChatExtensionDraft | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -70,6 +74,21 @@ export default function Hub({
     void getEffectiveWorkingDir().then((dir) => {
       if (active && !userSelectedWorkingDirRef.current) setWorkingDir(dir);
     });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    void acpGetLiveVoiceAvailability().then(
+      (availability) => {
+        if (active) setLiveVoiceAvailability(availability);
+      },
+      () => {
+        if (active) setLiveVoiceAvailability(null);
+      }
+    );
     return () => {
       active = false;
     };
@@ -103,11 +122,8 @@ export default function Hub({
     setWorkingDir(dir);
   }, []);
 
-  const handleSubmit = async (input: UserInput) => {
-    const { msg: userMessage, images } = input;
-    if (!(images.length > 0 || userMessage.trim()) || isCreatingSession) return;
-
-    const draftAtSubmit = draftRef.current;
+  const createHubSession = async () => {
+    if (isCreatingSession) return null;
     setIsCreatingSession(true);
 
     try {
@@ -124,31 +140,58 @@ export default function Hub({
       const dir = userSelectedWorkingDirRef.current ? workingDir : await getEffectiveWorkingDir();
       const session = await createSession(dir, sessionOptions);
       setNextChatExtensionDraft(null);
-
-      window.dispatchEvent(new CustomEvent(AppEvents.SESSION_CREATED));
-      window.dispatchEvent(
-        new CustomEvent(AppEvents.ADD_ACTIVE_SESSION, {
-          detail: { sessionId: session.id, initialMessage: { msg: userMessage, images } },
-        })
-      );
-
-      // The draft is this screen's own, so it is dropped once the session exists.
-      // Comparing it against the value at submit leaves an edit made while the
-      // session was starting alone, including one that emptied the input.
-      if (draftRef.current === draftAtSubmit) {
-        draftRef.current = '';
-      }
-
-      setView('pair', {
-        disableAnimation: true,
-        resumeSessionId: session.id,
-        initialMessage: { msg: userMessage, images },
-      });
+      return session;
     } catch (error) {
       console.error('Failed to create session:', error);
       toastError({ title: "Couldn't start chat", msg: formatAcpError(error) });
       setIsCreatingSession(false);
+      return null;
     }
+  };
+
+  const handleSubmit = async (input: UserInput) => {
+    const { msg: userMessage, images } = input;
+    if (!(images.length > 0 || userMessage.trim())) return;
+
+    const draftAtSubmit = draftRef.current;
+    const session = await createHubSession();
+    if (!session) return;
+
+    window.dispatchEvent(new CustomEvent(AppEvents.SESSION_CREATED));
+    window.dispatchEvent(
+      new CustomEvent(AppEvents.ADD_ACTIVE_SESSION, {
+        detail: { sessionId: session.id, initialMessage: { msg: userMessage, images } },
+      })
+    );
+
+    // Preserve edits made while the session was being created.
+    if (draftRef.current === draftAtSubmit) {
+      draftRef.current = '';
+    }
+
+    setView('pair', {
+      disableAnimation: true,
+      resumeSessionId: session.id,
+      initialMessage: { msg: userMessage, images },
+    });
+  };
+
+  const handleStartLiveVoice = async () => {
+    const session = await createHubSession();
+    if (!session) return;
+
+    window.dispatchEvent(new CustomEvent(AppEvents.SESSION_CREATED));
+    window.dispatchEvent(
+      new CustomEvent(AppEvents.ADD_ACTIVE_SESSION, {
+        detail: { sessionId: session.id },
+      })
+    );
+
+    setView('pair', {
+      disableAnimation: true,
+      resumeSessionId: session.id,
+      startLiveVoice: true,
+    });
   };
 
   return (
@@ -170,6 +213,7 @@ export default function Hub({
             draftRef={draftRef}
             handleSubmit={handleSubmit}
             chatState={isCreatingSession ? ChatState.LoadingConversation : ChatState.Idle}
+            hasActiveRun={false}
             onStop={() => {}}
             initialValue=""
             setView={setView}
@@ -185,6 +229,14 @@ export default function Hub({
             inputRef={inputRef}
             nextChatExtensionDraft={draftForMenu}
             onNextChatExtensionDraftChange={handleNextChatExtensionDraftChange}
+            liveVoice={{
+              availability: isCreatingSession ? null : liveVoiceAvailability,
+              phase: 'idle',
+              muted: false,
+              start: handleStartLiveVoice,
+              stop: async () => {},
+              toggleMute: () => {},
+            }}
           />
         </ChatInputCard>
       </div>

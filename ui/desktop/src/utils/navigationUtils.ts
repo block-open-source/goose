@@ -29,6 +29,7 @@ export type ViewOptions = {
   disableAnimation?: boolean;
   initialMessage?: UserInput;
   resumeSessionId?: string;
+  startLiveVoice?: boolean;
   pendingScheduleDeepLink?: string;
 };
 

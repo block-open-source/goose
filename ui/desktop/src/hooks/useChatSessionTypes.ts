@@ -28,6 +28,7 @@ export interface UseChatSessionResult {
   notifications: Map<string, NotificationEvent[]>;
   pauseQueueOnStop: boolean;
   queueProcessingBlocked: boolean;
+  hasActiveRun: boolean;
   onMessageUpdate: (
     messageId: string,
     newContent: string,

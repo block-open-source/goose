@@ -3,6 +3,7 @@ import { DictationSettings } from '../dictation/DictationSettings';
 import { SecurityToggle } from '../security/SecurityToggle';
 import { ResponseStylesSection } from '../response_styles/ResponseStylesSection';
 import { GoosehintsSection } from './GoosehintsSection';
+import { LiveVoiceSettings } from './LiveVoiceSettings';
 import { SpellcheckToggle } from './SpellcheckToggle';
 import { LegacyAgentLoopToggle } from './LegacyAgentLoopToggle';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../ui/card';
@@ -51,6 +52,7 @@ export default function ChatSettingsSection() {
 
       <Card className="pb-2 rounded-lg">
         <CardContent className="px-2">
+          <LiveVoiceSettings />
           <DictationSettings />
           <SpellcheckToggle />
         </CardContent>

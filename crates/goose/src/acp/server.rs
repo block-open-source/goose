@@ -97,7 +97,10 @@ use self::tool_calls::enrichment::{spawn_chain_summary_enrichment, spawn_tool_ti
 
 mod agent_requests;
 pub use agent_requests::agent_request_schemas;
+mod active_run;
 mod agent_mentions;
+pub use active_run::ActiveRunRegistry;
+use active_run::StartRunError;
 mod apps;
 mod config;
 mod custom_dispatch;
@@ -108,8 +111,10 @@ mod elicitation;
 mod extensions;
 mod fork_session;
 mod list_sessions;
+mod live_voice;
 mod load_session;
 mod local_inference;
+pub use live_voice::LiveVoiceService;
 mod manage_sessions;
 mod message_meta;
 mod new_session;
@@ -237,27 +242,10 @@ struct GooseAcpSession {
     agent: Arc<Agent>,
 }
 
-pub struct ActivePromptRun {
-    run_id: String,
-    cancel_token: CancellationToken,
-    /// The agent actually running this prompt. Roaming gives each connection
-    /// its own agent, so a steer arriving on a second connection must be
-    /// routed here rather than to the caller's connection-local agent.
-    agent: Arc<Agent>,
-}
-
 struct AgentStreamOutcome {
     was_cancelled: bool,
     output_token_limit_reached: bool,
 }
-
-/// Per-session active-run registry, shared by every `GooseAcpAgent` created
-/// from one `AcpServer`. Roaming spawns a fresh agent per connection, so two
-/// paired clients loading the same session get distinct agents; sharing this
-/// map across them is what makes the "session already has an active run" guard
-/// fire between connections instead of letting two loops interleave writes on
-/// one session.
-pub type ActiveRunRegistry = Arc<Mutex<HashMap<String, ActivePromptRun>>>;
 
 /// Releases a registry entry if the task consuming an agent stream is dropped
 /// without reaching its explicit `clear_active_run` — e.g. a roaming
@@ -268,7 +256,7 @@ pub type ActiveRunRegistry = Arc<Mutex<HashMap<String, ActivePromptRun>>>;
 /// The explicit clear still runs on normal paths; this drop is then a no-op
 /// because the entry (matched by run id) is already gone.
 struct ActiveRunDropGuard {
-    registry: ActiveRunRegistry,
+    registry: Arc<ActiveRunRegistry>,
     session_id: String,
     run_id: String,
     cancel_token: CancellationToken,
@@ -277,24 +265,15 @@ struct ActiveRunDropGuard {
 impl Drop for ActiveRunDropGuard {
     fn drop(&mut self) {
         self.cancel_token.cancel();
-        let registry = self.registry.clone();
         let session_id = std::mem::take(&mut self.session_id);
         let run_id = std::mem::take(&mut self.run_id);
+        let agent = self.registry.remove_agent_run(&session_id, &run_id);
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
-            handle.spawn(async move {
-                let agent = {
-                    let mut runs = registry.lock().await;
-                    match runs.get(&session_id) {
-                        Some(run) if run.run_id == run_id => {
-                            runs.remove(&session_id).map(|run| run.agent)
-                        }
-                        _ => None,
-                    }
-                };
-                if let Some(agent) = agent {
+            if let Some(agent) = agent {
+                handle.spawn(async move {
                     agent.discard_pending_steers(&session_id).await;
-                }
-            });
+                });
+            }
         }
     }
 }
@@ -333,15 +312,16 @@ pub struct GooseAcpAgentOptions {
     /// When set, new sessions use this host-controlled working directory instead
     /// of the `cwd` the connecting client sends (see `AcpServerFactoryConfig`).
     pub session_cwd: Option<std::path::PathBuf>,
-    /// Active-run registry shared across all agents from one `AcpServer`, so the
-    /// active-run guard holds across roaming connections that each get a fresh
-    /// agent for the same session.
-    pub active_prompt_runs: ActiveRunRegistry,
+    /// Shared across roaming connections to coordinate prompt, Live, and
+    /// delegated agent runs for each session.
+    pub active_runs: Arc<ActiveRunRegistry>,
+    pub live_voice: Arc<LiveVoiceService>,
 }
 
 pub struct GooseAcpAgent {
     sessions: Arc<Mutex<HashMap<String, GooseAcpSession>>>,
-    active_prompt_runs: Arc<Mutex<HashMap<String, ActivePromptRun>>>,
+    active_runs: Arc<ActiveRunRegistry>,
+    live_voice: Arc<LiveVoiceService>,
     closed_session_ids: Arc<Mutex<HashSet<String>>>,
     agent_manager: Arc<AgentManager>,
     provider_factory: AcpProviderFactory,
@@ -836,8 +816,8 @@ pub(super) fn validate_absolute_cwd(cwd: &Path) -> Result<(), agent_client_proto
 
 impl GooseAcpAgent {
     #[cfg(test)]
-    pub(crate) fn active_run_registry(&self) -> &ActiveRunRegistry {
-        &self.active_prompt_runs
+    pub(crate) fn active_run_registry(&self) -> &Arc<ActiveRunRegistry> {
+        &self.active_runs
     }
 
     #[cfg(test)]
@@ -854,7 +834,7 @@ impl GooseAcpAgent {
     #[cfg(test)]
     pub(crate) fn test_drop_active_run_guard(&self, session_id: &str, run_id: &str) {
         drop(ActiveRunDropGuard {
-            registry: self.active_prompt_runs.clone(),
+            registry: self.active_runs.clone(),
             session_id: session_id.to_string(),
             run_id: run_id.to_string(),
             cancel_token: CancellationToken::new(),
@@ -983,7 +963,8 @@ impl GooseAcpAgent {
 
         Ok(Self {
             sessions: Arc::new(Mutex::new(HashMap::new())),
-            active_prompt_runs: options.active_prompt_runs,
+            active_runs: options.active_runs,
+            live_voice: options.live_voice,
             closed_session_ids: Arc::new(Mutex::new(HashSet::new())),
             agent_manager,
             provider_factory: options.provider_factory,
@@ -1917,40 +1898,24 @@ impl GooseAcpAgent {
             .data(format!("Session not found: {}", session_id)));
         }
 
-        let mut active_prompt_runs = self.active_prompt_runs.lock().await;
-        if let Some(active_run) = active_prompt_runs.get(session_id) {
-            return Err(agent_client_protocol::Error::invalid_params().data(format!(
-                "session already has active run `{}`; use _goose/unstable/session/steer",
-                active_run.run_id.as_str()
-            )));
-        }
-
-        active_prompt_runs.insert(
-            session_id.to_string(),
-            ActivePromptRun {
-                run_id,
-                cancel_token,
-                agent,
-            },
-        );
+        self.active_runs
+            .start_prompt_run(session_id, run_id, cancel_token, agent)
+            .map_err(|error| match error {
+                StartRunError::AgentRunExists { run_id } => {
+                    let message = format!(
+                        "session already has active run `{run_id}`; use _goose/unstable/session/steer"
+                    );
+                    agent_client_protocol::Error::invalid_params().data(message)
+                }
+                StartRunError::LiveCallExists => agent_client_protocol::Error::invalid_params()
+                    .data("session already has an active Live run"),
+                StartRunError::LiveCallMissing => unreachable!("prompt runs do not require Live"),
+            })?;
         Ok(())
     }
 
     async fn clear_active_run(&self, session_id: &str, run_id: &str) {
-        let agent = {
-            let mut active_prompt_runs = self.active_prompt_runs.lock().await;
-            let Some(active_run) = active_prompt_runs.get(session_id) else {
-                return;
-            };
-
-            if active_run.run_id != run_id {
-                return;
-            }
-
-            active_prompt_runs
-                .remove(session_id)
-                .map(|active_run| active_run.agent)
-        };
+        let agent = self.active_runs.remove_agent_run(session_id, run_id);
 
         // Discard steers on the agent that owned the run; under roaming it may
         // not be this connection's agent.
@@ -1984,23 +1949,22 @@ impl GooseAcpAgent {
                 .data("expectedRunId must not be empty"));
         }
 
-        let active_prompt_runs = self.active_prompt_runs.lock().await;
-        let active_run = active_prompt_runs.get(session_id).ok_or_else(|| {
+        let (active_run_id, agent) = self.active_runs.agent_run(session_id).ok_or_else(|| {
             agent_client_protocol::Error::invalid_params().data("no active run to steer")
         })?;
-        if active_run.run_id != expected_run_id {
+        if active_run_id != expected_run_id {
             return Err(
                 agent_client_protocol::Error::invalid_params().data(serde_json::json!({
                     "message": format!(
                         "expected active run id `{expected_run_id}` but found `{}`",
-                        active_run.run_id.as_str()
+                        active_run_id.as_str()
                     ),
                     "expectedRunId": expected_run_id,
-                    "actualRunId": active_run.run_id.as_str(),
+                    "actualRunId": active_run_id.as_str(),
                 })),
             );
         }
-        Ok((active_run.run_id.clone(), active_run.agent.clone()))
+        Ok((active_run_id, agent))
     }
 
     fn active_run_meta(active_run_id: Option<&str>) -> Meta {
@@ -2283,7 +2247,7 @@ impl GooseAcpAgent {
         // connection carrying it is revoked or lost); a normal completion's
         // explicit clear wins and makes the guard's cleanup a no-op.
         let _run_guard = ActiveRunDropGuard {
-            registry: self.active_prompt_runs.clone(),
+            registry: self.active_runs.clone(),
             session_id: session_id.clone(),
             run_id: run_id.clone(),
             cancel_token: cancel_token.clone(),
@@ -2418,12 +2382,7 @@ impl GooseAcpAgent {
         debug!(?args, "cancel request");
 
         let session_id = args.session_id.0.to_string();
-        let token = {
-            let active_prompt_runs = self.active_prompt_runs.lock().await;
-            active_prompt_runs
-                .get(&session_id)
-                .map(|active_run| active_run.cancel_token.clone())
-        };
+        let token = self.active_runs.agent_cancel_token(&session_id);
 
         if let Some(token) = token {
             info!(session_id = %session_id, "prompt cancelled");
@@ -2635,12 +2594,7 @@ impl GooseAcpAgent {
             .await
             .insert(session_id.to_string());
 
-        let active_run_token = {
-            let active_prompt_runs = self.active_prompt_runs.lock().await;
-            active_prompt_runs
-                .get(session_id)
-                .map(|active_run| active_run.cancel_token.clone())
-        };
+        let active_run_token = self.active_runs.agent_cancel_token(session_id);
 
         if let Some(token) = active_run_token {
             token.cancel();
@@ -3629,6 +3583,8 @@ print(\"hello, world\")
     #[tokio::test]
     async fn asynchronous_provider_effort_update_is_forwarded_to_client() {
         let root = tempfile::tempdir().unwrap();
+        let active_runs = Arc::new(ActiveRunRegistry::default());
+        let live_voice = Arc::new(LiveVoiceService::from_config(active_runs.clone()));
         let provider_factory: AcpProviderFactory = Arc::new(
             |_provider_name, _extensions, _working_dir, _use_default_model| {
                 Box::pin(async { Err(anyhow::anyhow!("unused provider factory")) })
@@ -3645,7 +3601,8 @@ print(\"hello, world\")
                 additional_source_roots: Vec::new(),
                 scheduler: None,
                 session_cwd: None,
-                active_prompt_runs: Default::default(),
+                active_runs,
+                live_voice,
             })
             .await
             .unwrap(),

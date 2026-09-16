@@ -202,8 +202,21 @@ impl GooseAcpAgent {
                     .data(format!("Session not found: {}", session_id))
             })?;
 
+        let active_run_id = self
+            .active_prompt_runs
+            .lock()
+            .await
+            .get(session_id)
+            .map(|run| run.run_id.clone());
+
+        let mut session_info = build_session_info(session);
+        session_info
+            .meta
+            .get_or_insert_default()
+            .extend(Self::active_run_meta(active_run_id.as_deref()));
+
         Ok(GetSessionInfoResponse {
-            session: build_session_info(session),
+            session: session_info,
         })
     }
 

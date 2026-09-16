@@ -34,6 +34,7 @@ rmcp = { workspace = true }
 clap = { workspace = true }
 cliclack = { version = "0.5", default-features = false }
 console = { version = "0.16", default-features = false, features = ["std"] }
+unicode-segmentation = { version = "1.12", default-features = false }
 dotenvy = { workspace = true }
 bat = { version = "0.26", default-features = false, features = ["regex-onig"] }
 anyhow = { workspace = true }

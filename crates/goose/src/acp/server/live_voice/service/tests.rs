@@ -1,9 +1,9 @@
+mod fake_live_voice_provider;
+
 use super::super::call::{LiveMainAgent, DELEGATION_INSTRUCTION, PROVIDER_CLEANUP_TIMEOUT};
 use super::*;
-use goose_providers::live_voice_provider::{
-    fake::{provider_channel, FakeConnectionDriver},
-    ProviderConnectionEvent,
-};
+use fake_live_voice_provider::{provider_channel, FakeConnectionDriver};
+use goose_providers::{live_voice_provider::ProviderConnectionEvent, model::ModelConfig};
 use rmcp::model::Role;
 use std::time::Duration;
 use tokio::sync::oneshot;

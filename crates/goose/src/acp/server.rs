@@ -3746,4 +3746,75 @@ print(\"hello, world\")
             .unwrap();
         client.await.unwrap().unwrap();
     }
+
+    #[tokio::test]
+    async fn session_info_reports_the_active_run_to_a_second_connection() {
+        let root = tempfile::tempdir().unwrap();
+        let provider_factory: AcpProviderFactory = Arc::new(
+            |_provider_name, _extensions, _working_dir, _use_default_model| {
+                Box::pin(async { Err(anyhow::anyhow!("unused provider factory")) })
+            },
+        );
+        let shared_registry: ActiveRunRegistry = Default::default();
+        let new_agent = |registry: ActiveRunRegistry| {
+            let provider_factory = provider_factory.clone();
+            let data_dir = root.path().to_path_buf();
+            GooseAcpAgent::new(GooseAcpAgentOptions {
+                provider_factory,
+                builtin_selection: AcpBuiltinSelection::default(),
+                data_dir: data_dir.clone(),
+                config_dir: data_dir,
+                disable_session_naming: true,
+                goose_platform: GoosePlatform::GooseCli,
+                additional_source_roots: Vec::new(),
+                scheduler: None,
+                session_cwd: None,
+                active_prompt_runs: registry,
+            })
+        };
+        let runner = Arc::new(new_agent(shared_registry.clone()).await.unwrap());
+        let observer = Arc::new(new_agent(shared_registry).await.unwrap());
+
+        let session = runner
+            .session_manager
+            .create_session(
+                root.path().to_path_buf(),
+                "Active run probe".to_string(),
+                SessionType::Acp,
+                GooseMode::Auto,
+            )
+            .await
+            .unwrap();
+        let probe = |agent: Arc<GooseAcpAgent>, session_id: String| async move {
+            let info = agent
+                .on_get_session_info(GetSessionInfoRequest { session_id })
+                .await
+                .unwrap();
+            let goose = info
+                .session
+                .meta
+                .as_ref()
+                .and_then(|meta| meta.get("goose"))
+                .cloned()
+                .expect("session info must carry the goose meta object");
+            goose.get("activeRunId").cloned().expect("activeRunId key")
+        };
+
+        let idle = probe(observer.clone(), session.id.clone()).await;
+        assert!(idle.is_null(), "idle session reported {idle}");
+
+        runner
+            .test_start_active_run(&session.id, "run-1".to_string(), Arc::new(Agent::new()))
+            .await
+            .unwrap();
+        assert_eq!(
+            probe(observer.clone(), session.id.clone()).await,
+            serde_json::json!("run-1")
+        );
+
+        runner.test_drop_active_run_guard(&session.id, "run-1");
+        tokio::task::yield_now().await;
+        let cleared = probe(observer, session.id).await;
+        assert!(cleared.is_null(), "finished run reported {cleared}");
+    }
 }
